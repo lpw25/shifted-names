@@ -4,6 +4,8 @@ Require Import Coq.Arith.Peano_dec.
 
 Definition nset := forall (V : nat), Set.
 
+Definition knset T : nset := fun V => T.
+
 Definition heq {T : nset} : 
   forall {N : nat}, @T N -> forall {M : nat}, @T M -> Prop :=
     eq_dep nat (@T).
