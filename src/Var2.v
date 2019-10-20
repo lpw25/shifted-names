@@ -919,21 +919,42 @@ Qed.
 
 Lemma rw_rename_iname_indistinct {T M} n m (f : iname T M) V o :
   n_string n = n_string o ->
+  n_string m = n_string o ->
   rename_iname n m f V o
-  = insert_iindex (n_index n) (get_iname m f)
-      (project_iname (n_string n) (drop_iname m f)) V (n_index o).
+  = rename_iindex (n_index n) (n_index m)
+      (project_iname (n_string n) f) V (n_index o).
 Proof.
-  intros; unfold rename_iname.
-  rewrite rw_insert_iname_indistinct by easy; easy.
+  intros Heq1 Heq2; unfold rename_iname, rename_iindex, get_iname.
+  rewrite rw_insert_iname_indistinct by easy.
+  rewrite Heq1, Heq2.
+  case_order (n_index n) (n_index o); try easy;
+    rewrite rw_drop_iname_indistinct by easy;
+    rewrite Heq2; easy.
 Qed.
 
-Lemma rw_rename_iname_distinct {T M} n m (f : iname T M) V o :
+Lemma rw_rename_iname_distinct1 {T M} n m (f : iname T M) V o :
   n_string n <> n_string o ->
   rename_iname n m f V o
   = drop_iname m f V o.
 Proof.
   intros; unfold rename_iname.
   rewrite rw_insert_iname_distinct by easy; easy.
+Qed.
+
+Lemma rw_rename_iname_distinct2 {T M} n m (f : iname T M) V o :
+  n_string m <> n_string o ->
+  rename_iname n m f V o
+  = insert_iname n (get_iname m f) f V o.
+Proof.
+  intros; unfold rename_iname.  
+  destruct (string_dec (n_string n) (n_string o)).
+  - rewrite rw_insert_iname_indistinct by easy.
+    rewrite rw_insert_iname_indistinct by easy.
+    case_order (n_index n) (n_index o); try easy;
+      rewrite rw_drop_iname_distinct by (cbn; congruence); easy.
+  - rewrite rw_insert_iname_distinct by easy.
+    rewrite rw_insert_iname_distinct by easy.
+    rewrite rw_drop_iname_distinct by easy; easy.
 Qed.
 
 Lemma rw_rename_iname_same {T M} n m (f : iname T M) V :
@@ -945,13 +966,16 @@ Qed.
 
 Lemma rw_rename_name_indistinct n m o :
   n_string n = n_string o ->
-  rename_name n m o =
-  insert_iindex (n_index n) (fun _ => m)
-    (project_iname (n_string n) (drop_iname m id_iname)) 0 
-    (n_index o).
+  n_string m = n_string o ->
+  rename_name n m o
+  = mkname (n_string o)
+      (rename_index (n_index n) (n_index m) (n_index o)).
 Proof.
-  intros; unfold rename_name.
-  rewrite rw_rename_iname_indistinct by easy; easy.
+  intros Heq1 Heq2; unfold rename_name.
+  rewrite rw_rename_iname_indistinct by easy.
+  case_order (n_index n) (n_index o);
+    rewrite ?Heq1, ?Heq2; try easy;
+      case_order (n_index m) (n_index o); easy.
 Qed.  
 
 Lemma rw_rename_name_distinct n m o :
@@ -959,7 +983,7 @@ Lemma rw_rename_name_distinct n m o :
   rename_name n m o = shift_name m o.
 Proof.
   intros; unfold rename_name, shift_name.
-  rewrite rw_rename_iname_distinct by easy; easy.
+  rewrite rw_rename_iname_distinct1 by easy; easy.
 Qed.
 
 Lemma rw_rename_name_same n m :
@@ -980,8 +1004,9 @@ Hint Rewrite @rw_with_iname_eq @rw_with_iname_neq
      @rw_insert_iname_distinct @rw_insert_iname_indistinct
      @rw_shift_name_distinct @rw_shift_name_indistinct
      @rw_unshift_name_distinct @rw_unshift_name_indistinct
-     @rw_rename_iname_distinct @rw_rename_iname_indistinct
-     @rw_rename_name_distinct @rw_rename_name_indistinct
+     @rw_rename_iname_indistinct @rw_rename_iname_distinct1
+     @rw_rename_iname_distinct2 @rw_rename_name_indistinct
+     @rw_rename_name_distinct
      using (cbn; congruence) : rw_inames.
 
 (* Case split on the equality of the string parameters, then simplify
