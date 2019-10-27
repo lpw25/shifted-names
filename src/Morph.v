@@ -1,6 +1,5 @@
-Require Import Coq.Logic.EqdepFacts.
-Require Import Coq.Logic.Eqdep_dec.
-Require Import Coq.Arith.Peano_dec.
+Require Import EqdepFacts Eqdep_dec Peano_dec
+        Setoid Morphisms.
 
 Definition nset := forall (V : nat), Set.
 
@@ -136,6 +135,38 @@ Proof.
     apply nset_push_heq with (N := S N).
 Qed.
 
+(* Extendable nset values *)
+
+Definition pnset (T : nset) (M : nat) :=
+  forall V : nat, T (M + V).
+
+(* Extension *)
+
+Definition pnset_extend {T N} (m : pnset T N)
+  : pnset T (S N) :=
+  fun V => nset_push (m (S V)).
+
+(* Equality *)
+
+Definition eq_pnset {T M} (f g : pnset T M) :=
+  forall_relation (fun V => (@eq (T (M + V)))) f g.
+
+Notation "f =p= g" := (eq_pnset f g) (at level 70).
+
+Instance eq_pnset_equiv {T M} :
+  Equivalence (@eq_pnset T M).
+Proof.
+  apply Build_Equivalence; try easy.
+  intros f g h Heq1 Heq2 V.
+  rewrite Heq1, Heq2; easy.
+Qed.
+
+Definition eq_pnset_expand {T M} {f g : pnset T M}
+           (eq : eq_pnset f g) :
+  forall (V : nat), f V = g V := eq.
+
+(* Extendable nset morphisms *)
+
 Definition morph (T : nset) (N : nat) (S : nset) (M : nat) :=
   forall V, @T (N + V) -> @S (M + V).
 
@@ -191,6 +222,68 @@ Proof. reflexivity. Qed.
 Definition morph_extend {T N R L} (m : morph (@T) N (@R) L)
   : morph (@T) (S N) (@R) (S L) :=
   fun V t => nset_push (m (S V) (nset_pop t)).
+
+(* kmorph T S M == morph (knsert T) N S M *)
+Definition kmorph (T : Set) (S : nset) (M : nat) :=
+  forall V : nat, T -> S (M + V).
+
+(* Equality *)
+
+Definition eq_morph {S N T M} (f g : morph S N T M) :=
+  forall_relation
+     (fun V => pointwise_relation (S (N + V)) (@eq (T (M + V))))
+     f g.
+
+Notation "f =m= g" := (eq_morph f g) (at level 70).
+
+Instance eq_morph_equiv {S N T M} :
+  Equivalence (@eq_morph S N T M).
+Proof.
+  apply Build_Equivalence; try easy.
+  intros f g h Heq1 Heq2 V s.
+  rewrite Heq1, Heq2; easy.
+Qed.
+
+Instance eq_morph_eta {S N T M } :
+  subrelation (@eq_morph S N T M)
+    (forall_relation (fun V => respectful eq eq)) | 2.
+Proof.
+  intros f g Heq1 V s1 s2 Heq2.
+  rewrite Heq1, Heq2; easy.
+Qed.
+
+Definition eq_morph_expand {S N T M} {f g : morph S N T M}
+           (eq : eq_morph f g) :
+  forall (V : nat) (s : S (N + V)), f V s = g V s := eq.
+
+(* Equality on k-morphisms *)
+
+Definition eq_kmorph {S T M} (f g : kmorph S T M) :=
+  forall_relation
+     (fun V => pointwise_relation S (@eq (T (M + V))))
+     f g.
+
+Notation "f =km= g" := (eq_kmorph f g) (at level 70).
+
+Instance eq_kmorph_equiv {S T M} :
+  Equivalence (@eq_kmorph S T M).
+Proof.
+  apply Build_Equivalence; try easy.
+  intros f g h Heq1 Heq2 V s.
+  rewrite Heq1, Heq2; easy.
+Qed.
+
+Instance eq_kmorph_eta {S T M } :
+  subrelation (@eq_kmorph S T M)
+    (forall_relation (fun V => respectful eq eq)) | 2.
+Proof.
+  intros f g Heq1 V s1 s2 Heq2.
+  rewrite Heq1, Heq2; easy.
+Qed.
+
+Definition eq_kmorph_expand {S T M} {f g : kmorph S T M}
+           (eq : eq_kmorph f g) :
+  forall (V : nat) (s : S), f V s = g V s := eq.
 
 (* Automation *)
 
