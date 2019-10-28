@@ -297,7 +297,7 @@ Hint Rewrite @red_delete_iindex_ge @red_delete_iindex_lt
 (* Rewrite operations using reductions *)
 Ltac red_iindexs :=
   repeat progress
-    (try (rewrite_strat bottomup (hints red_iindexs)); cbn).
+    (try (rewrite_strat topdown (hints red_iindexs)); cbn).
 
 (* Case split on the order of the parameters. *)
 Ltac case_order i j :=
@@ -384,7 +384,11 @@ Hint Rewrite @iindex_beta_get_eq_pointwise
 
      XT(ET(o1, o2), XT(o2, o1)) = o1
 
-     ET(XT(o1, o2), ET(o2, o1)) = o1
+     ET(XT(o2, o1), ET(o1, o2)) = o2
+
+   We leave out the case where o1 is delete and o2 is insert because it
+   is harder to express as just shifts and we don't seem to need it
+   for anything.
 *)
 
 Lemma simpl_shift_shift_index_unshift_index i j :
@@ -399,28 +403,15 @@ Lemma simpl_unshift_shift_above_index_shift_index i j :
   unshift_index (shift_above_index i j) (shift_index j i) = i.
 Proof. case_order i j. Qed.
 
-Lemma simpl_shift_unshift_index_unshift_index i j :
-  i <> j ->
-  shift_index (unshift_index i j) (unshift_index j i) = i.
-Proof. 
-  intros.
-  case_order i j. 
-  case_order i (pred j).
-Qed.
-
-Lemma simpl_shift_above_unshift_index_unshift_index i j :
-  i <> j ->
-  shift_above_index (unshift_index i j) (unshift_index j i) = i.
-Proof. 
-  intros.
-  case_order i j.
-    case_order j (pred i).
-Qed.
-
 Lemma simpl_unshift_shift_index_shift_above_index i j :
   unshift_index (shift_index i j) (shift_above_index j i) = i.
 Proof. case_order i j. Qed.
 
+Hint Rewrite simpl_shift_shift_index_unshift_index
+     simpl_unshift_unshift_index_shift_index
+     simpl_unshift_shift_above_index_shift_index
+     simpl_unshift_shift_index_shift_above_index
+  : simpl_iindexs.
 
 (* Unfolding derived operations *)
 
@@ -444,16 +435,16 @@ Hint Rewrite @fold_move_iindex : fold_iindexs.
 Ltac simpl_iindexs :=
   autorewrite with unfold_iindexs;
   repeat progress
-    (try (rewrite_strat bottomup (hints simpl_iindexs)); cbn);
+    (try (rewrite_strat topdown (hints simpl_iindexs)); cbn);
   autorewrite with fold_iindexs.
 
 Ltac simpl_iindexs_pointwise :=
   autorewrite with unfold_iindexs;
   repeat progress
-    (try (rewrite_strat bottomup (hints simpl_iindexs_pointwise)); cbn);
+    (try (rewrite_strat topdown (hints simpl_iindexs_pointwise)); cbn);
   autorewrite with fold_iindexs.
 
-(* Useful lemmas about shifting and renaming*)
+(* Useful lemmas about shifting *)
 
 Lemma shift_index_neq i j :
   shift_index i j <> i.
@@ -578,7 +569,7 @@ Proof.
   rewrite swap_insert_iindex_delete_iindex_pointwise.
   rewrite swap_get_iindex_insert_iindex_pointwise
     by auto using shift_above_index_neq_shift_index.
-  case_order i j; case_order i k; easy.
+  simpl_iindexs; easy.
 Qed.
 
 Definition swap_insert_iindex_move_iindex {T M} i a j k f :=
@@ -597,7 +588,7 @@ Proof.
   rewrite swap_delete_iindex_insert_iindex_pointwise by easy.
   rewrite swap_insert_iindex_insert_iindex_pointwise.
   rewrite swap_get_iindex_insert_iindex_pointwise by easy.
-  case_order j k; easy.
+  easy.
 Qed.
 
 Definition swap_move_iindex_insert_iindex {T M} i j k a f :=
@@ -619,8 +610,7 @@ Proof.
   rewrite swap_delete_iindex_insert_iindex_pointwise by easy.
   rewrite swap_delete_iindex_delete_iindex_pointwise.
   rewrite swap_get_iindex_delete_iindex_pointwise.
-  case_order i j;
-    case_order i k; easy.
+  simpl_iindexs; easy.
 Qed.
 
 Definition swap_delete_iindex_move_iindex {T M} i j k f :=
@@ -651,9 +641,13 @@ Definition swap_move_iindex_delete_iindex {T M} i j k f :=
 (* Free names are a pair of a string and an index *)
 
 Set Primitive Projections.
-Record name := mkname { n_string : string; n_index : index }.
+Record name := mkname { name_string : string; name_index : index }.
 Add Printing Constructor name.
 Unset Primitive Projections.
+
+(* Alias the projections to avoid bug in rewrite_strat *)
+Definition n_string := name_string.
+Definition n_index := name_index.
 
 Definition name_of_string s := mkname s 0.
 Coercion name_of_string : string >-> name.
@@ -999,7 +993,7 @@ Hint Rewrite @red_with_iname_eq @red_with_iname_neq
 (* Rewrite operations using reductions *)
 Ltac red_inames :=
   repeat progress
-    (try (rewrite_strat bottomup (hints red_inames)); cbn).
+    (try (rewrite_strat topdown (hints red_inames)); cbn).
 
 (* Case split on the equality of the string parameters. *)
 Ltac case_string s1 s2 :=
@@ -1102,6 +1096,38 @@ Hint Rewrite @iname_beta_project_neq
 Hint Rewrite @iname_beta_project_neq_pointwise
   using (cbn; congruence) : simpl_inames_pointwise.
 
+(* Simple inversions of operational transforms *)
+
+Lemma simpl_shift_shift_name_unshift_name n m :
+  shift_name (shift_name n m) (unshift_name m n) = n.
+Proof. 
+  case_string (n_string n) (n_string m); simpl_iindexs; easy.
+Qed.
+
+Lemma simpl_unshift_unshift_name_shift_name n m :
+  unshift_name (unshift_name n m) (shift_name m n) = n.
+Proof. 
+  case_string (n_string n) (n_string m); simpl_iindexs; easy.
+Qed.
+
+Lemma simpl_unshift_shift_above_name_shift_name n m :
+  unshift_name (shift_above_name n m) (shift_name m n) = n.
+Proof. 
+  case_string (n_string n) (n_string m); simpl_iindexs; easy.
+Qed.
+
+Lemma simpl_unshift_shift_name_shift_above_name n m :
+  unshift_name (shift_name n m) (shift_above_name m n) = n.
+Proof.
+  case_string (n_string n) (n_string m); simpl_iindexs; easy.
+Qed.
+
+Hint Rewrite simpl_shift_shift_name_unshift_name
+     simpl_unshift_unshift_name_shift_name
+     simpl_unshift_shift_above_name_shift_name
+     simpl_unshift_shift_name_shift_above_name
+  : simpl_inames.
+
 (* Unfolding derived operations *)
 
 Lemma unfold_get_iname {T M} n (f : iname T M) :
@@ -1163,8 +1189,8 @@ Ltac simpl_inames :=
   autorewrite with unfold_inames;
   autorewrite with unfold_iindexs;
   repeat progress
-    (try (rewrite_strat bottomup (hints simpl_inames));
-     try (rewrite_strat bottomup (hints simpl_iindexs));
+    (try (rewrite_strat topdown (hints simpl_inames));
+     try (rewrite_strat topdown (hints simpl_iindexs));
      cbn);
   autorewrite with fold_iindexs;
   autorewrite with fold_inames.
@@ -1173,11 +1199,28 @@ Ltac simpl_inames_pointwise :=
   autorewrite with unfold_inames;
   autorewrite with unfold_iindexs;
   repeat progress
-    (try (rewrite_strat bottomup (hints simpl_inames_pointwise));
-     try (rewrite_strat bottomup (hints simpl_iindexs_pointwise));
+    (try (rewrite_strat topdown (hints simpl_inames_pointwise));
+     try (rewrite_strat topdown (hints simpl_iindexs_pointwise));
      cbn);
   autorewrite with fold_iindexs;
   autorewrite with fold_inames.
+
+(* Useful lemmas about shifting *)
+
+Lemma shift_name_neq n m :
+  shift_name n m <> n.
+Proof.
+  pose shift_index_neq.
+  case_string (n_string n) (n_string m); try congruence.
+  destruct n, m; cbn in *; congruence.
+Qed.
+
+Lemma shift_above_name_neq_shift_name n m :
+  shift_above_name n m <> shift_name m n.
+Proof.
+  pose shift_above_index_neq_shift_index.
+  case_string (n_string n) (n_string m); congruence.
+Qed.
 
 (* Commuting [iname] operations *)
 
@@ -1197,58 +1240,25 @@ Definition swap_with_iname_with_iname {T M} s f t g h :=
     eq_kmorph_expand
       (@swap_with_iname_with_iname_pointwise T M s f t g h Heq) V n.
 
-Lemma swap_delete_iname_delete_iname_distinct_pointwise {T M} n m
-      (f : iname T M) :
-  n_string n <> n_string m ->
-  delete_iname n (delete_iname m f)
-  =km= delete_iname m (delete_iname n f).
-Proof.
-  intros; unfold delete_iname.
-  rewrite swap_with_iname_with_iname_pointwise by easy.
-  simpl_inames_pointwise; easy.
-Qed.
-
-Definition swap_delete_iname_delete_iname_distinct {T M} n m f :=
-  fun V o Hneq =>
-    eq_kmorph_expand
-      (@swap_delete_iname_delete_iname_distinct_pointwise
-         T M n m f Hneq) V o.
-
 Lemma swap_delete_iname_delete_iname_pointwise {T M} n m
       (f : iname T M) :
   delete_iname n (delete_iname m f)
   =km= delete_iname (unshift_name n m)
          (delete_iname (shift_name m n) f).
 Proof.
-  intros V o.
   case_string (n_string n) (n_string m).
-  - case_string (n_string n) (n_string o); try easy.    
+  - intros V o.
+    case_string (n_string n) (n_string o); try easy.    
     simpl_inames_pointwise.
     rewrite swap_delete_iindex_delete_iindex_pointwise; congruence.
-  - apply swap_delete_iname_delete_iname_distinct; easy.
+  - unfold delete_iname.
+    rewrite swap_with_iname_with_iname_pointwise by easy.
+    simpl_inames_pointwise; easy.
 Qed.
 
 Definition swap_delete_iname_delete_iname {T M} n m f :=
   eq_kmorph_expand
     (@swap_delete_iname_delete_iname_pointwise T M n m f).
-
-Lemma swap_insert_iname_insert_iname_distinct_pointwise {T M}
-      n a m b (f : iname T M) :
-  n_string n <> n_string m ->
-  insert_iname n a (insert_iname m b f)
-  =km= insert_iname m b (insert_iname n a f).
-Proof.
-  intros; unfold insert_iname.
-  rewrite swap_with_iname_with_iname_pointwise by easy.
-  simpl_inames_pointwise; easy.
-Qed.
-
-Definition swap_insert_iname_insert_iname_distinct {T M}
-           n a m b f :=
-  fun V o Hneq =>
-    eq_kmorph_expand
-      (@swap_insert_iname_insert_iname_distinct_pointwise
-         T M n a m b f Hneq) V o.
 
 Lemma swap_insert_iname_insert_iname_pointwise {T M} n a m b
       (f : iname T M) :
@@ -1256,35 +1266,19 @@ Lemma swap_insert_iname_insert_iname_pointwise {T M} n a m b
   =km= insert_iname (shift_name n m) b
       (insert_iname (unshift_name m n) a f).
 Proof.
-  intros V o.
   case_string (n_string n) (n_string m).
-  - case_string (n_string n) (n_string o); try easy.
+  - intros V o.
+    case_string (n_string n) (n_string o); try easy.
     simpl_inames_pointwise.
     rewrite swap_insert_iindex_insert_iindex; congruence.
-  - apply swap_insert_iname_insert_iname_distinct; easy.
+  - unfold insert_iname.
+    rewrite swap_with_iname_with_iname_pointwise by easy.
+    simpl_inames_pointwise; easy.
 Qed.
 
 Definition swap_insert_iname_insert_iname {T M} n a m b f :=
   eq_kmorph_expand
     (@swap_insert_iname_insert_iname_pointwise T M n a m b f).
-
-Lemma swap_delete_iname_insert_iname_distinct_pointwise {T M}
-      n m a (f : iname T M) :
-  n_string n <> n_string m ->
-  delete_iname n (insert_iname m a f)
-  =km= insert_iname m a (delete_iname n f).
-Proof.
-  intros; unfold delete_iname, insert_iname.
-  rewrite swap_with_iname_with_iname_pointwise by easy.
-  simpl_inames_pointwise; easy.
-Qed.
-
-Definition swap_delete_iname_insert_iname_distinct {T M}
-           n m a f :=
-  fun V o Hneq =>
-    eq_kmorph_expand
-      (@swap_delete_iname_insert_iname_distinct_pointwise
-         T M n m a f Hneq) V o.
 
 Lemma swap_delete_iname_insert_iname_pointwise {T M} n m a
       (f : iname T M) :
@@ -1293,13 +1287,16 @@ Lemma swap_delete_iname_insert_iname_pointwise {T M} n m a
   =km= insert_iname (unshift_name n m) a
         (delete_iname (unshift_name m n) f).
 Proof.
-  intros Hneq V o.
+  intros Hneq.
   case_string (n_string n) (n_string m).
-  - case_string (n_string n) (n_string o); try easy.
+  - intros V o.
+    case_string (n_string n) (n_string o); try easy.
     simpl_inames_pointwise.
     rewrite swap_delete_iindex_insert_iindex
       by auto using name_neq_string_eq_index_neq; congruence.
-  - apply swap_delete_iname_insert_iname_distinct; easy.
+  - unfold delete_iname, insert_iname.
+    rewrite swap_with_iname_with_iname_pointwise by easy.
+    simpl_inames_pointwise; easy.
 Qed.
 
 Definition swap_delete_iname_insert_iname {T M} n m a f :=
@@ -1308,35 +1305,20 @@ Definition swap_delete_iname_insert_iname {T M} n m a f :=
       (@swap_delete_iname_insert_iname_pointwise
          T M n m a f Heq) V o.
 
-Lemma swap_insert_iname_delete_iname_distinct_pointwise {T M} n m a
-      (f : iname T M) :
-  n_string n <> n_string m ->
-  insert_iname n a (delete_iname m f)
-  =km= delete_iname m (insert_iname n a f).
-Proof.
-  intros; unfold insert_iname, delete_iname.
-  rewrite swap_with_iname_with_iname_pointwise by easy.
-  simpl_inames_pointwise; easy.
-Qed.
-
-Definition swap_insert_iname_delete_iname_distinct {T M} n m a f :=
-  fun V o Hneq =>
-    eq_kmorph_expand
-      (@swap_insert_iname_delete_iname_distinct_pointwise
-         T M n m a f Hneq) V o.
-
 Lemma swap_insert_iname_delete_iname_pointwise {T M} n m a
       (f : iname T M) :
   insert_iname n a (delete_iname m f)
   =km= delete_iname (shift_above_name n m)
          (insert_iname (shift_name m n) a f).
 Proof.
-  intros V o.
   case_string (n_string n) (n_string m).
-  - case_string (n_string n) (n_string o); try easy.
+  - intros V o.
+    case_string (n_string n) (n_string o); try easy.
     simpl_inames_pointwise.
     rewrite swap_insert_iindex_delete_iindex; congruence.
-  - apply swap_insert_iname_delete_iname_distinct; easy.
+  - unfold insert_iname, delete_iname.
+    rewrite swap_with_iname_with_iname_pointwise by easy.
+    simpl_inames_pointwise; easy.
 Qed.
 
 Definition swap_insert_iname_delete_iname {T M} n m a f :=
@@ -1374,37 +1356,6 @@ Definition swap_get_iname_delete_iname {T M} n m f :=
   eq_pnset_expand
     (@swap_get_iname_delete_iname_pointwise T M n m f).
 
-Lemma swap_insert_iname_move_iname_distinct_pointwise {T M} n a m o
-      (f : iname T M) :
-  n_string n <> n_string m ->
-  n_string n <> n_string o ->
-  insert_iname n a (move_iname m o f)
-  =km= move_iname m o (insert_iname n a f).
-Proof.
-  intros; unfold move_iname.
-  rewrite swap_insert_iname_insert_iname_distinct_pointwise by easy.
-  rewrite swap_insert_iname_delete_iname_distinct_pointwise by easy.
-  simpl_inames_pointwise; easy.
-Qed.
-
-Definition swap_insert_iname_move_iname_distinct {T M} n a m o f :=
-  fun V Heq1 Heq2 =>
-    eq_kmorph_expand
-      (@swap_insert_iname_move_iname_distinct_pointwise
-         T M n a m o f Heq1 Heq2) V.
-
-Lemma bar i j :
-  unshift_index (shift_index j i) (shift_above_index i j) = j.
-Proof.
-  case_order i j.
-Qed.
-
-Lemma foo n m :
-  unshift_name (shift_name m n) (shift_above_name n m) = m.
-Proof.
-  case_string (n_string m) (n_string n); try rewrite bar; easy.
-Qed.
-
 Lemma swap_insert_iname_move_iname_pointwise {T M} n a m o
       (f : iname T M) :
   insert_iname n a (move_iname m o f)
@@ -1416,29 +1367,8 @@ Proof.
   rewrite swap_insert_iname_insert_iname_pointwise.
   rewrite swap_insert_iname_delete_iname_pointwise.
   rewrite swap_get_iname_insert_iname_pointwise
-    by admit.
-  rewrite foo.
-  easy.
-  case_order i j; case_order i k; easy.
-
-
-  case_string (n_string n) (n_string m).
-  - case_string (n_string n) (n_string o).
-    + intros V l.
-      case_string (n_string n) (n_string l); try easy.
-      simpl_inames_pointwise.
-      rewrite swap_insert_iindex_move_iindex; congruence.
-    + admit.
-  - case_string (n_string n) (n_string o).
-    + unfold move_iname.
-      rewrite swap_insert_iname_insert_iname_distinct_pointwise by easy.
-      rewrite (swap_insert_iname_delete_iname_pointwise n o).
-      rewrite swap_get_iname_insert_iname_pointwise by admit.
-      red_inames.
-      simpl_inames_pointwise.
-      replace (n_string n) with (n_string o) by easy.
-      case_order (n_index o) (n_index n); easy.
-    + apply swap_insert_iname_move_iname_distinct; easy.
+    by auto using shift_above_name_neq_shift_name.
+  simpl_inames; easy.
 Qed.
 
 Definition swap_insert_iname_move_iname {T M} n a m o f :=
@@ -1449,7 +1379,7 @@ Lemma swap_move_iname_insert_iname_pointwise {T M} n m o a
       (f : iname T M) :
   m <> o ->
   move_iname n m (insert_iname o a f)
-  =km= insert_iname (move_name m n o) a
+  =km= insert_iname (shift_name n (unshift_name m o)) a
          (move_iname (unshift_name (unshift_name m o) n)
             (unshift_name o m) f).
 Proof.
@@ -1457,8 +1387,7 @@ Proof.
   rewrite swap_delete_iname_insert_iname_pointwise by easy.
   rewrite swap_insert_iname_insert_iname_pointwise.
   rewrite swap_get_iname_insert_iname_pointwise by easy.
-  case_order n o;
-    case_order m o; easy.
+  easy.
 Qed.
 
 Definition swap_move_iname_insert_iname {T M} n m o a f :=
@@ -1473,14 +1402,13 @@ Lemma swap_delete_iname_move_iname_pointwise {T M} n m o
   delete_iname n (move_iname m o f)
   =km= move_iname
          (unshift_name n m) (unshift_name (unshift_name m n) o)
-         (delete_iname (move_name m o n) f).
+         (delete_iname (shift_name o (unshift_name m n)) f).
 Proof.
   intros; unfold move_iname.
   rewrite swap_delete_iname_insert_iname_pointwise by easy.
   rewrite swap_delete_iname_delete_iname_pointwise.
   rewrite swap_get_iname_delete_iname_pointwise.
-  case_order n o;
-    case_order n m; try easy.
+  simpl_inames; easy.
 Qed.
 
 Definition swap_delete_iname_move_iname {T M} n m o f :=
@@ -1492,9 +1420,8 @@ Definition swap_delete_iname_move_iname {T M} n m o f :=
 Lemma swap_move_iname_delete_iname_pointwise {T M} n m o
       (f : iname T M) :
   move_iname n m (delete_iname o f)
-  =km= delete_iname (shift_name n (unshift_name m o))
-         (move_iname 
-            (shift_name (shift_name n (unshift_name m o)) n)
+  =km= delete_iname (shift_above_name n (unshift_name m o))
+         (move_iname (shift_name (unshift_name m o) n)
             (shift_name o m) f).
 Proof.
   intros; unfold move_iname.
@@ -1507,8 +1434,6 @@ Qed.
 Definition swap_move_iname_delete_iname {T M} n m o f :=
   eq_kmorph_expand
     (@swap_move_iname_delete_iname_pointwise T M n m o f).
-
-Add swap rules for move_iname.
 
 (* Bound variables are represented by a level *)
 
@@ -1529,12 +1454,12 @@ Definition ilevel N T M := morph level N T M.
 Definition hd_ilevel {N T M} (f : ilevel (S N) T M) : pnset T M :=
   fun V => @f V l0.
 
-Definition tl_ilevel {N T M} (f : ilevel (S N) T M) : ilevel N T M :=
+Definition tl_ilevel {N T M} (f : ilevel (S N) T M)
+  : ilevel N T M :=
   fun V l => f V (lS l).
 
 Definition cons_ilevel {N} {T : nset} {M} (a : pnset T M)
-           (f : ilevel N T M)
-  : ilevel (S N) T M :=
+           (f : ilevel N T M) : ilevel (S N) T M :=
   fun V l =>
     match l with
     | l0 => a V
@@ -1568,12 +1493,6 @@ Add Parametric Morphism {N} {T : nset} {M} : (@cons_ilevel N T M)
   destruct l; rewrite ?Heq1, ?Heq2; easy.
 Qed.
 
-(* The idenitity [ilevel] *)
-
-Definition id_ilevel : ilevel 0 level 0 :=
-  fun V l => l.
-Arguments id_ilevel V l /.
-
 (* Beta and eta rules for [ilevel] operations *)
 
 Lemma ilevel_beta_hd {N} {T : nset} {M} (a : forall V, T (M + V))
@@ -1586,7 +1505,8 @@ Lemma ilevel_beta_tl {N} {T : nset} {M} (a : forall V, T (M + V))
   tl_ilevel (cons_ilevel a f) = f.
 Proof. easy. Qed.
 
-Lemma ilevel_eta_pointwise {N} {T : nset} {M} (f : ilevel (S N) T M) :
+Lemma ilevel_eta_pointwise {N} {T : nset} {M}
+      (f : ilevel (S N) T M) :
   cons_ilevel (hd_ilevel f) (tl_ilevel f) =m= f.
 Proof.
   intros V l.
@@ -1597,10 +1517,14 @@ Definition ilevel_eta {N T M} f :=
   eq_morph_expand (@ilevel_eta_pointwise N T M f).
 
 Hint Rewrite @ilevel_beta_hd @ilevel_beta_tl @ilevel_eta
-  : rw_ilevels.
+  : simpl_ilevels.
 
-Hint Rewrite @ilevel_eta_pointwise
-  : rw_ilevels_pointwise.
+Hint Rewrite @ilevel_beta_hd @ilevel_beta_tl @ilevel_eta_pointwise
+  : simpl_ilevels_pointwise.
+
+Ltac simpl_ilevels :=
+  repeat progress
+    (try (rewrite_strat topdown (hints simpl_ilevels)); cbn).
 
 (* Variables are either free names or bound levels *)
 
@@ -1651,7 +1575,14 @@ Definition bind_ivar {N T M} (a : pnset T M) (f : ivar N T M)
   : ivar (S N) T M :=
   pair_ivar (fst_ivar f) (cons_ilevel a (snd_ivar f)).
 
-Add the derived derived operations.
+Definition rename_ivar {N T M} n m (f : ivar N T M) : ivar N T M :=
+  close_ivar n (open_ivar m f).
+
+Definition shift_ivar {N T M} n (f : ivar N T M) : ivar N T M :=
+  weak_ivar (open_ivar n f).
+
+Definition subst_ivar {N T M} n a (f : ivar N T M) : ivar N T M :=
+  close_ivar n (bind_ivar a f).
 
 (* Morphism definitions *)
 
@@ -1676,15 +1607,15 @@ Add Parametric Morphism {N} {T : nset} {M} : (@pair_ivar N T M)
   destruct v; rewrite ?Heq1, ?Heq2; easy.
 Qed.
 
-Add Parametric Morphism {N} {T : nset} {M} n : (@open_ivar N T M n)
-    with signature eq_morph ==> eq_morph
+Add Parametric Morphism {N} {T : nset} {M} : (@open_ivar N T M)
+    with signature eq ==> eq_morph ==> eq_morph
     as open_ivar_mor.
   intros * Heq V v; unfold open_ivar.
   rewrite Heq; easy.
 Qed.
 
-Add Parametric Morphism {N} {T : nset} {M} n : (@close_ivar N T M n)
-    with signature eq_morph ==> eq_morph
+Add Parametric Morphism {N} {T : nset} {M} : (@close_ivar N T M)
+    with signature eq ==> eq_morph ==> eq_morph
     as close_ivar_mor.
   intros * Heq V v; unfold close_ivar.
   rewrite Heq; easy.
@@ -1704,29 +1635,26 @@ Add Parametric Morphism {N} {T : nset} {M} : (@bind_ivar N T M)
   rewrite Heq1, Heq2; easy.
 Qed.
 
-Add morphisms for the derived derived operations.
+Add Parametric Morphism {N} {T : nset} {M} : (@rename_ivar N T M)
+    with signature eq ==> eq ==> eq_morph ==> eq_morph
+    as rename_ivar_mor.
+  intros * Heq V v; unfold rename_ivar.
+  rewrite Heq; easy.
+Qed.
 
-(* The identity [ivar] *)
+Add Parametric Morphism {N} {T : nset} {M} : (@shift_ivar N T M)
+    with signature eq ==> eq_morph ==> eq_morph
+    as shift_ivar_mor.
+  intros * Heq V v; unfold shift_ivar.
+  rewrite Heq; easy.
+Qed.
 
-Definition id_ivar : ivar 0 var 0 :=
-  fun V v => v.
-Arguments id_ivar V v /.
-
-(* Useful functions on [var]s *)
-
-Definition open_var n :=
-  open_ivar n id_ivar.
-
-Definition close_var n :=
-  close_ivar n (morph_extend id_ivar).
-
-Definition weak_var :=
-  weak_ivar (morph_extend id_ivar).
-
-Definition bind_var a :=
-  bind_ivar a id_ivar.
-
-Add name versions of the derived derived operations.
+Add Parametric Morphism {N} {T : nset} {M} : (@subst_ivar N T M)
+    with signature eq ==> eq_pnset ==> eq_morph ==> eq_morph
+    as subst_ivar_mor.
+  intros * Heq1 * Heq2 V v; unfold subst_ivar.
+  rewrite Heq1, Heq2; easy.
+Qed.
 
 (* Beta and eta rules for [ivar] operations *)
 
@@ -1748,89 +1676,128 @@ Definition ivar_eta {N T M} f :=
   eq_morph_expand (@ivar_eta_pointwise N T M f).
 
 Hint Rewrite @ivar_beta_fst @ivar_beta_snd @ivar_eta
-  : rw_ivars.
+  : simpl_ivars.
 
-Hint Rewrite @ivar_eta_pointwise
-  : rw_ivars_pointwise.
+Hint Rewrite @ivar_beta_fst @ivar_beta_snd @ivar_eta_pointwise
+  : simpl_ivars_pointwise.
 
-(* Corollaries of the beta and eta rules *)
+(* Unfolding derived operations *)
 
-Lemma ivar_beta_open_pair_pointwise {N T M} n f (g : ilevel N T M) :
-  open_ivar n (pair_ivar f g)
-  =m= pair_ivar (delete_iname n f) (cons_ilevel (get_iname n f) g).
-Proof.
-  unfold open_ivar.
-  autorewrite with rw_ivars; easy.
-Qed.
+Lemma unfold_open_ivar {N T M} n (f : ivar N T M) :
+  open_ivar n f
+  = pair_ivar
+      (delete_iname n (fst_ivar f))
+      (cons_ilevel (get_iname n (fst_ivar f)) (snd_ivar f)).
+Proof. easy. Qed.
 
-Definition ivar_beta_open_pair {N T M} n f g :=
-  eq_morph_expand (@ivar_beta_open_pair_pointwise N T M n f g).
+Lemma unfold_close_ivar {N T M} n (f : ivar (S N) T M) :
+  close_ivar n f
+  = pair_ivar
+      (insert_iname n (hd_ilevel (snd_ivar f)) (fst_ivar f))
+      (tl_ilevel (snd_ivar f)).
+Proof. easy. Qed.
 
-Lemma ivar_beta_close_pair_pointwise {N T M} n f
-      (g : ilevel (S N) T M) :
-  close_ivar n (pair_ivar f g)
-  =m= pair_ivar (insert_iname n (hd_ilevel g) f) (tl_ilevel g).
-Proof.
-  unfold close_ivar.
-  autorewrite with rw_ivars; easy.
-Qed.
+Lemma unfold_weak_ivar {N T M} (f : ivar (S N) T M) :
+  weak_ivar f
+  = pair_ivar (fst_ivar f) (tl_ilevel (snd_ivar f)).
+Proof. easy. Qed.
 
-Definition ivar_beta_close_pair {N T M} n f g :=
-  eq_morph_expand (@ivar_beta_close_pair_pointwise N T M n f g).
+Lemma unfold_bind_ivar {N T M} a (f : ivar N T M) :
+  bind_ivar a f
+  = pair_ivar (fst_ivar f) (cons_ilevel a (snd_ivar f)).
+Proof. easy. Qed.
 
-Lemma ivar_beta_weak_pair_pointwise {N T M} f (g : ilevel (S N) T M) :
-  weak_ivar (pair_ivar f g)
-  =m= pair_ivar f (tl_ilevel g).
-Proof.
-  unfold weak_ivar.
-  autorewrite with rw_ivars; easy.
-Qed.
+Lemma unfold_rename_ivar {N T M} n m (f : ivar N T M) :
+  rename_ivar n m f
+  = close_ivar n (open_ivar m f).
+Proof. easy. Qed.
 
-Definition ivar_beta_weak_pair {N T M} f g :=
-  eq_morph_expand (@ivar_beta_weak_pair_pointwise N T M f g).
+Lemma unfold_shift_ivar {N T M} n (f : ivar N T M) :
+  shift_ivar n f
+  = weak_ivar (open_ivar n f).
+Proof. easy. Qed.
 
-Lemma ivar_beta_bind_pair_pointwise {N T M} a f (g : ilevel N T M) :
-  bind_ivar a (pair_ivar f g)
-  =m= pair_ivar f (cons_ilevel a g).
-Proof.
-  unfold bind_ivar.
-  autorewrite with rw_ivars; easy.
-Qed.
+Lemma unfold_subst_ivar {N T M} n a (f : ivar N T M) :
+  subst_ivar n a f
+  = close_ivar n (bind_ivar a f).
+Proof. easy. Qed.
 
-Definition ivar_beta_bind_pair {N T M} a f g :=
-  eq_morph_expand (@ivar_beta_bind_pair_pointwise N T M a f g).
+Hint Rewrite @unfold_open_ivar @unfold_close_ivar
+     @unfold_weak_ivar @unfold_bind_ivar @unfold_rename_ivar
+     @unfold_shift_ivar @unfold_subst_ivar
+  : unfold_ivars.
 
-Lemma ivar_beta_open_close_pointwise {N T M} n (f : ivar (S N) T M) :
-  open_ivar n (close_ivar n f) =m= f.
-Proof.
-  unfold open_ivar, close_ivar.
-  autorewrite with rw_ivars rw_ivars_pointwise
-    rw_inames_pointwise rw_ilevels_pointwise; easy.
-Qed.
+(* Folding derived operations *)
 
-Definition ivar_beta_open_close {N T M} n f :=
-  eq_morph_expand (@ivar_beta_open_close_pointwise N T M n f).
+Lemma fold_open_ivar {N T M} n (f : ivar N T M) :
+  pair_ivar
+    (delete_iname n (fst_ivar f))
+    (cons_ilevel (get_iname n (fst_ivar f)) (snd_ivar f))
+  = open_ivar n f.
+Proof. easy. Qed.
 
-Lemma ivar_beta_close_open_pointwise {N T M} n (f : ivar N T M) :
-  close_ivar n (open_ivar n f) =m= f.
-Proof.
-  unfold open_ivar, close_ivar.
-  autorewrite with rw_ivars rw_ivars_pointwise
-    rw_inames_pointwise rw_ilevels; easy.
-Qed.
+Lemma fold_close_ivar {N T M} n (f : ivar (S N) T M) :
+  pair_ivar
+    (insert_iname n (hd_ilevel (snd_ivar f)) (fst_ivar f))
+    (tl_ilevel (snd_ivar f))
+  = close_ivar n f.
+Proof. easy. Qed.
 
-Definition ivar_beta_close_open {N T M} n f :=
-  eq_morph_expand (@ivar_beta_close_open_pointwise N T M n f).
+Lemma fold_weak_ivar {N T M} (f : ivar (S N) T M) :
+  pair_ivar (fst_ivar f) (tl_ilevel (snd_ivar f))
+  = weak_ivar f.
+Proof. easy. Qed.
 
-Lemma ivar_beta_weak_bind_pointwise {N T M} a (f : ivar N T M) :
-  weak_ivar (bind_ivar a f) =m= f.
-Proof.
-  unfold weak_ivar, bind_ivar.
-  autorewrite with rw_ivars rw_ivars_pointwise rw_ilevels; easy.
-Qed.
+Lemma fold_bind_ivar {N T M} a (f : ivar N T M) :
+  pair_ivar (fst_ivar f) (cons_ilevel a (snd_ivar f))
+  = bind_ivar a f.
+Proof. easy. Qed.
 
-Definition ivar_beta_weak_bind {N T M} a f :=
-  eq_morph_expand (@ivar_beta_weak_bind_pointwise N T M a f).
+Lemma fold_rename_ivar {N T M} n m (f : ivar N T M) :
+  close_ivar n (open_ivar m f)
+  = rename_ivar n m f.
+Proof. easy. Qed.
 
-Add beta rules for the derived derived operations.
+Lemma fold_shift_ivar {N T M} n (f : ivar N T M) :
+  weak_ivar (open_ivar n f)
+  = shift_ivar n f.
+Proof. easy. Qed.
+
+Lemma fold_subst_ivar {N T M} n a (f : ivar N T M) :
+  close_ivar n (bind_ivar a f)
+  = subst_ivar n a f.
+Proof. easy. Qed.
+
+Hint Rewrite @fold_open_ivar @fold_close_ivar
+     @fold_weak_ivar @fold_bind_ivar @fold_rename_ivar
+     @fold_shift_ivar @fold_subst_ivar
+  : fold_ivars.
+
+(* Simplify [ivars] terms by unfolding, simplifying and folding *)
+Ltac simpl_ivars :=
+  autorewrite with unfold_ivars;
+  autorewrite with unfold_inames;
+  autorewrite with unfold_iindexs;
+  repeat progress
+    (try (rewrite_strat topdown (hints simpl_ivars));
+     try (rewrite_strat topdown (hints simpl_inames));
+     try (rewrite_strat topdown (hints simpl_iindexs));
+     cbn);
+  autorewrite with fold_iindexs;
+  autorewrite with fold_inames;
+  autorewrite with fold_ivars.
+
+Ltac simpl_ivars_pointwise :=
+  autorewrite with unfold_ivars;
+  autorewrite with unfold_inames;
+  autorewrite with unfold_iindexs;
+  repeat progress
+    (try (rewrite_strat topdown (hints simpl_ivars_pointwise));
+     try (rewrite_strat topdown (hints simpl_ilevels_pointwise));
+     try (rewrite_strat topdown (hints simpl_inames_pointwise));
+     try (rewrite_strat topdown (hints simpl_iindexs_pointwise));
+     cbn);
+  autorewrite with fold_iindexs;
+  autorewrite with fold_inames;
+  autorewrite with fold_ivars.
 
