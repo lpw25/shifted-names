@@ -441,7 +441,8 @@ Ltac simpl_iindexs :=
 Ltac simpl_iindexs_pointwise :=
   autorewrite with unfold_iindexs;
   repeat progress
-    (try (rewrite_strat topdown (hints simpl_iindexs_pointwise)); cbn);
+    (try (rewrite_strat topdown (hints simpl_iindexs_pointwise));
+     cbn);
   autorewrite with fold_iindexs.
 
 (* Useful lemmas about shifting *)
@@ -1186,24 +1187,20 @@ Hint Rewrite @fold_get_iname @fold_delete_iname
 
 (* Simplify [iname] terms by unfolding, simplifying and folding *)
 Ltac simpl_inames :=
-  autorewrite with unfold_inames;
-  autorewrite with unfold_iindexs;
+  autorewrite with unfold_inames unfold_iindexs;
   repeat progress
     (try (rewrite_strat topdown (hints simpl_inames));
      try (rewrite_strat topdown (hints simpl_iindexs));
      cbn);
-  autorewrite with fold_iindexs;
-  autorewrite with fold_inames.
+  autorewrite with fold_iindexs fold_inames.
 
 Ltac simpl_inames_pointwise :=
-  autorewrite with unfold_inames;
-  autorewrite with unfold_iindexs;
+  autorewrite with unfold_inames unfold_iindexs;
   repeat progress
     (try (rewrite_strat topdown (hints simpl_inames_pointwise));
      try (rewrite_strat topdown (hints simpl_iindexs_pointwise));
      cbn);
-  autorewrite with fold_iindexs;
-  autorewrite with fold_inames.
+  autorewrite with fold_iindexs fold_inames.
 
 (* Useful lemmas about shifting *)
 
@@ -1434,6 +1431,18 @@ Qed.
 Definition swap_move_iname_delete_iname {T M} n m o f :=
   eq_kmorph_expand
     (@swap_move_iname_delete_iname_pointwise T M n m o f).
+
+Lemma swap_get_iname_move_iname_pointwise {T M} n m o
+      (f : iname T M) :
+  n <> m ->
+  get_iname n (move_iname m o f)
+  =p= get_iname (shift_name o (unshift_name m n)) f.
+Proof.
+  intros; unfold move_iname.
+  rewrite swap_get_iname_insert_iname_pointwise by easy.
+  rewrite swap_get_iname_delete_iname_pointwise; easy.
+Qed.
+
 
 (* Bound variables are represented by a level *)
 
@@ -1775,29 +1784,97 @@ Hint Rewrite @fold_open_ivar @fold_close_ivar
 
 (* Simplify [ivars] terms by unfolding, simplifying and folding *)
 Ltac simpl_ivars :=
-  autorewrite with unfold_ivars;
-  autorewrite with unfold_inames;
-  autorewrite with unfold_iindexs;
+  autorewrite with unfold_ivars unfold_inames unfold_iindexs;
   repeat progress
     (try (rewrite_strat topdown (hints simpl_ivars));
+     try (rewrite_strat topdown (hints simpl_ilevels));
      try (rewrite_strat topdown (hints simpl_inames));
      try (rewrite_strat topdown (hints simpl_iindexs));
      cbn);
-  autorewrite with fold_iindexs;
-  autorewrite with fold_inames;
-  autorewrite with fold_ivars.
+  autorewrite with fold_iindexs fold_inames fold_ivars.
 
 Ltac simpl_ivars_pointwise :=
-  autorewrite with unfold_ivars;
-  autorewrite with unfold_inames;
-  autorewrite with unfold_iindexs;
+  autorewrite with unfold_ivars unfold_inames unfold_iindexs;
   repeat progress
     (try (rewrite_strat topdown (hints simpl_ivars_pointwise));
      try (rewrite_strat topdown (hints simpl_ilevels_pointwise));
      try (rewrite_strat topdown (hints simpl_inames_pointwise));
      try (rewrite_strat topdown (hints simpl_iindexs_pointwise));
      cbn);
-  autorewrite with fold_iindexs;
-  autorewrite with fold_inames;
-  autorewrite with fold_ivars.
+  autorewrite with fold_iindexs fold_inames fold_ivars.
 
+(* Commute operations *)
+
+Lemma swap_close_ivar_rename_ivar_pointwise {N T M} n m o
+      (f : ivar (S N) T M) :
+  close_ivar n (rename_ivar m o f)
+  =m= rename_ivar
+         (shift_name n m) (shift_above_name (unshift_name m n) o)
+         (close_ivar (shift_name o (unshift_name m n)) f).
+Proof.
+  simpl_ivars_pointwise.
+  rewrite swap_insert_iname_move_iname_pointwise.
+  easy.
+Qed.
+
+Definition swap_close_ivar_rename_ivar {N T M} n m o f :=
+  eq_morph_expand
+    (@swap_close_ivar_rename_ivar_pointwise N T M n m o f).
+
+Lemma swap_rename_ivar_close_ivar_pointwise {N T M} n m o
+      (f : ivar (S N) T M) :
+  m <> o ->
+  rename_ivar n m (close_ivar o f)
+  =m= close_ivar (shift_name n (unshift_name m o))
+         (rename_ivar (unshift_name (unshift_name m o) n)
+            (unshift_name o m) f).
+Proof.
+  intros; simpl_ivars_pointwise.
+  rewrite swap_move_iname_insert_iname_pointwise by easy.
+  easy.
+Qed.
+
+Definition swap_rename_ivar_close_ivar {N T M} n m o f :=
+  fun V l Hneq =>
+    eq_morph_expand
+      (@swap_rename_ivar_close_ivar_pointwise N T M n m o f Hneq)
+      V l.
+
+Lemma swap_open_ivar_rename_ivar_pointwise {N T M} n m o
+      (f : ivar N T M) :
+  n <> m ->
+  open_ivar n (rename_ivar m o f)
+  =m= rename_ivar
+         (unshift_name n m) (unshift_name (unshift_name m n) o)
+         (open_ivar (shift_name o (unshift_name m n)) f).
+Proof.
+  intros; simpl_ivars_pointwise.
+  rewrite swap_delete_iname_move_iname_pointwise by easy.
+  rewrite swap_get_iname_move_iname_pointwise by easy.
+  easy.
+Qed.
+
+Definition swap_open_ivar_rename_ivar {N T M} n m o f :=
+  fun V l Hneq =>
+    eq_morph_expand
+      (@swap_open_ivar_rename_ivar_pointwise N T M n m o f Hneq)
+      V l.
+
+Lemma swap_rename_ivar_open_ivar_pointwise {N T M} n m o
+      (f : ivar N T M) :
+  rename_ivar n m (open_ivar o f)
+  =m= open_ivar (shift_above_name n (unshift_name m o))
+        (rename_ivar (shift_name (unshift_name m o) n)
+                     (shift_name o m) f).
+Proof.
+  simpl_ivars_pointwise.
+  rewrite swap_move_iname_delete_iname_pointwise.
+  rewrite swap_get_iname_move_iname_pointwise
+    by auto using shift_above_name_neq_shift_name.
+  simpl_inames; easy.
+Qed.
+
+Definition swap_rename_ivar_open_ivar {N T M} n m o f :=
+  eq_morph_expand
+    (@swap_rename_ivar_open_ivar_pointwise N T M n m o f).
+  
