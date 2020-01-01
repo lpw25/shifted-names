@@ -369,7 +369,7 @@ Hint Rewrite @iindex_beta_get @iindex_beta_delete @iindex_eta
   : simpl_iindexs.
 
 Hint Rewrite @iindex_beta_get_eq @iindex_beta_delete_eq @iindex_eta_eq
-  using omega : simpl_iindexs.
+  using omega : simpl_iindexs_eqn.
 
 Hint Rewrite @iindex_beta_get_pointwise
      @iindex_beta_delete_pointwise @iindex_eta_pointwise
@@ -378,7 +378,7 @@ Hint Rewrite @iindex_beta_get_pointwise
 Hint Rewrite @iindex_beta_get_eq_pointwise
      @iindex_beta_delete_eq_pointwise
      @iindex_eta_eq_pointwise
-  using omega : simpl_iindexs_pointwise.
+  using omega : simpl_iindexs_pointwise_eqn.
 
 (* Simple inversions of operational transforms:
 
@@ -411,7 +411,7 @@ Hint Rewrite simpl_shift_shift_index_unshift_index
      simpl_unshift_unshift_index_shift_index
      simpl_unshift_shift_above_index_shift_index
      simpl_unshift_shift_index_shift_above_index
-  : simpl_iindexs.
+  : simpl_indexs.
 
 (* Unfolding derived operations *)
 
@@ -434,15 +434,40 @@ Hint Rewrite @fold_move_iindex : fold_iindexs.
 (* Simplify [iindex] terms by unfolding, simplifying and folding *)
 Ltac simpl_iindexs :=
   autorewrite with unfold_iindexs;
+  autorewrite with simpl_indexs simpl_iindexs;
   repeat progress
-    (try (rewrite_strat topdown (hints simpl_iindexs)); cbn);
+    (cbn;
+     try (rewrite_strat topdown (hints simpl_indexs));
+     try (rewrite_strat topdown (hints simpl_iindexs)));
+  autorewrite with fold_iindexs.
+
+Ltac simpl_iindexs_eqn :=
+  autorewrite with unfold_iindexs;
+  autorewrite with simpl_indexs simpl_iindexs;
+  repeat progress
+    (cbn;
+     try (rewrite_strat topdown (hints simpl_indexs));
+     try (rewrite_strat topdown (hints simpl_iindexs));
+     try (rewrite_strat topdown (hints simpl_iindexs_eqn)));
   autorewrite with fold_iindexs.
 
 Ltac simpl_iindexs_pointwise :=
   autorewrite with unfold_iindexs;
+  autorewrite with simpl_indexs simpl_iindexs_pointwise;
   repeat progress
-    (try (rewrite_strat topdown (hints simpl_iindexs_pointwise));
-     cbn);
+    (cbn;
+     try (rewrite_strat topdown (hints simpl_indexs));
+     try (rewrite_strat topdown (hints simpl_iindexs_pointwise)));
+  autorewrite with fold_iindexs.
+
+Ltac simpl_iindexs_pointwise_eqn :=
+  autorewrite with unfold_iindexs;
+  autorewrite with simpl_indexs simpl_iindexs_pointwise;
+  repeat progress
+    (cbn;
+     try (rewrite_strat topdown (hints simpl_indexs));
+     try (rewrite_strat topdown (hints simpl_iindexs_pointwise));
+     try (rewrite_strat topdown (hints simpl_iindexs_pointwise_eqn)));
   autorewrite with fold_iindexs.
 
 (* Useful lemmas about shifting *)
@@ -1081,7 +1106,7 @@ Hint Rewrite @iname_beta_project_same @iname_beta_with_same
   : simpl_inames.
 
 Hint Rewrite @iname_beta_project_eq @iname_beta_with_eq @iname_eta_eq
-  using (cbn; congruence) : simpl_inames.
+  using (cbn; congruence) : simpl_inames_eqn.
 
 Hint Rewrite @iname_beta_project_same_pointwise
      @iname_beta_with_same_pointwise @iname_eta_pointwise
@@ -1089,13 +1114,13 @@ Hint Rewrite @iname_beta_project_same_pointwise
 
 Hint Rewrite @iname_beta_project_eq_pointwise
      @iname_beta_with_eq_pointwise @iname_eta_eq_pointwise
-  using (cbn; congruence) : simpl_inames_pointwise.
+  using (cbn; congruence) : simpl_inames_pointwise_eqn.
 
 Hint Rewrite @iname_beta_project_neq
-  using (cbn; congruence) : simpl_inames.
+  using (cbn; congruence) : simpl_inames_eqn.
 
 Hint Rewrite @iname_beta_project_neq_pointwise
-  using (cbn; congruence) : simpl_inames_pointwise.
+  using (cbn; congruence) : simpl_inames_pointwise_eqn.
 
 (* Simple inversions of operational transforms *)
 
@@ -1127,7 +1152,7 @@ Hint Rewrite simpl_shift_shift_name_unshift_name
      simpl_unshift_unshift_name_shift_name
      simpl_unshift_shift_above_name_shift_name
      simpl_unshift_shift_name_shift_above_name
-  : simpl_inames.
+  : simpl_names.
 
 (* Unfolding derived operations *)
 
@@ -1187,19 +1212,59 @@ Hint Rewrite @fold_get_iname @fold_delete_iname
 
 (* Simplify [iname] terms by unfolding, simplifying and folding *)
 Ltac simpl_inames :=
-  autorewrite with unfold_inames unfold_iindexs;
+  autorewrite with unfold_inames;
+  autorewrite with simpl_names simpl_inames;
+  autorewrite with unfold_iindexs;
+  autorewrite with simpl_indexs simpl_iindexs;
   repeat progress
-    (try (rewrite_strat topdown (hints simpl_inames));
+    (cbn;
+     try (rewrite_strat topdown (hints simpl_names));
+     try (rewrite_strat topdown (hints simpl_inames));
+     try (rewrite_strat topdown (hints simpl_indexs));
+     try (rewrite_strat topdown (hints simpl_iindexs)));
+  autorewrite with fold_iindexs fold_inames.
+
+Ltac simpl_inames_eqn :=
+  autorewrite with unfold_inames;
+  autorewrite with simpl_names simpl_inames;
+  autorewrite with unfold_iindexs;
+  autorewrite with simpl_indexs simpl_iindexs;
+  repeat progress
+    (cbn;
+     try (rewrite_strat topdown (hints simpl_names));
+     try (rewrite_strat topdown (hints simpl_inames));
+     try (rewrite_strat topdown (hints simpl_inames_eqn));
+     try (rewrite_strat topdown (hints simpl_indexs));
      try (rewrite_strat topdown (hints simpl_iindexs));
-     cbn);
+     try (rewrite_strat topdown (hints simpl_iindexs_eqn)));
   autorewrite with fold_iindexs fold_inames.
 
 Ltac simpl_inames_pointwise :=
-  autorewrite with unfold_inames unfold_iindexs;
+  autorewrite with unfold_inames;
+  autorewrite with simpl_names simpl_inames_pointwise;
+  autorewrite with unfold_iindexs;
+  autorewrite with simpl_indexs simpl_iindexs_pointwise;
   repeat progress
-    (try (rewrite_strat topdown (hints simpl_inames_pointwise));
+    (cbn;
+     try (rewrite_strat topdown (hints simpl_names));
+     try (rewrite_strat topdown (hints simpl_inames_pointwise));
+     try (rewrite_strat topdown (hints simpl_indexs));
+     try (rewrite_strat topdown (hints simpl_iindexs_pointwise)));
+  autorewrite with fold_iindexs fold_inames.
+
+Ltac simpl_inames_pointwise_eqn :=
+  autorewrite with unfold_inames;
+  autorewrite with simpl_names simpl_inames_pointwise;
+  autorewrite with unfold_iindexs;
+  autorewrite with simpl_indexs simpl_iindexs_pointwise;
+  repeat progress
+    (cbn;
+     try (rewrite_strat topdown (hints simpl_names));
+     try (rewrite_strat topdown (hints simpl_inames_pointwise));
+     try (rewrite_strat topdown (hints simpl_inames_pointwise_eqn));
+     try (rewrite_strat topdown (hints simpl_indexs));
      try (rewrite_strat topdown (hints simpl_iindexs_pointwise));
-     cbn);
+     try (rewrite_strat topdown (hints simpl_iindexs_pointwise_eqn)));
   autorewrite with fold_iindexs fold_inames.
 
 (* Useful lemmas about shifting *)
@@ -1245,12 +1310,12 @@ Lemma swap_delete_iname_delete_iname_pointwise {T M} n m
 Proof.
   case_string (n_string n) (n_string m).
   - intros V o.
-    case_string (n_string n) (n_string o); try easy.    
-    simpl_inames_pointwise.
+    case_string (n_string n) (n_string o); try easy.
+    simpl_inames_pointwise_eqn.
     rewrite swap_delete_iindex_delete_iindex_pointwise; congruence.
   - unfold delete_iname.
     rewrite swap_with_iname_with_iname_pointwise by easy.
-    simpl_inames_pointwise; easy.
+    simpl_inames_pointwise_eqn; easy.
 Qed.
 
 Definition swap_delete_iname_delete_iname {T M} n m f :=
@@ -1266,11 +1331,11 @@ Proof.
   case_string (n_string n) (n_string m).
   - intros V o.
     case_string (n_string n) (n_string o); try easy.
-    simpl_inames_pointwise.
+    simpl_inames_pointwise_eqn.
     rewrite swap_insert_iindex_insert_iindex; congruence.
   - unfold insert_iname.
     rewrite swap_with_iname_with_iname_pointwise by easy.
-    simpl_inames_pointwise; easy.
+    simpl_inames_pointwise_eqn; easy.
 Qed.
 
 Definition swap_insert_iname_insert_iname {T M} n a m b f :=
@@ -1288,12 +1353,12 @@ Proof.
   case_string (n_string n) (n_string m).
   - intros V o.
     case_string (n_string n) (n_string o); try easy.
-    simpl_inames_pointwise.
+    simpl_inames_pointwise_eqn.
     rewrite swap_delete_iindex_insert_iindex
       by auto using name_neq_string_eq_index_neq; congruence.
   - unfold delete_iname, insert_iname.
     rewrite swap_with_iname_with_iname_pointwise by easy.
-    simpl_inames_pointwise; easy.
+    simpl_inames_pointwise_eqn; easy.
 Qed.
 
 Definition swap_delete_iname_insert_iname {T M} n m a f :=
@@ -1311,11 +1376,11 @@ Proof.
   case_string (n_string n) (n_string m).
   - intros V o.
     case_string (n_string n) (n_string o); try easy.
-    simpl_inames_pointwise.
+    simpl_inames_pointwise_eqn.
     rewrite swap_insert_iindex_delete_iindex; congruence.
   - unfold insert_iname, delete_iname.
     rewrite swap_with_iname_with_iname_pointwise by easy.
-    simpl_inames_pointwise; easy.
+    simpl_inames_pointwise_eqn; easy.
 Qed.
 
 Definition swap_insert_iname_delete_iname {T M} n m a f :=
@@ -1532,8 +1597,16 @@ Hint Rewrite @ilevel_beta_hd @ilevel_beta_tl @ilevel_eta_pointwise
   : simpl_ilevels_pointwise.
 
 Ltac simpl_ilevels :=
+  autorewrite with simpl_ilevels;
   repeat progress
-    (try (rewrite_strat topdown (hints simpl_ilevels)); cbn).
+    (cbn;
+     try (rewrite_strat topdown (hints simpl_ilevels))).
+
+Ltac simpl_ilevels_pointwise :=
+  autorewrite with simpl_ilevels_pointwise;
+  repeat progress
+    (cbn;
+     try (rewrite_strat topdown (hints simpl_ilevels_pointwise))).
 
 (* Variables are either free names or bound levels *)
 
@@ -1784,23 +1857,75 @@ Hint Rewrite @fold_open_ivar @fold_close_ivar
 
 (* Simplify [ivars] terms by unfolding, simplifying and folding *)
 Ltac simpl_ivars :=
-  autorewrite with unfold_ivars unfold_inames unfold_iindexs;
+  autorewrite with unfold_ivars;
+  autorewrite with simpl_ivars simpl_ilevels;
+  autorewrite with unfold_inames;
+  autorewrite with simpl_names simpl_inames;
+  autorewrite with unfold_iindexs;
+  autorewrite with simpl_indexs simpl_iindexs;
   repeat progress
-    (try (rewrite_strat topdown (hints simpl_ivars));
+    (cbn;
+     try (rewrite_strat topdown (hints simpl_ivars));
      try (rewrite_strat topdown (hints simpl_ilevels));
+     try (rewrite_strat topdown (hints simpl_names));
      try (rewrite_strat topdown (hints simpl_inames));
+     try (rewrite_strat topdown (hints simpl_indexs));
+     try (rewrite_strat topdown (hints simpl_iindexs)));
+  autorewrite with fold_iindexs fold_inames fold_ivars.
+
+Ltac simpl_ivars_eqn :=
+  autorewrite with unfold_ivars;
+  autorewrite with simpl_ivars simpl_ilevels;
+  autorewrite with unfold_inames;
+  autorewrite with simpl_names simpl_inames;
+  autorewrite with unfold_iindexs;
+  autorewrite with simpl_indexs simpl_iindexs;
+  repeat progress
+    (cbn;
+     try (rewrite_strat topdown (hints simpl_ivars));
+     try (rewrite_strat topdown (hints simpl_ilevels));
+     try (rewrite_strat topdown (hints simpl_names));
+     try (rewrite_strat topdown (hints simpl_inames));
+     try (rewrite_strat topdown (hints simpl_inames_eqn));
+     try (rewrite_strat topdown (hints simpl_indexs));
      try (rewrite_strat topdown (hints simpl_iindexs));
-     cbn);
+     try (rewrite_strat topdown (hints simpl_iindexs_eqn)));
   autorewrite with fold_iindexs fold_inames fold_ivars.
 
 Ltac simpl_ivars_pointwise :=
-  autorewrite with unfold_ivars unfold_inames unfold_iindexs;
+  autorewrite with unfold_ivars;
+  autorewrite with simpl_ivars_pointwise simpl_ilevels_pointwise;
+  autorewrite with unfold_inames;
+  autorewrite with simpl_names simpl_inames_pointwise;
+  autorewrite with unfold_iindexs;
+  autorewrite with simpl_indexs simpl_iindexs_pointwise;
   repeat progress
-    (try (rewrite_strat topdown (hints simpl_ivars_pointwise));
+    (cbn;
+     try (rewrite_strat topdown (hints simpl_ivars_pointwise));
      try (rewrite_strat topdown (hints simpl_ilevels_pointwise));
+     try (rewrite_strat topdown (hints simpl_names));
      try (rewrite_strat topdown (hints simpl_inames_pointwise));
+     try (rewrite_strat topdown (hints simpl_indexs));
+     try (rewrite_strat topdown (hints simpl_iindexs_pointwise)));
+  autorewrite with fold_iindexs fold_inames fold_ivars.
+
+Ltac simpl_ivars_pointwise_eqn :=
+  autorewrite with unfold_ivars;
+  autorewrite with simpl_ivars_pointwise simpl_ilevels_pointwise;
+  autorewrite with unfold_inames;
+  autorewrite with simpl_names simpl_inames_pointwise;
+  autorewrite with unfold_iindexs;
+  autorewrite with simpl_indexs simpl_iindexs_pointwise;
+  repeat progress
+    (cbn;
+     try (rewrite_strat topdown (hints simpl_ivars_pointwise));
+     try (rewrite_strat topdown (hints simpl_ilevels_pointwise));
+     try (rewrite_strat topdown (hints simpl_names));
+     try (rewrite_strat topdown (hints simpl_inames_pointwise));
+     try (rewrite_strat topdown (hints simpl_inames_pointwise_eqn));
+     try (rewrite_strat topdown (hints simpl_indexs));
      try (rewrite_strat topdown (hints simpl_iindexs_pointwise));
-     cbn);
+     try (rewrite_strat topdown (hints simpl_iindexs_pointwise_eqn)));
   autorewrite with fold_iindexs fold_inames fold_ivars.
 
 (* Commute operations *)
@@ -1877,4 +2002,4 @@ Qed.
 Definition swap_rename_ivar_open_ivar {N T M} n m o f :=
   eq_morph_expand
     (@swap_rename_ivar_open_ivar_pointwise N T M n m o f).
-  
+
