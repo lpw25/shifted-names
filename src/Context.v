@@ -45,7 +45,7 @@ Qed.
 Definition forall_has {A : Set} Γ (P : var -> A -> Prop) :=
   (forall x a, Γ ∋ x ~ a -> P x a).
 
-Hint Unfold forall_has.
+Hint Unfold forall_has : core.
 
 Lemma forall_has_cons {A : Set} {Γ : @context A}
       {P : var -> A -> Prop} {x a} :

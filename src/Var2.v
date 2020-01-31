@@ -108,7 +108,7 @@ Arguments id_iindex V j /.
 
      o1 (o2 (o3 f))
      = XT(o2, o1) (XT(o3, ET(o1, o2)) (ET(ET(o1, o2), o3) f))
-     = XT(XT(o3, o2), o1) (ET(o1, XT(o3, o2)) (ET(o2, o3) f)) 
+     = XT(XT(o3, o2), o1) (ET(o1, XT(o3, o2)) (ET(o2, o3) f))
 
    which allows us to commute our operations and derived operations.
 *)
@@ -982,7 +982,7 @@ Lemma red_move_iname_distinct2 {T M} n m (f : iname T M) V o :
   move_iname n m f V o
   = insert_iname n (get_iname m f) f V o.
 Proof.
-  intros; unfold move_iname.  
+  intros; unfold move_iname.
   destruct (string_dec (n_string n) (n_string o)).
   - rewrite red_insert_iname_indistinct by easy.
     rewrite red_insert_iname_indistinct by easy.
@@ -1126,19 +1126,19 @@ Hint Rewrite @iname_beta_project_neq_pointwise
 
 Lemma simpl_shift_shift_name_unshift_name n m :
   shift_name (shift_name n m) (unshift_name m n) = n.
-Proof. 
+Proof.
   case_string (n_string n) (n_string m); simpl_iindexs; easy.
 Qed.
 
 Lemma simpl_unshift_unshift_name_shift_name n m :
   unshift_name (unshift_name n m) (shift_name m n) = n.
-Proof. 
+Proof.
   case_string (n_string n) (n_string m); simpl_iindexs; easy.
 Qed.
 
 Lemma simpl_unshift_shift_above_name_shift_name n m :
   unshift_name (shift_above_name n m) (shift_name m n) = n.
-Proof. 
+Proof.
   case_string (n_string n) (n_string m); simpl_iindexs; easy.
 Qed.
 
@@ -1153,6 +1153,8 @@ Hint Rewrite simpl_shift_shift_name_unshift_name
      simpl_unshift_shift_above_name_shift_name
      simpl_unshift_shift_name_shift_above_name
   : simpl_names.
+
+Ltac simpl_names := autorewrite with simpl_names.
 
 (* Unfolding derived operations *)
 
@@ -1266,6 +1268,14 @@ Ltac simpl_inames_pointwise_eqn :=
      try (rewrite_strat topdown (hints simpl_iindexs_pointwise));
      try (rewrite_strat topdown (hints simpl_iindexs_pointwise_eqn)));
   autorewrite with fold_iindexs fold_inames.
+
+Lemma project_id_iname {T N} (f : iindex T N) i :
+  @morph_compose (knset index) 0 (knset index) 0 T N
+     f (delete_iindex i id_iindex) =m= delete_iindex i f.
+Proof.
+  intros V j.
+  case_order i j; easy.
+Qed.
 
 (* Useful lemmas about shifting *)
 
@@ -1430,7 +1440,7 @@ Proof.
   rewrite swap_insert_iname_delete_iname_pointwise.
   rewrite swap_get_iname_insert_iname_pointwise
     by auto using shift_above_name_neq_shift_name.
-  simpl_inames; easy.
+  simpl_names; easy.
 Qed.
 
 Definition swap_insert_iname_move_iname {T M} n a m o f :=
@@ -1470,7 +1480,7 @@ Proof.
   rewrite swap_delete_iname_insert_iname_pointwise by easy.
   rewrite swap_delete_iname_delete_iname_pointwise.
   rewrite swap_get_iname_delete_iname_pointwise.
-  simpl_inames; easy.
+  simpl_names; easy.
 Qed.
 
 Definition swap_delete_iname_move_iname {T M} n m o f :=
@@ -1665,6 +1675,12 @@ Definition shift_ivar {N T M} n (f : ivar N T M) : ivar N T M :=
 
 Definition subst_ivar {N T M} n a (f : ivar N T M) : ivar N T M :=
   close_ivar n (bind_ivar a f).
+
+(* The identity [ivar] *)
+
+Definition id_ivar : ivar 0 var 0 :=
+  fun V (v : var V) => v.
+Arguments id_ivar V v /.
 
 (* Morphism definitions *)
 
@@ -1996,10 +2012,97 @@ Proof.
   rewrite swap_move_iname_delete_iname_pointwise.
   rewrite swap_get_iname_move_iname_pointwise
     by auto using shift_above_name_neq_shift_name.
-  simpl_inames; easy.
+  simpl_names; easy.
 Qed.
 
 Definition swap_rename_ivar_open_ivar {N T M} n m o f :=
   eq_morph_expand
     (@swap_rename_ivar_open_ivar_pointwise N T M n m o f).
 
+(* Polymorphic operations on vars *)
+
+Definition open_var a := open_ivar a id_ivar.
+Definition close_var a := close_ivar a (morph_extend id_ivar).
+Definition weak_var := weak_ivar (morph_extend id_ivar).
+Definition rename_var a b := rename_ivar a b id_ivar.
+Definition shift_var a := shift_ivar a id_ivar.
+
+(* Separate out polymorphic operations *)
+(* TODO: Find modular way to prove these *)
+
+Lemma separate_open_ivar {T N} n (f : ivar 0 T N) :
+  open_ivar n f =m= f @ (open_var n).
+Proof.
+  intros V v.
+  destruct v as [m|l]; cbn.
+  - case_string (n_string n) (n_string m); try easy.
+    case_order (n_index n) (n_index m); easy.
+  - destruct l; easy.
+Qed.
+
+Lemma separate_close_ivar {T N} n (f : ivar 1 T N) :
+  close_ivar n f =m= f @ (close_var n).
+Proof.
+  intros V v.
+  destruct v as [m|l]; cbn; try easy.
+  case_string (n_string n) (n_string m); try easy.
+  case_order (n_index n) (n_index m); easy.
+Qed.
+
+Lemma separate_weak_ivar {T N} (f : ivar 1 T N) :
+  weak_ivar f =m= f @ weak_var.
+Proof.
+  intros V v.
+  destruct v as [n|l]; easy.
+Qed.
+
+Lemma separate_rename_ivar {T N} n m (f : ivar 0 T N) :
+  rename_ivar n m f =m= f @ (rename_var n m).
+Proof.
+  intros V v; cbn.
+  unfold rename_var, rename_ivar.
+  rewrite separate_close_ivar; cbn.
+  rewrite separate_open_ivar; cbn.
+  rewrite separate_close_ivar; easy.
+Qed.
+
+Lemma separate_shift_ivar {T N} n (f : ivar 0 T N) :
+  shift_ivar n f =m= f @ (shift_var n).
+Proof.
+  intros V v.
+  unfold shift_var, shift_ivar.
+  rewrite separate_weak_ivar; cbn.
+  rewrite separate_open_ivar; cbn.
+  rewrite separate_weak_ivar; easy.
+Qed.
+
+(* Represent polymorphic operations on [var 0] *)
+
+Inductive prenaming {trm : Set} :=
+| r_id
+| r_shift (b : name) (r : srenaming)
+| r_rename (b : name) (r : srenaming) (a : name).
+
+Declare Scope ren_scope.
+Notation "r , ^ a" := (r_shift a r)
+  (at level 47, left associativity) : ren_scope.
+Notation "r , a <- b" := (r_rename a r b)
+  (at level 47, left associativity, a at next level) : ren_scope.
+Notation "^ a" := (r_shift a r_id)
+  (at level 47, left associativity) : ren_scope.
+Notation "a <- b" := (r_rename a r_id b)
+  (at level 47, left associativity) : ren_scope.
+Notation "r , a" := (r_rename a r a)
+  (at level 47, left associativity) : ren_scope.
+
+Delimit Scope ren_scope with ren.
+
+Fixpoint applyt {trm : Set} (r : @srenaming trm) : morph (@var) 0 (@var) 0 :=
+  match r with
+  | r_id =>
+    fun _ _ v => v
+  | r_shift b r =>
+    fun rn V v => openv b (applyt r rn (S V) (wkv v))
+  | r_rename b r a =>
+    fun rn V v => openv b (applyt r rn (S V) (closev a v))
+  end.

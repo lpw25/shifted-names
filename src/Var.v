@@ -880,6 +880,7 @@ Inductive renaming {trm : Set} :=
 | r_rename (b : name) (r : renaming) (a : name)
 | r_subst (t : trm) (r : renaming) (a : name).
 
+Declare Scope ren_scope.
 Notation "r1 ; r2" := (r_comp r1 r2)
   (at level 57, right associativity) : ren_scope.
 Notation "r , ^ a" := (r_shift a r)

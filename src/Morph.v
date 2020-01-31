@@ -5,13 +5,13 @@ Definition nset := forall (V : nat), Set.
 
 Definition knset T : nset := fun V => T.
 
-Definition heq {T : nset} : 
+Definition heq {T : nset} :
   forall {N : nat}, @T N -> forall {M : nat}, @T M -> Prop :=
     eq_dep nat (@T).
 
 Definition heq_intro := eq_dep_intro.
 
-Hint Resolve heq_intro.
+Hint Resolve heq_intro : core.
 
 Notation " x ~= y " :=
   (heq x y) (at level 70, no associativity).
@@ -51,7 +51,7 @@ Proof.
     inversion H; subst;
       apply heq_eq in H; subst;
         apply eq_dep_intro.
-Qed.    
+Qed.
 
 Definition push_eq N V :=
   nat_ind (fun N' : nat => N' + S V = S (N' + V))
@@ -181,6 +181,8 @@ Definition morph_id {T N} : morph (@T) N (@T) N :=
 
 Arguments morph_id {T N} V t /.
 
+Declare Scope morph_scope.
+
 Notation " 1 " := morph_id : morph_scope.
 
 Definition morph_compose {T N S M R L} :
@@ -202,12 +204,12 @@ Open Scope morph_scope.
 Lemma morph_left_identity :
   forall T N S M (f : morph (@T) N (@S) M),
     1 @ f = f.
-Proof. reflexivity. Qed.  
+Proof. reflexivity. Qed.
 
 Lemma morph_right_identity :
   forall T N S M (f : morph (@T) N (@S) M),
     f @ 1 = f.
-Proof. reflexivity. Qed.  
+Proof. reflexivity. Qed.
 
 Lemma morph_associative :
   forall T N S M R L U O
@@ -289,7 +291,7 @@ Definition eq_kmorph_expand {S T M} {f g : kmorph S T M}
 
 Ltac inductT t :=
   match type of t with
-  | context T [?N + ?V] => 
+  | context T [?N + ?V] =>
     let t' := fresh "t" in
     let NV := fresh "NV" in
     let Heq := fresh "Heq" in
@@ -303,7 +305,7 @@ Ltac inductT t :=
       generalize dependent V;
       induction t; intros V' t' Heq HeqNV;
         subst; rewrite (heq_eq Heq); clear Heq; cbn
-  | context T [?N + ?V] => 
+  | context T [?N + ?V] =>
     fail "unexpected failure"
   | _ =>
     fail "term's type is not of the form '@T (?N + ?V)'"

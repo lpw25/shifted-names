@@ -110,6 +110,7 @@ Module Renamings (T : Term).
 
   Arguments applyv !r {V} t /.
 
+  Declare Scope term_scope.
   Notation "[ r ] t" := (kleisli (@applyv (r)%ren) _ t)
     (at level 60, right associativity) : term_scope.
   Bind Scope term_scope with term.
