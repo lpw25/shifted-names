@@ -1,5 +1,5 @@
 Require Import EqdepFacts Eqdep_dec Peano_dec
-        Setoid Morphisms.
+        PeanoNat Setoid Morphisms.
 
 Definition nset := forall (V : nat), Set.
 
@@ -135,6 +135,63 @@ Proof.
     apply nset_push_heq with (N := S N).
 Qed.
 
+Definition extended_eq N V I :=
+  nat_ind (fun N' : nat => N' + (I + V) = (N' + I) + V)
+    (@eq_refl nat (I + V))
+    (fun (N' : nat) (IHn : N' + (I + V) = (N' + I) + V) =>
+       (f_equal S IHn)) N.
+
+Definition unextended_eq N V I :=
+  eq_sym (extended_eq N V I).
+
+Definition nset_extended {T : nset} {N V} I
+           (t : @T (N + (I + V))) : @T ((N + I) + V) :=
+  cast (extended_eq N V I) t.
+
+Definition nset_unextended {T : nset} {N V} I
+           (t : @T ((N + I) + V)) : @T (N + (I + V)) :=
+  cast (unextended_eq N V I) t.
+
+Lemma nset_extended_heq :
+  forall (T : nset) N V I (t : @T (N + (I + V))),
+    nset_extended I t ~= t.
+Proof.
+  intros.
+  unfold nset_extended, cast.
+  destruct (extended_eq N V I).
+  apply eq_dep_intro.
+Qed.
+
+Lemma nset_unextended_heq :
+  forall (T : nset) N V I (t : @T ((N + I) + V)),
+    nset_unextended I t ~= t.
+Proof.
+  intros.
+  unfold nset_unextended, cast.
+  destruct (unextended_eq N V I).
+  apply eq_dep_intro.
+Qed.
+
+Lemma nset_extended_unextended_eq :
+  forall (T : nset) N V I (t : @T ((N + I) + V)),
+    nset_extended I (nset_unextended I t) = t.
+Proof.
+  intros T N V I t.
+  unfold nset_extended, nset_unextended, cast, unextended_eq.
+  destruct (extended_eq N V I); cbn.
+  reflexivity.
+Qed.
+
+Lemma nset_unextended_extended_eq :
+  forall (T : nset) N V I (t : @T (N + (I + V))),
+    nset_unextended I (nset_extended I t) = t.
+Proof.
+  intros T N V I t.
+  unfold nset_extended, nset_unextended, cast, unextended_eq.
+  destruct (extended_eq N V I); cbn.
+  reflexivity.
+Qed.
+
 (* Extendable nset values *)
 
 Definition pnset (T : nset) (M : nat) :=
@@ -225,6 +282,11 @@ Definition morph_extend {T N R L} (m : morph (@T) N (@R) L)
   : morph (@T) (S N) (@R) (S L) :=
   fun V t => nset_push (m (S V) (nset_pop t)).
 
+Definition morph_extend_by {T N R L} I
+           (m : morph (@T) N (@R) L)
+  : morph (@T) (N + I) (@R) (L + I) :=
+  fun V t => nset_extended I (m (I + V) (nset_unextended I t)).
+
 (* kmorph T S M == morph (knsert T) N S M *)
 Definition kmorph (T : Set) (S : nset) (M : nat) :=
   forall V : nat, T -> S (M + V).
@@ -257,6 +319,53 @@ Qed.
 Definition eq_morph_expand {S N T M} {f g : morph S N T M}
            (eq : eq_morph f g) :
   forall (V : nat) (s : S (N + V)), f V s = g V s := eq.
+
+Add Parametric Morphism {T N S M R L} : (@morph_compose T N S M R L)
+    with signature eq_morph ==> eq_morph ==> eq_morph
+      as morph_compose_mor.
+  intros * Heq1 * Heq2 V v; unfold morph_compose.
+  rewrite Heq1, Heq2; easy.
+Qed.
+
+Add Parametric Morphism {T N R L} : (@morph_extend T N R L)
+    with signature eq_morph ==> eq_morph
+      as morph_extend_mor.
+  intros * Heq V v; unfold morph_extend.
+  rewrite Heq; easy.
+Qed.
+
+Lemma morph_extend_id {T N} :
+  @morph_extend T N T N 1 =m= 1.
+Proof.
+  intros V v; unfold morph_extend, morph_id.
+  apply nset_push_pop_eq.
+Qed.
+
+Lemma morph_extend_compose {T N S M R L}
+      (f : morph (@S) M (@R) L) (g : morph (@T) N (@S) M) :
+  morph_extend (f @ g) =m= morph_extend f @ morph_extend g.
+Proof.
+  intros V v; unfold morph_extend, morph_compose.
+  rewrite nset_pop_push_eq.
+  easy.
+Qed.
+
+Lemma morph_extend_by_id {T N I} :
+  @morph_extend_by T N T N I 1 =m= 1.
+Proof.
+  intros V v; unfold morph_extend_by, morph_id.
+  apply nset_extended_unextended_eq.
+Qed.
+
+Lemma morph_extend_by_compose {T N S M R L I}
+      (f : morph (@S) M (@R) L) (g : morph (@T) N (@S) M) :
+  morph_extend_by I (f @ g)
+  =m= morph_extend_by I f @ morph_extend_by I g.
+Proof.
+  intros V v; unfold morph_extend_by, morph_compose.
+  rewrite nset_unextended_extended_eq.
+  easy.
+Qed.
 
 (* Equality on k-morphisms *)
 
