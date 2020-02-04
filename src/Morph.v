@@ -287,6 +287,11 @@ Definition morph_extend_by {T N R L} I
   : morph (@T) (N + I) (@R) (L + I) :=
   fun V t => nset_extended I (m (I + V) (nset_unextended I t)).
 
+(* Application to pnsets *)
+Definition morph_apply {T N R L} (m : morph (@T) N (@R) L)
+           (f : pnset T N) : pnset R L :=
+  fun V => m V (f V).
+
 (* kmorph T S M == morph (knsert T) N S M *)
 Definition kmorph (T : Set) (S : nset) (M : nat) :=
   forall V : nat, T -> S (M + V).

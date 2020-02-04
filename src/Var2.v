@@ -26,7 +26,7 @@ Definition delete_iindex {T M} (i : index) (f : iindex T M) :
     if Compare_dec.le_lt_dec i j then get_iindex (S j) f V
     else get_iindex j f V.
 
-Definition insert_iindex {T : nset} {M} (i : index)
+Definition insert_iindex {T M} (i : index)
            (a : pnset T M) (f : iindex T M)
   : iindex T M :=
   fun V (j : index) =>
@@ -43,30 +43,28 @@ Definition move_iindex {T M} i j (f : iindex T M) :=
 
 (* Morphism definitions *)
 
-Add Parametric Morphism {T : nset} {M} : (@get_iindex T M)
+Add Parametric Morphism {T M} : (@get_iindex T M)
     with signature eq ==> eq_kmorph ==> eq_pnset
       as get_iindex_mor.
   intros * Heq * V; cbn.
   rewrite Heq; easy.
 Qed.
 
-Add Parametric Morphism {T : nset} {M} : (@delete_iindex T M)
+Add Parametric Morphism {T M} : (@delete_iindex T M)
     with signature eq ==> eq_kmorph ==> eq_kmorph
     as delete_iindex_mor.
   intros * Heq V j; unfold delete_iindex; cbn.
   rewrite Heq, Heq; easy.
 Qed.
 
-Add Parametric Morphism {T : nset} {M} :
-  (@insert_iindex T M)
+Add Parametric Morphism {T M} : (@insert_iindex T M)
     with signature eq ==> eq_pnset ==> eq_kmorph ==> eq_kmorph
       as insert_iindex_mor.
   intros * Heq1 * Heq2 V j; unfold insert_iindex; cbn.
   rewrite Heq1, Heq2, Heq2; easy.
 Qed.
 
-Add Parametric Morphism {T : nset} {M} i j :
-  (@move_iindex T M i j)
+Add Parametric Morphism {T M} i j : (@move_iindex T M i j)
     with signature eq_kmorph ==> eq_kmorph
       as move_iindex_mor.
   intros * Heq V k; unfold move_iindex.
@@ -760,21 +758,21 @@ Definition move_iname {T M} n m (f : iname T M) :=
 
 (* Morphism definitions *)
 
-Add Parametric Morphism {T : nset} {M} s : (@project_iname T M s)
+Add Parametric Morphism {T M} s : (@project_iname T M s)
     with signature eq_kmorph ==> eq_kmorph
     as project_iname_mor.
   intros * Heq V n; unfold project_iname.
   rewrite Heq; easy.
 Qed.
 
-Add Parametric Morphism {T : nset} {M} s : (@with_iname T M s)
+Add Parametric Morphism {T M} s : (@with_iname T M s)
     with signature eq_kmorph ==> eq_kmorph ==> eq_kmorph
       as with_iname_mor.
   intros * Heq1 * Heq2 V n; unfold with_iname; cbn.
   rewrite Heq1, Heq2; easy.
 Qed.
 
-Add Parametric Morphism {T : nset} {M} : (@get_iname T M)
+Add Parametric Morphism {T M} : (@get_iname T M)
     with signature eq ==> eq_kmorph ==> eq_pnset
     as get_iname_mor.
   intros * Heq V; unfold get_iname; cbn.
@@ -789,21 +787,21 @@ Proof.
   apply get_iname_mor_Proper.
 Qed.
 
-Add Parametric Morphism {T : nset} {M} : (@delete_iname T M)
+Add Parametric Morphism {T M} : (@delete_iname T M)
     with signature eq ==> eq_kmorph ==> eq_kmorph
       as delete_iname_mor.
   intros * Heq V m; unfold delete_iname.
   rewrite Heq; easy.
 Qed.
 
-Add Parametric Morphism {T : nset} {M} : (@insert_iname T M)
+Add Parametric Morphism {T M} : (@insert_iname T M)
     with signature eq ==> eq_pnset ==> eq_kmorph ==> eq_kmorph
     as insert_iname_mor.
   intros * Heq1 * Heq2 V m; unfold insert_iname.
   rewrite Heq1, Heq2; easy.
 Qed.
 
-Add Parametric Morphism {T : nset} {M} : (@move_iname T M)
+Add Parametric Morphism {T M} : (@move_iname T M)
     with signature eq ==> eq ==> eq_kmorph ==> eq_kmorph
     as move_iname_mor.
   intros * Heq V o; unfold move_iname.
@@ -1581,7 +1579,7 @@ Definition tl_ilevel {N T M} (f : ilevel (S N) T M)
   : ilevel N T M :=
   fun V l => f V (lS l).
 
-Definition cons_ilevel {N} {T : nset} {M} (a : pnset T M)
+Definition cons_ilevel {N T M} (a : pnset T M)
            (f : ilevel N T M) : ilevel (S N) T M :=
   fun V l =>
     match l with
@@ -1602,28 +1600,28 @@ Definition transpose_ilevel {N T M} (f : ilevel (S (S N)) T M) :=
 
 (* Morphism definitions *)
 
-Add Parametric Morphism {N} {T : nset} {M} : (@hd_ilevel N T M)
+Add Parametric Morphism {N T M} : (@hd_ilevel N T M)
     with signature eq_morph ==> eq_pnset
       as hd_ilevel_mor.
   intros * Heq; unfold hd_ilevel; intro.
   rewrite Heq; easy.
 Qed.
 
-Add Parametric Morphism {N} {T : nset} {M} : (@tl_ilevel N T M)
+Add Parametric Morphism {N T M} : (@tl_ilevel N T M)
     with signature eq_morph ==> eq_morph
       as tl_ilevel_mor.
   intros * Heq V l; unfold tl_ilevel.
   rewrite Heq; easy.
 Qed.
 
-Add Parametric Morphism {N} {T : nset} {M} : (@cons_ilevel N T M)
+Add Parametric Morphism {N T M} : (@cons_ilevel N T M)
     with signature eq_pnset ==> eq_morph ==> eq_morph
     as cons_ilevel_mor.
   intros * Heq1 * Heq2 V l; unfold cons_ilevel.
   destruct l; rewrite ?Heq1, ?Heq2; easy.
 Qed.
 
-Add Parametric Morphism {N} {T : nset} {M} : (@transpose_ilevel N T M)
+Add Parametric Morphism {N T M} : (@transpose_ilevel N T M)
     with signature eq_morph ==> eq_morph
     as transpose_ilevel_mor.
   intros * Heq V l; unfold transpose_ilevel.
@@ -1642,8 +1640,7 @@ Lemma ilevel_beta_tl {N} {T : nset} {M} (a : forall V, T (M + V))
   tl_ilevel (cons_ilevel a f) = f.
 Proof. easy. Qed.
 
-Lemma ilevel_eta_pointwise {N} {T : nset} {M}
-      (f : ilevel (S N) T M) :
+Lemma ilevel_eta_pointwise {N T M} (f : ilevel (S N) T M) :
   cons_ilevel (hd_ilevel f) (tl_ilevel f) =m= f.
 Proof.
   intros V l.
@@ -1720,8 +1717,8 @@ Definition snd_ivar {N T M} (f : ivar N T M) : ilevel N T M :=
     fun V (l : level (N + V)) => f V (bound l).
 Arguments snd_ivar {N T M} f V l /.
 
-Definition pair_ivar {N} {T : nset} {M}
-             (f : iname T M) (g : ilevel N T M) : ivar N T M :=
+Definition pair_ivar {N T M} (f : iname T M)
+           (g : ilevel N T M) : ivar N T M :=
   fun V v =>
     match v with
     | free n => f V n
@@ -1764,77 +1761,77 @@ Definition subst_ivar {N T M} n a (f : ivar N T M) : ivar N T M :=
 
 (* Morphism definitions *)
 
-Add Parametric Morphism {N} {T : nset} {M} : (@fst_ivar N T M)
+Add Parametric Morphism {N T M} : (@fst_ivar N T M)
     with signature eq_morph ==> eq_kmorph
     as fst_ivar_mor.
   intros * Heq V n; unfold fst_ivar.
   rewrite Heq; easy.
 Qed.
 
-Add Parametric Morphism {N} {T : nset} {M} : (@snd_ivar N T M)
+Add Parametric Morphism {N T M} : (@snd_ivar N T M)
     with signature eq_morph ==> eq_morph
     as snd_ivar_mor.
   intros * Heq V n; unfold snd_ivar.
   rewrite Heq; easy.
 Qed.
 
-Add Parametric Morphism {N} {T : nset} {M} : (@pair_ivar N T M)
+Add Parametric Morphism {N T M} : (@pair_ivar N T M)
     with signature eq_kmorph ==> eq_morph ==> eq_morph
     as pair_ivar_mor.
   intros * Heq1 f g Heq2 V v; unfold pair_ivar.
   destruct v; rewrite ?Heq1, ?Heq2; easy.
 Qed.
 
-Add Parametric Morphism {N} {T : nset} {M} : (@open_ivar N T M)
+Add Parametric Morphism {N T M} : (@open_ivar N T M)
     with signature eq ==> eq_morph ==> eq_morph
     as open_ivar_mor.
   intros * Heq V v; unfold open_ivar.
   rewrite Heq; easy.
 Qed.
 
-Add Parametric Morphism {N} {T : nset} {M} : (@close_ivar N T M)
+Add Parametric Morphism {N T M} : (@close_ivar N T M)
     with signature eq ==> eq_morph ==> eq_morph
     as close_ivar_mor.
   intros * Heq V v; unfold close_ivar.
   rewrite Heq; easy.
 Qed.
 
-Add Parametric Morphism {N} {T : nset} {M} : (@weak_ivar N T M)
+Add Parametric Morphism {N T M} : (@weak_ivar N T M)
     with signature eq_morph ==> eq_morph
     as weak_ivar_mor.
   intros * Heq V v; unfold weak_ivar.
   rewrite Heq; easy.
 Qed.
 
-Add Parametric Morphism {N} {T : nset} {M} : (@bind_ivar N T M)
+Add Parametric Morphism {N T M} : (@bind_ivar N T M)
     with signature eq_pnset ==> eq_morph ==> eq_morph
     as bind_ivar_mor.
   intros * Heq1 * Heq2 V v; unfold bind_ivar.
   rewrite Heq1, Heq2; easy.
 Qed.
 
-Add Parametric Morphism {N} {T : nset} {M} : (@transpose_ivar N T M)
+Add Parametric Morphism {N T M} : (@transpose_ivar N T M)
     with signature eq_morph ==> eq_morph
     as transpose_ivar_mor.
   intros * Heq V v; unfold transpose_ivar.
   rewrite Heq; easy.
 Qed.
 
-Add Parametric Morphism {N} {T : nset} {M} : (@rename_ivar N T M)
+Add Parametric Morphism {N T M} : (@rename_ivar N T M)
     with signature eq ==> eq ==> eq_morph ==> eq_morph
     as rename_ivar_mor.
   intros * Heq V v; unfold rename_ivar.
   rewrite Heq; easy.
 Qed.
 
-Add Parametric Morphism {N} {T : nset} {M} : (@shift_ivar N T M)
+Add Parametric Morphism {N T M} : (@shift_ivar N T M)
     with signature eq ==> eq_morph ==> eq_morph
     as shift_ivar_mor.
   intros * Heq V v; unfold shift_ivar.
   rewrite Heq; easy.
 Qed.
 
-Add Parametric Morphism {N} {T : nset} {M} : (@subst_ivar N T M)
+Add Parametric Morphism {N T M} : (@subst_ivar N T M)
     with signature eq ==> eq_pnset ==> eq_morph ==> eq_morph
     as subst_ivar_mor.
   intros * Heq1 * Heq2 V v; unfold subst_ivar.
@@ -2520,85 +2517,143 @@ Definition swap_subst_ivar_bind_ivar {N T M} n t s f :=
   eq_morph_expand
     (@swap_subst_ivar_bind_ivar_pointwise N T M n t s f).
 
-(* There is a full contravariant functor from [var N]
-   to [ivar N T O] *)
+(* There is a full contravariant functor from [var N] to [ivar N
+   T O] by composition.
 
-Definition map_ivar {N M T O} (f : morph var N var M)
-  : ivar M T O -> ivar N T O :=
-  (fun g => g @ f).
-
-Add Parametric Morphism {N M} {T : nset} {O} : (@map_ivar N M T O)
-    with signature eq_morph ==> eq_morph ==> eq_morph
-    as map_ivar_mor.
-  intros * Heq1 * Heq2; unfold map_ivar.
-  rewrite Heq1, Heq2; easy.
-Qed.
-
-Lemma map_ivar_id {N T M} (f : ivar N T M) :
-  map_ivar 1 f = f.
-Proof. easy. Qed.
-
-Lemma map_ivar_compose {N M O T P} (f : morph var N var M)
-      (g : morph var M var O) (h : ivar O T P) :
-  map_ivar (g @ f) h = map_ivar f (map_ivar g h).
-Proof. easy. Qed.
-
-(* Operations not involving bind are in the image of that functor
-
-   We call these operations "static". *)
+   Operations not involving bind are in the image of that
+   functor. We call these operations "static". *)
 
 Definition open_var a : ivar 1 var 0 := open_ivar a 1.
 Definition close_var a : ivar 0 var 1 := close_ivar a 1.
 Definition weak_var : ivar 0 var 1 := weak_ivar 1.
-Definition rename_var a b : ivar 0 var 0 := (open_var b) @ (close_var a).
+Definition rename_var a b : ivar 0 var 0 :=
+  (open_var b) @ (close_var a).
 Definition shift_var a : ivar 0 var 0 := (open_var a) @ weak_var.
 
 (* TODO: Find modular way to prove these *)
 
-Lemma open_ivar_as_map {N T M} n (f : ivar N T M) :
-  open_ivar n f =m= map_ivar (morph_extend_by N (open_var n)) f.
+Lemma open_ivar_as_composition {N T M} n (f : ivar N T M) :
+  open_ivar n f =m= f @ (morph_extend_by N (open_var n)).
 Proof.
-  intros V v; unfold map_ivar.
+  intros V v.
   destruct v as [m|l]; cbn.
   - case_string (n_string n) (n_string m); try easy.
     case_order (n_index n) (n_index m); easy.
   - destruct l; easy.
 Qed.
 
-Lemma close_ivar_as_map {N T M} n (f : ivar (S N) T M) :
+Lemma close_ivar_as_composition {N T M} n (f : ivar (S N) T M) :
   close_ivar n f =m=
-  map_ivar (morph_extend_by N (close_var n)) f.
+  f @ (morph_extend_by N (close_var n)).
 Proof.
-  intros V v; unfold map_ivar.
+  intros V v.
   destruct v as [m|l]; cbn; try easy.
   case_string (n_string n) (n_string m); try easy.
   case_order (n_index n) (n_index m); easy.
 Qed.
 
-Lemma weak_ivar_as_map {N T M} (f : ivar (S N) T M) :
-  weak_ivar f =m= map_ivar (morph_extend_by N weak_var) f.
+Lemma weak_ivar_as_composition {N T M} (f : ivar (S N) T M) :
+  weak_ivar f =m= f @ (morph_extend_by N weak_var).
 Proof.
   intros V v.
   destruct v as [n|l]; easy.
 Qed.
 
-Lemma rename_ivar_as_map {N T M} n m (f : ivar N T M) :
+Lemma rename_ivar_as_composition {N T M} n m (f : ivar N T M) :
   rename_ivar n m f
-  =m= map_ivar (morph_extend_by N (rename_var n m)) f.
+  =m= f @ (morph_extend_by N (rename_var n m)).
 Proof.
   unfold rename_var, rename_ivar.
   rewrite morph_extend_by_compose,
-    map_ivar_compose, open_ivar_as_map, close_ivar_as_map.
+    open_ivar_as_composition, close_ivar_as_composition.
   easy.
 Qed.
 
-Lemma shift_ivar_as_map {N T M} n (f : ivar N T M) :
+Lemma shift_ivar_as_composition {N T M} n (f : ivar N T M) :
   shift_ivar n f
-  =m= map_ivar (morph_extend_by N (shift_var n)) f.
+  =m= f @ (morph_extend_by N (shift_var n)).
 Proof.
   intros V v.
   unfold shift_var, shift_ivar.
   rewrite morph_extend_by_compose,
-    map_ivar_compose, open_ivar_as_map, weak_ivar_as_map.
+    open_ivar_as_composition, weak_ivar_as_composition.
+  easy.
+Qed.
+
+(* There is a full covariant functor from [T O] to [ivar N T O]
+   by composition.
+
+   Such composition distributes over our operations. *)
+
+Lemma open_ivar_compose_distribute {N T M R L} n
+      (f : ivar N T M) (g : morph T M R L) :
+  g @ (open_ivar n f) =m= open_ivar n (g @ f).
+Proof.
+  rewrite open_ivar_as_composition.
+  rewrite morph_associative.
+  rewrite <- open_ivar_as_composition.
+  easy.
+Qed.
+
+Lemma close_ivar_compose_distribute {N T M R L} n
+      (f : ivar (S N) T M) (g : morph T M R L) :
+  g @ (close_ivar n f) =m= close_ivar n (g @ f).
+Proof.
+  rewrite close_ivar_as_composition.
+  rewrite morph_associative.
+  rewrite <- close_ivar_as_composition.
+  easy.
+Qed.
+
+Lemma weak_ivar_compose_distribute {N T M R L}
+      (f : ivar (S N) T M) (g : morph T M R L) :
+  g @ (weak_ivar f) =m= weak_ivar (g @ f).
+Proof.
+  rewrite weak_ivar_as_composition.
+  rewrite morph_associative.
+  rewrite <- weak_ivar_as_composition.
+  easy.
+Qed.
+
+Lemma bind_ivar_compose_distribute {N T M R L} t
+      (f : ivar N T M) (g : morph T M R L) :
+  g @ (bind_ivar t f)
+  =m= bind_ivar (morph_apply g t) (g @ f).
+Proof.
+  intros V v.
+  destruct v as [m|l]; cbn.
+  - easy.
+  - destruct l; easy.
+Qed.
+
+Lemma rename_ivar_compose_distribute {N T M R L} n m
+      (f : ivar N T M) (g : morph T M R L) :
+  g @ (rename_ivar n m f) =m= rename_ivar n m (g @ f).
+Proof.
+  rewrite rename_ivar_as_composition.
+  rewrite morph_associative.
+  rewrite <- rename_ivar_as_composition.
+  easy.
+Qed.
+
+Lemma shift_ivar_compose_distribute {N T M R L} n
+      (f : ivar N T M) (g : morph T M R L) :
+  g @ (shift_ivar n f) =m= shift_ivar n (g @ f).
+Proof.
+  rewrite shift_ivar_as_composition.
+  rewrite morph_associative.
+  rewrite <- shift_ivar_as_composition.
+  easy.
+Qed.
+
+Lemma subst_ivar_compose_distribute {N T M R L} n t
+      (f : ivar N T M) (g : morph T M R L) :
+  g @ (subst_ivar n t f)
+  =m= subst_ivar n (morph_apply g t) (g @ f).
+Proof.
+  intros V v.
+  unfold subst_ivar.
+  rewrite close_ivar_compose_distribute,
+    bind_ivar_compose_distribute.
   easy.
 Qed.
