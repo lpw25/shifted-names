@@ -1,20 +1,23 @@
 COQC=coqc
 COQPARAMS=-R . SNames
 
-MODULES=Morph.vo Var.vo Var2.vo Renaming2.vo Context.vo Relative.vo
+MODULES=Morph.vok Var.vok Var2.vok Renaming2.vok Context.vok Relative.vok
 
 all: ${MODULES}
 
-%.vo: %.v
-	${COQC} ${COQPARAMS} $<
+%.vos: %.v
+	${COQC} -vos ${COQPARAMS} $<
 
-Var.vo: Morph.vo
+%.vok: %.v
+	${COQC} -vok ${COQPARAMS} $<
 
-Var2.vo: Morph.vo
+Var.vok Var.vos: Morph.vos
 
-Renaming2.vo: Morph.vo Var2.vo
+Var2.vok Var2.vos: Morph.vos
 
-Context.vo: Var.vo
+Renaming2.vok Renaming2.vos: Morph.vos Var2.vos
 
-Relative.vo: Morph.vo Var.vo Context.vo
+Context.vok Context.vos: Var.vos
+
+Relative.vok Relative.vos: Morph.vos Var.vos Context.vos
 
