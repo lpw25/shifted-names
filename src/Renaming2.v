@@ -46,7 +46,7 @@ Fixpoint apply_static_ivar {trm} (r : renaming trm)
       weak_ivar (apply_static_ivar r (open_ivar b f))
   | r_rename b r a =>
       close_ivar a (apply_static_ivar r (open_ivar b f))
-  | r_subst _ _ _ => f
+  | r_subst _ r _ => apply_static_ivar r f
   end.
 
 Add Parametric Morphism {trm r N} {T : nset} {M}
@@ -62,7 +62,8 @@ Add Parametric Morphism {trm r N} {T : nset} {M}
     easy.
   - rewrite IHr with (y := open_ivar b y) by (rewrite Heq; easy).
     easy.
-  - easy.
+  - rewrite IHr with (y := y) by (rewrite Heq; easy).
+    easy.
 Qed.
 
 Lemma snd_apply_static_ivar {trm N T M} (r : renaming trm)
@@ -103,7 +104,7 @@ Proof.
     rewrite IHr with (g := open_ivar b g); try easy.
     simpl_ivars_pointwise.
     rewrite Heq; easy.
-  - easy.
+  - apply IHr; easy.
 Qed.
 
 Lemma swap_apply_static_ivar_transpose_ivar {trm N T M}
@@ -138,7 +139,9 @@ Fixpoint transfer_open_var {trm} (r : renaming trm) (a : name) :
                        (snd ar')
                        (unshift_name a b))
       end
-  | r_subst _ _ _ => pair a r_id
+  | r_subst t r b =>
+        let ar' := transfer_open_var r a in
+        pair (fst ar') (r_subst t (snd ar')  b)
   end.
 
 Lemma transfer_open_var_spec {trm} (r : renaming trm) a :
@@ -168,7 +171,8 @@ Proof.
       rewrite <- swap_apply_static_ivar_transpose_ivar.
       rewrite swap_open_ivar_open_ivar_pointwise.
       easy.
-  - easy.
+  - rewrite IHr.
+    easy.
 Qed.
 
 Fixpoint compose_static {trm}
@@ -183,8 +187,46 @@ Fixpoint compose_static {trm}
     let as' := transfer_open_var s a in
     let r' := compose_static r (snd as') in
     r_rename (fst as') r' b
-  | r_subst _ _ _ => s
+  | r_subst t r a =>
+    let r' := compose_static r s in
+    r_subst t r' a
   end.
+
+Lemma compose_static_left_identity {trm} (r : renaming trm) :
+  compose_static r_id r = r.
+Proof. easy. Qed.
+
+Lemma compose_static_right_identity {trm} (r : renaming trm) :
+  compose_static r r_id = r.
+Proof.
+  induction r; cbn.
+  - easy.
+  - rewrite IHr; easy.
+  - rewrite IHr; easy.
+  - rewrite IHr; easy.
+Qed.
+
+Lemma transfer_open_var_compose_static {trm} (r s : renaming trm) a :
+   fst (transfer_open_var (compose_static r s) a)
+   = fst (transfer_open_var s (fst (transfer_open_var r a))).
+Proof.
+  generalize dependent a.
+  generalize dependent s.
+  induction r; intros s c; cbn.
+  - easy.
+  - rewrite IHr.
+Qed.
+
+Lemma compose_static_associative {trm} (r s t : renaming trm) :
+  compose_static r (compose_static s t)
+  = compose_static (compose_static r s) t.
+Proof.
+  induction r; cbn.
+  - easy.
+  -
+  -
+  - rewrite IHr; easy.
+Qed.
 
 Lemma apply_static_ivar_compose {trm N T M} (r : renaming trm) s
       (f : ivar N T M) :
@@ -213,13 +255,13 @@ Fixpoint apply_static_var {trm} (r : renaming trm) : ivar 0 var 0 :=
     (open_var b) @ (morph_extend (apply_static_var r)) @ weak_var
   | r_rename b r a =>
     (open_var b) @ (morph_extend (apply_static_var r)) @ (close_var a)
-  | r_subst _ _ _ => 1
+  | r_subst _ r _ => apply_static_var r
   end.
 
-Lemma apply_static_ivar_as_map {trm N T M} (r : renaming trm)
+Lemma apply_static_ivar_as_composition {trm N T M} (r : renaming trm)
       (f : ivar N T M) :
   apply_static_ivar r f =m=
-  map_ivar (morph_extend_by N (apply_static_var r)) f.
+  f @ (morph_extend_by N (apply_static_var r)).
 Proof.
   generalize dependent M.
   generalize dependent T.
@@ -228,17 +270,14 @@ Proof.
   - rewrite morph_extend_by_id.
     easy.
   - rewrite morph_extend_by_compose, morph_extend_by_compose.
-    rewrite map_ivar_compose, map_ivar_compose.
-    rewrite weak_ivar_as_map, open_ivar_as_map.
+    rewrite weak_ivar_as_composition, open_ivar_as_composition.
     rewrite IHr; cbn.
     easy.
   - rewrite morph_extend_by_compose, morph_extend_by_compose.
-    rewrite map_ivar_compose, map_ivar_compose.
-    rewrite close_ivar_as_map, open_ivar_as_map.
+    rewrite close_ivar_as_composition, open_ivar_as_composition.
     rewrite IHr.
     easy.
-  - rewrite morph_extend_by_id.
-    easy.
+  - apply IHr.
 Qed.
 
 Lemma apply_static_var_spec {trm} (r : renaming trm) :
@@ -246,13 +285,25 @@ Lemma apply_static_var_spec {trm} (r : renaming trm) :
 Proof.
   induction r; cbn.
   - easy.
-  - rewrite weak_ivar_as_map, open_ivar_as_map,
-      apply_static_ivar_as_map.
+  - rewrite weak_ivar_as_composition, open_ivar_as_composition,
+      apply_static_ivar_as_composition.
     easy.
-  - rewrite close_ivar_as_map, open_ivar_as_map,
-      apply_static_ivar_as_map.
+  - rewrite close_ivar_as_composition, open_ivar_as_composition,
+      apply_static_ivar_as_composition.
     easy.
   - easy.
+Qed.
+
+Lemma apply_static_ivar_compose_distribute {trm N T M R L}
+      (r : renaming trm) (f : ivar N T M) (g : morph T M R L) :
+  g @ (apply_static_ivar r f)
+  =m= apply_static_ivar r (g @ f).
+Proof.
+  intros V v.
+  rewrite apply_static_ivar_as_composition.
+  rewrite morph_associative.
+  rewrite <- apply_static_ivar_as_composition.
+  easy.
 Qed.
 
 Lemma apply_static_var_compose {trm N T M} (r : renaming trm) s
@@ -262,6 +313,6 @@ Lemma apply_static_var_compose {trm N T M} (r : renaming trm) s
 Proof.
   rewrite apply_static_var_spec.
   rewrite apply_static_ivar_compose.
-  rewrite apply_static_ivar_as_map, apply_static_ivar_as_map.
+  rewrite apply_static_ivar_as_composition, apply_static_ivar_as_composition.
   easy.
 Qed.
