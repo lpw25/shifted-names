@@ -197,6 +197,12 @@ Qed.
 Definition pnset (T : nset) (M : nat) :=
   forall V : nat, T (M + V).
 
+Definition pnset_const {T : Set} {N} (c : T) :
+  pnset (knset T) N
+  := fun V => c.
+
+Arguments pnset_const {T N} c V /.
+
 (* Extension *)
 
 Definition pnset_extend {T N} (m : pnset T N)
@@ -227,6 +233,10 @@ Definition eq_pnset_expand {T M} {f g : pnset T M}
 Definition morph (T : nset) (N : nat) (S : nset) (M : nat) :=
   forall V, @T (N + V) -> @S (M + V).
 
+Declare Scope morph_scope.
+Delimit Scope morph_scope with morph.
+Bind Scope morph_scope with morph.
+
 Definition morph_inject {T S: nset} {N}
            (f : forall V, @T V -> @S V)
   : morph (@T) N (@S) N := fun V t => f (N + V) t.
@@ -237,8 +247,6 @@ Definition morph_id {T N} : morph (@T) N (@T) N :=
   (fun _ t => t).
 
 Arguments morph_id {T N} V t /.
-
-Declare Scope morph_scope.
 
 Notation " 1 " := morph_id : morph_scope.
 
@@ -255,17 +263,14 @@ Notation "m1 @ m2" := (morph_compose m1 m2)
     (at level 60, right associativity)
   : morph_scope.
 
-Bind Scope morph_scope with morph.
-Open Scope morph_scope.
-
 Lemma morph_left_identity :
   forall T N S M (f : morph (@T) N (@S) M),
-    1 @ f = f.
+    (1 @ f = f)%morph.
 Proof. reflexivity. Qed.
 
 Lemma morph_right_identity :
   forall T N S M (f : morph (@T) N (@S) M),
-    f @ 1 = f.
+    (f @ 1 = f)%morph.
 Proof. reflexivity. Qed.
 
 Lemma morph_associative :
@@ -273,7 +278,7 @@ Lemma morph_associative :
      (f : morph (@T) N (@S) M)
      (g : morph (@R) L (@T) N)
      (h : morph (@U) O (@R) L),
-    f @ (g @ h) = (f @ g) @ h.
+    (f @ (g @ h) = (f @ g) @ h)%morph.
 Proof. reflexivity. Qed.
 
 (* Extension *)
@@ -292,9 +297,7 @@ Definition morph_apply {T N R L} (m : morph (@T) N (@R) L)
            (f : pnset T N) : pnset R L :=
   fun V => m V (f V).
 
-(* kmorph T S M == morph (knsert T) N S M *)
-Definition kmorph (T : Set) (S : nset) (M : nat) :=
-  forall V : nat, T -> S (M + V).
+Arguments morph_apply {T N R L} m f V /.
 
 (* Equality *)
 
@@ -371,6 +374,59 @@ Proof.
   rewrite nset_unextended_extended_eq.
   easy.
 Qed.
+
+(* kmorph T S M == morph (knsert T) N S M *)
+Definition kmorph (T : Set) (S : nset) (M : nat) :=
+  forall V : nat, T -> S (M + V).
+
+Declare Scope kmorph_scope.
+Delimit Scope kmorph_scope with kmorph.
+Bind Scope kmorph_scope with kmorph.
+
+Definition kmorph_inject {T : Set} {S: nset} {N}
+           (f : forall V, T -> @S V)
+  : kmorph T (@S) N := fun V t => f (N + V) t.
+
+Arguments kmorph_inject {T S N} f /.
+
+Definition kmorph_id {T N} : kmorph T (knset T) N :=
+  (fun _ t => t).
+
+Arguments kmorph_id {T N} V t /.
+
+Definition kmorph_compose {T S M R L} :
+  morph (@S) M (@R) L ->
+  kmorph T (@S) M ->
+  kmorph T (@R) L :=
+  fun m2 m1 =>
+    fun V t => m2 V (m1 V t).
+
+Arguments kmorph_compose {T S M R L} m1 m2 V t /.
+
+Notation " 1 " := kmorph_id : kmorph_scope.
+
+Notation "m1 @ m2" := (kmorph_compose m1 m2)
+    (at level 60, right associativity)
+  : kmorph_scope.
+
+
+Lemma kmorph_left_identity :
+  forall T S M (f : kmorph T (@S) M),
+    (1 @ f = f)%kmorph.
+Proof. reflexivity. Qed.
+
+Lemma kmorph_right_identity :
+  forall T N S M (f : kmorph T (@S) M),
+    @kmorph_compose T (knset T) N (@S) M f 1 = f.
+Proof. reflexivity. Qed.
+
+Lemma kmorph_associative :
+  forall T N S M R L U
+     (f : morph (@T) N (@S) M)
+     (g : morph (@R) L (@T) N)
+     (h : kmorph U (@R) L),
+    (f @ (g @ h) = (f @ g) @ h)%kmorph.
+Proof. reflexivity. Qed.
 
 (* Equality on k-morphisms *)
 

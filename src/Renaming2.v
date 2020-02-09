@@ -206,6 +206,35 @@ Proof.
   - rewrite IHr; easy.
 Qed.
 
+Lemma transfer_open_var_open_var {trm} (r : renaming trm) a b :
+  fst (transfer_open_var r (shift_name a b))
+  = shift_name (fst (transfer_open_var r a))
+      (fst (transfer_open_var (snd (transfer_open_var r a)) b)).
+Proof.
+  generalize dependent b.
+  generalize dependent a.
+  induction r; intros c d; cbn.
+  - easy.
+  - rewrite IHr.
+    admit.
+  - remember (name_eqb c a) as eq_ca eqn:Hca.
+    symmetry in Hca.
+    remember (name_eqb (shift_name c d) a) as eq_da eqn:Hda.
+    symmetry in Hda.
+    destruct eq_ca, eq_da; cbn.
+    + apply name_eqb_eq in Hca.
+      apply name_eqb_eq in Hda; subst.
+      admit.
+    + apply name_eqb_eq in Hca; subst.
+      admit.
+
+
+Lemma transfer_open_var_compose_static {trm} (r s : renaming trm) a :
+   fst (transfer_open_var (compose_static r s) a)
+   = fst (transfer_open_var s (fst (transfer_open_var r a))).
+Proof.
+
+
 Lemma transfer_open_var_compose_static {trm} (r s : renaming trm) a :
    fst (transfer_open_var (compose_static r s) a)
    = fst (transfer_open_var s (fst (transfer_open_var r a))).

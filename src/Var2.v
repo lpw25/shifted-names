@@ -15,6 +15,8 @@ Proof. apply Nat.eqb_eq. Qed.
    like streams *)
 Definition iindex (T : nset) M := kmorph index T M.
 
+Bind Scope kmorph_scope with iindex.
+
 Definition get_iindex {T M} (i : index) (f : iindex T M)
   : pnset T M :=
   fun V => f V i.
@@ -122,7 +124,7 @@ Definition shift_index (i : index) : index -> index :=
   delete_iindex i id_iindex 0.
 
 Definition unshift_index (i : index) : index -> index :=
-  insert_iindex i (fun V => i) id_iindex 0.
+  insert_iindex i (pnset_const i) id_iindex 0.
 
 Definition shift_above_index (i : index) : index -> index :=
   shift_index (S i).
@@ -301,6 +303,7 @@ Hint Rewrite @red_delete_iindex_ge @red_delete_iindex_lt
 
 (* Rewrite operations using reductions *)
 Ltac red_iindexs :=
+  autorewrite with red_iindexs;
   repeat progress
     (try (rewrite_strat topdown (hints red_iindexs)); cbn).
 
@@ -412,10 +415,16 @@ Lemma simpl_unshift_shift_index_shift_above_index i j :
   unshift_index (shift_index i j) (shift_above_index j i) = i.
 Proof. case_order i j. Qed.
 
+(* Unshift is right inverse of shift *)
+Lemma simpl_shift_index_unshift_index i j :
+  unshift_index i (shift_index i j) = j.
+Proof. case_order i j. Qed.
+
 Hint Rewrite simpl_shift_shift_index_unshift_index
      simpl_unshift_unshift_index_shift_index
      simpl_unshift_shift_above_index_shift_index
      simpl_unshift_shift_index_shift_above_index
+     simpl_shift_index_unshift_index
   : simpl_indexs.
 
 (* Unfolding derived operations *)
@@ -434,7 +443,7 @@ Lemma fold_move_iindex {T M} i j (f : iindex T M) :
   = move_iindex i j f.
 Proof. easy. Qed.
 
-Hint Rewrite @fold_move_iindex : fold_iindexs. 
+Hint Rewrite @fold_move_iindex : fold_iindexs.
 
 (* Simplify [iindex] terms by unfolding, simplifying and folding *)
 Ltac simpl_iindexs :=
@@ -669,6 +678,78 @@ Definition swap_move_iindex_delete_iindex {T M} i j k f :=
   eq_kmorph_expand
     (@swap_move_iindex_delete_iindex_pointwise T M i j k f).
 
+(* Commuting [index] operations *)
+
+Lemma swap_shift_index_shift_index i j k :
+  shift_index i (shift_index j k)
+  = shift_index (shift_index i j)
+      (shift_index (unshift_index j i) k).
+Proof.
+  case_order i j;
+    case_order j k; try easy;
+      case_order i k; try easy;
+        case_order (S k) i; easy.
+Qed.
+
+Lemma swap_shift_index_unshift_index i j k :
+  shift_index i (unshift_index j k)
+  = unshift_index (shift_index i j)
+      (shift_index (shift_above_index j i) k).
+Proof.
+  case_order i j;
+    case_order j k; try easy;
+      case_order i k; try easy.
+Qed.
+
+Lemma swap_unshift_index_unshift_index i j k :
+  unshift_index i (unshift_index j k)
+  = unshift_index (unshift_index i j)
+      (unshift_index (shift_index j i) k).
+Proof.
+  case_order i j;
+    case_order j k; try easy;
+      case_order i k; try easy;
+        case_order (S i) k; easy.
+Qed.
+
+(* There is a full covariant functor from [T O] to [iindex N T O]
+   by composition.
+
+   Such composition distributes over our operations. *)
+
+Lemma get_iindex_compose_distribute {T M R L} i
+      (f : iindex T M) (g : morph T M R L) :
+  morph_apply g (get_iindex i f) =p= get_iindex i (g @ f).
+Proof. easy. Qed.
+
+Lemma delete_iindex_compose_distribute {T M R L} i
+      (f : iindex T M) (g : morph T M R L) :
+  g @ (delete_iindex i f) =km= delete_iindex i (g @ f).
+Proof.
+  intros V j.
+  case_order i j; easy.
+Qed.
+
+Lemma insert_iindex_compose_distribute {T M R L} i a
+      (f : iindex T M) (g : morph T M R L) :
+  g @ (insert_iindex i a f)
+  =km= insert_iindex i (morph_apply g a) (g @ f).
+Proof.
+  intros V j.
+  case_order i j; easy.
+Qed.
+
+Lemma move_iindex_compose_distribute {T M R L} i j
+      (f : iindex T M) (g : morph T M R L) :
+  g @ (move_iindex i j f) =km= move_iindex i j (g @ f).
+Proof.
+  unfold move_iindex.
+  rewrite insert_iindex_compose_distribute.
+  rewrite get_iindex_compose_distribute.
+  rewrite delete_iindex_compose_distribute.
+  easy.
+Qed.
+
 (* Free names are a pair of a string and an index *)
 
 Set Primitive Projections.
@@ -728,6 +809,8 @@ Qed.
 (* Liftable functions from [names]s to [nset]s that we treat
    like direct sums of streams *)
 Definition iname (T : nset) M := kmorph name T M.
+
+Bind Scope kmorph_scope with iname.
 
 Definition project_iname {T M} s (f : iname T M) : iindex T M :=
   fun V (i : index) => f V (mkname s i).
@@ -824,7 +907,7 @@ Definition shift_name (n : name) : name -> name :=
   delete_iname n id_iname 0.
 
 Definition unshift_name (n : name) : name -> name :=
-  insert_iname n (fun V => n) id_iname 0.
+  insert_iname n (pnset_const n) id_iname 0.
 
 Definition shift_above_name (n : name) : name -> name :=
   shift_name (succ_name n).
@@ -1055,6 +1138,7 @@ Hint Rewrite @red_with_iname_eq @red_with_iname_neq
 
 (* Rewrite operations using reductions *)
 Ltac red_inames :=
+  autorewrite with red_inames;
   repeat progress
     (try (rewrite_strat topdown (hints red_inames)); cbn).
 
@@ -1185,10 +1269,18 @@ Proof.
   case_string (n_string n) (n_string m); simpl_iindexs; easy.
 Qed.
 
+(* Unshift is right inverse of shift *)
+Lemma simpl_shift_name_unshift_name n m :
+  unshift_name n (shift_name n m) = m.
+Proof.
+  case_string (n_string m) (n_string n); simpl_iindexs; easy.
+Qed.
+
 Hint Rewrite simpl_shift_shift_name_unshift_name
      simpl_unshift_unshift_name_shift_name
      simpl_unshift_shift_above_name_shift_name
      simpl_unshift_shift_name_shift_above_name
+     simpl_shift_name_unshift_name
   : simpl_names.
 
 Ltac simpl_names := autorewrite with simpl_names.
@@ -1555,6 +1647,105 @@ Proof.
   rewrite swap_get_iname_delete_iname_pointwise; easy.
 Qed.
 
+(* Commuting [name] operations *)
+
+Lemma swap_shift_name_shift_name n m o :
+  shift_name n (shift_name m o)
+  = shift_name (shift_name n m)
+      (shift_name (unshift_name m n) o).
+Proof.
+  case_string (n_string n) (n_string m).
+  - case_string (n_string n) (n_string o); try easy.
+    rewrite swap_shift_index_shift_index; easy.
+  - case_string (n_string n) (n_string o); try easy.
+    case_string (n_string m) (n_string o); easy.
+Qed.
+
+Lemma swap_shift_name_unshift_name n m o :
+  shift_name n (unshift_name m o)
+  = unshift_name (shift_name n m)
+      (shift_name (shift_above_name m n) o).
+Proof.
+  case_string (n_string n) (n_string m).
+  - case_string (n_string n) (n_string o); try easy.
+    rewrite swap_shift_index_unshift_index; easy.
+  - case_string (n_string n) (n_string o); try easy.
+    case_string (n_string m) (n_string o); easy.
+Qed.
+
+Lemma swap_unshift_name_unshift_name n m o :
+  unshift_name n (unshift_name m o)
+  = unshift_name (unshift_name n m)
+      (unshift_name (shift_name m n) o).
+Proof.
+  case_string (n_string n) (n_string m).
+  - case_string (n_string n) (n_string o); try easy.
+    rewrite swap_unshift_index_unshift_index; easy.
+  - case_string (n_string n) (n_string o); try easy.
+    case_string (n_string m) (n_string o); easy.
+Qed.
+
+(* There is a full covariant functor from [T O] to [iname N T O]
+   by composition.
+
+   Such composition distributes over our operations. *)
+
+Lemma project_iname_compose_distribute {T M R L} s
+      (f : iname T M) (g : morph T M R L) :
+  g @ (project_iname s f) =km= project_iname s (g @ f).
+Proof. easy. Qed.
+
+Lemma with_iname_compose_distribute {T M R L} s
+      (f : iindex T M) (g : iname T M) (h : morph T M R L) :
+  h @ (with_iname s f g) =km= with_iname s (h @ f) (h @ g).
+Proof.
+  intros V n.
+  case_string s (n_string n); easy.
+Qed.
+
+Lemma get_iname_compose_distribute {T M R L} n
+      (f : iname T M) (g : morph T M R L) :
+  morph_apply g (get_iname n f) =p= get_iname n (g @ f).
+Proof.
+  unfold get_iname.
+  rewrite get_iindex_compose_distribute.
+  rewrite project_iname_compose_distribute.
+  easy.
+Qed.
+
+Lemma delete_iname_compose_distribute {T M R L} n
+      (f : iname T M) (g : morph T M R L) :
+  g @ (delete_iname n f) =km= delete_iname n (g @ f).
+Proof.
+  unfold delete_iname.
+  rewrite with_iname_compose_distribute.
+  rewrite delete_iindex_compose_distribute.
+  rewrite project_iname_compose_distribute.
+  easy.
+Qed.
+
+Lemma insert_iname_compose_distribute {T M R L} n a
+      (f : iname T M) (g : morph T M R L) :
+  g @ (insert_iname n a f)
+  =km= insert_iname n (morph_apply g a) (g @ f).
+Proof.
+  unfold insert_iname.
+  rewrite with_iname_compose_distribute.
+  rewrite insert_iindex_compose_distribute.
+  rewrite project_iname_compose_distribute.
+  easy.
+Qed.
+
+Lemma move_iname_compose_distribute {T M R L} n m
+      (f : iname T M) (g : morph T M R L) :
+  g @ (move_iname n m f) =km= move_iname n m (g @ f).
+Proof.
+  unfold move_iname.
+  rewrite insert_iname_compose_distribute.
+  rewrite get_iname_compose_distribute.
+  rewrite delete_iname_compose_distribute.
+  easy.
+Qed.
 
 (* Bound variables are represented by a level *)
 
@@ -1571,6 +1762,8 @@ Arguments level !V.
 
 (* Liftable morphisms from [level]s that we treat like streams *)
 Definition ilevel N T M := morph level N T M.
+
+Bind Scope morph_scope with ilevel.
 
 Definition hd_ilevel {N T M} (f : ilevel (S N) T M) : pnset T M :=
   fun V => @f V l0.
@@ -1697,6 +1890,43 @@ Ltac simpl_ilevels_pointwise :=
      try (rewrite_strat topdown (hints simpl_ilevels_pointwise)));
   autorewrite with fold_ilevels.
 
+(* There is a full covariant functor from [T O] to [ilevel N T O]
+   by composition.
+
+   Such composition distributes over our operations. *)
+
+Lemma hd_ilevel_compose_distribute {N T M R L}
+      (f : ilevel (S N) T M) (g : morph T M R L) :
+  morph_apply g (hd_ilevel f) =p= hd_ilevel (g @ f).
+Proof. easy. Qed.
+
+Lemma tl_ilevel_compose_distribute {N T M R L}
+      (f : ilevel (S N) T M) (g : morph T M R L) :
+  g @ (tl_ilevel f) =m= tl_ilevel (g @ f).
+Proof. easy. Qed.
+
+Lemma cons_ilevel_compose_distribute {N T M R L} a
+      (f : ilevel N T M) (g : morph T M R L) :
+  g @ (cons_ilevel a f) =m= cons_ilevel (morph_apply g a) (g @ f).
+Proof.
+  intros V l.
+  destruct l; easy.
+Qed.
+
+Lemma transpose_ilevel_compose_distribute {N T M R L}
+      (f : ilevel (S (S N)) T M) (g : morph T M R L) :
+  g @ (transpose_ilevel f) =m= transpose_ilevel (g @ f).
+Proof.
+  unfold transpose_ilevel.
+  rewrite cons_ilevel_compose_distribute.
+  rewrite hd_ilevel_compose_distribute.
+  rewrite tl_ilevel_compose_distribute.
+  rewrite cons_ilevel_compose_distribute.
+  rewrite hd_ilevel_compose_distribute.
+  rewrite tl_ilevel_compose_distribute.
+  easy.
+Qed.
+
 (* Variables are either free names or bound levels *)
 
 Inductive var (V : nat) :=
@@ -1708,6 +1938,8 @@ Arguments bound {V} l.
 
 (* Liftable morphisms from [var]s that we treat like pairs *)
 Definition ivar N T M := morph var N T M.
+
+Bind Scope morph_scope with ivar.
 
 Definition fst_ivar {N T M} (f : ivar N T M) : iname T M :=
     fun V (n : name) => f V (free n).
@@ -2517,6 +2749,114 @@ Definition swap_subst_ivar_bind_ivar {N T M} n t s f :=
   eq_morph_expand
     (@swap_subst_ivar_bind_ivar_pointwise N T M n t s f).
 
+(* There is a full covariant functor from [T O] to [ivar N T O]
+   by composition.
+
+   Such composition distributes over our operations. *)
+
+Lemma pair_ivar_compose_distribute {N T M R L}
+      (f : iname T M) (g : ilevel N T M) (h : morph T M R L) :
+  h @ (pair_ivar f g) =m= pair_ivar (h @ f) (h @ g).
+Proof.
+  intros V v.
+  destruct v; easy.
+Qed.
+
+Lemma fst_ivar_compose_distribute {N T M R L}
+      (f : ivar N T M) (g : morph T M R L) :
+  g @ (fst_ivar f) =km= fst_ivar (g @ f).
+Proof. easy. Qed.
+
+Lemma snd_ivar_compose_distribute {N T M R L}
+      (f : ivar N T M) (g : morph T M R L) :
+  g @ (snd_ivar f) =m= snd_ivar (g @ f).
+Proof. easy. Qed.
+
+Lemma open_ivar_compose_distribute {N T M R L} n
+      (f : ivar N T M) (g : morph T M R L) :
+  g @ (open_ivar n f) =m= open_ivar n (g @ f).
+Proof.
+  unfold open_ivar.
+  rewrite pair_ivar_compose_distribute.
+  rewrite delete_iname_compose_distribute.
+  rewrite fst_ivar_compose_distribute.
+  rewrite cons_ilevel_compose_distribute.
+  rewrite get_iname_compose_distribute.
+  rewrite snd_ivar_compose_distribute.
+  easy.
+Qed.
+
+Lemma close_ivar_compose_distribute {N T M R L} n
+      (f : ivar (S N) T M) (g : morph T M R L) :
+  g @ (close_ivar n f) =m= close_ivar n (g @ f).
+Proof.
+  unfold close_ivar.
+  rewrite pair_ivar_compose_distribute.
+  rewrite insert_iname_compose_distribute.
+  rewrite hd_ilevel_compose_distribute.
+  rewrite snd_ivar_compose_distribute.
+  rewrite fst_ivar_compose_distribute.
+  rewrite tl_ilevel_compose_distribute.
+  rewrite snd_ivar_compose_distribute.
+  easy.
+Qed.
+
+Lemma weak_ivar_compose_distribute {N T M R L}
+      (f : ivar (S N) T M) (g : morph T M R L) :
+  g @ (weak_ivar f) =m= weak_ivar (g @ f).
+Proof.
+  unfold weak_ivar.
+  rewrite pair_ivar_compose_distribute.
+  rewrite fst_ivar_compose_distribute.
+  rewrite tl_ilevel_compose_distribute.
+  rewrite snd_ivar_compose_distribute.
+  easy.
+Qed.
+
+Lemma bind_ivar_compose_distribute {N T M R L} t
+      (f : ivar N T M) (g : morph T M R L) :
+  g @ (bind_ivar t f)
+  =m= bind_ivar (morph_apply g t) (g @ f).
+Proof.
+  unfold bind_ivar.
+  rewrite pair_ivar_compose_distribute.
+  rewrite fst_ivar_compose_distribute.
+  rewrite cons_ilevel_compose_distribute.
+  rewrite snd_ivar_compose_distribute.
+  easy.
+Qed.
+
+Lemma rename_ivar_compose_distribute {N T M R L} n m
+      (f : ivar N T M) (g : morph T M R L) :
+  g @ (rename_ivar n m f) =m= rename_ivar n m (g @ f).
+Proof.
+  unfold rename_ivar.
+  rewrite close_ivar_compose_distribute.
+  rewrite open_ivar_compose_distribute.
+  easy.
+Qed.
+
+Lemma shift_ivar_compose_distribute {N T M R L} n
+      (f : ivar N T M) (g : morph T M R L) :
+  g @ (shift_ivar n f) =m= shift_ivar n (g @ f).
+Proof.
+  unfold shift_ivar.
+  rewrite weak_ivar_compose_distribute.
+  rewrite open_ivar_compose_distribute.
+  easy.
+Qed.
+
+Lemma subst_ivar_compose_distribute {N T M R L} n t
+      (f : ivar N T M) (g : morph T M R L) :
+  g @ (subst_ivar n t f)
+  =m= subst_ivar n (morph_apply g t) (g @ f).
+Proof.
+  unfold subst_ivar.
+  rewrite close_ivar_compose_distribute.
+  rewrite bind_ivar_compose_distribute.
+  easy.
+Qed.
+
 (* There is a full contravariant functor from [var N] to [ivar N
    T O] by composition.
 
@@ -2530,33 +2870,29 @@ Definition rename_var a b : ivar 0 var 0 :=
   (open_var b) @ (close_var a).
 Definition shift_var a : ivar 0 var 0 := (open_var a) @ weak_var.
 
-(* TODO: Find modular way to prove these *)
-
 Lemma open_ivar_as_composition {N T M} n (f : ivar N T M) :
   open_ivar n f =m= f @ (morph_extend_by N (open_var n)).
 Proof.
-  intros V v.
-  destruct v as [m|l]; cbn.
-  - case_string (n_string n) (n_string m); try easy.
-    case_order (n_index n) (n_index m); easy.
-  - destruct l; easy.
+  rewrite <- morph_right_identity with (f := f) at 1.
+  rewrite <- open_ivar_compose_distribute.
+  easy.
 Qed.
 
 Lemma close_ivar_as_composition {N T M} n (f : ivar (S N) T M) :
   close_ivar n f =m=
   f @ (morph_extend_by N (close_var n)).
 Proof.
-  intros V v.
-  destruct v as [m|l]; cbn; try easy.
-  case_string (n_string n) (n_string m); try easy.
-  case_order (n_index n) (n_index m); easy.
+  rewrite <- morph_right_identity with (f := f) at 1.
+  rewrite <- close_ivar_compose_distribute.
+  easy.
 Qed.
 
 Lemma weak_ivar_as_composition {N T M} (f : ivar (S N) T M) :
   weak_ivar f =m= f @ (morph_extend_by N weak_var).
 Proof.
-  intros V v.
-  destruct v as [n|l]; easy.
+  rewrite <- morph_right_identity with (f := f) at 1.
+  rewrite <- weak_ivar_compose_distribute.
+  easy.
 Qed.
 
 Lemma rename_ivar_as_composition {N T M} n m (f : ivar N T M) :
@@ -2573,87 +2909,8 @@ Lemma shift_ivar_as_composition {N T M} n (f : ivar N T M) :
   shift_ivar n f
   =m= f @ (morph_extend_by N (shift_var n)).
 Proof.
-  intros V v.
   unfold shift_var, shift_ivar.
   rewrite morph_extend_by_compose,
     open_ivar_as_composition, weak_ivar_as_composition.
-  easy.
-Qed.
-
-(* There is a full covariant functor from [T O] to [ivar N T O]
-   by composition.
-
-   Such composition distributes over our operations. *)
-
-Lemma open_ivar_compose_distribute {N T M R L} n
-      (f : ivar N T M) (g : morph T M R L) :
-  g @ (open_ivar n f) =m= open_ivar n (g @ f).
-Proof.
-  rewrite open_ivar_as_composition.
-  rewrite morph_associative.
-  rewrite <- open_ivar_as_composition.
-  easy.
-Qed.
-
-Lemma close_ivar_compose_distribute {N T M R L} n
-      (f : ivar (S N) T M) (g : morph T M R L) :
-  g @ (close_ivar n f) =m= close_ivar n (g @ f).
-Proof.
-  rewrite close_ivar_as_composition.
-  rewrite morph_associative.
-  rewrite <- close_ivar_as_composition.
-  easy.
-Qed.
-
-Lemma weak_ivar_compose_distribute {N T M R L}
-      (f : ivar (S N) T M) (g : morph T M R L) :
-  g @ (weak_ivar f) =m= weak_ivar (g @ f).
-Proof.
-  rewrite weak_ivar_as_composition.
-  rewrite morph_associative.
-  rewrite <- weak_ivar_as_composition.
-  easy.
-Qed.
-
-Lemma bind_ivar_compose_distribute {N T M R L} t
-      (f : ivar N T M) (g : morph T M R L) :
-  g @ (bind_ivar t f)
-  =m= bind_ivar (morph_apply g t) (g @ f).
-Proof.
-  intros V v.
-  destruct v as [m|l]; cbn.
-  - easy.
-  - destruct l; easy.
-Qed.
-
-Lemma rename_ivar_compose_distribute {N T M R L} n m
-      (f : ivar N T M) (g : morph T M R L) :
-  g @ (rename_ivar n m f) =m= rename_ivar n m (g @ f).
-Proof.
-  rewrite rename_ivar_as_composition.
-  rewrite morph_associative.
-  rewrite <- rename_ivar_as_composition.
-  easy.
-Qed.
-
-Lemma shift_ivar_compose_distribute {N T M R L} n
-      (f : ivar N T M) (g : morph T M R L) :
-  g @ (shift_ivar n f) =m= shift_ivar n (g @ f).
-Proof.
-  rewrite shift_ivar_as_composition.
-  rewrite morph_associative.
-  rewrite <- shift_ivar_as_composition.
-  easy.
-Qed.
-
-Lemma subst_ivar_compose_distribute {N T M R L} n t
-      (f : ivar N T M) (g : morph T M R L) :
-  g @ (subst_ivar n t f)
-  =m= subst_ivar n (morph_apply g t) (g @ f).
-Proof.
-  intros V v.
-  unfold subst_ivar.
-  rewrite close_ivar_compose_distribute,
-    bind_ivar_compose_distribute.
   easy.
 Qed.
