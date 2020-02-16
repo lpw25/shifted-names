@@ -28,7 +28,9 @@ Notation "u // a" := (r_subst u r_id a)
 Notation "r , a" := (r_rename a r a)
   (at level 47, left associativity) : ren_scope.
 
+(*
 Delimit Scope ren_scope with ren.
+*)
 
 Fixpoint static {trm : Set} (r : renaming trm) : Prop :=
   match r with
@@ -206,7 +208,7 @@ Proof.
   - rewrite IHr; easy.
 Qed.
 
-Lemma transfer_open_var_open_var {trm} (r : renaming trm) a b :
+Lemma transfer_open_var_shift_name {trm} (r : renaming trm) a b :
   fst (transfer_open_var r (shift_name a b))
   = shift_name (fst (transfer_open_var r a))
       (fst (transfer_open_var (snd (transfer_open_var r a)) b)).
@@ -216,7 +218,8 @@ Proof.
   induction r; intros c d; cbn.
   - easy.
   - rewrite IHr.
-    admit.
+    rewrite swap_shift_name_shift_name.
+    easy.
   - remember (name_eqb c a) as eq_ca eqn:Hca.
     symmetry in Hca.
     remember (name_eqb (shift_name c d) a) as eq_da eqn:Hda.
@@ -224,18 +227,90 @@ Proof.
     destruct eq_ca, eq_da; cbn.
     + apply name_eqb_eq in Hca.
       apply name_eqb_eq in Hda; subst.
-      admit.
+      contradict Hda.
+      apply shift_name_neq.
     + apply name_eqb_eq in Hca; subst.
-      admit.
+      simpl_names; easy.
+    + apply name_eqb_neq in Hca.
+      apply name_eqb_eq in Hda; subst.
+      simpl_names.
+      easy.
+    + apply name_eqb_neq in Hca.
+      apply name_eqb_neq in Hda.
+      remember (name_eqb d (unshift_name c a))
+        as dca eqn:Hdca.
+      symmetry in Hdca.
+      destruct dca.
+      * rewrite name_eqb_eq in Hdca; subst.
+        contradict Hda.
+        simpl_names; easy.
+      * rewrite name_eqb_neq in Hdca.
+        simpl_names; cbn.
+        rewrite <- swap_shift_name_shift_name.
+        rewrite <- IHr.
+        rewrite swap_unshift_name_shift_name by easy.
+        easy.
+  - apply IHr.
+Qed.
 
-
-Lemma transfer_open_var_compose_static {trm} (r s : renaming trm) a :
-   fst (transfer_open_var (compose_static r s) a)
-   = fst (transfer_open_var s (fst (transfer_open_var r a))).
+Lemma transfer_open_var_unshift_name {trm} (r : renaming trm) a b :
+  fst (transfer_open_var
+         (snd (transfer_open_var r (shift_name a b)))
+         (unshift_name b a))
+  = unshift_name
+      (fst (transfer_open_var (snd (transfer_open_var r a)) b))
+      (fst (transfer_open_var r a)).
 Proof.
+  generalize dependent b.
+  generalize dependent a.
+  induction r; intros c d; cbn.
+  - easy.
+  - rewrite IHr.
+    rewrite transfer_open_var_shift_name.
+    remember (fst
+          (transfer_open_var
+             (snd (transfer_open_var r c)) d)) as e.
+    remember (fst (transfer_open_var r c)) as f.
+    rewrite swap_shift_name_unshift_name.
+
+    
+
+    easy.
+  - remember (name_eqb c a) as eq_ca eqn:Hca.
+    symmetry in Hca.
+    remember (name_eqb (shift_name c d) a) as eq_da eqn:Hda.
+    symmetry in Hda.
+    destruct eq_ca, eq_da; cbn.
+    + apply name_eqb_eq in Hca.
+      apply name_eqb_eq in Hda; subst.
+      contradict Hda.
+      apply shift_name_neq.
+    + apply name_eqb_eq in Hca; subst.
+      simpl_names; easy.
+    + apply name_eqb_neq in Hca.
+      apply name_eqb_eq in Hda; subst.
+      simpl_names.
+      easy.
+    + apply name_eqb_neq in Hca.
+      apply name_eqb_neq in Hda.
+      remember (name_eqb d (unshift_name c a))
+        as dca eqn:Hdca.
+      symmetry in Hdca.
+      destruct dca.
+      * rewrite name_eqb_eq in Hdca; subst.
+        contradict Hda.
+        simpl_names; easy.
+      * rewrite name_eqb_neq in Hdca.
+        simpl_names; cbn.
+        rewrite <- swap_shift_name_shift_name.
+        rewrite <- IHr.
+        rewrite swap_unshift_name_shift_name by easy.
+        easy.
+  - apply IHr.
 
 
-Lemma transfer_open_var_compose_static {trm} (r s : renaming trm) a :
+Lemma transfer_open_var_compose_static_fst {trm}
+      (r s : renaming trm) a :
    fst (transfer_open_var (compose_static r s) a)
    = fst (transfer_open_var s (fst (transfer_open_var r a))).
 Proof.
@@ -244,15 +319,58 @@ Proof.
   induction r; intros s c; cbn.
   - easy.
   - rewrite IHr.
+    rewrite transfer_open_var_open_var.
+    easy.
+  - remember (name_eqb c a) as ca eqn:Hca.
+    symmetry in Hca.
+    destruct ca.
+    + rewrite name_eqb_eq in Hca; subst.
+      easy.
+    + rewrite IHr.
+      simpl_ivars.
+      rewrite transfer_open_var_open_var.
+      easy.
+  - apply IHr.
+Qed.
+
+Lemma transfer_open_var_compose_static_snd {trm}
+      (r s : renaming trm) a :
+  snd (transfer_open_var (compose_static r s) a)
+  = compose_static (snd (transfer_open_var r a))
+      (snd (transfer_open_var s (fst (transfer_open_var r a)))).
+Proof.
+  generalize dependent a.
+  generalize dependent s.
+  induction r; intros s c; cbn.
+  - easy.
+  - f_equal.
+    + rewrite transfer_open_var_compose_static_fst.
+    rewrite IHr.
+    
+    easy.
+  - remember (name_eqb c a) as ca eqn:Hca.
+    symmetry in Hca.
+    destruct ca.
+    + rewrite name_eqb_eq in Hca; subst.
+      easy.
+    + rewrite IHr.
+      simpl_ivars.
+      rewrite transfer_open_var_open_var.
+      easy.
+  - apply IHr.
 Qed.
 
 Lemma compose_static_associative {trm} (r s t : renaming trm) :
   compose_static r (compose_static s t)
   = compose_static (compose_static r s) t.
 Proof.
-  induction r; cbn.
+  generalize dependent s.
+  generalize dependent t.
+  induction r; intros u s; cbn.
   - easy.
-  -
+  - rewrite transfer_open_var_compose_static.
+    rewrite <- IHr.
+    f_equal.
   -
   - rewrite IHr; easy.
 Qed.
