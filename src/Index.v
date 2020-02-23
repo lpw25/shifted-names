@@ -647,7 +647,74 @@ Lemma transpose_iindex_reverse_left  {T M} (op1 op2 op3 : iindex_op T M) :
     = normalize_iindex_left op3 op2
         (transpose_iindex_left op1 op3 i1
           (transpose_iindex_left op2 op3 i2 i3))
-        (transpose_iindex_left op1 op2 i1 i2).
+        (transpose_iindex_left op1 op2 i1
+           (transpose_iindex_right op2 op3 i2 i3)).
+Proof.
+  intros i1 i2 i3 Hirr1 Hirr2 Hirr3.
+  destruct op1, op2, op3; cbn in *;
+    case_order i1 i2;
+      case_order i2 i3; try easy;
+        case_order i1 i3; try easy.
+  - case_order i3 (pred i1).
+  - case_order i2 (pred i1).
+  - case_order i2 (pred i1).
+  - case_order i2 (pred i1).
+  - case_order i1 (pred i3).
+  - case_order i1 (pred i3).
+  - case_order i2 (pred i3).
+  - case_order i1 (pred i3).
+  - case_order i1 (pred i3).
+Qed.
+
+Lemma transpose_iindex_reverse_right  {T M} (op1 op2 op3 : iindex_op T M) :
+  forall i1 i2 i3,
+    irreducible_iindex_ops op1 op2 i1 i2 ->
+    irreducible_iindex_ops op2 op3 i2 i3 ->
+    irreducible_iindex_ops op1 op3 i1 (transpose_iindex_left op2 op3 i2 i3) ->
+    transpose_iindex_right op1 op2
+      (transpose_iindex_right op1 op3 i1
+         (transpose_iindex_left op2 op3 i2 i3))
+      (transpose_iindex_right op2 op3 i2 i3)
+    = normalize_iindex_right op2 op1
+        (transpose_iindex_right op2 op3
+           (transpose_iindex_left op1 op2 i1 i2) i3)
+        (transpose_iindex_right op1 op3
+          (transpose_iindex_right op1 op2 i1 i2) i3).
+Proof.
+  intros i1 i2 i3 Hirr1 Hirr2 Hirr3.
+  destruct op1, op2, op3; cbn in *;
+    case_order i1 i2;
+      case_order i2 i3; try easy;
+        case_order i1 i3; try easy.
+  - case_order i3 (pred i1).
+  - case_order i2 (pred i1).
+  - case_order i1 (pred i2).
+  - case_order (pred i3) i2.
+  - case_order i2 (pred i3).
+  - case_order i1 (pred i3).
+  - case_order i1 (pred i3).
+  - case_order i1 (pred i3).
+Qed.
+
+Lemma transpose_iindex_reverse_middle  {T M} (op1 op2 op3 : iindex_op T M) :
+  forall i1 i2 i3,
+    irreducible_iindex_ops op1 op2 i1 i2 ->
+    irreducible_iindex_ops op2 op3 i2 i3 ->
+    irreducible_iindex_ops op1 op3 i1 (transpose_iindex_left op2 op3 i2 i3) ->
+    normalize_iindex_right op3 op2
+      (transpose_iindex_left op1 op3 i1
+          (transpose_iindex_left op2 op3 i2 i3))
+      (transpose_iindex_left op1 op2
+        (transpose_iindex_right op1 op3 i1
+           (transpose_iindex_left op2 op3 i2 i3))
+        (transpose_iindex_right op2 op3 i2 i3))
+    = normalize_iindex_left op2 op1
+        (transpose_iindex_right op2 op3
+          (transpose_iindex_left op1 op2 i1 i2)
+          (transpose_iindex_left op1 op3
+            (transpose_iindex_right op1 op2 i1 i2) i3))
+        (transpose_iindex_right op1 op3
+          (transpose_iindex_right op1 op2 i1 i2) i3).
 Proof.
   intros i1 i2 i3 Hirr1 Hirr2 Hirr3.
   remember op1 as oper1.
@@ -659,41 +726,10 @@ Proof.
         case_order i1 i3; try easy.
   - case_order i3 (pred i1).
   - case_order i2 (pred i1).
+  - case_order i1 (pred i2).
+  - case_order (pred i3) i2.
   - case_order i1 (pred i3).
-  - case_order i1 (pred i3).
-  - case_order i2 (pred i3).
-  - case_order i1 (pred i3).
-  - case_order i1 (pred i3).
-Qed.
-
-Lemma transpose_iindex_reverse_right  {T M} (op1 op2 op3 : iindex_op T M) :
-  forall i1 i2 i3,
-(*    irreducible_iindex_ops op1 op2 i1 i2 ->
-    irreducible_iindex_ops op2 op3 i2 i3 ->
-    irreducible_iindex_ops op1 op3 i1 (transpose_iindex_left op2 op3 i2 i3) ->*)
-    transpose_iindex_right op1 op2
-      (transpose_iindex_right op1 op3 i1
-         (transpose_iindex_left op2 op3 i2 i3))
-      (transpose_iindex_right op2 op3 i2 i3)
-    = normalize_iindex_right op2 op1
-        (transpose_iindex_right op2 op3 i2 i3)
-        (transpose_iindex_right op1 op3
-          (transpose_iindex_right op1 op2 i1 i2) i3).
-Proof.
-  intros i1 i2 i3 (*Hirr1 Hirr2 Hirr3*).
-  remember op1 as oper1.
-  remember op2 as oper2.
-  remember op3 as oper3.
-  destruct oper1, oper2, oper3; cbn in *;
-    case_order i1 i2;
-      case_order i2 i3; try easy;
-        case_order i1 i3; try easy.
-  - case_order i3 (pred i1).
   - case_order i2 (pred i1).
-  - case_order i2 (S i1).
-    
-  - case_order i1 (pred i3).
-  - case_order i2 (pred i3).
   - case_order i1 (pred i3).
   - case_order i1 (pred i3).
 Qed.
@@ -768,14 +804,6 @@ Proof. case_order i j. Qed.
 Lemma simpl_unshift_shift_index_shift_above_index i j :
   unshift_index (shift_index i j) (shift_above_index j i) = i.
 Proof. case_order i j. Qed.
-
-     shift (shift n m) (unshift m n) = n
-     unshift (shift_above n m) (shift m n) = n
-     shift_above (unshift n m) (unshift m n) = n
-     unshift (unshift n m) (shift m n) = n
-     shift (unshift n m) (unshift m n) = n
-     unshift (shift n m) (shift_above m n) = n
-
 
 (* Unshift is right inverse of shift *)
 Lemma simpl_shift_index_unshift_index i j :
