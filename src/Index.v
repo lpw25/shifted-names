@@ -46,7 +46,7 @@ Arguments get_iindex {T M} i f V /.
 Definition delete_iindex {T M} (i : index) (f : iindex T M) :
   iindex T M :=
   fun V (j : index) =>
-    if Compare_dec.le_lt_dec i j then get_iindex (S j) f V
+    if Compare_dec.le_gt_dec i j then get_iindex (S j) f V
     else get_iindex j f V.
 
 Definition insert_iindex {T M} (a : pnset T M)
@@ -58,11 +58,6 @@ Definition insert_iindex {T M} (a : pnset T M)
     | inleft (right _) => a V
     | inright _ => get_iindex j f V
     end.
-
-(* Derived operations *)
-
-Definition move_iindex {T M} i j (f : iindex T M) :=
-  insert_iindex (get_iindex j f) i (delete_iindex j f).
 
 (* Morphism definitions *)
 
@@ -87,13 +82,6 @@ Add Parametric Morphism {T M} : (@insert_iindex T M)
   rewrite Heq1, Heq2, Heq2; easy.
 Qed.
 
-Add Parametric Morphism {T M} i j : (@move_iindex T M i j)
-    with signature eq_kmorph ==> eq_kmorph
-      as move_iindex_mor.
-  intros * Heq V k; unfold move_iindex.
-  rewrite Heq; easy.
-Qed.
-
 (* The identity [iindex] *)
 
 Definition id_iindex : iindex (knset index) 0 :=
@@ -107,7 +95,7 @@ Lemma red_delete_iindex_ge {T M} i (f : iindex T M) V j :
   delete_iindex i f V j = f V (S j).
 Proof.
   intros; unfold delete_iindex.
-  destruct (le_lt_dec i j); try easy; omega.
+  destruct (le_gt_dec i j); try easy; omega.
 Qed.
 
 Lemma red_delete_iindex_lt {T M} i (f : iindex T M) V j :
@@ -115,7 +103,7 @@ Lemma red_delete_iindex_lt {T M} i (f : iindex T M) V j :
   delete_iindex i f V j = f V j.
 Proof.
   intros; unfold delete_iindex.
-  destruct (le_lt_dec i j); try easy; omega.
+  destruct (le_gt_dec i j); try easy; omega.
 Qed.
 
 Lemma red_delete_iindex_same {T M} i (f : iindex T M) V :
@@ -257,150 +245,144 @@ Hint Rewrite @iindex_beta_get_eq_pointwise
      @iindex_eta_eq_pointwise
   using omega : simpl_iindexs_pointwise_eqn.
 
-(* Unfolding derived operations *)
-
-Lemma unfold_move_iindex {T M} i j (f : iindex T M) :
-  move_iindex i j f =
-  insert_iindex (get_iindex j f) i (delete_iindex j f).
-Proof. easy. Qed.
-
-Hint Rewrite @unfold_move_iindex : unfold_iindexs.
-
-(* Folding derived operations *)
-
-Lemma fold_move_iindex {T M} i j (f : iindex T M) :
-  insert_iindex (get_iindex j f) i (delete_iindex j f)
-  = move_iindex i j f.
-Proof. easy. Qed.
-
-Hint Rewrite @fold_move_iindex : fold_iindexs.
-
-(* Simplify [iindex] terms by unfolding, simplifying and folding *)
+(* Simplify [iindex] terms *)
 Ltac simpl_iindexs :=
-  autorewrite with unfold_iindexs;
-  autorewrite with simpl_indexs simpl_iindexs;
+  autorewrite with simpl_iindexs;
   repeat progress
     (cbn;
-     try (rewrite_strat topdown (hints simpl_indexs));
-     try (rewrite_strat topdown (hints simpl_iindexs)));
-  autorewrite with fold_iindexs.
+     try (rewrite_strat topdown (hints simpl_iindexs))).
 
 Ltac simpl_iindexs_eqn :=
-  autorewrite with unfold_iindexs;
-  autorewrite with simpl_indexs simpl_iindexs;
+  autorewrite with simpl_iindexs;
   repeat progress
     (cbn;
-     try (rewrite_strat topdown (hints simpl_indexs));
      try (rewrite_strat topdown (hints simpl_iindexs));
-     try (rewrite_strat topdown (hints simpl_iindexs_eqn)));
-  autorewrite with fold_iindexs.
+     try (rewrite_strat topdown (hints simpl_iindexs_eqn))).
 
 Ltac simpl_iindexs_pointwise :=
-  autorewrite with unfold_iindexs;
-  autorewrite with simpl_indexs simpl_iindexs_pointwise;
+  autorewrite with simpl_iindexs_pointwise;
   repeat progress
     (cbn;
-     try (rewrite_strat topdown (hints simpl_indexs));
-     try (rewrite_strat topdown (hints simpl_iindexs_pointwise)));
-  autorewrite with fold_iindexs.
+     try (rewrite_strat topdown (hints simpl_iindexs_pointwise))).
 
 Ltac simpl_iindexs_pointwise_eqn :=
-  autorewrite with unfold_iindexs;
-  autorewrite with simpl_indexs simpl_iindexs_pointwise;
+  autorewrite with simpl_iindexs_pointwise;
   repeat progress
     (cbn;
-     try (rewrite_strat topdown (hints simpl_indexs));
      try (rewrite_strat topdown (hints simpl_iindexs_pointwise));
-     try (rewrite_strat topdown (hints simpl_iindexs_pointwise_eqn)));
-  autorewrite with fold_iindexs.
+     try (rewrite_strat topdown (hints simpl_iindexs_pointwise_eqn))).
 
-(* Operational transforms
+(* Transposing [iindex] operations
 
-   Using the (somewhat dubious) notation of the operational
-   transforms literature, we define IT and ET for our
-   operations as:
+   We wish to reason about transposing [insert] and [delete]
+   operations. These operations are not commutative, however they can be
+   transposed by applying transformations to their indices.
 
-     IT(insert n, insert m) = insert (shift m n)
-     IT(insert n, delete m) = insert (unshift m n)
-     IT(delete n, insert m) = delete (shift m n)
-     IT(delete n, delete m) = delete (unshift m n)
+   This situation is very close to that studied by the "operational
+   transforms" literature in the context of collaborative text
+   editors. However, rather than define the "ET" and "IT"
+   transformations for our operations as they do, we will use a slightly
+   different formulation.
 
-     ET(insert n, insert m) = insert (unshift m n)
-     ET(insert n, delete m) = insert (shift m n)
-     ET(delete n, insert m) = delete (unshift m n)
-     ET(delete n, delete m) = delete (shift m n)
+   We define two transformations on indices:
 
-   from which we can define an additional transfrom
+     transpose_iindex_left(op1, op2, i1, i2)
 
-     XT(o1, o2) := IT(o1, ET(o2, o1))
+     transpose_iindex_right(op2, op1, i2, i1)
 
-   that expands out to:
+   such that:
 
-     XT(insert n, insert m) = insert (shift m n)
-     XT(insert n, delete m) = insert (unshift m n)
-     XT(delete n, insert m) = delete (shift_above m n)
-     XT(delete n, delete m) = delete (unshift m n)
+     op1<i1> (op2<i2>(f))
+     = op2<transpose_iindex_left(op1, op2, i1, i2)>
+         (op1<transpose_iindex_right(op2, op1, i2, i1)>(f))
 
-   With these definitions we have:
-
-     o1 (o2 f)
-     = XT(o2, o1) (ET(o1, o2) f)
-
-   and
-
-     o1 (o2 (o3 f))
-     = XT(o2, o1) (XT(o3, ET(o1, o2)) (ET(ET(o1, o2), o3) f))
-     = XT(XT(o3, o2), o1) (ET(o1, XT(o3, o2)) (ET(o2, o3) f))
-
-   which allows us to commute our operations and derived operations.
+   These transformations do not work in the case where [op1] is [delete],
+   [op2] is [insert] and [i1 = i2]. In this case the composed operations
+   reduce to the identity by beta-reduction and cannot be transposed.
 
 *)
 
-Definition shift_index (i : index) : index -> index :=
+(* [iindex] operations *)
+Inductive iindex_op T M : Type :=
+  | Ins : pnset T M -> iindex_op T M
+  | Del : iindex_op T M.
+Arguments Ins {T M} a.
+Arguments Del {T M}.
+
+Definition apply_iindex_op {T M}
+           (op : iindex_op T M) :=
+  match op with
+  | Ins a => insert_iindex a
+  | Del => delete_iindex
+  end.
+
+(* Abstract stream operations *)
+Inductive stream_op : Type :=
+  | insert : stream_op
+  | delete : stream_op.
+
+Definition stream_op_of_iindex_op {T M} (op : iindex_op T M) :=
+  match op with
+  | Ins a => insert
+  | Del => delete
+  end.
+Coercion stream_op_of_iindex_op : iindex_op >-> stream_op.
+
+(* Precondition on transposing two operations *)
+Definition irreducible_iindex_ops (op1 op2 : stream_op)
+  : index -> index -> Prop :=
+  match op1, op2 with
+  | insert, insert => fun i1 i2 => True
+  | insert, delete => fun i1 i2 => True
+  | delete, insert => fun i1 i2 => i1 <> i2
+  | delete, delete => fun i1 i2 => True
+  end.
+
+(* Shift and unshift
+
+   We define [transpose_iindex_left] and [transpose_iindex_right] in terms
+   of three operations on indices: [shift_below_index], [shift_above_index]
+   and [unshift_index].
+
+*)
+
+Definition shift_below_index (i : index) : index -> index :=
   fun (j : index) =>
-    if Compare_dec.le_lt_dec i j then S j
+    if Compare_dec.le_gt_dec i j then S j
     else j.
+
+Definition shift_above_index (i : index) : index -> index :=
+  fun (j : index) =>
+    if Compare_dec.le_gt_dec j i then j
+    else S j.
 
 Definition unshift_index (i : index) : index -> index :=
   fun (j : index) =>
-    if Compare_dec.le_lt_dec j i then j
+    if Compare_dec.le_gt_dec j i then j
     else pred j.
-
-Definition shift_above_index (i : index) : index -> index :=
-  shift_index (S i).
-
-Definition contract_down_index (i : index) : index -> index :=
-  fun (j : index) =>
-    if Nat.eq_dec (S i) j then i
-    else j.
-
-Definition contract_up_index (i : index) : index -> index :=
-  fun (j : index) =>
-    if Nat.eq_dec i (S j) then i
-    else j.
 
 (* Reductions *)
 
-Lemma red_shift_index_ge i j :
+Lemma red_shift_below_index_ge i j :
   i <= j ->
-  shift_index i j = S j.
+  shift_below_index i j = S j.
 Proof.
-  intros; unfold shift_index.
-  destruct (le_lt_dec i j); try easy; omega.
+  intros; unfold shift_below_index.
+  destruct (le_gt_dec i j); try easy; omega.
 Qed.
 
-Lemma red_shift_index_lt i j :
+Lemma red_shift_below_index_lt i j :
   S j <= i ->
-  shift_index i j = j.
+  shift_below_index i j = j.
 Proof.
-  intros; unfold shift_index.
-  destruct (le_lt_dec i j); try easy; omega.
+  intros; unfold shift_below_index.
+  destruct (le_gt_dec i j); try easy; omega.
 Qed.
 
-Lemma red_shift_index_same i :
-  shift_index i i = S i.
+Lemma red_shift_below_index_same i :
+  shift_below_index i i = S i.
 Proof.
-  apply red_shift_index_ge; omega.
+  apply red_shift_below_index_ge; omega.
 Qed.
 
 Lemma red_unshift_index_gt i j :
@@ -408,7 +390,7 @@ Lemma red_unshift_index_gt i j :
   unshift_index i j = pred j.
 Proof.
   intros; unfold unshift_index.
-  destruct (le_lt_dec j i); try easy; omega.
+  destruct (le_gt_dec j i); try easy; omega.
 Qed.
 
 Lemma red_unshift_index_le i j :
@@ -416,7 +398,7 @@ Lemma red_unshift_index_le i j :
   unshift_index i j = j.
 Proof.
   intros; unfold unshift_index.
-  destruct (le_lt_dec j i); try easy; omega.
+  destruct (le_gt_dec j i); try easy; omega.
 Qed.
 
 Lemma red_unshift_index_same i :
@@ -430,7 +412,7 @@ Lemma red_shift_above_index_gt i j :
   shift_above_index i j = S j.
 Proof.
   intros; unfold shift_above_index.
-  rewrite red_shift_index_ge by easy; easy.
+  destruct (le_gt_dec j i); try easy; omega.
 Qed.
 
 Lemma red_shift_above_index_le i j :
@@ -438,7 +420,7 @@ Lemma red_shift_above_index_le i j :
   shift_above_index i j = j.
 Proof.
   intros; unfold shift_above_index.
-  rewrite red_shift_index_lt by omega; easy.
+  destruct (le_gt_dec j i); try easy; omega.
 Qed.
 
 Lemma red_shift_above_index_same i :
@@ -446,6 +428,127 @@ Lemma red_shift_above_index_same i :
 Proof.
   apply red_shift_above_index_le; omega.
 Qed.
+
+Hint Rewrite red_shift_below_index_same red_unshift_index_same
+     red_shift_above_index_same
+  : red_iindexs.
+
+Hint Rewrite red_shift_below_index_ge red_shift_below_index_lt
+     red_unshift_index_le red_unshift_index_gt
+     red_shift_above_index_le red_shift_above_index_gt
+     using omega : red_iindexs.
+
+(* Useful lemmas about shifting *)
+
+Lemma shift_below_index_neq i j :
+  shift_below_index i j <> i.
+Proof.
+  case_order i j; omega.
+Qed.
+
+Lemma shift_above_index_neq_shift_below_index i j :
+  shift_above_index i j <> shift_below_index j i.
+Proof.
+  case_order i j; omega.
+Qed.
+
+Definition transpose_iindex_left (op1 op2 : stream_op) :=
+  match op1, op2 with
+  | insert, insert => shift_below_index
+  | insert, delete => shift_above_index
+  | delete, insert => unshift_index
+  | delete, delete => unshift_index
+  end.
+Arguments transpose_iindex_left !op1 !op2.
+
+Definition transpose_iindex_right (op2 op1 : stream_op) :=
+  match op1, op2 with
+  | insert, insert => unshift_index
+  | insert, delete => shift_below_index
+  | delete, insert => unshift_index
+  | delete, delete => shift_below_index
+  end.
+Arguments transpose_iindex_right !op2 !op1.
+
+Lemma transpose_iindex {T M} (op1 op2 : iindex_op T M) :
+  forall i1 i2 f,
+    irreducible_iindex_ops op1 op2 i1 i2 ->
+    apply_iindex_op op1 i1
+      (apply_iindex_op op2 i2 f)
+    =km= apply_iindex_op op2 (transpose_iindex_left op1 op2 i1 i2)
+          (apply_iindex_op op1 (transpose_iindex_right op2 op1 i2 i1) f).
+Proof.
+  intros i1 i2 f Hirr V i3.
+  destruct op1, op2; cbn;
+    case_order i1 i2;
+      case_order i2 i3; try easy;
+        case_order i1 i3; try easy.
+  - case_order i2 (pred i3); easy.
+  - case_order i2 (pred i3); easy.
+  - case_order i2 (S i3); easy.
+  - case_order i2 (S i1); easy.
+  - case_order i2 (S i3); easy.
+  - case_order i2 (S i1); easy.
+Qed.
+
+Tactic Notation
+  "transpose_iindex" uconstr(op1) uconstr(i1) uconstr(op2) uconstr(i2) :=
+  let Hrw := fresh "Hrw" in
+    epose (transpose_iindex op1 op2 i1 i2) as Hrw;
+      cbn in Hrw; rewrite Hrw;
+        [> | try easy]; clear Hrw.
+
+(* Normalizing pairs of operations
+
+   The choice of indices on some pairs of operations is not
+   unique. In particular,
+
+     delete (S i) (insert i f)
+
+   is equivalent to:
+
+     delete i (insert (S i) f)
+
+   We define a pair of transformations on indices:
+
+     normalize_iindex_left(op2, op1, i2, i1)
+
+     normalize_iindex_right(op1, op2, i1, i2)
+
+   such that:
+
+     op1<i1>(op2<i2>(f))
+     = op1<normalize_iindex_left(op2, op1, i2, i1)>
+         (op2<normalize_iindex_right(op1, op2, i1, i2)>(f))
+
+   and:
+
+     normalize_iindex_left(insert, delete, i, S i) = i
+     normalize_iindex_right(delete, insert, S i, i) = S i
+
+*)
+
+(* Contract
+
+   We define [normalize_iindex_left] and [normalize_iindex_right]
+   in terms of three operations on indices: [contract_down_index]
+   ,[contrace_up_index] and [unchanged_index]. *)
+
+Definition contract_down_index (i : index) : index -> index :=
+  fun (j : index) =>
+    if Nat.eq_dec (S i) j then i
+    else j.
+
+Definition contract_up_index (i : index) : index -> index :=
+  fun (j : index) =>
+    if Nat.eq_dec i (S j) then i
+    else j.
+
+Definition unchanged_index (i : index) : index -> index :=
+  fun (j : index) => j.
+Arguments unchanged_index i j /.
+
+(* Reductions *)
 
 Lemma red_contract_down_index_neq i j :
   j <> S i ->
@@ -491,68 +594,43 @@ Proof.
   apply red_contract_up_index_neq; omega.
 Qed.
 
-Hint Rewrite @red_shift_index_same @red_unshift_index_same
-     @red_shift_above_index_same @red_contract_down_index_same
-     @red_contract_up_index_same
+Lemma red_unchanged_index i j :
+  unchanged_index i j = j.
+Proof. easy. Qed.
+
+Hint Rewrite red_contract_down_index_same
+     red_contract_up_index_same red_unchanged_index
   : red_iindexs.
 
-Hint Rewrite @red_shift_index_ge @red_shift_index_lt
-     @red_unshift_index_le @red_unshift_index_gt
-     @red_shift_above_index_le @red_shift_above_index_gt
-     @red_contract_down_index_neq @red_contract_down_index_eq
-     @red_contract_up_index_neq @red_contract_up_index_eq
+Hint Rewrite red_contract_down_index_neq red_contract_down_index_eq
+     red_contract_up_index_neq red_contract_up_index_eq
      using omega : red_iindexs.
 
-(* Useful lemmas about shifting *)
-
-Lemma shift_index_neq i j :
-  shift_index i j <> i.
-Proof.
-  case_order i j; omega.
-Qed.
-
-Lemma shift_above_index_neq_shift_index i j :
-  shift_above_index i j <> shift_index j i.
-Proof.
-  case_order i j; omega.
-Qed.
-
-Inductive iindex_op T M : Type :=
-  | Ins : pnset T M -> iindex_op T M
-  | Del : iindex_op T M.
-Arguments Ins {T M} a.
-Arguments Del {T M}.
-
-Definition apply_iindex_op {T M}
-           (op : iindex_op T M) :=
-  match op with
-  | Ins a => insert_iindex a
-  | Del => delete_iindex
-  end.
-
-Definition normalize_iindex_left {T M} (op1 op2 : iindex_op T M)
+Definition normalize_iindex_left (op2 op1 : stream_op)
   : index -> index -> index :=
   match op1, op2 with
-  | Ins _, Ins _ => fun i1 i2 => i1
-  | Ins _, Del => fun i1 i2 => i1
-  | Del, Ins _ => fun i1 i2 => contract_down_index i2 i1
-  | Del, Del => fun i1 i2 => i1
+  | insert, insert => unchanged_index
+  | insert, delete => unchanged_index
+  | delete, insert => contract_down_index
+  | delete, delete => unchanged_index
   end.
 
-Definition normalize_iindex_right {T M} (op1 op2 : iindex_op T M) :=
+Definition normalize_iindex_right (op1 op2 : stream_op) :=
   match op1, op2 with
-  | Ins _, Ins _ => fun i1 i2 => i2
-  | Ins _, Del => fun i1 i2 => i2
-  | Del, Ins _ => fun i1 i2 => contract_up_index i1 i2
-  | Del, Del => fun i1 i2 => i2
+  | insert, insert => unchanged_index
+  | insert, delete => unchanged_index
+  | delete, insert => contract_up_index
+  | delete, delete => unchanged_index
   end.
 
 Lemma normalize_iindex {T M} (op1 op2 : iindex_op T M) :
   forall i1 i2 f,
     apply_iindex_op op1 i1
       (apply_iindex_op op2 i2 f)
-    =km= apply_iindex_op op1 (normalize_iindex_left op1 op2 i1 i2)
-           (apply_iindex_op op2 (normalize_iindex_right op1 op2 i1 i2) f).
+    =km= apply_iindex_op op1
+           (normalize_iindex_left op2 op1 i2 i1)
+           (apply_iindex_op op2
+              (normalize_iindex_right op1 op2 i1 i2) f).
 Proof.
   intros i1 i2 f.
   destruct op1, op2; cbn; try easy.
@@ -561,60 +639,53 @@ Proof.
   case_order i2 i3; easy.
 Qed.
 
-Definition transpose_iindex_left {T M} (op1 op2 : iindex_op T M) :=
-  match op1, op2 with
-  | Ins _, Ins _ => shift_index
-  | Del, Ins _ => unshift_index
-  | Ins _, Del => shift_above_index
-  | Del, Del => unshift_index
-  end.
-Arguments transpose_iindex_left {T M} !op1 !op2.
-
-Definition transpose_iindex_right {T M} (op1 op2 : iindex_op T M) :=
-  match op1, op2 with
-  | Ins _, Ins _ => fun i1 i2 => unshift_index i2 i1
-  | Ins _, Del => fun i1 i2 => shift_index i2 i1
-  | Del, Ins _ => fun i1 i2 => unshift_index i2 i1
-  | Del, Del => fun i1 i2 => shift_index i2 i1
-  end.
-Arguments transpose_iindex_right {T M} !op1 !op2.
-
-Definition irreducible_iindex_ops {T M} (op1 op2 : iindex_op T M)
-  : index -> index -> Prop :=
-  match op1, op2 with
-  | Ins _, Ins _ => fun i1 i2 => True
-  | Ins _, Del => fun i1 i2 => True
-  | Del, Ins _ => fun i1 i2 => i1 <> i2
-  | Del, Del => fun i1 i2 => True
-  end.
-
-Lemma transpose_iindex {T M} (op1 op2 : iindex_op T M) :
-  forall i1 i2 f,
-    irreducible_iindex_ops op1 op2 i1 i2 ->
-    apply_iindex_op op1 i1
-      (apply_iindex_op op2 i2 f)
-    =km= apply_iindex_op op2 (transpose_iindex_left op1 op2 i1 i2)
-          (apply_iindex_op op1 (transpose_iindex_right op1 op2 i1 i2) f).
+Lemma normalize_delete_iindex_insert_iindex {T M} a :
+  forall i1 i2 (f : iindex T M),
+    delete_iindex i1 (insert_iindex a i2 f)
+    =km= delete_iindex (contract_down_index i2 i1)
+           (insert_iindex a (contract_up_index i1 i2) f).
 Proof.
-  intros i1 i2 f Hirr V i3.
-  destruct op1, op2; cbn;
-    case_order i1 i2;
-      case_order i2 i3; try easy;
-        case_order i1 i3; try easy.
-  - case_order i2 (pred i3); easy.
-  - case_order i2 (pred i3); easy.
-  - case_order i2 (S i3); easy.
-  - case_order i2 (S i1); easy.
-  - case_order i2 (S i3); easy.
-  - case_order i2 (S i1); easy.
+  apply (normalize_iindex Del (Ins a)).
 Qed.
 
-Lemma transpose_iindex_squared_left {T M} (op1 op2 : iindex_op T M) :
+(* Permutations of [iindex] operations
+
+   Beyond transposing pairs of operations, we wish to reason
+   about arbitrary permutations of sequences of [iindex]
+   operations.
+
+   Given a sequence of n operations, rewriting with
+   [transpose_iindex] essentially gives us transpositions σᵢ
+   which swap the ith and (i+1)th operations. The group of
+   permutations of n operations can be generated from these
+   transpositions and the following equations:
+
+   1) σᵢ ∘ σⱼ = σⱼ ∘ σᵢ where |i - j| > 1
+
+   2) σᵢ ∘ σᵢ = 1
+
+   3) σᵢ ∘ σᵢ₊₁ ∘ σᵢ = σᵢ₊₁ ∘ σᵢ ∘ σᵢ₊₁
+
+   The first equation follows automatically since rewriting
+   with [transpose_iindex] only affects the operations that
+   are transposed.
+
+   Lemmas [transpose_iindex_squared_left] and
+   [transpose_iindex_squared_right] below are equivalent to
+   the second equation.
+
+   Lemmas [transpose_iindex_reverse_left],
+   [transpose_iindex_reverse_middle] and
+   [transpose_iindex_reverse_right] below are equivalent to
+   the third equation.
+ *)
+
+Lemma transpose_iindex_squared_left (op1 op2 : stream_op) :
   forall i1 i2,
     transpose_iindex_left op2 op1
       (transpose_iindex_left op1 op2 i1 i2)
-      (transpose_iindex_right op1 op2 i1 i2)
-    = normalize_iindex_left op1 op2 i1 i2.
+      (transpose_iindex_right op2 op1 i2 i1)
+    = normalize_iindex_left op2 op1 i2 i1.
 Proof.
   intros.
   destruct op1, op2; cbn;
@@ -622,12 +693,12 @@ Proof.
   case_order i2 (pred i1).
 Qed.
 
-Lemma transpose_iindex_squared_right {T M} (op1 op2 : iindex_op T M) :
+Lemma transpose_iindex_squared_right (op1 op2 : stream_op) :
   forall i1 i2,
     irreducible_iindex_ops op1 op2 i1 i2 ->
-    transpose_iindex_right op2 op1
+    transpose_iindex_right op1 op2
+      (transpose_iindex_right op2 op1 i2 i1)
       (transpose_iindex_left op1 op2 i1 i2)
-      (transpose_iindex_right op1 op2 i1 i2)
     = normalize_iindex_right op1 op2 i1 i2.
 Proof.
   intros i1 i2 Hirr.
@@ -636,19 +707,33 @@ Proof.
   case_order i2 (pred i1).
 Qed.
 
-Lemma transpose_iindex_reverse_left  {T M} (op1 op2 op3 : iindex_op T M) :
+Tactic Notation "transpose_iindex_squared_left"
+       uconstr(op1) uconstr(i1) uconstr(op2) uconstr(i2) :=
+  let Hrw := fresh "Hrw" in
+    epose (transpose_iindex_squared_left op1 op2 i1 i2)
+      as Hrw; cbn in Hrw; rewrite Hrw; clear Hrw.
+
+Tactic Notation "transpose_iindex_squared_right"
+       uconstr(op1) uconstr(i1) uconstr(op2) uconstr(i2) :=
+  let Hrw := fresh "Hrw" in
+    epose (transpose_iindex_squared_right op1 op2 i1 i2)
+      as Hrw; cbn in Hrw;
+        rewrite Hrw; [> | try easy]; clear Hrw.
+
+Lemma transpose_iindex_reverse_left (op1 op2 op3 : stream_op) :
   forall i1 i2 i3,
     irreducible_iindex_ops op1 op2 i1 i2 ->
     irreducible_iindex_ops op2 op3 i2 i3 ->
-    irreducible_iindex_ops op1 op3 i1 (transpose_iindex_left op2 op3 i2 i3) ->
+    irreducible_iindex_ops op1 op3 i1
+      (transpose_iindex_left op2 op3 i2 i3) ->
     transpose_iindex_left op2 op3 (transpose_iindex_left op1 op2 i1 i2)
       (transpose_iindex_left op1 op3
-         (transpose_iindex_right op1 op2 i1 i2) i3)
-    = normalize_iindex_left op3 op2
-        (transpose_iindex_left op1 op3 i1
-          (transpose_iindex_left op2 op3 i2 i3))
+         (transpose_iindex_right op2 op1 i2 i1) i3)
+    = normalize_iindex_left op2 op3
         (transpose_iindex_left op1 op2 i1
-           (transpose_iindex_right op2 op3 i2 i3)).
+           (transpose_iindex_right op3 op2 i3 i2))
+        (transpose_iindex_left op1 op3 i1
+          (transpose_iindex_left op2 op3 i2 i3)).
 Proof.
   intros i1 i2 i3 Hirr1 Hirr2 Hirr3.
   destruct op1, op2, op3; cbn in *;
@@ -666,55 +751,26 @@ Proof.
   - case_order i1 (pred i3).
 Qed.
 
-Lemma transpose_iindex_reverse_right  {T M} (op1 op2 op3 : iindex_op T M) :
+Lemma transpose_iindex_reverse_middle (op1 op2 op3 : stream_op) :
   forall i1 i2 i3,
     irreducible_iindex_ops op1 op2 i1 i2 ->
     irreducible_iindex_ops op2 op3 i2 i3 ->
-    irreducible_iindex_ops op1 op3 i1 (transpose_iindex_left op2 op3 i2 i3) ->
-    transpose_iindex_right op1 op2
-      (transpose_iindex_right op1 op3 i1
-         (transpose_iindex_left op2 op3 i2 i3))
-      (transpose_iindex_right op2 op3 i2 i3)
-    = normalize_iindex_right op2 op1
-        (transpose_iindex_right op2 op3
-           (transpose_iindex_left op1 op2 i1 i2) i3)
-        (transpose_iindex_right op1 op3
-          (transpose_iindex_right op1 op2 i1 i2) i3).
-Proof.
-  intros i1 i2 i3 Hirr1 Hirr2 Hirr3.
-  destruct op1, op2, op3; cbn in *;
-    case_order i1 i2;
-      case_order i2 i3; try easy;
-        case_order i1 i3; try easy.
-  - case_order i3 (pred i1).
-  - case_order i2 (pred i1).
-  - case_order i1 (pred i2).
-  - case_order (pred i3) i2.
-  - case_order i2 (pred i3).
-  - case_order i1 (pred i3).
-  - case_order i1 (pred i3).
-  - case_order i1 (pred i3).
-Qed.
-
-Lemma transpose_iindex_reverse_middle  {T M} (op1 op2 op3 : iindex_op T M) :
-  forall i1 i2 i3,
-    irreducible_iindex_ops op1 op2 i1 i2 ->
-    irreducible_iindex_ops op2 op3 i2 i3 ->
-    irreducible_iindex_ops op1 op3 i1 (transpose_iindex_left op2 op3 i2 i3) ->
+    irreducible_iindex_ops op1 op3 i1
+      (transpose_iindex_left op2 op3 i2 i3) ->
     normalize_iindex_right op3 op2
       (transpose_iindex_left op1 op3 i1
           (transpose_iindex_left op2 op3 i2 i3))
       (transpose_iindex_left op1 op2
-        (transpose_iindex_right op1 op3 i1
-           (transpose_iindex_left op2 op3 i2 i3))
-        (transpose_iindex_right op2 op3 i2 i3))
-    = normalize_iindex_left op2 op1
-        (transpose_iindex_right op2 op3
-          (transpose_iindex_left op1 op2 i1 i2)
+        (transpose_iindex_right op3 op1
+           (transpose_iindex_left op2 op3 i2 i3) i1)
+        (transpose_iindex_right op3 op2 i3 i2))
+    = normalize_iindex_left op1 op2
+        (transpose_iindex_right op3 op1 i3
+           (transpose_iindex_right op2 op1 i2 i1))
+        (transpose_iindex_right op3 op2
           (transpose_iindex_left op1 op3
-            (transpose_iindex_right op1 op2 i1 i2) i3))
-        (transpose_iindex_right op1 op3
-          (transpose_iindex_right op1 op2 i1 i2) i3).
+            (transpose_iindex_right op2 op1 i2 i1) i3)
+          (transpose_iindex_left op1 op2 i1 i2)).
 Proof.
   intros i1 i2 i3 Hirr1 Hirr2 Hirr3.
   remember op1 as oper1.
@@ -734,326 +790,89 @@ Proof.
   - case_order i1 (pred i3).
 Qed.
 
-(* Given a sequence of n operations, the operational transforms
-   essentially give us transpositions σᵢ which swap the ith and (i+1)th
-   operations. The group of permutations of n operations can be
-   generated from the transpositions and the following relations:
+Lemma transpose_iindex_reverse_right (op1 op2 op3 : stream_op) :
+  forall i1 i2 i3,
+    irreducible_iindex_ops op1 op2 i1 i2 ->
+    irreducible_iindex_ops op2 op3 i2 i3 ->
+    irreducible_iindex_ops op1 op3 i1 (transpose_iindex_left op2 op3 i2 i3) ->
+    transpose_iindex_right op2 op1
+      (transpose_iindex_right op3 op2 i3 i2)
+      (transpose_iindex_right op3 op1
+        (transpose_iindex_left op2 op3 i2 i3) i1)
+    = normalize_iindex_right op2 op1
+        (transpose_iindex_right op3 op2 i3
+           (transpose_iindex_left op1 op2 i1 i2))
+        (transpose_iindex_right op3 op1 i3
+          (transpose_iindex_right op2 op1 i2 i1)).
+Proof.
+  intros i1 i2 i3 Hirr1 Hirr2 Hirr3.
+  destruct op1, op2, op3; cbn in *;
+    case_order i1 i2;
+      case_order i2 i3; try easy;
+        case_order i1 i3; try easy.
+  - case_order i3 (pred i1).
+  - case_order i2 (pred i1).
+  - case_order i1 (pred i2).
+  - case_order (pred i3) i2.
+  - case_order i2 (pred i3).
+  - case_order i1 (pred i3).
+  - case_order i1 (pred i3).
+  - case_order i1 (pred i3).
+Qed.
 
-   1) σᵢ ∘ σⱼ = σⱼ ∘ σᵢ where |i - j| > 1 2) σᵢ ∘ σᵢ = 1 3) σᵢ ∘ σᵢ₊₁ ∘
-   σᵢ = σᵢ₊₁ ∘ σᵢ ∘ σᵢ₊₁
+Tactic Notation "transpose_iindex_reverse_left"
+       uconstr(op1) uconstr(i1)
+       uconstr(op2) uconstr(i2)
+       uconstr(op3) uconstr(i3) :=
+  let Hrw := fresh "Hrw" in
+    epose (transpose_iindex_reverse_left
+             op1 op2 op3 i1 i2 i3) as Hrw;
+      cbn in Hrw; rewrite Hrw;
+      [> | try easy | try easy | try easy]; clear Hrw.
 
-   1) follows automatically since the operational transforms only affect
-   the operations that they are transposing.
+Tactic Notation "transpose_iindex_reverse_right"
+       uconstr(op1) uconstr(i1)
+       uconstr(op2) uconstr(i2)
+       uconstr(op3) uconstr(i3) :=
+  let Hrw := fresh "Hrw" in
+    epose (transpose_iindex_reverse_right
+             op1 op2 op3 i1 i2 i3) as Hrw;
+      cbn in Hrw; rewrite Hrw;
+      [> | try easy | try easy | try easy]; clear Hrw.
 
-   Showing 2) amounts to proving the following inversions:
+Tactic Notation "transpose_iindex_reverse_middle"
+       uconstr(op1) uconstr(i1)
+       uconstr(op2) uconstr(i2)
+       uconstr(op3) uconstr(i3) :=
+  let Hrw := fresh "Hrw" in
+    epose (transpose_iindex_reverse_middle
+             op1 op2 op3 i1 i2 i3) as Hrw;
+      cbn in Hrw; rewrite Hrw;
+      [> | try easy | try easy | try easy]; clear Hrw.
 
-     XT(ET(o1, o2), XT(o2, o1)) = o1
+(* Pushing [get_iindex] through other operations
 
-     ET(XT(o2, o1), ET(o1, o2)) = o2
-
-   when expanded out and deduplicated, these are equivalent to showing:
-
-     shift (shift n m) (unshift m n) = n
-     unshift (shift_above n m) (shift m n) = n
-     shift_above (unshift n m) (unshift m n) = n
-     unshift (unshift n m) (shift m n) = n
-     shift (unshift n m) (unshift m n) = n
-     unshift (shift n m) (shift_above m n) = n
-
-   Showing 3) amounts to proving the following equations:
-
-     XT(XT(o3, o2), o1) = XT(XT(o3, ET(o1, o2)), XT(o2, o1))
-
-     ET(ET(o1, o2), o3) = ET(ET(o1, XT(o3, o2)), ET(o2, o3))
-
-     ET(XT(o2, o1), XT(o3, ET(o1, o2))) = XT(ET(o2, o3), ET(o1, XT(o3, o2)))
-
-   when expanded out and deduplicated, these are equivalent to showing:
-
-     shift o (shift m n) = shift (shift o m) (shift (unshift m o) n)
-     shift (shift_above (unshift n m) o) (shift m n) = shift (shift (shift_above n o) m) (shift o n)
-     shift (shift_above (shift n m) o) (shift_above m n) = shift_above (shift (unshift n o) m) (shift o n)
-     shift o (unshift m n) = unshift (shift_above o m) (shift (shift m o) n)
-     shift o (unshift m n) = unshift (shift o m) (shift (shift_above m o) n)
-     shift (unshift (unshift n m) o) (unshift m n) = unshift (shift (shift_above n o) m) (shift o n)
-     shift (unshift (shift n m) o) (unshift m n) = unshift (shift (unshift n o) m) (shift o n)
-     shift_above o (shift_above m n) = shift_above (shift o m) (shift_above ((unshift m o) n))
-     shift_above o (unshift m n) = unshift (shift_above o m) (shift_above (shift m o) n)
-     unshift o (shift m n) = shift (unshift o m) (unshift (unshift m o) n)
-     unshift (shift (unshift n m) o) (shift m n) = shift (unshift (shift n o) m) (unshift o n)
-     unshift o (shift_above m n) = shift_above (unshift o m) (unshift (unshift m o) n)
-     unshift (shift (shift n m) o) (shift_above m n) = shift_above (unshift (unshift n o) m) (unshift o n)
-     unshift o (unshift m n) = unshift (unshift o m) (unshift (shift m o) n)
-     unshift (unshift (unshift n m) o) (unshift m n) = unshift (unshift (shift n o) m) (unshift o n)
-     unshift (unshift (shift n m) o) (unshift m n) = unshift (unshift (unshift n o) m) (unshift o n)
-
+   We reuse the machinery for trasposition, since this
+   transformation is closely related to transposing
+   operations with delete.
 *)
 
-Lemma simpl_shift_shift_index_unshift_index i j :
-  shift_index (shift_index i j) (unshift_index j i) = i.
-Proof. case_order i j. Qed.
-
-Lemma simpl_unshift_unshift_index_shift_index i j :
-  unshift_index (unshift_index i j) (shift_index j i) = i.
-Proof. case_order i j. Qed.
-
-Lemma simpl_unshift_shift_above_index_shift_index i j :
-  unshift_index (shift_above_index i j) (shift_index j i) = i.
-Proof. case_order i j. Qed.
-
-Lemma simpl_unshift_shift_index_shift_above_index i j :
-  unshift_index (shift_index i j) (shift_above_index j i) = i.
-Proof. case_order i j. Qed.
-
-(* Unshift is right inverse of shift *)
-Lemma simpl_shift_index_unshift_index i j :
-  unshift_index i (shift_index i j) = j.
-Proof. case_order i j. Qed.
-
-(* Shift is left inverse of unshift if the indices aren't equal *)
-Lemma simpl_unshift_index_shift_index i j :
-  i <> j ->
-  shift_index i (unshift_index i j) = j.
-Proof. case_order i j. Qed.
-
-Hint Rewrite simpl_shift_shift_index_unshift_index
-     simpl_unshift_unshift_index_shift_index
-     simpl_unshift_shift_above_index_shift_index
-     simpl_unshift_shift_index_shift_above_index
-     simpl_shift_index_unshift_index
-  : simpl_indexs.
-
-Hint Rewrite simpl_unshift_index_shift_index
-  using congruence : simpl_indexs.
-
-(* Commuting [iindex] operations *)
-
-Lemma swap_delete_iindex_delete_iindex_pointwise {T M} i j
-      (f : iindex T M) :
-  delete_iindex i (delete_iindex j f)
-  =km= delete_iindex (unshift_index i j)
-        (delete_iindex (shift_index j i) f).
+Lemma transpose_get_iindex {T M} (op : iindex_op T M) :
+  forall i1 i2 f,
+    irreducible_iindex_ops delete op i1 i2 ->
+    get_iindex i1 (apply_iindex_op op i2 f)
+    =p= get_iindex (transpose_iindex_right op delete i2 i1) f.
 Proof.
-  intros V k.
-  case_order i j;
-    case_order j k; try easy;
-      case_order i k; try easy;
-        case_order (S k) j; try easy.
+  intros i1 i2 f Hirr V.
+  destruct op; cbn in *;
+    case_order i1 i2; easy.
 Qed.
 
-Definition swap_delete_iindex_delete_iindex {T M} i j f :=
-  eq_kmorph_expand
-    (@swap_delete_iindex_delete_iindex_pointwise T M i j f).
-
-Lemma swap_insert_iindex_insert_iindex_pointwise {T M} i a j b
-      (f : iindex T M) :
-  insert_iindex i a (insert_iindex j b f)
-  =km= insert_iindex (shift_index i j) b
-         (insert_iindex (unshift_index j i) a f).
-Proof.
-  intros V k.
-  case_order i j;
-    case_order j k; try easy;
-      case_order i k; try easy;
-        case_order j (pred k); try easy.
-Qed.
-
-Definition swap_insert_iindex_insert_iindex {T M} i a j b f :=
-  eq_kmorph_expand
-    (@swap_insert_iindex_insert_iindex_pointwise T M i a j b f).
-
-Lemma swap_delete_iindex_insert_iindex_pointwise {T M} i j a
-      (f : iindex T M) :
-  i <> j ->
-  delete_iindex i (insert_iindex j a f)
-  =km= insert_iindex (unshift_index i j) a
-         (delete_iindex (unshift_index j i) f).
-Proof.
-  intros Hneq V k.
-  case_order i j; try contradiction;
-    case_order i k; try easy;
-      case_order j k; try easy;
-        case_order j (S k); easy.
-Qed.
-
-Definition swap_delete_iindex_insert_iindex {T M} i j a f :=
-  fun V k Heq =>
-    eq_kmorph_expand
-      (@swap_delete_iindex_insert_iindex_pointwise T M i j a f Heq) V k.
-
-Lemma swap_insert_iindex_delete_iindex_pointwise {T M} i j a
-      (f : iindex T M) :
-  insert_iindex i a (delete_iindex j f)
-  =km= delete_iindex (shift_above_index i j)
-         (insert_iindex (shift_index j i) a f).
-Proof.
-  intros V k.
-  case_order i j;
-    case_order i k; try easy;
-      case_order j k; try easy.
-Qed.
-
-Definition swap_insert_iindex_delete_iindex {T M} i j a f :=
-  eq_kmorph_expand
-    (@swap_insert_iindex_delete_iindex_pointwise T M i j a f).
-
-Lemma swap_get_iindex_insert_iindex_pointwise {T M} i j a
-      (f : iindex T M) :
-  i <> j ->
-  get_iindex i (insert_iindex j a f)
-  =p= get_iindex (unshift_index j i) f.
-Proof.
-  intros Hneq V; cbn.
-  case_order j i; easy.
-Qed.
-
-Definition swap_get_iindex_insert_iindex {T M} i j a f :=
-  fun V Hneq =>
-    eq_pnset_expand
-      (@swap_get_iindex_insert_iindex_pointwise T M i j a f Hneq) V.
-
-Lemma swap_get_iindex_delete_iindex_pointwise {T M} i j
-      (f : iindex T M) :
-  get_iindex i (delete_iindex j f)
-  =p= get_iindex (shift_index j i) f.
-Proof.
-  intros V; cbn.
-  case_order j i; easy.
-Qed.
-
-Definition swap_get_iindex_delete_iindex {T M} i j f :=
-  eq_pnset_expand
-    (@swap_get_iindex_delete_iindex_pointwise T M i j f).
-
-Lemma swap_insert_iindex_move_iindex_pointwise {T M} i a j k
-      (f : iindex T M) :
-  insert_iindex i a (move_iindex j k f)
-  =km= move_iindex
-         (shift_index i j) (shift_above_index (unshift_index j i) k)
-         (insert_iindex (shift_index k (unshift_index j i)) a f).
-Proof.
-  unfold move_iindex.
-  rewrite swap_insert_iindex_insert_iindex_pointwise.
-  rewrite swap_insert_iindex_delete_iindex_pointwise.
-  rewrite swap_get_iindex_insert_iindex_pointwise
-    by auto using shift_above_index_neq_shift_index.
-  simpl_iindexs; easy.
-Qed.
-
-Definition swap_insert_iindex_move_iindex {T M} i a j k f :=
-  eq_kmorph_expand
-    (@swap_insert_iindex_move_iindex_pointwise T M i a j k f).
-
-Lemma swap_move_iindex_insert_iindex_pointwise {T M} i j k a
-      (f : iindex T M) :
-  j <> k ->
-  move_iindex i j (insert_iindex k a f)
-  =km= insert_iindex (shift_index i (unshift_index j k)) a
-         (move_iindex (unshift_index (unshift_index j k) i)
-            (unshift_index k j) f).
-Proof.
-  intros; unfold move_iindex.
-  rewrite swap_delete_iindex_insert_iindex_pointwise by easy.
-  rewrite swap_insert_iindex_insert_iindex_pointwise.
-  rewrite swap_get_iindex_insert_iindex_pointwise by easy.
-  easy.
-Qed.
-
-Definition swap_move_iindex_insert_iindex {T M} i j k a f :=
-  fun V l Hneq =>
-    eq_kmorph_expand
-      (@swap_move_iindex_insert_iindex_pointwise
-         T M i j k a f Hneq)
-      V l.
-
-Lemma swap_delete_iindex_move_iindex_pointwise {T M} i j k
-      (f : iindex T M) :
-  i <> j ->
-  delete_iindex i (move_iindex j k f)
-  =km= move_iindex
-         (unshift_index i j) (unshift_index (unshift_index j i) k)
-         (delete_iindex (shift_index k (unshift_index j i)) f).
-Proof.
-  intros; unfold move_iindex.
-  rewrite swap_delete_iindex_insert_iindex_pointwise by easy.
-  rewrite swap_delete_iindex_delete_iindex_pointwise.
-  rewrite swap_get_iindex_delete_iindex_pointwise.
-  simpl_iindexs; easy.
-Qed.
-
-Definition swap_delete_iindex_move_iindex {T M} i j k f :=
-  fun V l Hneq =>
-    eq_kmorph_expand
-      (@swap_delete_iindex_move_iindex_pointwise T M i j k f Hneq)
-      V l.
-
-Lemma swap_move_iindex_delete_iindex_pointwise {T M} i j k
-      (f : iindex T M) :
-  move_iindex i j (delete_iindex k f)
-  =km= delete_iindex (shift_above_index i (unshift_index j k))
-         (move_iindex
-            (shift_index (unshift_index j k) i)
-            (shift_index k j) f).
-Proof.
-  intros; unfold move_iindex.
-  rewrite swap_delete_iindex_delete_iindex_pointwise.
-  rewrite swap_get_iindex_delete_iindex_pointwise by easy.
-  rewrite swap_insert_iindex_delete_iindex_pointwise by easy.
-  easy.
-Qed.
-
-Definition swap_move_iindex_delete_iindex {T M} i j k f :=
-  eq_kmorph_expand
-    (@swap_move_iindex_delete_iindex_pointwise T M i j k f).
-
-(* Commuting [index] operations *)
-
-Lemma swap_shift_index_shift_index i j k :
-  shift_index i (shift_index j k)
-  = shift_index (shift_index i j)
-      (shift_index (unshift_index j i) k).
-Proof.
-  case_order i j;
-    case_order j k; try easy;
-      case_order i k; try easy;
-        case_order (S k) i; easy.
-Qed.
-
-Lemma swap_shift_index_unshift_index i j k :
-  shift_index i (unshift_index j k)
-  = unshift_index (shift_index i j)
-      (shift_index (shift_above_index j i) k).
-Proof.
-  case_order i j;
-    case_order j k; try easy;
-      case_order i k; try easy.
-Qed.
-
-Lemma swap_unshift_index_unshift_index i j k :
-  unshift_index i (unshift_index j k)
-  = unshift_index (unshift_index i j)
-      (unshift_index (shift_index j i) k).
-Proof.
-  case_order i j;
-    case_order j k; try easy;
-      case_order i k; try easy;
-        case_order (S i) k; easy.
-Qed.
-
-Lemma swap_unshift_index_shift_index i j k :
-  j <> i ->
-  shift_index j k <> i ->
-  unshift_index i (shift_index j k) =
-  shift_index (unshift_index i j)
-    (unshift_index (unshift_index j i) k).
-Proof.
-  intros Hn1 Hn2.
-  case_order i j;
-    case_order j k; try easy;
-      case_order i k; try easy.
-  contradiction Hn2.
-  red_iindexs; easy.
-Qed.
+Tactic Notation "transpose_get_iindex"
+       uconstr(i1) uconstr(op) uconstr(i2) :=
+  let Hrw := fresh "Hrw" in
+    epose (transpose_get_iindex op i1 i2) as Hrw;
+      cbn in Hrw; rewrite Hrw; [> | try easy]; clear Hrw.
 
 (* There is a full covariant functor from [T O] to [iindex N T O]
    by composition.
@@ -1075,20 +894,9 @@ Qed.
 
 Lemma insert_iindex_compose_distribute {T M R L} i a
       (f : iindex T M) (g : morph T M R L) :
-  g @ (insert_iindex i a f)
-  =km= insert_iindex i (morph_apply g a) (g @ f).
+  g @ (insert_iindex a i f)
+  =km= insert_iindex (morph_apply g a) i (g @ f).
 Proof.
   intros V j.
   case_order i j; easy.
-Qed.
-
-Lemma move_iindex_compose_distribute {T M R L} i j
-      (f : iindex T M) (g : morph T M R L) :
-  g @ (move_iindex i j f) =km= move_iindex i j (g @ f).
-Proof.
-  unfold move_iindex.
-  rewrite insert_iindex_compose_distribute.
-  rewrite get_iindex_compose_distribute.
-  rewrite delete_iindex_compose_distribute.
-  easy.
 Qed.

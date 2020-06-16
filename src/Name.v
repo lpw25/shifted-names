@@ -422,6 +422,7 @@ Definition iname_beta_project_eq {T M} s1 s2 f g :=
     eq_kmorph_expand
       (@iname_beta_project_eq_pointwise T M s1 s2 f g Heq) V.
 
+(* TODO : is this confluent with eta reduction on open terms? *)
 Lemma iname_beta_project_neq_pointwise {T M} s t f (g : iname T M) :
   s <> t ->
   project_iname s (with_iname t f g) =km= project_iname s g.
