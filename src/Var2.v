@@ -52,9 +52,9 @@ Definition bind_ivar {N T M} (a : pnset T M) (f : ivar N T M)
   : ivar (S N) T M :=
   pair_ivar (fst_ivar f) (cons_ilevel a (snd_ivar f)).
 
-Definition transpose_ivar {N T M} (f : ivar (S (S N)) T M)
+Definition swap_ivar {N T M} (f : ivar (S (S N)) T M)
   : ivar (S (S N)) T M :=
-  pair_ivar (fst_ivar f) (transpose_ilevel (snd_ivar f)).
+  pair_ivar (fst_ivar f) (swap_ilevel (snd_ivar f)).
 
 Definition rename_ivar {N T M} n m (f : ivar N T M) : ivar N T M :=
   close_ivar n (open_ivar m f).
@@ -116,10 +116,10 @@ Add Parametric Morphism {N T M} : (@bind_ivar N T M)
   rewrite Heq1, Heq2; easy.
 Qed.
 
-Add Parametric Morphism {N T M} : (@transpose_ivar N T M)
+Add Parametric Morphism {N T M} : (@swap_ivar N T M)
     with signature eq_morph ==> eq_morph
-    as transpose_ivar_mor.
-  intros * Heq V v; unfold transpose_ivar.
+    as swap_ivar_mor.
+  intros * Heq V v; unfold swap_ivar.
   rewrite Heq; easy.
 Qed.
 
@@ -195,9 +195,9 @@ Lemma unfold_bind_ivar {N T M} a (f : ivar N T M) :
   = pair_ivar (fst_ivar f) (cons_ilevel a (snd_ivar f)).
 Proof. easy. Qed.
 
-Lemma unfold_transpose_ivar {N T M} (f : ivar (S (S N)) T M) :
-  transpose_ivar f
-  = pair_ivar (fst_ivar f) (transpose_ilevel (snd_ivar f)).
+Lemma unfold_swap_ivar {N T M} (f : ivar (S (S N)) T M) :
+  swap_ivar f
+  = pair_ivar (fst_ivar f) (swap_ilevel (snd_ivar f)).
 Proof. easy. Qed.
 
 Lemma unfold_rename_ivar {N T M} n m (f : ivar N T M) :
@@ -216,7 +216,7 @@ Lemma unfold_subst_ivar {N T M} n a (f : ivar N T M) :
 Proof. easy. Qed.
 
 Hint Rewrite @unfold_open_ivar @unfold_close_ivar
-     @unfold_weak_ivar @unfold_bind_ivar @unfold_transpose_ivar
+     @unfold_weak_ivar @unfold_bind_ivar @unfold_swap_ivar
      @unfold_rename_ivar @unfold_shift_ivar @unfold_subst_ivar
   : unfold_ivars.
 
@@ -246,9 +246,9 @@ Lemma fold_bind_ivar {N T M} a (f : ivar N T M) :
   = bind_ivar a f.
 Proof. easy. Qed.
 
-Lemma fold_transpose_ivar {N T M} (f : ivar (S (S N)) T M) :
-  pair_ivar (fst_ivar f) (transpose_ilevel (snd_ivar f))
-  = transpose_ivar f.
+Lemma fold_swap_ivar {N T M} (f : ivar (S (S N)) T M) :
+  pair_ivar (fst_ivar f) (swap_ilevel (snd_ivar f))
+  = swap_ivar f.
 Proof. easy. Qed.
 
 Lemma fold_rename_ivar {N T M} n m (f : ivar N T M) :
@@ -267,7 +267,7 @@ Lemma fold_subst_ivar {N T M} n a (f : ivar N T M) :
 Proof. easy. Qed.
 
 Hint Rewrite @fold_open_ivar @fold_close_ivar
-     @fold_weak_ivar @fold_bind_ivar @fold_transpose_ivar
+     @fold_weak_ivar @fold_bind_ivar @fold_swap_ivar
      @fold_rename_ivar @fold_shift_ivar @fold_subst_ivar
   : fold_ivars.
 
@@ -357,7 +357,7 @@ Ltac simpl_ivars_pointwise_eqn :=
 Lemma swap_open_ivar_open_ivar_pointwise {N T M} n m
       (f : ivar N T M) :
   open_ivar n (open_ivar m f)
-  =m= transpose_ivar
+  =m= swap_ivar
         (open_ivar (unshift_name n m)
           (open_ivar (shift_name m n) f)).
 Proof.
@@ -377,7 +377,7 @@ Lemma swap_open_ivar_close_ivar_pointwise {N T M} n m
   n <> m ->
   open_ivar n (close_ivar m f)
   =m= close_ivar (unshift_name n m)
-        (transpose_ivar
+        (swap_ivar
           (open_ivar (unshift_name m n) f)).
 Proof.
   intros; simpl_ivars_pointwise.
@@ -395,7 +395,7 @@ Definition swap_open_ivar_close_ivar {N T M} n m f :=
 Lemma swap_open_ivar_weak_ivar_pointwise {N T M} n
       (f : ivar (S N) T M) :
   open_ivar n (weak_ivar f)
-  =m= weak_ivar (transpose_ivar (open_ivar n f)).
+  =m= weak_ivar (swap_ivar (open_ivar n f)).
 Proof. easy. Qed.
 
 Definition swap_open_ivar_weak_ivar {N T M} n f :=
@@ -405,7 +405,7 @@ Definition swap_open_ivar_weak_ivar {N T M} n f :=
 Lemma swap_open_ivar_bind_ivar_pointwise {N T M} n t
       (f : ivar N T M) :
   open_ivar n (bind_ivar t f)
-  =m= transpose_ivar (bind_ivar t (open_ivar n f)).
+  =m= swap_ivar (bind_ivar t (open_ivar n f)).
 Proof. easy. Qed.
 
 Definition swap_open_ivar_bind_ivar {N T M} n t f :=
@@ -472,7 +472,7 @@ Lemma swap_close_ivar_close_ivar_pointwise {N T M} n m
   close_ivar n (close_ivar m f)
   =m= close_ivar (shift_name n m)
         (close_ivar (unshift_name m n)
-          (transpose_ivar f)).
+          (swap_ivar f)).
 Proof.
   simpl_ivars_pointwise.
   rewrite swap_insert_iname_insert_iname_pointwise.
@@ -486,7 +486,7 @@ Definition swap_close_ivar_close_ivar {N T M} n m f :=
 Lemma swap_close_ivar_weak_ivar_pointwise {N T M} n
       (f : ivar (S (S N)) T M) :
   close_ivar n (weak_ivar f)
-  =m= weak_ivar (close_ivar n (transpose_ivar f)).
+  =m= weak_ivar (close_ivar n (swap_ivar f)).
 Proof. easy. Qed.
 
 Definition swap_close_ivar_weak_ivar {N T M} n f :=
@@ -542,7 +542,7 @@ Definition swap_close_ivar_subst_ivar {N T M} n m t f :=
 Lemma swap_weak_ivar_close_ivar_pointwise {N T M} n
       (f : ivar (S (S N)) T M) :
   weak_ivar (close_ivar n f)
-  =m= close_ivar n (weak_ivar (transpose_ivar f)).
+  =m= close_ivar n (weak_ivar (swap_ivar f)).
 Proof. easy. Qed.
 
 Definition swap_weak_ivar_close_ivar {N T M} n f :=
@@ -552,7 +552,7 @@ Definition swap_weak_ivar_close_ivar {N T M} n f :=
 Lemma swap_weak_ivar_weak_ivar_pointwise {N T M}
       (f : ivar (S (S N)) T M) :
   weak_ivar (weak_ivar f)
-  =m= weak_ivar (weak_ivar (transpose_ivar f)).
+  =m= weak_ivar (weak_ivar (swap_ivar f)).
 Proof. easy. Qed.
 
 Definition swap_weak_ivar_weak_ivar {N T M} f :=
@@ -592,7 +592,7 @@ Definition swap_weak_ivar_subst_ivar {N T M} n t f :=
 Lemma swap_bind_ivar_open_ivar_pointwise {N T M} t n
       (f : ivar N T M) :
   bind_ivar t (open_ivar n f)
-  =m= transpose_ivar (open_ivar n (bind_ivar t f)).
+  =m= swap_ivar (open_ivar n (bind_ivar t f)).
 Proof. easy. Qed.
 
 Definition swap_bind_ivar_open_ivar {N T M} t n f :=
@@ -602,7 +602,7 @@ Definition swap_bind_ivar_open_ivar {N T M} t n f :=
 Lemma swap_bind_ivar_close_ivar_pointwise {N T M} t n
       (f : ivar (S N) T M) :
   bind_ivar t (close_ivar n f)
-  =m= close_ivar n (transpose_ivar (bind_ivar t f)).
+  =m= close_ivar n (swap_ivar (bind_ivar t f)).
 Proof. easy. Qed.
 
 Definition swap_bind_ivar_close_ivar {N T M} t n f :=
@@ -612,7 +612,7 @@ Definition swap_bind_ivar_close_ivar {N T M} t n f :=
 Lemma swap_bind_ivar_weak_ivar_pointwise {N T M} t
       (f : ivar (S N) T M) :
   bind_ivar t (weak_ivar f)
-  =m= weak_ivar (transpose_ivar (bind_ivar t f)).
+  =m= weak_ivar (swap_ivar (bind_ivar t f)).
 Proof. easy. Qed.
 
 Definition swap_bind_ivar_weak_ivar {N T M} t f :=
@@ -622,7 +622,7 @@ Definition swap_bind_ivar_weak_ivar {N T M} t f :=
 Lemma swap_bind_ivar_bind_ivar_pointwise {N T M} t s
       (f : ivar N T M) :
   bind_ivar t (bind_ivar s f)
-  =m= transpose_ivar (bind_ivar s (bind_ivar t f)).
+  =m= swap_ivar (bind_ivar s (bind_ivar t f)).
 Proof. easy. Qed.
 
 Definition swap_bind_ivar_bind_ivar {N T M} t s f :=

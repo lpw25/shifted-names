@@ -59,7 +59,9 @@ Qed.
 
 (* Useful lemma *)
 Lemma name_neq_string_eq_index_neq n m :
-  n <> m -> n_string n = n_string m -> n_index n <> n_index m.
+  n <> m ->
+  n_string n = n_string m ->
+  n_index n <> n_index m.
 Proof.
   intros Hneq Heq1 Heq2; apply Hneq.
   replace n with (mkname (n_string n) (n_index n)) by easy.
@@ -91,13 +93,10 @@ Definition delete_iname {T M} (n : name) (f : iname T M) : iname T M :=
   with_iname (n_string n)
     (delete_iindex (n_index n) (project_iname (n_string n) f)) f.
 
-Definition insert_iname {T M} n (a : pnset T M) (f : iname T M)
+Definition insert_iname {T M} (a : pnset T M) n (f : iname T M)
   : iname T M :=
   with_iname (n_string n)
-    (insert_iindex (n_index n) a (project_iname (n_string n) f)) f.
-
-Definition move_iname {T M} n m (f : iname T M) :=
-  insert_iname n (get_iname m f) (delete_iname m f).
+    (insert_iindex a (n_index n) (project_iname (n_string n) f)) f.
 
 (* Morphism definitions *)
 
@@ -138,17 +137,10 @@ Add Parametric Morphism {T M} : (@delete_iname T M)
 Qed.
 
 Add Parametric Morphism {T M} : (@insert_iname T M)
-    with signature eq ==> eq_pnset ==> eq_kmorph ==> eq_kmorph
+    with signature eq_pnset ==> eq ==> eq_kmorph ==> eq_kmorph
     as insert_iname_mor.
   intros * Heq1 * Heq2 V m; unfold insert_iname.
   rewrite Heq1, Heq2; easy.
-Qed.
-
-Add Parametric Morphism {T M} : (@move_iname T M)
-    with signature eq ==> eq ==> eq_kmorph ==> eq_kmorph
-    as move_iname_mor.
-  intros * Heq V o; unfold move_iname.
-  rewrite Heq; easy.
 Qed.
 
 (* The identity [iname] *)
@@ -156,21 +148,6 @@ Qed.
 Definition id_iname : iname (knset name) 0 :=
   fun _ (j : name) => j.
 Arguments id_iname V j /.
-
-(* Successor *)
-Definition succ_name (n : name) :=
-  mkname (n_string n) (S (n_index n)).
-
-(* Operational transforms *)
-
-Definition shift_name (n : name) : name -> name :=
-  delete_iname n id_iname 0.
-
-Definition unshift_name (n : name) : name -> name :=
-  insert_iname n (pnset_const n) id_iname 0.
-
-Definition shift_above_name (n : name) : name -> name :=
-  shift_name (succ_name n).
 
 (* Reductions *)
 
@@ -190,12 +167,6 @@ Proof.
   intro Heq; unfold with_iname.
   destruct (string_dec (n_string n) s); subst;
     try contradiction; easy.
-Qed.
-
-Lemma red_with_iname_same {T M} f (g : iname T M) V n :
-  with_iname (n_string n) f g V n = f V (n_index n).
-Proof.
-  apply red_with_iname_eq; easy.
 Qed.
 
 Lemma red_get_iname {T M} n (f : iname T M) V :
@@ -222,18 +193,10 @@ Proof.
   rewrite red_with_iname_neq; easy.
 Qed.
 
-Lemma red_delete_iname_same {T M} n (f : iname T M) V :
-  delete_iname n f V n
-  = f V (mkname (n_string n) (S (n_index n))).
-Proof.
-  rewrite red_delete_iname_indistinct by easy.
-  rewrite red_delete_iindex_same; easy.
-Qed.
-
 Lemma red_insert_iname_indistinct {T M} n a (f : iname T M) V m :
   n_string n = n_string m ->
-  insert_iname n a f V m
-  = insert_iindex (n_index n) a
+  insert_iname a n f V m
+  = insert_iindex a (n_index n)
       (project_iname (n_string n) f) V (n_index m).
 Proof.
   intro Heq; unfold insert_iname.
@@ -242,158 +205,15 @@ Qed.
 
 Lemma red_insert_iname_distinct {T M} n a (f : iname T M) V m :
   n_string n <> n_string m ->
-  insert_iname n a f V m = f V m.
+  insert_iname a n f V m = f V m.
 Proof.
   intro Heq; unfold insert_iname.
   rewrite red_with_iname_neq; easy.
 Qed.
 
-Lemma red_insert_iname_same {T M} n a (f : iname T M) V :
-  insert_iname n a f V n = a V.
-Proof.
-  rewrite red_insert_iname_indistinct by easy.
-  rewrite red_insert_iindex_same; easy.
-Qed.
-
-Lemma red_shift_name_indistinct n m :
-  n_string n = n_string m ->
-  shift_name n m
-  = mkname (n_string m) (shift_index (n_index n) (n_index m)).
-Proof.
-  intros Heq; unfold shift_name.
-  rewrite red_delete_iname_indistinct by easy.
-  rewrite Heq.
-  case_order (n_index n) (n_index m); easy.
-Qed.
-
-Lemma red_shift_name_distinct n m :
-  n_string n <> n_string m ->
-  shift_name n m = m.
-Proof.
-  intros; unfold shift_name.
-  rewrite red_delete_iname_distinct by easy; easy.
-Qed.
-
-Lemma red_shift_name_same n :
-  shift_name n n
-  = mkname (n_string n) (S (n_index n)).
-Proof.
-  rewrite red_shift_name_indistinct by easy.
-  rewrite red_shift_index_same; easy.
-Qed.
-
-Lemma red_unshift_name_indistinct n m :
-  n_string n = n_string m ->
-  unshift_name n m
-  = mkname (n_string m) (unshift_index (n_index n) (n_index m)).
-Proof.
-  intros Heq; unfold unshift_name.
-  rewrite red_insert_iname_indistinct by easy.
-  rewrite <- Heq.
-  case_order (n_index n) (n_index m); easy.
-Qed.
-
-Lemma red_unshift_name_distinct n m :
-  n_string n <> n_string m ->
-  unshift_name n m = m.
-Proof.
-  intros; unfold unshift_name.
-  rewrite red_insert_iname_distinct by easy; easy.
-Qed.
-
-Lemma red_unshift_name_same n :
-  unshift_name n n = n.
-Proof.
-  rewrite red_unshift_name_indistinct by easy.
-  rewrite red_unshift_index_same; easy.
-Qed.
-
-Lemma red_shift_above_name_indistinct n m :
-  n_string n = n_string m ->
-  shift_above_name n m
-  = mkname (n_string m)
-      (shift_above_index (n_index n) (n_index m)).
-Proof.
-  intros; unfold shift_above_name.
-  rewrite red_shift_name_indistinct by easy; easy.
-Qed.
-
-Lemma red_shift_above_name_distinct n m :
-  n_string n <> n_string m ->
-  shift_above_name n m = m.
-Proof.
-  intros; unfold shift_above_name.
-  rewrite red_shift_name_distinct by easy; easy.
-Qed.
-
-Lemma red_shift_above_name_same n :
-  shift_above_name n n = n.
-Proof.
-  rewrite red_shift_above_name_indistinct by easy.
-  rewrite red_shift_above_index_same; easy.
-Qed.
-
-Lemma red_move_iname_indistinct {T M} n m (f : iname T M) V o :
-  n_string n = n_string o ->
-  n_string m = n_string o ->
-  move_iname n m f V o
-  = move_iindex (n_index n) (n_index m)
-      (project_iname (n_string n) f) V (n_index o).
-Proof.
-  intros Heq1 Heq2; unfold move_iname, move_iindex, get_iname.
-  rewrite red_insert_iname_indistinct by easy.
-  rewrite Heq1, Heq2.
-  case_order (n_index n) (n_index o); try easy;
-    rewrite red_delete_iname_indistinct by easy;
-    rewrite Heq2; easy.
-Qed.
-
-Lemma red_move_iname_distinct1 {T M} n m (f : iname T M) V o :
-  n_string n <> n_string o ->
-  move_iname n m f V o
-  = delete_iname m f V o.
-Proof.
-  intros; unfold move_iname.
-  rewrite red_insert_iname_distinct by easy; easy.
-Qed.
-
-Lemma red_move_iname_distinct2 {T M} n m (f : iname T M) V o :
-  n_string m <> n_string o ->
-  move_iname n m f V o
-  = insert_iname n (get_iname m f) f V o.
-Proof.
-  intros; unfold move_iname.
-  destruct (string_dec (n_string n) (n_string o)).
-  - rewrite red_insert_iname_indistinct by easy.
-    rewrite red_insert_iname_indistinct by easy.
-    case_order (n_index n) (n_index o); try easy;
-      rewrite red_delete_iname_distinct by (cbn; congruence); easy.
-  - rewrite red_insert_iname_distinct by easy.
-    rewrite red_insert_iname_distinct by easy.
-    rewrite red_delete_iname_distinct by easy; easy.
-Qed.
-
-Lemma red_move_iname_same {T M} n m (f : iname T M) V :
-  move_iname n m f V n = get_iname m f V.
-Proof.
-  intros; unfold move_iname.
-  rewrite red_insert_iname_same by easy; easy.
-Qed.
-
-Hint Rewrite @red_get_iname @red_with_iname_same
-     @red_delete_iname_same @red_insert_iname_same
-     @red_shift_name_same @red_unshift_name_same
-     @red_shift_above_name_same @red_move_iname_same
-  : red_inames.
-
 Hint Rewrite @red_with_iname_eq @red_with_iname_neq
      @red_delete_iname_distinct @red_delete_iname_indistinct
      @red_insert_iname_distinct @red_insert_iname_indistinct
-     @red_shift_name_distinct @red_shift_name_indistinct
-     @red_unshift_name_distinct @red_unshift_name_indistinct
-     @red_shift_above_name_distinct @red_shift_above_name_indistinct
-     @red_move_iname_indistinct @red_move_iname_distinct1
-     @red_move_iname_distinct2
      using (cbn; congruence) : red_inames.
 
 (* Rewrite operations using reductions *)
@@ -421,19 +241,6 @@ Definition iname_beta_project_eq {T M} s1 s2 f g :=
   fun V Heq =>
     eq_kmorph_expand
       (@iname_beta_project_eq_pointwise T M s1 s2 f g Heq) V.
-
-(* TODO : is this confluent with eta reduction on open terms? *)
-Lemma iname_beta_project_neq_pointwise {T M} s t f (g : iname T M) :
-  s <> t ->
-  project_iname s (with_iname t f g) =km= project_iname s g.
-Proof.
-  intros Hneq V i; red_inames; easy.
-Qed.
-
-Definition iname_beta_project_neq {T M} s t f g :=
-  fun V i Hneq =>
-    eq_kmorph_expand
-      (@iname_beta_project_neq_pointwise T M s t f g Hneq) V i.
 
 Lemma iname_beta_project_same_pointwise {T M} s f (g : iname T M) :
   project_iname s (with_iname s f g) =km= f.
@@ -498,68 +305,6 @@ Hint Rewrite @iname_beta_project_eq_pointwise
      @iname_beta_with_eq_pointwise @iname_eta_eq_pointwise
   using (cbn; congruence) : simpl_inames_pointwise_eqn.
 
-Hint Rewrite @iname_beta_project_neq
-  using (cbn; congruence) : simpl_inames_eqn.
-
-Hint Rewrite @iname_beta_project_neq_pointwise
-  using (cbn; congruence) : simpl_inames_pointwise_eqn.
-
-(* Simple inversions of operational transforms *)
-
-Lemma simpl_shift_shift_name_unshift_name n m :
-  shift_name (shift_name n m) (unshift_name m n) = n.
-Proof.
-  case_string (n_string n) (n_string m); simpl_iindexs; easy.
-Qed.
-
-Lemma simpl_unshift_unshift_name_shift_name n m :
-  unshift_name (unshift_name n m) (shift_name m n) = n.
-Proof.
-  case_string (n_string n) (n_string m); simpl_iindexs; easy.
-Qed.
-
-Lemma simpl_unshift_shift_above_name_shift_name n m :
-  unshift_name (shift_above_name n m) (shift_name m n) = n.
-Proof.
-  case_string (n_string n) (n_string m); simpl_iindexs; easy.
-Qed.
-
-Lemma simpl_unshift_shift_name_shift_above_name n m :
-  unshift_name (shift_name n m) (shift_above_name m n) = n.
-Proof.
-  case_string (n_string n) (n_string m); simpl_iindexs; easy.
-Qed.
-
-(* Unshift is right inverse of shift *)
-Lemma simpl_shift_name_unshift_name n m :
-  unshift_name n (shift_name n m) = m.
-Proof.
-  case_string (n_string m) (n_string n); simpl_iindexs; easy.
-Qed.
-
-(* Shift is left inverse of unshift if the indices aren't equal *)
-Lemma simpl_unshift_name_shift_name n m :
-  n <> m ->
-  shift_name n (unshift_name n m) = m.
-Proof.
-  intros Hneq.
-  case_string (n_string m) (n_string n); try easy.
-  apply name_neq_string_eq_index_neq in Hneq; try easy.
-  simpl_iindexs; easy.
-Qed.
-
-Hint Rewrite simpl_shift_shift_name_unshift_name
-     simpl_unshift_unshift_name_shift_name
-     simpl_unshift_shift_above_name_shift_name
-     simpl_unshift_shift_name_shift_above_name
-     simpl_shift_name_unshift_name name_eqb_refl
-  : simpl_names.
-
-Hint Rewrite simpl_unshift_name_shift_name
-  using congruence : simpl_names.
-
-Ltac simpl_names := autorewrite with simpl_names.
-
 (* Unfolding derived operations *)
 
 Lemma unfold_get_iname {T M} n (f : iname T M) :
@@ -574,18 +319,13 @@ Lemma unfold_delete_iname {T M} n (f : iname T M) :
 Proof. easy. Qed.
 
 Lemma unfold_insert_iname {T M} n a (f : iname T M) :
-  insert_iname n a f
+  insert_iname a n f
   = with_iname (n_string n)
-      (insert_iindex (n_index n) a (project_iname (n_string n) f)) f.
-Proof. easy. Qed.
-
-Lemma unfold_move_iname {T M} n m (f : iname T M) :
-  move_iname n m f
-  = insert_iname n (get_iname m f) (delete_iname m f).
+      (insert_iindex a (n_index n) (project_iname (n_string n) f)) f.
 Proof. easy. Qed.
 
 Hint Rewrite @unfold_get_iname @unfold_delete_iname
-  @unfold_insert_iname @unfold_move_iname 
+  @unfold_insert_iname
   : unfold_inames.
 
 (* Folding derived operations *)
@@ -603,387 +343,994 @@ Proof. easy. Qed.
 
 Lemma fold_insert_iname {T M} n a (f : iname T M) :
   with_iname (n_string n)
-    (insert_iindex (n_index n) a (project_iname (n_string n) f)) f
-  = insert_iname n a f.
-Proof. easy. Qed.
-
-Lemma fold_move_iname {T M} n m (f : iname T M) :
-  insert_iname n (get_iname m f) (delete_iname m f)
-  = move_iname n m f.
+    (insert_iindex a (n_index n) (project_iname (n_string n) f)) f
+  = insert_iname a n f.
 Proof. easy. Qed.
 
 Hint Rewrite @fold_get_iname @fold_delete_iname
-  @fold_insert_iname @fold_move_iname 
-  : fold_inames.
+  @fold_insert_iname : fold_inames.
 
 (* Simplify [iname] terms by unfolding, simplifying and folding *)
 Ltac simpl_inames :=
   autorewrite with unfold_inames;
-  autorewrite with simpl_names simpl_inames;
-  autorewrite with unfold_iindexs;
-  autorewrite with simpl_indexs simpl_iindexs;
+  autorewrite with simpl_inames;
+  autorewrite with simpl_iindexs;
   repeat progress
     (cbn;
-     try (rewrite_strat topdown (hints simpl_names));
      try (rewrite_strat topdown (hints simpl_inames));
-     try (rewrite_strat topdown (hints simpl_indexs));
      try (rewrite_strat topdown (hints simpl_iindexs)));
-  autorewrite with fold_iindexs fold_inames.
+  autorewrite with fold_inames.
 
 Ltac simpl_inames_eqn :=
   autorewrite with unfold_inames;
-  autorewrite with simpl_names simpl_inames;
-  autorewrite with unfold_iindexs;
-  autorewrite with simpl_indexs simpl_iindexs;
+  autorewrite with simpl_inames;
+  autorewrite with simpl_iindexs;
   repeat progress
     (cbn;
-     try (rewrite_strat topdown (hints simpl_names));
      try (rewrite_strat topdown (hints simpl_inames));
      try (rewrite_strat topdown (hints simpl_inames_eqn));
-     try (rewrite_strat topdown (hints simpl_indexs));
      try (rewrite_strat topdown (hints simpl_iindexs));
      try (rewrite_strat topdown (hints simpl_iindexs_eqn)));
-  autorewrite with fold_iindexs fold_inames.
+  autorewrite with fold_inames.
 
 Ltac simpl_inames_pointwise :=
   autorewrite with unfold_inames;
-  autorewrite with simpl_names simpl_inames_pointwise;
-  autorewrite with unfold_iindexs;
-  autorewrite with simpl_indexs simpl_iindexs_pointwise;
+  autorewrite with simpl_inames_pointwise;
+  autorewrite with simpl_iindexs_pointwise;
   repeat progress
     (cbn;
-     try (rewrite_strat topdown (hints simpl_names));
      try (rewrite_strat topdown (hints simpl_inames_pointwise));
-     try (rewrite_strat topdown (hints simpl_indexs));
      try (rewrite_strat topdown (hints simpl_iindexs_pointwise)));
-  autorewrite with fold_iindexs fold_inames.
+  autorewrite with fold_inames.
 
 Ltac simpl_inames_pointwise_eqn :=
   autorewrite with unfold_inames;
-  autorewrite with simpl_names simpl_inames_pointwise;
-  autorewrite with unfold_iindexs;
-  autorewrite with simpl_indexs simpl_iindexs_pointwise;
+  autorewrite with simpl_inames_pointwise;
+  autorewrite with simpl_iindexs_pointwise;
   repeat progress
     (cbn;
-     try (rewrite_strat topdown (hints simpl_names));
      try (rewrite_strat topdown (hints simpl_inames_pointwise));
      try (rewrite_strat topdown (hints simpl_inames_pointwise_eqn));
-     try (rewrite_strat topdown (hints simpl_indexs));
      try (rewrite_strat topdown (hints simpl_iindexs_pointwise));
      try (rewrite_strat topdown (hints simpl_iindexs_pointwise_eqn)));
-  autorewrite with fold_iindexs fold_inames.
+  autorewrite with fold_inames.
 
-Lemma project_id_iname {T N} (f : iindex T N) i :
-  @morph_compose (knset index) 0 (knset index) 0 T N
-     f (delete_iindex i id_iindex) =m= delete_iindex i f.
+(* Transposing distinct operations *)
+
+Definition transpose_with_iname_with_iname
+           {T M} s1 f1 s2 f2 (g : iname T M) :
+    s1 <> s2 ->
+    with_iname s1 f1 (with_iname s2 f2 g)
+    =km= with_iname s2 f2 (with_iname s1 f1 g).
 Proof.
-  intros V j.
-  case_order i j; easy.
+  intros Hneq V n.
+  case_string s2 (n_string n);
+    case_string s1 (n_string n); easy.
 Qed.
+
+Definition transpose_project_iname_with_iname
+           {T M} s1 s2 f (g : iname T M) :
+    s1 <> s2 ->
+    project_iname s1 (with_iname s2 f g)
+    =km= project_iname s1 g.
+Proof.
+  intros Hneq V n.
+  red_inames; easy.
+Qed.
+
+(* Transposing derived operations
+
+   We wish to reason about transposing [insert] and [delete]
+   operations. These operations are not commutative, however
+   they can be transposed by applying transformations to
+   their indices.
+
+   We follow the same approach as for [iindex]s. We define
+   two transformations on names:
+
+     transpose_iname_left(op1, op2, n1, n2)
+
+     transpose_iname_right(op2, op1, n2, n1)
+
+   such that:
+
+     op1<n1> (op2<n2>(f))
+     = op2<transpose_iname_left(op1, op2, n1, n2)>
+         (op1<transpose_iname_right(op2, op1, n2, n1)>(f))
+
+   These transformations do not work in the case where [op1]
+   is [delete], [op2] is [insert] and [n1 = n2]. In this
+   case the composed operations reduce to the identity by
+   beta-reduction and cannot be transposed.
+*)
+
+Definition apply_iname_op {T M}
+           (op : pnset_stream_op T M) :=
+  match op with
+  | Ins a => insert_iname a
+  | Del => delete_iname
+  end.
+
+(* Precondition on transposing two operations *)
+Definition irreducible_iname_ops (op1 op2 : stream_op)
+  : name -> name -> Prop :=
+  match op1, op2 with
+  | insert, insert => fun n1 n2 => True
+  | insert, delete => fun n1 n2 => True
+  | delete, insert => fun n1 n2 => n1 <> n2
+  | delete, delete => fun n1 n2 => True
+  end.
+
+(* Shift and unshift
+
+   We define [transpose_iname_left] and
+   [transpose_iname_right] in terms of three operations on
+   names: [shift_below_name], [shift_above_name] and
+   [unshift_name].
+*)
+
+Definition shift_below_name_index (n : name)
+  : name -> index :=
+  fun (m : name) =>
+    if string_dec (n_string n) (n_string m) then
+      shift_below_index (n_index n) (n_index m)
+    else (n_index m).
+
+Definition shift_below_name (n : name) : name -> name :=
+  fun (m : name) =>
+    mkname (n_string m) (shift_below_name_index n m).
+
+Definition shift_above_name_index (n : name)
+  : name -> index :=
+  fun (m : name) =>
+    if string_dec (n_string n) (n_string m) then
+      shift_above_index (n_index n) (n_index m)
+    else (n_index m).
+
+Definition shift_above_name (n : name) : name -> name :=
+  fun (m : name) =>
+    mkname (n_string m) (shift_above_name_index n m).
+
+Definition unshift_name_index (n : name) : name -> index :=
+  fun (m : name) =>
+    if string_dec (n_string n) (n_string m) then
+      unshift_index (n_index n) (n_index m)
+    else (n_index m).
+
+Definition unshift_name (n : name) : name -> name :=
+  fun (m : name) =>
+    mkname (n_string m) (unshift_name_index n m).
+
+(* Reductions *)
+
+Lemma red_shift_below_name_index_distinct n m :
+  n_string n <> n_string m ->
+  shift_below_name_index n m = (n_index m).
+Proof.
+  intros; unfold shift_below_name_index.
+  destruct (string_dec (n_string n) (n_string m)); subst;
+    try contradiction; easy.
+Qed.
+
+Lemma red_shift_below_name_index_indistinct n m :
+  n_string n = n_string m ->
+  shift_below_name_index n m
+  = shift_below_index (n_index n) (n_index m).
+Proof.
+  intros; unfold shift_below_name_index.
+  destruct (string_dec (n_string n) (n_string m)); subst;
+    try contradiction; easy.
+Qed.
+
+Lemma red_shift_below_name_distinct n m :
+  n_string n <> n_string m ->
+  shift_below_name n m = m.
+Proof.
+  intros; unfold shift_below_name.
+  rewrite red_shift_below_name_index_distinct; easy.
+Qed.
+
+Lemma red_shift_below_name_indistinct n m :
+  n_string n = n_string m ->
+  shift_below_name n m
+  = mkname (n_string m)
+      (shift_below_index (n_index n) (n_index m)).
+Proof.
+  intros; unfold shift_below_name.
+  rewrite red_shift_below_name_index_indistinct; easy.
+Qed.
+
+Lemma red_shift_above_name_index_distinct n m :
+  n_string n <> n_string m ->
+  shift_above_name_index n m = (n_index m).
+Proof.
+  intros; unfold shift_above_name_index.
+  destruct (string_dec (n_string n) (n_string m)); subst;
+    try contradiction; easy.
+Qed.
+
+Lemma red_shift_above_name_index_indistinct n m :
+  n_string n = n_string m ->
+  shift_above_name_index n m
+  = shift_above_index (n_index n) (n_index m).
+Proof.
+  intros; unfold shift_above_name_index.
+  destruct (string_dec (n_string n) (n_string m)); subst;
+    try contradiction; easy.
+Qed.
+
+Lemma red_shift_above_name_distinct n m :
+  n_string n <> n_string m ->
+  shift_above_name n m = m.
+Proof.
+  intros; unfold shift_above_name.
+  rewrite red_shift_above_name_index_distinct; easy.
+Qed.
+
+Lemma red_shift_above_name_indistinct n m :
+  n_string n = n_string m ->
+  shift_above_name n m
+  = mkname (n_string m)
+      (shift_above_index (n_index n) (n_index m)).
+Proof.
+  intros; unfold shift_above_name.
+  rewrite red_shift_above_name_index_indistinct; easy.
+Qed.
+
+Lemma red_unshift_name_index_distinct n m :
+  n_string n <> n_string m ->
+  unshift_name_index n m = (n_index m).
+Proof.
+  intros; unfold unshift_name_index.
+  destruct (string_dec (n_string n) (n_string m)); subst;
+    try contradiction; easy.
+Qed.
+
+Lemma red_unshift_name_index_indistinct n m :
+  n_string n = n_string m ->
+  unshift_name_index n m
+  = unshift_index (n_index n) (n_index m).
+Proof.
+  intros; unfold unshift_name_index.
+  destruct (string_dec (n_string n) (n_string m)); subst;
+    try contradiction; easy.
+Qed.
+
+Lemma red_unshift_name_distinct n m :
+  n_string n <> n_string m ->
+  unshift_name n m = m.
+Proof.
+  intros; unfold unshift_name.
+  rewrite red_unshift_name_index_distinct; easy.
+Qed.
+
+Lemma red_unshift_name_indistinct n m :
+  n_string n = n_string m ->
+  unshift_name n m
+  = mkname (n_string m)
+      (unshift_index (n_index n) (n_index m)).
+Proof.
+  intros; unfold unshift_name.
+  rewrite red_unshift_name_index_indistinct; easy.
+Qed.
+
+Hint Rewrite @red_shift_below_name_index_distinct
+     @red_shift_below_name_index_indistinct
+     @red_shift_below_name_distinct
+     @red_shift_below_name_indistinct
+     @red_shift_above_name_index_distinct
+     @red_shift_above_name_index_indistinct
+     @red_shift_above_name_distinct
+     @red_shift_above_name_indistinct
+     @red_unshift_name_index_distinct
+     @red_unshift_name_index_indistinct
+     @red_unshift_name_distinct
+     @red_unshift_name_indistinct
+     using (cbn; congruence) : red_inames.
 
 (* Useful lemmas about shifting *)
 
-Lemma shift_name_neq n m :
-  shift_name n m <> n.
+Lemma shift_below_name_neq n m :
+  shift_below_name n m <> n.
 Proof.
-  pose shift_index_neq.
-  case_string (n_string n) (n_string m); try congruence.
+  pose shift_below_index_neq.
+  case_string (n_string n) (n_string m);
+    try congruence.
   destruct n, m; cbn in *; congruence.
 Qed.
 
-Lemma shift_above_name_neq_shift_name n m :
-  shift_above_name n m <> shift_name m n.
+Lemma shift_above_name_neq_shift_below_name n m :
+  shift_above_name n m <> shift_below_name m n.
 Proof.
-  pose shift_above_index_neq_shift_index.
+  pose shift_above_index_neq_shift_below_index.
   case_string (n_string n) (n_string m); congruence.
 Qed.
 
-(* Commuting [iname] operations *)
+Definition transpose_iname_left (op1 op2 : stream_op) :=
+  match op1, op2 with
+  | insert, insert => shift_below_name
+  | insert, delete => shift_above_name
+  | delete, insert => unshift_name
+  | delete, delete => unshift_name
+  end.
+Arguments transpose_iname_left !op1 !op2.
 
-Lemma swap_with_iname_with_iname_pointwise {T M} s f t g
-      (h : iname T M) :
-  s <> t ->
-  with_iname s f (with_iname t g h)
-  =km= with_iname t g (with_iname s f h).
+Definition transpose_iname_right (op2 op1 : stream_op) :=
+  match op1, op2 with
+  | insert, insert => unshift_name
+  | insert, delete => shift_below_name
+  | delete, insert => unshift_name
+  | delete, delete => shift_below_name
+  end.
+Arguments transpose_iname_right !op2 !op1.
+
+Lemma transpose_iname {T M}
+      (op1 op2 : pnset_stream_op T M) :
+  forall n1 n2 f,
+    irreducible_iname_ops op1 op2 n1 n2 ->
+    apply_iname_op op1 n1
+      (apply_iname_op op2 n2 f)
+    =km= apply_iname_op op2
+           (transpose_iname_left op1 op2 n1 n2)
+              (apply_iname_op op1
+                 (transpose_iname_right op2 op1 n2 n1) f).
 Proof.
-  intros Hneq V n.
-  case_string s (n_string n); try easy.
-  case_string t (n_string n); easy.
+  intros n1 n2 f Hirr.
+  case_string (n_string n1) (n_string n2).
+  - destruct op1, op2; cbn in *; red_inames;
+      simpl_inames_pointwise_eqn.
+    + transpose_iindex (Ins _) _ (Ins _) _.
+      congruence.
+    + transpose_iindex (Ins _) _ Del _.
+      congruence.
+    + transpose_iindex Del _ (Ins _) _;
+        auto using name_neq_string_eq_index_neq.
+      congruence.
+    + transpose_iindex Del _ Del _.
+      congruence.
+  - destruct op1, op2; cbn;
+      autorewrite with unfold_inames; red_inames;
+      rewrite transpose_with_iname_with_iname
+        by congruence;
+      rewrite transpose_project_iname_with_iname
+        by congruence;
+      rewrite transpose_project_iname_with_iname
+        by congruence;
+      easy.
 Qed.
 
-Definition swap_with_iname_with_iname {T M} s f t g h :=
-  fun V n Heq =>
-    eq_kmorph_expand
-      (@swap_with_iname_with_iname_pointwise T M s f t g h Heq) V n.
+Tactic Notation
+  "transpose_iname"
+    uconstr(op1) uconstr(n1) uconstr(op2) uconstr(n2) :=
+  let Hrw := fresh "Hrw" in
+    epose (transpose_iname op1 op2 n1 n2) as Hrw;
+      cbn in Hrw; rewrite Hrw;
+        [> | try easy]; clear Hrw.
 
-Lemma swap_delete_iname_delete_iname_pointwise {T M} n m
-      (f : iname T M) :
-  delete_iname n (delete_iname m f)
-  =km= delete_iname (unshift_name n m)
-         (delete_iname (shift_name m n) f).
+Tactic Notation
+  "transpose_iname"
+    uconstr(op1) uconstr(n1) uconstr(op2) uconstr(n2)
+    "at" occurrences(occ) :=
+  let Hrw := fresh "Hrw" in
+    epose (transpose_iname op1 op2 n1 n2) as Hrw;
+      cbn in Hrw; rewrite Hrw at occ;
+        [> | try easy]; clear Hrw.
+
+(* Normalizing pairs of operations
+
+   The choice of names on some pairs of operations is not
+   unique. In particular,
+
+     delete (s, S i) (insert (s, i) f)
+
+   is equivalent to:
+
+     delete (s, i) (insert (s, S i) f)
+
+   We define a pair of transformations on names:
+
+     normalize_iname_left(op2, op1, n2, n1)
+
+     normalize_iname_right(op1, op2, n1, n2)
+
+   such that:
+
+     op1<n1>(op2<n2>(f))
+     = op1<normalize_iname_left(op2, op1, n2, n1)>
+         (op2<normalize_iname_right(op1, op2, n1, n2)>(f))
+
+   and:
+
+     normalize_iname_left(insert, delete, (s, i), (s, S i))
+     = (s, i)
+     normalize_iname_right(delete, insert, (s, S i), (s, i))
+     = (s, S i)
+
+*)
+
+(* Contract
+
+   We define [normalize_iname_left] and
+   [normalize_iname_right] in terms of three operations on
+   names: [contract_down_name] ,[contrace_up_name] and
+   [unchanged_name]. *)
+
+Definition contract_down_name_index (n : name)
+  : name -> index :=
+  fun (m : name) =>
+    if string_dec (n_string n) (n_string m) then
+      contract_down_index (n_index n) (n_index m)
+    else (n_index m).
+
+Definition contract_down_name (n : name) : name -> name :=
+  fun (m : name) =>
+    mkname (n_string m) (contract_down_name_index n m).
+
+Definition contract_up_name_index (n : name)
+  : name -> index :=
+  fun (m : name) =>
+    if string_dec (n_string n) (n_string m) then
+      contract_up_index (n_index n) (n_index m)
+    else (n_index m).
+
+Definition contract_up_name (n : name) : name -> name :=
+  fun (m : name) =>
+    mkname (n_string m) (contract_up_name_index n m).
+
+Definition unchanged_name (i : name) : name -> name :=
+  fun (j : name) => j.
+Arguments unchanged_name i j /.
+
+(* Reductions *)
+
+Lemma red_contract_down_name_index_distinct n m :
+  n_string n <> n_string m ->
+  contract_down_name_index n m = (n_index m).
 Proof.
-  case_string (n_string n) (n_string m).
-  - intros V o.
-    case_string (n_string n) (n_string o); try easy.
-    simpl_inames_pointwise_eqn.
-    rewrite swap_delete_iindex_delete_iindex_pointwise; congruence.
-  - unfold delete_iname.
-    rewrite swap_with_iname_with_iname_pointwise by easy.
-    simpl_inames_pointwise_eqn; easy.
+  intros; unfold contract_down_name_index.
+  destruct (string_dec (n_string n) (n_string m)); subst;
+    try contradiction; easy.
 Qed.
 
-Definition swap_delete_iname_delete_iname {T M} n m f :=
-  eq_kmorph_expand
-    (@swap_delete_iname_delete_iname_pointwise T M n m f).
-
-Lemma swap_insert_iname_insert_iname_pointwise {T M} n a m b
-      (f : iname T M) :
-  insert_iname n a (insert_iname m b f)
-  =km= insert_iname (shift_name n m) b
-      (insert_iname (unshift_name m n) a f).
+Lemma red_contract_down_name_index_indistinct n m :
+  n_string n = n_string m ->
+  contract_down_name_index n m
+  = contract_down_index (n_index n) (n_index m).
 Proof.
-  case_string (n_string n) (n_string m).
-  - intros V o.
-    case_string (n_string n) (n_string o); try easy.
-    simpl_inames_pointwise_eqn.
-    rewrite swap_insert_iindex_insert_iindex; congruence.
-  - unfold insert_iname.
-    rewrite swap_with_iname_with_iname_pointwise by easy.
-    simpl_inames_pointwise_eqn; easy.
+  intros; unfold contract_down_name_index.
+  destruct (string_dec (n_string n) (n_string m)); subst;
+    try contradiction; easy.
 Qed.
 
-Definition swap_insert_iname_insert_iname {T M} n a m b f :=
-  eq_kmorph_expand
-    (@swap_insert_iname_insert_iname_pointwise T M n a m b f).
-
-Lemma swap_delete_iname_insert_iname_pointwise {T M} n m a
-      (f : iname T M) :
-  n <> m ->
-  delete_iname n (insert_iname m a f)
-  =km= insert_iname (unshift_name n m) a
-        (delete_iname (unshift_name m n) f).
+Lemma red_contract_down_name_distinct n m :
+  n_string n <> n_string m ->
+  contract_down_name n m = m.
 Proof.
-  intros Hneq.
-  case_string (n_string n) (n_string m).
-  - intros V o.
-    case_string (n_string n) (n_string o); try easy.
-    simpl_inames_pointwise_eqn.
-    rewrite swap_delete_iindex_insert_iindex
-      by auto using name_neq_string_eq_index_neq; congruence.
-  - unfold delete_iname, insert_iname.
-    rewrite swap_with_iname_with_iname_pointwise by easy.
-    simpl_inames_pointwise_eqn; easy.
+  intros; unfold contract_down_name.
+  rewrite red_contract_down_name_index_distinct; easy.
 Qed.
 
-Definition swap_delete_iname_insert_iname {T M} n m a f :=
-  fun V o Heq =>
-    eq_kmorph_expand
-      (@swap_delete_iname_insert_iname_pointwise
-         T M n m a f Heq) V o.
-
-Lemma swap_insert_iname_delete_iname_pointwise {T M} n m a
-      (f : iname T M) :
-  insert_iname n a (delete_iname m f)
-  =km= delete_iname (shift_above_name n m)
-         (insert_iname (shift_name m n) a f).
+Lemma red_contract_down_name_indistinct n m :
+  n_string n = n_string m ->
+  contract_down_name n m
+  = mkname (n_string m)
+      (contract_down_index (n_index n) (n_index m)).
 Proof.
-  case_string (n_string n) (n_string m).
-  - intros V o.
-    case_string (n_string n) (n_string o); try easy.
-    simpl_inames_pointwise_eqn.
-    rewrite swap_insert_iindex_delete_iindex; congruence.
-  - unfold insert_iname, delete_iname.
-    rewrite swap_with_iname_with_iname_pointwise by easy.
-    simpl_inames_pointwise_eqn; easy.
+  intros; unfold contract_down_name.
+  rewrite red_contract_down_name_index_indistinct; easy.
 Qed.
 
-Definition swap_insert_iname_delete_iname {T M} n m a f :=
-  eq_kmorph_expand
-    (@swap_insert_iname_delete_iname_pointwise T M n m a f).
-
-Lemma swap_get_iname_insert_iname_pointwise {T M} n m a
-      (f : iname T M) :
-  n <> m ->
-  get_iname n (insert_iname m a f)
-  =p= get_iname (unshift_name m n) f.
+Lemma red_contract_up_name_index_distinct n m :
+  n_string n <> n_string m ->
+  contract_up_name_index n m = (n_index m).
 Proof.
-  intros Hneq V; cbn.
-  case_string (n_string n) (n_string m); try easy.
-  apply name_neq_string_eq_index_neq in Hneq; try easy.
-  case_order (n_index n) (n_index m); easy.
+  intros; unfold contract_up_name_index.
+  destruct (string_dec (n_string n) (n_string m)); subst;
+    try contradiction; easy.
 Qed.
 
-Definition swap_get_iname_insert_iname {T M} n m a f :=
-  fun V Hneq =>
-    eq_pnset_expand
-      (@swap_get_iname_insert_iname_pointwise T M n m a f Hneq) V.
-
-Lemma swap_get_iname_delete_iname_pointwise {T M} n m
-      (f : iname T M) :
-  get_iname n (delete_iname m f)
-  =p= get_iname (shift_name m n) f.
+Lemma red_contract_up_name_index_indistinct n m :
+  n_string n = n_string m ->
+  contract_up_name_index n m
+  = contract_up_index (n_index n) (n_index m).
 Proof.
-  intros V; cbn.
-  case_string (n_string n) (n_string m); try easy.
-  case_order (n_index n) (n_index m); easy.
+  intros; unfold contract_up_name_index.
+  destruct (string_dec (n_string n) (n_string m)); subst;
+    try contradiction; easy.
 Qed.
 
-Definition swap_get_iname_delete_iname {T M} n m f :=
-  eq_pnset_expand
-    (@swap_get_iname_delete_iname_pointwise T M n m f).
-
-Lemma swap_insert_iname_move_iname_pointwise {T M} n a m o
-      (f : iname T M) :
-  insert_iname n a (move_iname m o f)
-  =km= move_iname (shift_name n m)
-                  (shift_above_name (unshift_name m n) o)
-         (insert_iname (shift_name o (unshift_name m n)) a f).
+Lemma red_contract_up_name_distinct n m :
+  n_string n <> n_string m ->
+  contract_up_name n m = m.
 Proof.
-  unfold move_iname.
-  rewrite swap_insert_iname_insert_iname_pointwise.
-  rewrite swap_insert_iname_delete_iname_pointwise.
-  rewrite swap_get_iname_insert_iname_pointwise
-    by auto using shift_above_name_neq_shift_name.
-  simpl_names; easy.
+  intros; unfold contract_up_name.
+  rewrite red_contract_up_name_index_distinct; easy.
 Qed.
 
-Definition swap_insert_iname_move_iname {T M} n a m o f :=
-  eq_kmorph_expand
-    (@swap_insert_iname_move_iname_pointwise T M n a m o f).
-
-Lemma swap_move_iname_insert_iname_pointwise {T M} n m o a
-      (f : iname T M) :
-  m <> o ->
-  move_iname n m (insert_iname o a f)
-  =km= insert_iname (shift_name n (unshift_name m o)) a
-         (move_iname (unshift_name (unshift_name m o) n)
-            (unshift_name o m) f).
+Lemma red_contract_up_name_indistinct n m :
+  n_string n = n_string m ->
+  contract_up_name n m
+  = mkname (n_string m)
+      (contract_up_index (n_index n) (n_index m)).
 Proof.
-  intros; unfold move_iname.
-  rewrite swap_delete_iname_insert_iname_pointwise by easy.
-  rewrite swap_insert_iname_insert_iname_pointwise.
-  rewrite swap_get_iname_insert_iname_pointwise by easy.
-  easy.
+  intros; unfold contract_up_name.
+  rewrite red_contract_up_name_index_indistinct; easy.
 Qed.
 
-Definition swap_move_iname_insert_iname {T M} n m o a f :=
-  fun V l Hneq =>
-    eq_kmorph_expand
-      (@swap_move_iname_insert_iname_pointwise T M n m o a f Hneq)
-      V l.
+Lemma red_unchanged_name n m :
+  unchanged_index n m = m.
+Proof. easy. Qed.
 
-Lemma swap_delete_iname_move_iname_pointwise {T M} n m o
-      (f : iname T M) :
-  n <> m ->
-  delete_iname n (move_iname m o f)
-  =km= move_iname
-         (unshift_name n m) (unshift_name (unshift_name m n) o)
-         (delete_iname (shift_name o (unshift_name m n)) f).
+Hint Rewrite @red_contract_down_name_index_distinct
+     @red_contract_down_name_index_indistinct
+     @red_contract_down_name_distinct
+     @red_contract_down_name_indistinct
+     @red_contract_up_name_index_distinct
+     @red_contract_up_name_index_indistinct
+     @red_contract_up_name_distinct
+     @red_contract_up_name_indistinct
+     @red_unchanged_name
+     using (cbn; congruence) : red_inames.
+
+Definition normalize_iname_left (op2 op1 : stream_op)
+  : name -> name -> name :=
+  match op1, op2 with
+  | insert, insert => unchanged_name
+  | insert, delete => unchanged_name
+  | delete, insert => contract_down_name
+  | delete, delete => unchanged_name
+  end.
+
+Definition normalize_iname_right (op1 op2 : stream_op) :=
+  match op1, op2 with
+  | insert, insert => unchanged_name
+  | insert, delete => unchanged_name
+  | delete, insert => contract_up_name
+  | delete, delete => unchanged_name
+  end.
+
+Lemma normalize_iname {T M}
+      (op1 op2 : pnset_stream_op T M) :
+  forall i1 i2 f,
+    apply_iname_op op1 i1
+      (apply_iname_op op2 i2 f)
+    =km= apply_iname_op op1
+           (normalize_iname_left op2 op1 i2 i1)
+           (apply_iname_op op2
+              (normalize_iname_right op1 op2 i1 i2) f).
 Proof.
-  intros; unfold move_iname.
-  rewrite swap_delete_iname_insert_iname_pointwise by easy.
-  rewrite swap_delete_iname_delete_iname_pointwise.
-  rewrite swap_get_iname_delete_iname_pointwise.
-  simpl_names; easy.
+  intros n1 n2 f.
+  destruct op1, op2; cbn; try easy.
+  case_string (n_string n1) (n_string n2); try easy.
+  intros V n3.
+  case_string (n_string n2) (n_string n3); try easy.
+  simpl_inames_pointwise_eqn.
+  normalize_iindex Del _ (Ins _) _.
+  congruence.
 Qed.
 
-Definition swap_delete_iname_move_iname {T M} n m o f :=
-  fun V l Hneq =>
-    eq_kmorph_expand
-      (@swap_delete_iname_move_iname_pointwise T M n m o f Hneq)
-      V l.
+Tactic Notation
+  "normalize_iname" uconstr(op1) uconstr(i1) uconstr(op2) uconstr(i2) :=
+  let Hrw := fresh "Hrw" in
+    epose (normalize_iname op1 op2 i1 i2) as Hrw;
+      cbn in Hrw; rewrite Hrw; clear Hrw.
 
-Lemma swap_move_iname_delete_iname_pointwise {T M} n m o
-      (f : iname T M) :
-  move_iname n m (delete_iname o f)
-  =km= delete_iname (shift_above_name n (unshift_name m o))
-         (move_iname (shift_name (unshift_name m o) n)
-            (shift_name o m) f).
+Tactic Notation
+  "normalize_iname"
+    uconstr(op1) uconstr(i1) uconstr(op2) uconstr(i2)
+    "at" occurrences(occ) :=
+  let Hrw := fresh "Hrw" in
+    epose (normalize_iname op1 op2 i1 i2) as Hrw;
+      cbn in Hrw; rewrite Hrw at occ; clear Hrw.
+
+(* Transposing normalizes indices *)
+
+Lemma normalize_transpose_iname_left (op1 op2 : stream_op) :
+  forall n1 n2,
+    transpose_iname_left op1 op2 n1 n2
+    = normalize_iname_left op1 op2
+        (transpose_iname_right op2 op1 n2 n1)
+        (transpose_iname_left op1 op2 n1 n2).
 Proof.
-  intros; unfold move_iname.
-  rewrite swap_delete_iname_delete_iname_pointwise.
-  rewrite swap_get_iname_delete_iname_pointwise by easy.
-  rewrite swap_insert_iname_delete_iname_pointwise by easy.
-  easy.
-Qed.
-
-Definition swap_move_iname_delete_iname {T M} n m o f :=
-  eq_kmorph_expand
-    (@swap_move_iname_delete_iname_pointwise T M n m o f).
-
-Lemma swap_get_iname_move_iname_pointwise {T M} n m o
-      (f : iname T M) :
-  n <> m ->
-  get_iname n (move_iname m o f)
-  =p= get_iname (shift_name o (unshift_name m n)) f.
-Proof.
-  intros; unfold move_iname.
-  rewrite swap_get_iname_insert_iname_pointwise by easy.
-  rewrite swap_get_iname_delete_iname_pointwise; easy.
-Qed.
-
-(* Commuting [name] operations *)
-
-Lemma swap_shift_name_shift_name n m o :
-  shift_name n (shift_name m o)
-  = shift_name (shift_name n m)
-      (shift_name (unshift_name m n) o).
-Proof.
-  case_string (n_string n) (n_string m).
-  - case_string (n_string n) (n_string o); try easy.
-    rewrite swap_shift_index_shift_index; easy.
-  - case_string (n_string n) (n_string o); try easy.
-    case_string (n_string m) (n_string o); easy.
-Qed.
-
-Lemma swap_shift_name_unshift_name n m o :
-  shift_name n (unshift_name m o)
-  = unshift_name (shift_name n m)
-      (shift_name (shift_above_name m n) o).
-Proof.
-  case_string (n_string n) (n_string m).
-  - case_string (n_string n) (n_string o); try easy.
-    rewrite swap_shift_index_unshift_index; easy.
-  - case_string (n_string n) (n_string o); try easy.
-    case_string (n_string m) (n_string o); easy.
-Qed.
-
-Lemma swap_unshift_name_unshift_name n m o :
-  unshift_name n (unshift_name m o)
-  = unshift_name (unshift_name n m)
-      (unshift_name (shift_name m n) o).
-Proof.
-  case_string (n_string n) (n_string m).
-  - case_string (n_string n) (n_string o); try easy.
-    rewrite swap_unshift_index_unshift_index; easy.
-  - case_string (n_string n) (n_string o); try easy.
-    case_string (n_string m) (n_string o); easy.
-Qed.
-
-Lemma swap_unshift_name_shift_name n m o :
-  m <> n ->
-  shift_name m o <> n ->
-  unshift_name n (shift_name m o) =
-  shift_name (unshift_name n m)
-    (unshift_name (unshift_name m n) o).
-Proof.
-  intros Hn1 Hn2.
-  case_string (n_string n) (n_string m).
-  - apply name_neq_string_eq_index_neq in Hn1; try easy.
-    case_string (n_string n) (n_string o); try easy.
-    apply name_neq_string_eq_index_neq in Hn2;
-      red_inames; try easy.
-    rewrite swap_unshift_index_shift_index; try easy.
-    replace (shift_index (n_index m) (n_index o))
-      with (n_index (shift_name m o))
-      by (red_inames; easy).
+  intros n1 n2.
+  case_string (n_string n1) (n_string n2).
+  - destruct op1, op2; red_inames; try easy.
+    normalize_transpose_iindex_left insert _ delete _ at 1.
     easy.
-  - case_string (n_string n) (n_string o); try easy.
-    case_string (n_string m) (n_string o); easy.
+  - destruct op1, op2; red_inames; easy.
 Qed.
 
-(* There is a full covariant functor from [T O] to [iname N T O]
-   by composition.
+Lemma normalize_transpose_iname_right (op1 op2 : stream_op) :
+  forall n1 n2,
+    transpose_iname_right op2 op1 n2 n1
+    = normalize_iname_right op2 op1
+        (transpose_iname_left op1 op2 n1 n2)
+        (transpose_iname_right op2 op1 n2 n1).
+Proof.
+  intros n1 n2.
+  case_string (n_string n1) (n_string n2).
+  - destruct op1, op2; red_inames; try easy.
+    normalize_transpose_iindex_right insert _ delete _ at 1.
+    easy.
+  - destruct op1, op2; red_inames; easy.
+Qed.
+
+(* Permutations of [iname] operations
+
+   Beyond transposing pairs of operations, we wish to reason
+   about arbitrary permutations of sequences of [iname]
+   operations.
+
+   Given a sequence of n operations, rewriting with
+   [transpose_iname] essentially gives us transpositions σᵢ
+   which swap the ith and (i+1)th operations. The group of
+   permutations of n operations can be generated from these
+   transpositions and the following equations:
+
+   1) σᵢ ∘ σⱼ = σⱼ ∘ σᵢ where |i - j| > 1
+
+   2) σᵢ ∘ σᵢ = 1
+
+   3) σᵢ ∘ σᵢ₊₁ ∘ σᵢ = σᵢ₊₁ ∘ σᵢ ∘ σᵢ₊₁
+
+   The first equation follows automatically since rewriting
+   with [transpose_iname] only affects the operations that
+   are transposed.
+
+   Lemmas [transpose_iname_squared_left] and
+   [transpose_iname_squared_right] below are equivalent to
+   the second equation.
+
+   Lemmas [transpose_iname_reverse_left],
+   [transpose_iname_reverse_middle] and
+   [transpose_iname_reverse_right] below are equivalent to
+   the third equation.
+ *)
+
+Lemma transpose_iname_squared_left (op1 op2 : stream_op) :
+  forall n1 n2,
+    transpose_iname_left op2 op1
+      (transpose_iname_left op1 op2 n1 n2)
+      (transpose_iname_right op2 op1 n2 n1)
+    = normalize_iname_left op2 op1 n2 n1.
+Proof.
+  intros.
+  case_string (n_string n1) (n_string n2).
+  - destruct op1, op2; cbn; red_inames.
+    + transpose_iindex_squared_left insert _ insert _; easy.
+    + transpose_iindex_squared_left insert _ delete _; easy.
+    + transpose_iindex_squared_left delete _ insert _; easy.
+    + transpose_iindex_squared_left delete _ delete _; easy.
+  - destruct op1, op2; cbn; red_inames; easy.
+Qed.
+
+Lemma transpose_iname_squared_right (op1 op2 : stream_op) :
+  forall n1 n2,
+    irreducible_iname_ops op1 op2 n1 n2 ->
+    transpose_iname_right op1 op2
+      (transpose_iname_right op2 op1 n2 n1)
+      (transpose_iname_left op1 op2 n1 n2)
+    = normalize_iname_right op1 op2 n1 n2.
+Proof.
+  intros.
+  case_string (n_string n1) (n_string n2).
+  - destruct op1, op2; cbn in *; red_inames.
+    + transpose_iindex_squared_right insert _ insert _; easy.
+    + transpose_iindex_squared_right insert _ delete _; easy.
+    + transpose_iindex_squared_right delete _ insert _;
+        auto using name_neq_string_eq_index_neq.
+    + transpose_iindex_squared_right delete _ delete _; easy.
+  - destruct op1, op2; cbn; red_inames; easy.
+Qed.
+
+Tactic Notation "transpose_iname_squared_left"
+       uconstr(op1) uconstr(n1) uconstr(op2) uconstr(n2) :=
+  let Hrw := fresh "Hrw" in
+    epose (transpose_iname_squared_left op1 op2 n1 n2)
+      as Hrw; cbn in Hrw; rewrite Hrw; clear Hrw.
+
+Tactic Notation "transpose_iname_squared_left"
+       uconstr(op1) uconstr(n1) uconstr(op2) uconstr(n2)
+       "at" occurrences(occ) :=
+  let Hrw := fresh "Hrw" in
+    epose (transpose_iname_squared_left op1 op2 n1 n2)
+      as Hrw; cbn in Hrw; rewrite Hrw at occ; clear Hrw.
+
+Tactic Notation "transpose_iname_squared_right"
+       uconstr(op1) uconstr(n1) uconstr(op2) uconstr(n2) :=
+  let Hrw := fresh "Hrw" in
+    epose (transpose_iname_squared_right op1 op2 n1 n2)
+      as Hrw; cbn in Hrw;
+        rewrite Hrw; [> | try easy]; clear Hrw.
+
+Tactic Notation "transpose_iname_squared_right"
+       uconstr(op1) uconstr(n1) uconstr(op2) uconstr(n2)
+       "at" occurrences(occ) :=
+  let Hrw := fresh "Hrw" in
+    epose (transpose_iname_squared_right op1 op2 n1 n2)
+      as Hrw; cbn in Hrw;
+        rewrite Hrw at occ; [> | try easy]; clear Hrw.
+
+Lemma transpose_iname_reverse_left (op1 op2 op3 : stream_op) :
+  forall n1 n2 n3,
+    irreducible_iname_ops op1 op2 n1 n2 ->
+    irreducible_iname_ops op2 op3 n2 n3 ->
+    irreducible_iname_ops op1 op3 n1
+      (transpose_iname_left op2 op3 n2 n3) ->
+    transpose_iname_left op2 op3 (transpose_iname_left op1 op2 n1 n2)
+      (transpose_iname_left op1 op3
+         (transpose_iname_right op2 op1 n2 n1) n3)
+    = normalize_iname_left op2 op3
+        (transpose_iname_left op1 op2 n1
+           (transpose_iname_right op3 op2 n3 n2))
+        (transpose_iname_left op1 op3 n1
+          (transpose_iname_left op2 op3 n2 n3)).
+Proof.
+  intros n1 n2 n3.
+  case_string (n_string n1) (n_string n2);
+    case_string (n_string n2) (n_string n3);
+      case_string (n_string n1) (n_string n3);
+        try congruence.
+  - destruct op1, op2, op3; cbn; red_inames;
+      intros Hirr1 Hirr2 Hirr3.
+    + transpose_iindex_reverse_left
+        insert _ insert _ insert _; easy.
+    + transpose_iindex_reverse_left
+        insert _ insert _ delete _; easy.
+    + transpose_iindex_reverse_left
+        insert _ delete _ insert _;
+          auto using name_neq_string_eq_index_neq.
+    + transpose_iindex_reverse_left
+        insert _ delete _ delete _; easy.
+    + transpose_iindex_reverse_left
+        delete _ insert _ insert _;
+          auto using name_neq_string_eq_index_neq.
+      apply name_neq_string_eq_index_neq in Hirr3; auto.
+    + transpose_iindex_reverse_left
+        delete _ insert _ delete _;
+          auto using name_neq_string_eq_index_neq.
+    + transpose_iindex_reverse_left
+        delete _ delete _ insert _;
+          auto using name_neq_string_eq_index_neq.
+      apply name_neq_string_eq_index_neq in Hirr3; auto.
+    + transpose_iindex_reverse_left
+        delete _ delete _ delete _; easy.
+  - destruct op1, op2, op3; cbn; red_inames; easy.
+  - destruct op1, op2, op3; cbn; red_inames; try easy;
+      intros Hirr1 Hirr2 Hirr3.
+    + normalize_transpose_iindex_left insert _ delete _ at 1; easy.
+    + normalize_transpose_iindex_left insert _ delete _ at 1; easy.
+  - destruct op1, op2, op3; cbn; red_inames; easy.
+  - destruct op1, op2, op3; cbn; red_inames; easy.
+Qed.
+
+Lemma transpose_iname_reverse_middle (op1 op2 op3 : stream_op) :
+  forall n1 n2 n3,
+    irreducible_iname_ops op1 op2 n1 n2 ->
+    irreducible_iname_ops op2 op3 n2 n3 ->
+    irreducible_iname_ops op1 op3 n1
+      (transpose_iname_left op2 op3 n2 n3) ->
+    normalize_iname_right op3 op2
+      (transpose_iname_left op1 op3 n1
+          (transpose_iname_left op2 op3 n2 n3))
+      (transpose_iname_left op1 op2
+        (transpose_iname_right op3 op1
+           (transpose_iname_left op2 op3 n2 n3) n1)
+        (transpose_iname_right op3 op2 n3 n2))
+    = normalize_iname_left op1 op2
+        (transpose_iname_right op3 op1 n3
+           (transpose_iname_right op2 op1 n2 n1))
+        (transpose_iname_right op3 op2
+          (transpose_iname_left op1 op3
+            (transpose_iname_right op2 op1 n2 n1) n3)
+          (transpose_iname_left op1 op2 n1 n2)).
+Proof.
+  intros n1 n2 n3.
+  case_string (n_string n1) (n_string n2);
+    case_string (n_string n2) (n_string n3);
+      case_string (n_string n1) (n_string n3);
+        try congruence.
+  - destruct op1, op2, op3; cbn; red_inames;
+      intros Hirr1 Hirr2 Hirr3.
+    + transpose_iindex_reverse_middle
+        insert _ insert _ insert _; easy.
+    + transpose_iindex_reverse_middle
+        insert _ insert _ delete _; easy.
+    + transpose_iindex_reverse_middle
+        insert _ delete _ insert _;
+          auto using name_neq_string_eq_index_neq.
+    + transpose_iindex_reverse_middle
+        insert _ delete _ delete _; easy.
+    + transpose_iindex_reverse_middle
+        delete _ insert _ insert _;
+          auto using name_neq_string_eq_index_neq.
+      apply name_neq_string_eq_index_neq in Hirr3; auto.
+    + transpose_iindex_reverse_middle
+        delete _ insert _ delete _;
+          auto using name_neq_string_eq_index_neq.
+    + transpose_iindex_reverse_middle
+        delete _ delete _ insert _;
+          auto using name_neq_string_eq_index_neq.
+      apply name_neq_string_eq_index_neq in Hirr3; auto.
+    + transpose_iindex_reverse_middle
+        delete _ delete _ delete _; easy.
+  - destruct op1, op2, op3; cbn; red_inames; try easy;
+      intros Hirr1 Hirr2 Hirr3.
+    + normalize_transpose_iindex_left insert _ delete _ at 1; easy.
+    + normalize_transpose_iindex_left insert _ delete _ at 1; easy.
+  - destruct op1, op2, op3; cbn; red_inames; try easy;
+      intros Hirr1 Hirr2 Hirr3.
+    + normalize_transpose_iindex_right insert _ delete _ at 2; easy.
+    + normalize_transpose_iindex_right insert _ delete _ at 2; easy.
+  - destruct op1, op2, op3; cbn; red_inames; easy.
+  - destruct op1, op2, op3; cbn; red_inames; easy.
+Qed.
+
+Lemma transpose_iname_reverse_right (op1 op2 op3 : stream_op) :
+  forall n1 n2 n3,
+    irreducible_iname_ops op1 op2 n1 n2 ->
+    irreducible_iname_ops op2 op3 n2 n3 ->
+    irreducible_iname_ops op1 op3 n1 (transpose_iname_left op2 op3 n2 n3) ->
+    transpose_iname_right op2 op1
+      (transpose_iname_right op3 op2 n3 n2)
+      (transpose_iname_right op3 op1
+        (transpose_iname_left op2 op3 n2 n3) n1)
+    = normalize_iname_right op2 op1
+        (transpose_iname_right op3 op2 n3
+           (transpose_iname_left op1 op2 n1 n2))
+        (transpose_iname_right op3 op1 n3
+          (transpose_iname_right op2 op1 n2 n1)).
+Proof.
+  intros n1 n2 n3.
+  case_string (n_string n1) (n_string n2);
+    case_string (n_string n2) (n_string n3);
+      case_string (n_string n1) (n_string n3);
+        try congruence.
+  - destruct op1, op2, op3; cbn; red_inames;
+      intros Hirr1 Hirr2 Hirr3.
+    + transpose_iindex_reverse_right
+        insert _ insert _ insert _; easy.
+    + transpose_iindex_reverse_right
+        insert _ insert _ delete _; easy.
+    + transpose_iindex_reverse_right
+        insert _ delete _ insert _;
+          auto using name_neq_string_eq_index_neq.
+    + transpose_iindex_reverse_right
+        insert _ delete _ delete _; easy.
+    + transpose_iindex_reverse_right
+        delete _ insert _ insert _;
+          auto using name_neq_string_eq_index_neq.
+      apply name_neq_string_eq_index_neq in Hirr3; auto.
+    + transpose_iindex_reverse_right
+        delete _ insert _ delete _;
+          auto using name_neq_string_eq_index_neq.
+    + transpose_iindex_reverse_right
+        delete _ delete _ insert _;
+          auto using name_neq_string_eq_index_neq.
+      apply name_neq_string_eq_index_neq in Hirr3; auto.
+    + transpose_iindex_reverse_right
+        delete _ delete _ delete _; easy.
+  - destruct op1, op2, op3; cbn; red_inames; try easy;
+      intros Hirr1 Hirr2 Hirr3.
+    + normalize_transpose_iindex_right insert _ delete _ at 1; easy.
+    + normalize_transpose_iindex_right insert _ delete _ at 1; easy.
+  - destruct op1, op2, op3; cbn; red_inames; easy.
+  - destruct op1, op2, op3; cbn; red_inames; easy.
+  - destruct op1, op2, op3; cbn; red_inames; easy.
+Qed.
+
+Tactic Notation "transpose_iname_reverse_left"
+       uconstr(op1) uconstr(n1)
+       uconstr(op2) uconstr(n2)
+       uconstr(op3) uconstr(n3) :=
+  let Hrw := fresh "Hrw" in
+    epose (transpose_iname_reverse_left
+             op1 op2 op3 n1 n2 n3) as Hrw;
+      cbn in Hrw; rewrite Hrw;
+      [> | try easy | try easy | try easy]; clear Hrw.
+
+Tactic Notation "transpose_iname_reverse_left"
+       uconstr(op1) uconstr(n1)
+       uconstr(op2) uconstr(n2)
+       uconstr(op3) uconstr(n3)
+       "at" occurrences(occ) :=
+  let Hrw := fresh "Hrw" in
+    epose (transpose_iname_reverse_left
+             op1 op2 op3 n1 n2 n3) as Hrw;
+      cbn in Hrw; rewrite Hrw at occ;
+      [> | try easy | try easy | try easy]; clear Hrw.
+
+Tactic Notation "transpose_iname_reverse_middle"
+       uconstr(op1) uconstr(n1)
+       uconstr(op2) uconstr(n2)
+       uconstr(op3) uconstr(n3) :=
+  let Hrw := fresh "Hrw" in
+    epose (transpose_iname_reverse_middle
+             op1 op2 op3 n1 n2 n3) as Hrw;
+      cbn in Hrw; rewrite Hrw;
+      [> | try easy | try easy | try easy]; clear Hrw.
+
+Tactic Notation "transpose_iname_reverse_middle"
+       uconstr(op1) uconstr(n1)
+       uconstr(op2) uconstr(n2)
+       uconstr(op3) uconstr(n3)
+       "at" occurrences(occ) :=
+  let Hrw := fresh "Hrw" in
+    epose (transpose_iname_reverse_middle
+             op1 op2 op3 n1 n2 n3) as Hrw;
+      cbn in Hrw; rewrite Hrw at occ;
+      [> | try easy | try easy | try easy]; clear Hrw.
+
+Tactic Notation "transpose_iname_reverse_right"
+       uconstr(op1) uconstr(n1)
+       uconstr(op2) uconstr(n2)
+       uconstr(op3) uconstr(n3) :=
+  let Hrw := fresh "Hrw" in
+    epose (transpose_iname_reverse_right
+             op1 op2 op3 n1 n2 n3) as Hrw;
+      cbn in Hrw; rewrite Hrw;
+      [> | try easy | try easy | try easy]; clear Hrw.
+
+Tactic Notation "transpose_iname_reverse_right"
+       uconstr(op1) uconstr(n1)
+       uconstr(op2) uconstr(n2)
+       uconstr(op3) uconstr(n3)
+       "at" occurrences(occ) :=
+  let Hrw := fresh "Hrw" in
+    epose (transpose_iname_reverse_right
+             op1 op2 op3 n1 n2 n3) as Hrw;
+      cbn in Hrw; rewrite Hrw at occ;
+      [> | try easy | try easy | try easy]; clear Hrw.
+
+(* Pushing [get_iname] through other operations
+
+   We reuse the machinery for trasposition, since this
+   transformation is closely related to transposing
+   operations with delete.
+*)
+
+Lemma transpose_get_iname {T M} (op : pnset_stream_op T M) :
+  forall n1 n2 f,
+    irreducible_iname_ops delete op n1 n2 ->
+    get_iname n1 (apply_iname_op op n2 f)
+    =p= get_iname (transpose_iname_right op delete n2 n1) f.
+Proof.
+  intros n1 n2 f.
+  destruct op; cbn; intro Hirr.
+  - case_string (n_string n1) (n_string n2).
+    + simpl_inames_pointwise_eqn.
+      transpose_get_iindex _ (Ins _) _;
+        auto using name_neq_string_eq_index_neq;
+        congruence.
+    + autorewrite with unfold_inames; red_inames.
+      rewrite transpose_project_iname_with_iname
+        by congruence.
+      easy.
+  - case_string (n_string n1) (n_string n2).
+    + simpl_inames_pointwise_eqn.
+      transpose_get_iindex _ Del _;
+        auto using name_neq_string_eq_index_neq;
+        congruence.
+    + autorewrite with unfold_inames; red_inames.
+      rewrite transpose_project_iname_with_iname
+        by congruence.
+      easy.
+Qed.
+
+Tactic Notation "transpose_get_iname"
+       uconstr(n1) uconstr(op) uconstr(n2) :=
+  let Hrw := fresh "Hrw" in
+    epose (transpose_get_iname op n1 n2) as Hrw;
+      cbn in Hrw; rewrite Hrw; [> | try easy]; clear Hrw.
+
+Tactic Notation "transpose_get_iname"
+       uconstr(n1) uconstr(op) uconstr(n2) "at" occurrences(occ) :=
+  let Hrw := fresh "Hrw" in
+    epose (transpose_get_iname op n1 n2) as Hrw;
+      cbn in Hrw; rewrite Hrw at occ; [> | try easy]; clear Hrw.
+
+(* There is a full covariant functor from [T O] to [iname N
+   T O] by composition.
 
    Such composition distributes over our operations. *)
 
@@ -1023,23 +1370,12 @@ Qed.
 
 Lemma insert_iname_compose_distribute {T M R L} n a
       (f : iname T M) (g : morph T M R L) :
-  g @ (insert_iname n a f)
-  =km= insert_iname n (morph_apply g a) (g @ f).
+  g @ (insert_iname a n f)
+  =km= insert_iname (morph_apply g a) n (g @ f).
 Proof.
   unfold insert_iname.
   rewrite with_iname_compose_distribute.
   rewrite insert_iindex_compose_distribute.
   rewrite project_iname_compose_distribute.
-  easy.
-Qed.
-
-Lemma move_iname_compose_distribute {T M R L} n m
-      (f : iname T M) (g : morph T M R L) :
-  g @ (move_iname n m f) =km= move_iname n m (g @ f).
-Proof.
-  unfold move_iname.
-  rewrite insert_iname_compose_distribute.
-  rewrite get_iname_compose_distribute.
-  rewrite delete_iname_compose_distribute.
   easy.
 Qed.

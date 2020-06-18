@@ -106,12 +106,6 @@ Proof.
   destruct (le_gt_dec i j); try easy; omega.
 Qed.
 
-Lemma red_delete_iindex_same {T M} i (f : iindex T M) V :
-  delete_iindex i f V i = f V (S i).
-Proof.
-  apply red_delete_iindex_ge; auto.
-Qed.
-
 Lemma red_insert_iindex_gt {T M} i a (f : iindex T M) V j :
   S i <= j ->
   insert_iindex a i f V j = f V (pred j).
@@ -136,12 +130,6 @@ Proof.
   destruct (lt_eq_lt_dec i j) as [[|]|]; try easy; omega.
 Qed.
 
-Lemma red_insert_iindex_same {T M} i a (f : iindex T M) V :
-  insert_iindex a i f V i = a V.
-Proof.
-  apply red_insert_iindex_eq; auto.
-Qed.
-
 (* Useful lemma about predecessor and successor *)
 Lemma red_succ_pred i :
   0 < i ->
@@ -149,9 +137,6 @@ Lemma red_succ_pred i :
 Proof.
   intros; omega.
 Qed.
-
-Hint Rewrite @red_delete_iindex_same @red_insert_iindex_same
-  : red_iindexs.
 
 Hint Rewrite @red_delete_iindex_ge @red_delete_iindex_lt
      @red_insert_iindex_gt @red_insert_iindex_eq
@@ -302,15 +287,15 @@ Ltac simpl_iindexs_pointwise_eqn :=
 
 *)
 
-(* [iindex] operations *)
-Inductive iindex_op T M : Type :=
-  | Ins : pnset T M -> iindex_op T M
-  | Del : iindex_op T M.
+(* Stream operations *)
+Inductive pnset_stream_op T M : Type :=
+  | Ins : pnset T M -> pnset_stream_op T M
+  | Del : pnset_stream_op T M.
 Arguments Ins {T M} a.
 Arguments Del {T M}.
 
 Definition apply_iindex_op {T M}
-           (op : iindex_op T M) :=
+           (op : pnset_stream_op T M) :=
   match op with
   | Ins a => insert_iindex a
   | Del => delete_iindex
@@ -321,12 +306,14 @@ Inductive stream_op : Type :=
   | insert : stream_op
   | delete : stream_op.
 
-Definition stream_op_of_iindex_op {T M} (op : iindex_op T M) :=
+Definition stream_op_of_pnset_stream_op {T M}
+           (op : pnset_stream_op T M) :=
   match op with
   | Ins a => insert
   | Del => delete
   end.
-Coercion stream_op_of_iindex_op : iindex_op >-> stream_op.
+Coercion stream_op_of_pnset_stream_op :
+  pnset_stream_op >-> stream_op.
 
 (* Precondition on transposing two operations *)
 Definition irreducible_iindex_ops (op1 op2 : stream_op)
@@ -340,10 +327,10 @@ Definition irreducible_iindex_ops (op1 op2 : stream_op)
 
 (* Shift and unshift
 
-   We define [transpose_iindex_left] and [transpose_iindex_right] in terms
-   of three operations on indices: [shift_below_index], [shift_above_index]
-   and [unshift_index].
-
+   We define [transpose_iindex_left] and
+   [transpose_iindex_right] in terms of three operations on
+   indices: [shift_below_index], [shift_above_index] and
+   [unshift_index].
 *)
 
 Definition shift_below_index (i : index) : index -> index :=
@@ -379,12 +366,6 @@ Proof.
   destruct (le_gt_dec i j); try easy; omega.
 Qed.
 
-Lemma red_shift_below_index_same i :
-  shift_below_index i i = S i.
-Proof.
-  apply red_shift_below_index_ge; omega.
-Qed.
-
 Lemma red_unshift_index_gt i j :
   S i <= j ->
   unshift_index i j = pred j.
@@ -399,12 +380,6 @@ Lemma red_unshift_index_le i j :
 Proof.
   intros; unfold unshift_index.
   destruct (le_gt_dec j i); try easy; omega.
-Qed.
-
-Lemma red_unshift_index_same i :
-  unshift_index i i = i.
-Proof.
-  apply red_unshift_index_le; omega.
 Qed.
 
 Lemma red_shift_above_index_gt i j :
@@ -422,16 +397,6 @@ Proof.
   intros; unfold shift_above_index.
   destruct (le_gt_dec j i); try easy; omega.
 Qed.
-
-Lemma red_shift_above_index_same i :
-  shift_above_index i i = i.
-Proof.
-  apply red_shift_above_index_le; omega.
-Qed.
-
-Hint Rewrite red_shift_below_index_same red_unshift_index_same
-     red_shift_above_index_same
-  : red_iindexs.
 
 Hint Rewrite red_shift_below_index_ge red_shift_below_index_lt
      red_unshift_index_le red_unshift_index_gt
@@ -470,7 +435,8 @@ Definition transpose_iindex_right (op2 op1 : stream_op) :=
   end.
 Arguments transpose_iindex_right !op2 !op1.
 
-Lemma transpose_iindex {T M} (op1 op2 : iindex_op T M) :
+Lemma transpose_iindex {T M}
+      (op1 op2 : pnset_stream_op T M) :
   forall i1 i2 f,
     irreducible_iindex_ops op1 op2 i1 i2 ->
     apply_iindex_op op1 i1
@@ -496,6 +462,15 @@ Tactic Notation
   let Hrw := fresh "Hrw" in
     epose (transpose_iindex op1 op2 i1 i2) as Hrw;
       cbn in Hrw; rewrite Hrw;
+        [> | try easy]; clear Hrw.
+
+Tactic Notation
+  "transpose_iindex"
+    uconstr(op1) uconstr(i1) uconstr(op2) uconstr(i2)
+    "at" occurrences(occ) :=
+  let Hrw := fresh "Hrw" in
+    epose (transpose_iindex op1 op2 i1 i2) as Hrw;
+      cbn in Hrw; rewrite Hrw at occ;
         [> | try easy]; clear Hrw.
 
 (* Normalizing pairs of operations
@@ -566,12 +541,6 @@ Proof.
   destruct (Nat.eq_dec (S i) j); omega.
 Qed.
 
-Lemma red_contract_down_index_same i :
-  contract_down_index i i = i.
-Proof.
-  apply red_contract_down_index_neq; omega.
-Qed.
-
 Lemma red_contract_up_index_neq i j :
   S j <> i ->
   contract_up_index i j = j.
@@ -588,19 +557,9 @@ Proof.
   destruct (Nat.eq_dec i (S j)); omega.
 Qed.
 
-Lemma red_contract_up_index_same i :
-  contract_up_index i i = i.
-Proof.
-  apply red_contract_up_index_neq; omega.
-Qed.
-
 Lemma red_unchanged_index i j :
   unchanged_index i j = j.
 Proof. easy. Qed.
-
-Hint Rewrite red_contract_down_index_same
-     red_contract_up_index_same red_unchanged_index
-  : red_iindexs.
 
 Hint Rewrite red_contract_down_index_neq red_contract_down_index_eq
      red_contract_up_index_neq red_contract_up_index_eq
@@ -623,7 +582,8 @@ Definition normalize_iindex_right (op1 op2 : stream_op) :=
   | delete, delete => unchanged_index
   end.
 
-Lemma normalize_iindex {T M} (op1 op2 : iindex_op T M) :
+Lemma normalize_iindex {T M}
+      (op1 op2 : pnset_stream_op T M) :
   forall i1 i2 f,
     apply_iindex_op op1 i1
       (apply_iindex_op op2 i2 f)
@@ -639,14 +599,75 @@ Proof.
   case_order i2 i3; easy.
 Qed.
 
-Lemma normalize_delete_iindex_insert_iindex {T M} a :
-  forall i1 i2 (f : iindex T M),
-    delete_iindex i1 (insert_iindex a i2 f)
-    =km= delete_iindex (contract_down_index i2 i1)
-           (insert_iindex a (contract_up_index i1 i2) f).
+Tactic Notation
+  "normalize_iindex" uconstr(op1) uconstr(i1) uconstr(op2) uconstr(i2) :=
+  let Hrw := fresh "Hrw" in
+    epose (normalize_iindex op1 op2 i1 i2) as Hrw;
+      cbn in Hrw; rewrite Hrw; clear Hrw.
+
+Tactic Notation
+  "normalize_iindex"
+    uconstr(op1) uconstr(i1) uconstr(op2) uconstr(i2)
+    "at" occurrences(occ) :=
+  let Hrw := fresh "Hrw" in
+    epose (normalize_iindex op1 op2 i1 i2) as Hrw;
+      cbn in Hrw; rewrite Hrw at occ; clear Hrw.
+
+(* Transposing normalizes indices *)
+
+Lemma normalize_transpose_iindex_left (op1 op2 : stream_op) :
+  forall i1 i2,
+    transpose_iindex_left op1 op2 i1 i2
+    = normalize_iindex_left op1 op2
+        (transpose_iindex_right op2 op1 i2 i1)
+        (transpose_iindex_left op1 op2 i1 i2).
 Proof.
-  apply (normalize_iindex Del (Ins a)).
+  intros i1 i2.
+  destruct op1, op2; cbn; try easy.
+  case_order i1 i2.
 Qed.
+
+Lemma normalize_transpose_iindex_right (op1 op2 : stream_op) :
+  forall i1 i2,
+    transpose_iindex_right op2 op1 i2 i1
+    = normalize_iindex_right op2 op1
+        (transpose_iindex_left op1 op2 i1 i2)
+        (transpose_iindex_right op2 op1 i2 i1).
+Proof.
+  intros i1 i2.
+  destruct op1, op2; cbn; try easy.
+  case_order i1 i2.
+Qed.
+
+Tactic Notation
+  "normalize_transpose_iindex_left"
+    uconstr(op1) uconstr(i1) uconstr(op2) uconstr(i2) :=
+  let Hrw := fresh "Hrw" in
+    epose (normalize_transpose_iindex_left op1 op2 i1 i2)
+      as Hrw; cbn in Hrw; rewrite Hrw; clear Hrw.
+
+Tactic Notation
+  "normalize_transpose_iindex_left"
+    uconstr(op1) uconstr(i1) uconstr(op2) uconstr(i2)
+    "at" occurrences(occ) :=
+  let Hrw := fresh "Hrw" in
+    epose (normalize_transpose_iindex_left op1 op2 i1 i2)
+      as Hrw; cbn in Hrw; rewrite Hrw at occ; clear Hrw.
+
+Tactic Notation
+  "normalize_transpose_iindex_right"
+    uconstr(op1) uconstr(i1) uconstr(op2) uconstr(i2) :=
+  let Hrw := fresh "Hrw" in
+    epose (normalize_transpose_iindex_right op1 op2 i1 i2)
+      as Hrw; cbn in Hrw; rewrite Hrw; clear Hrw.
+
+Tactic Notation
+  "normalize_transpose_iindex_right"
+    uconstr(op1) uconstr(i1) uconstr(op2) uconstr(i2)
+    "at" occurrences(occ) :=
+  let Hrw := fresh "Hrw" in
+    epose (normalize_transpose_iindex_right op1 op2 i1 i2)
+      as Hrw; cbn in Hrw; rewrite Hrw at occ; clear Hrw.
 
 (* Permutations of [iindex] operations
 
@@ -713,12 +734,27 @@ Tactic Notation "transpose_iindex_squared_left"
     epose (transpose_iindex_squared_left op1 op2 i1 i2)
       as Hrw; cbn in Hrw; rewrite Hrw; clear Hrw.
 
+Tactic Notation "transpose_iindex_squared_left"
+       uconstr(op1) uconstr(i1) uconstr(op2) uconstr(i2)
+       "at" occurrences(occ) :=
+  let Hrw := fresh "Hrw" in
+    epose (transpose_iindex_squared_left op1 op2 i1 i2)
+      as Hrw; cbn in Hrw; rewrite Hrw at occ; clear Hrw.
+
 Tactic Notation "transpose_iindex_squared_right"
        uconstr(op1) uconstr(i1) uconstr(op2) uconstr(i2) :=
   let Hrw := fresh "Hrw" in
     epose (transpose_iindex_squared_right op1 op2 i1 i2)
       as Hrw; cbn in Hrw;
         rewrite Hrw; [> | try easy]; clear Hrw.
+
+Tactic Notation "transpose_iindex_squared_right"
+       uconstr(op1) uconstr(i1) uconstr(op2) uconstr(i2)
+       occurrences(occ) :=
+  let Hrw := fresh "Hrw" in
+    epose (transpose_iindex_squared_right op1 op2 i1 i2)
+      as Hrw; cbn in Hrw;
+        rewrite Hrw at occ; [> | try easy]; clear Hrw.
 
 Lemma transpose_iindex_reverse_left (op1 op2 op3 : stream_op) :
   forall i1 i2 i3,
@@ -830,14 +866,15 @@ Tactic Notation "transpose_iindex_reverse_left"
       cbn in Hrw; rewrite Hrw;
       [> | try easy | try easy | try easy]; clear Hrw.
 
-Tactic Notation "transpose_iindex_reverse_right"
+Tactic Notation "transpose_iindex_reverse_left"
        uconstr(op1) uconstr(i1)
        uconstr(op2) uconstr(i2)
-       uconstr(op3) uconstr(i3) :=
+       uconstr(op3) uconstr(i3)
+       "at" occurrences(occ) :=
   let Hrw := fresh "Hrw" in
-    epose (transpose_iindex_reverse_right
+    epose (transpose_iindex_reverse_left
              op1 op2 op3 i1 i2 i3) as Hrw;
-      cbn in Hrw; rewrite Hrw;
+      cbn in Hrw; rewrite Hrw at occ;
       [> | try easy | try easy | try easy]; clear Hrw.
 
 Tactic Notation "transpose_iindex_reverse_middle"
@@ -850,6 +887,38 @@ Tactic Notation "transpose_iindex_reverse_middle"
       cbn in Hrw; rewrite Hrw;
       [> | try easy | try easy | try easy]; clear Hrw.
 
+Tactic Notation "transpose_iindex_reverse_middle"
+       uconstr(op1) uconstr(i1)
+       uconstr(op2) uconstr(i2)
+       uconstr(op3) uconstr(i3)
+       "at" occurrences(occ) :=
+  let Hrw := fresh "Hrw" in
+    epose (transpose_iindex_reverse_middle
+             op1 op2 op3 i1 i2 i3) as Hrw;
+      cbn in Hrw; rewrite Hrw at occ;
+      [> | try easy | try easy | try easy]; clear Hrw.
+
+Tactic Notation "transpose_iindex_reverse_right"
+       uconstr(op1) uconstr(i1)
+       uconstr(op2) uconstr(i2)
+       uconstr(op3) uconstr(i3) :=
+  let Hrw := fresh "Hrw" in
+    epose (transpose_iindex_reverse_right
+             op1 op2 op3 i1 i2 i3) as Hrw;
+      cbn in Hrw; rewrite Hrw;
+      [> | try easy | try easy | try easy]; clear Hrw.
+
+Tactic Notation "transpose_iindex_reverse_right"
+       uconstr(op1) uconstr(i1)
+       uconstr(op2) uconstr(i2)
+       uconstr(op3) uconstr(i3)
+       "at" occurrences(occ) :=
+  let Hrw := fresh "Hrw" in
+    epose (transpose_iindex_reverse_right
+             op1 op2 op3 i1 i2 i3) as Hrw;
+      cbn in Hrw; rewrite Hrw at occ;
+      [> | try easy | try easy | try easy]; clear Hrw.
+
 (* Pushing [get_iindex] through other operations
 
    We reuse the machinery for trasposition, since this
@@ -857,7 +926,7 @@ Tactic Notation "transpose_iindex_reverse_middle"
    operations with delete.
 *)
 
-Lemma transpose_get_iindex {T M} (op : iindex_op T M) :
+Lemma transpose_get_iindex {T M} (op : pnset_stream_op T M) :
   forall i1 i2 f,
     irreducible_iindex_ops delete op i1 i2 ->
     get_iindex i1 (apply_iindex_op op i2 f)
@@ -873,6 +942,12 @@ Tactic Notation "transpose_get_iindex"
   let Hrw := fresh "Hrw" in
     epose (transpose_get_iindex op i1 i2) as Hrw;
       cbn in Hrw; rewrite Hrw; [> | try easy]; clear Hrw.
+
+Tactic Notation "transpose_get_iindex"
+       uconstr(i1) uconstr(op) uconstr(i2) "at" occurrences(occ) :=
+  let Hrw := fresh "Hrw" in
+    epose (transpose_get_iindex op i1 i2) as Hrw;
+      cbn in Hrw; rewrite Hrw at occ; [> | try easy]; clear Hrw.
 
 (* There is a full covariant functor from [T O] to [iindex N T O]
    by composition.
