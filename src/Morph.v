@@ -209,6 +209,10 @@ Definition pnset_extend {T N} (m : pnset T N)
   : pnset T (S N) :=
   fun V => nset_push (m (S V)).
 
+Definition pnset_extend_by {T N} I (m : pnset T N)
+  : pnset T (N + I) :=
+  fun V => nset_extended I (m (I + V)).
+
 (* Equality *)
 
 Definition eq_pnset {T M} (f g : pnset T M) :=
@@ -294,10 +298,18 @@ Definition morph_extend_by {T N R L} I
 
 (* Application to pnsets *)
 Definition morph_apply {T N R L} (m : morph (@T) N (@R) L)
-           (f : pnset T N) : pnset R L :=
-  fun V => m V (f V).
+           (p : pnset T N) : pnset R L :=
+  fun V => m V (p V).
+Arguments morph_apply {T N R L} m p V /.
 
-Arguments morph_apply {T N R L} m f V /.
+Lemma morph_apply_id {T N} (p : pnset T N) :
+  morph_apply 1 p =p= p.
+Proof. easy. Qed.
+
+Lemma morph_apply_compose {T N S M R L}
+      (f : morph (@S) M (@R) L) (g : morph (@T) N (@S) M) p :
+  morph_apply (f @ g) p =p= morph_apply f (morph_apply g p).
+Proof. easy. Qed.
 
 (* Equality *)
 
@@ -340,6 +352,13 @@ Add Parametric Morphism {T N R L} : (@morph_extend T N R L)
       as morph_extend_mor.
   intros * Heq V v; unfold morph_extend.
   rewrite Heq; easy.
+Qed.
+
+Add Parametric Morphism {T N R L} : (@morph_apply T N R L)
+    with signature eq_morph ==> eq_pnset ==> eq_pnset
+      as morph_apply_mor.
+  intros * Heq1 * Heq2 V; unfold morph_apply.
+  rewrite Heq1, Heq2; easy.
 Qed.
 
 Lemma morph_extend_id {T N} :

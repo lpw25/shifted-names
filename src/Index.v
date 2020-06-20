@@ -156,25 +156,18 @@ Ltac case_order i j :=
 
 (* Beta and eta rules for [iindex] operations *)
 
-Lemma iindex_beta_get_eq_pointwise {T M} i j a (f : iindex T M) :
+Lemma iindex_beta_get_eq {T M} i j a (f : iindex T M) :
   i = j ->
   get_iindex i (insert_iindex a j f) =p= a.
 Proof.
   intros Heq V; red_iindexs; easy.
 Qed.
 
-Definition iindex_beta_get_eq {T M} i j a f :=
-  fun V Heq =>
-    eq_pnset_expand (@iindex_beta_get_eq_pointwise T M i j a f Heq) V.
-
-Lemma iindex_beta_get_pointwise {T M} i a (f : iindex T M) :
+Lemma iindex_beta_get {T M} i a (f : iindex T M) :
   get_iindex i (insert_iindex a i f) =p= a.
-Proof. apply iindex_beta_get_eq_pointwise; easy. Qed.
+Proof. apply iindex_beta_get_eq; easy. Qed.
 
-Definition iindex_beta_get {T M} i a f :=
-  eq_pnset_expand (@iindex_beta_get_pointwise T M i a f).
-
-Lemma iindex_beta_delete_eq_pointwise {T M} i j a (f : iindex T M) :
+Lemma iindex_beta_delete_eq {T M} i j a (f : iindex T M) :
   i = j ->
   delete_iindex i (insert_iindex a j f) =km= f.
 Proof.
@@ -182,19 +175,11 @@ Proof.
   case_order i k; easy.
 Qed.
 
-Definition iindex_beta_delete_eq {T M} i j a f :=
-  fun V Heq =>
-    eq_kmorph_expand
-      (@iindex_beta_delete_eq_pointwise T M i j a f Heq) V.
-
-Lemma iindex_beta_delete_pointwise {T M} i a (f : iindex T M) :
+Lemma iindex_beta_delete {T M} i a (f : iindex T M) :
   delete_iindex i (insert_iindex a i f) =km= f.
-Proof. apply iindex_beta_delete_eq_pointwise; easy. Qed.
+Proof. apply iindex_beta_delete_eq; easy. Qed.
 
-Definition iindex_beta_delete {T M} i a f :=
-  eq_kmorph_expand (@iindex_beta_delete_pointwise T M i a f).
-
-Lemma iindex_eta_eq_pointwise {T M} i j k (f : iindex T M) :
+Lemma iindex_eta_eq {T M} i j k (f : iindex T M) :
   i = j ->
   i = k ->
   insert_iindex (get_iindex j f) i (delete_iindex k f) =km= f.
@@ -203,32 +188,16 @@ Proof.
   case_order i l; f_equal; easy.
 Qed.
 
-Definition iindex_eta_eq {T M} i j k f :=
-  fun V Heq1 Heq2 =>
-    eq_kmorph_expand
-      (@iindex_eta_eq_pointwise T M i j k f Heq1 Heq2) V.
-
-Lemma iindex_eta_pointwise {T M} i (f : iindex T M) :
+Lemma iindex_eta {T M} i (f : iindex T M) :
   insert_iindex (get_iindex i f) i (delete_iindex i f) =km= f.
-Proof. apply iindex_eta_eq_pointwise; easy. Qed.
-
-Definition iindex_eta {T M} i f :=
-  eq_kmorph_expand (@iindex_eta_pointwise T M i f).
+Proof. apply iindex_eta_eq; easy. Qed.
 
 Hint Rewrite @iindex_beta_get @iindex_beta_delete @iindex_eta
   : simpl_iindexs.
 
-Hint Rewrite @iindex_beta_get_eq @iindex_beta_delete_eq @iindex_eta_eq
-  using omega : simpl_iindexs_eqn.
-
-Hint Rewrite @iindex_beta_get_pointwise
-     @iindex_beta_delete_pointwise @iindex_eta_pointwise
-  : simpl_iindexs_pointwise.
-
-Hint Rewrite @iindex_beta_get_eq_pointwise
-     @iindex_beta_delete_eq_pointwise
-     @iindex_eta_eq_pointwise
-  using omega : simpl_iindexs_pointwise_eqn.
+Hint Rewrite @iindex_beta_get_eq @iindex_beta_delete_eq
+     @iindex_eta_eq
+  using omega : simpl_iindexs.
 
 (* Simplify [iindex] terms *)
 Ltac simpl_iindexs :=
@@ -236,26 +205,6 @@ Ltac simpl_iindexs :=
   repeat progress
     (cbn;
      try (rewrite_strat topdown (hints simpl_iindexs))).
-
-Ltac simpl_iindexs_eqn :=
-  autorewrite with simpl_iindexs;
-  repeat progress
-    (cbn;
-     try (rewrite_strat topdown (hints simpl_iindexs));
-     try (rewrite_strat topdown (hints simpl_iindexs_eqn))).
-
-Ltac simpl_iindexs_pointwise :=
-  autorewrite with simpl_iindexs_pointwise;
-  repeat progress
-    (cbn;
-     try (rewrite_strat topdown (hints simpl_iindexs_pointwise))).
-
-Ltac simpl_iindexs_pointwise_eqn :=
-  autorewrite with simpl_iindexs_pointwise;
-  repeat progress
-    (cbn;
-     try (rewrite_strat topdown (hints simpl_iindexs_pointwise));
-     try (rewrite_strat topdown (hints simpl_iindexs_pointwise_eqn))).
 
 (* Transposing [iindex] operations
 
@@ -289,28 +238,28 @@ Ltac simpl_iindexs_pointwise_eqn :=
 
 (* Stream operations *)
 Inductive pnset_stream_op T M : Type :=
-  | Ins : pnset T M -> pnset_stream_op T M
-  | Del : pnset_stream_op T M.
-Arguments Ins {T M} a.
-Arguments Del {T M}.
+  | insert : pnset T M -> pnset_stream_op T M
+  | delete : pnset_stream_op T M.
+Arguments insert {T M} a.
+Arguments delete {T M}.
 
 Definition apply_iindex_op {T M}
            (op : pnset_stream_op T M) :=
   match op with
-  | Ins a => insert_iindex a
-  | Del => delete_iindex
+  | insert a => insert_iindex a
+  | delete => delete_iindex
   end.
 
 (* Abstract stream operations *)
 Inductive stream_op : Type :=
-  | insert : stream_op
-  | delete : stream_op.
+  | Ins : stream_op
+  | Del : stream_op.
 
 Definition stream_op_of_pnset_stream_op {T M}
            (op : pnset_stream_op T M) :=
   match op with
-  | Ins a => insert
-  | Del => delete
+  | insert a => Ins
+  | delete => Del
   end.
 Coercion stream_op_of_pnset_stream_op :
   pnset_stream_op >-> stream_op.
@@ -319,10 +268,10 @@ Coercion stream_op_of_pnset_stream_op :
 Definition irreducible_iindex_ops (op1 op2 : stream_op)
   : index -> index -> Prop :=
   match op1, op2 with
-  | insert, insert => fun i1 i2 => True
-  | insert, delete => fun i1 i2 => True
-  | delete, insert => fun i1 i2 => i1 <> i2
-  | delete, delete => fun i1 i2 => True
+  | Ins, Ins => fun i1 i2 => True
+  | Ins, Del => fun i1 i2 => True
+  | Del, Ins => fun i1 i2 => i1 <> i2
+  | Del, Del => fun i1 i2 => True
   end.
 
 (* Shift and unshift
@@ -419,19 +368,19 @@ Qed.
 
 Definition transpose_iindex_left (op1 op2 : stream_op) :=
   match op1, op2 with
-  | insert, insert => shift_below_index
-  | insert, delete => shift_above_index
-  | delete, insert => unshift_index
-  | delete, delete => unshift_index
+  | Ins, Ins => shift_below_index
+  | Ins, Del => shift_above_index
+  | Del, Ins => unshift_index
+  | Del, Del => unshift_index
   end.
 Arguments transpose_iindex_left !op1 !op2.
 
 Definition transpose_iindex_right (op2 op1 : stream_op) :=
   match op1, op2 with
-  | insert, insert => unshift_index
-  | insert, delete => shift_below_index
-  | delete, insert => unshift_index
-  | delete, delete => shift_below_index
+  | Ins, Ins => unshift_index
+  | Ins, Del => shift_below_index
+  | Del, Ins => unshift_index
+  | Del, Del => shift_below_index
   end.
 Arguments transpose_iindex_right !op2 !op1.
 
@@ -568,18 +517,18 @@ Hint Rewrite red_contract_down_index_neq red_contract_down_index_eq
 Definition normalize_iindex_left (op2 op1 : stream_op)
   : index -> index -> index :=
   match op1, op2 with
-  | insert, insert => unchanged_index
-  | insert, delete => unchanged_index
-  | delete, insert => contract_down_index
-  | delete, delete => unchanged_index
+  | Ins, Ins => unchanged_index
+  | Ins, Del => unchanged_index
+  | Del, Ins => contract_down_index
+  | Del, Del => unchanged_index
   end.
 
 Definition normalize_iindex_right (op1 op2 : stream_op) :=
   match op1, op2 with
-  | insert, insert => unchanged_index
-  | insert, delete => unchanged_index
-  | delete, insert => contract_up_index
-  | delete, delete => unchanged_index
+  | Ins, Ins => unchanged_index
+  | Ins, Del => unchanged_index
+  | Del, Ins => contract_up_index
+  | Del, Del => unchanged_index
   end.
 
 Lemma normalize_iindex {T M}
@@ -928,9 +877,9 @@ Tactic Notation "transpose_iindex_reverse_right"
 
 Lemma transpose_get_iindex {T M} (op : pnset_stream_op T M) :
   forall i1 i2 f,
-    irreducible_iindex_ops delete op i1 i2 ->
+    irreducible_iindex_ops Del op i1 i2 ->
     get_iindex i1 (apply_iindex_op op i2 f)
-    =p= get_iindex (transpose_iindex_right op delete i2 i1) f.
+    =p= get_iindex (transpose_iindex_right op Del i2 i1) f.
 Proof.
   intros i1 i2 f Hirr V.
   destruct op; cbn in *;

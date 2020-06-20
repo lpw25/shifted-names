@@ -124,20 +124,14 @@ Lemma ivar_beta_snd {N T M} f (g : ilevel N T M) :
   snd_ivar (pair_ivar f g) = g.
 Proof. easy. Qed.
 
-Lemma ivar_eta_pointwise {N T M} (f : ivar N T M) :
+Lemma ivar_eta {N T M} (f : ivar N T M) :
   pair_ivar (fst_ivar f) (snd_ivar f) =m= f.
 Proof.
   intros V v; destruct v; easy.
 Qed.
 
-Definition ivar_eta {N T M} f :=
-  eq_morph_expand (@ivar_eta_pointwise N T M f).
-
 Hint Rewrite @ivar_beta_fst @ivar_beta_snd @ivar_eta
   : simpl_ivars.
-
-Hint Rewrite @ivar_beta_fst @ivar_beta_snd @ivar_eta_pointwise
-  : simpl_ivars_pointwise.
 
 (* Unfolding derived operations *)
 
@@ -224,116 +218,8 @@ Ltac simpl_ivars :=
      try (rewrite_strat topdown (hints simpl_ilevels));
      try (rewrite_strat topdown (hints simpl_inames));
      try (rewrite_strat topdown (hints simpl_iindexs)));
-  autorewrite with fold_inames fold_ilevels fold_ivars.
-
-Ltac simpl_ivars_eqn :=
-  autorewrite with unfold_ivars;
-  autorewrite with simpl_ivars;
-  autorewrite with unfold_ilevels;
-  autorewrite with simpl_ilevels;
-  autorewrite with unfold_inames;
-  autorewrite with simpl_inames;
-  autorewrite with simpl_iindexs;
-  repeat progress
-    (cbn;
-     try (rewrite_strat topdown (hints simpl_ivars));
-     try (rewrite_strat topdown (hints simpl_ilevels));
-     try (rewrite_strat topdown (hints simpl_inames));
-     try (rewrite_strat topdown (hints simpl_inames_eqn));
-     try (rewrite_strat topdown (hints simpl_iindexs));
-     try (rewrite_strat topdown (hints simpl_iindexs_eqn)));
-  autorewrite with fold_inames fold_ilevels fold_ivars.
-
-Ltac simpl_ivars_pointwise :=
-  autorewrite with unfold_ivars;
-  autorewrite with simpl_ivars_pointwise;
-  autorewrite with unfold_ilevels;
-  autorewrite with simpl_ilevels_pointwise;
-  autorewrite with unfold_inames;
-  autorewrite with simpl_inames_pointwise;
-  autorewrite with simpl_iindexs_pointwise;
-  repeat progress
-    (cbn;
-     try (rewrite_strat topdown (hints simpl_ivars_pointwise));
-     try (rewrite_strat topdown (hints simpl_ilevels_pointwise));
-     try (rewrite_strat topdown (hints simpl_inames_pointwise));
-     try (rewrite_strat topdown (hints simpl_iindexs_pointwise)));
-  autorewrite with fold_inames fold_ilevels fold_ivars.
-
-Ltac simpl_ivars_pointwise_eqn :=
-  autorewrite with unfold_ivars;
-  autorewrite with simpl_ivars_pointwise;
-  autorewrite with unfold_ilevels;
-  autorewrite with simpl_ilevels_pointwise;
-  autorewrite with unfold_inames;
-  autorewrite with simpl_inames_pointwise;
-  autorewrite with simpl_iindexs_pointwise;
-  repeat progress
-    (cbn;
-     try (rewrite_strat topdown (hints simpl_ivars_pointwise));
-     try (rewrite_strat topdown (hints simpl_ilevels_pointwise));
-     try (rewrite_strat topdown (hints simpl_inames_pointwise));
-     try (rewrite_strat topdown (hints simpl_inames_pointwise_eqn));
-     try (rewrite_strat topdown (hints simpl_iindexs_pointwise));
-     try (rewrite_strat topdown (hints simpl_iindexs_pointwise_eqn)));
-  autorewrite with fold_inames fold_ilevels fold_ivars.
-
-(* Transposing operations
-
-   Unlike [iindex] and [iname] we don't provide general
-   support for permutations, just a few simple
-   transpositions.
-*)
-
-Lemma transpose_open_ivar_open_ivar_pointwise {N T M} n m
-      (f : ivar N T M) :
-  open_ivar n (open_ivar m f)
-  =m= swap_ivar
-        (open_ivar (unshift_name n m)
-          (open_ivar (shift_below_name m n) f)).
-Proof.
-  intros; simpl_ivars_pointwise.
-  transpose_iname Del _ Del _.
-  transpose_get_iname _ Del _.
-  transpose_get_iname _ Del _.
-  transpose_iname_squared_right delete _ delete _.
-  easy.
-Qed.
-
-Definition transpose_open_ivar_open_ivar {N T M} n m f :=
-  eq_morph_expand
-    (@transpose_open_ivar_open_ivar_pointwise N T M n m f).
-
-Lemma transpose_open_ivar_close_ivar_pointwise {N T M} n m
-      (f : ivar (S N) T M) :
-  n <> m ->
-  open_ivar n (close_ivar m f)
-  =m= close_ivar (unshift_name n m)
-        (swap_ivar
-          (open_ivar (unshift_name m n) f)).
- Proof.
-   intros; simpl_ivars_pointwise.
-   transpose_iname Del _ (Ins _) _.
-   transpose_get_iname _ (Ins _) _.
-   easy.
- Qed.
-
-Definition transpose_open_ivar_close_ivar {N T M} n m f :=
-  fun V l Hneq =>
-    eq_morph_expand
-      (@transpose_open_ivar_close_ivar_pointwise
-         N T M n m f Hneq)
-      V l.
-
-Lemma transpose_open_ivar_weak_ivar_pointwise {N T M} n
-      (f : ivar (S N) T M) :
-  open_ivar n (weak_ivar f)
-  =m= weak_ivar (swap_ivar (open_ivar n f)).
-Proof. easy. Qed.
-
-Definition transpose_open_ivar_weak_ivar {N T M} n f :=
-  eq_morph_expand
-    (@transpose_open_ivar_weak_ivar_pointwise N T M n f).
+  autorewrite with fold_inames fold_ilevels fold_ivars;
+  try (rewrite_strat topdown (hints fold_inames)).
 
 (* There is a full covariant functor from [T O] to [ivar N T O]
    by composition.
@@ -431,11 +317,11 @@ Qed.
    Operations not involving bind are in the image of that
    functor. We call these operations "static". *)
 
-Definition open_var {N} a : ivar (S N) var N :=
-  open_ivar a 1.
+Definition open_var {N} n : ivar (S N) var N :=
+  open_ivar n 1.
 
-Definition close_var {N} a : ivar N var (S N) :=
-  close_ivar a 1.
+Definition close_var {N} n : ivar N var (S N) :=
+  close_ivar n 1.
 
 Definition weak_var {N} : ivar N var (S N) := weak_ivar 1.
 
@@ -481,10 +367,10 @@ Section Term.
 
   Variable unit : forall {N}, ivar N (@trm) N.
 
-  Definition open_ktrm {N} a := open_ivar a (@unit N).
-  Definition close_ktrm {N} a := close_ivar a (@unit (S N)).
+  Definition open_ktrm {N} n := open_ivar n (@unit N).
+  Definition close_ktrm {N} n := close_ivar n (@unit (S N)).
   Definition weak_ktrm {N} := weak_ivar (@unit (S N)).
-  Definition bind_ktrm {N} t := bind_ivar t (@unit N).
+  Definition bind_ktrm {N} a := bind_ivar a (@unit N).
   Definition swap_ktrm {N} := swap_ivar (@unit (S (S N))).
 
   Variable kleisli :
@@ -492,8 +378,8 @@ Section Term.
       ivar N (@trm) M ->
       morph (@trm) N (@trm) M.
 
-  Definition open_trm {N} a := kleisli (@open_ktrm N a).
-  Definition close_trm {N} a := kleisli (@close_ktrm N a).
+  Definition open_trm {N} n := kleisli (@open_ktrm N n).
+  Definition close_trm {N} n := kleisli (@close_ktrm N n).
   Definition weak_trm {N} := kleisli (@weak_ktrm N).
   Definition bind_trm {N} t := kleisli (@bind_ktrm N t).
   Definition swap_trm {N} := kleisli (@swap_ktrm N).
@@ -529,23 +415,257 @@ Section Term.
        @snd_ivar_compose_distribute @open_ivar_compose_distribute
        @close_ivar_compose_distribute @weak_ivar_compose_distribute
        @bind_ivar_compose_distribute @swap_ivar_compose_distribute
-    : simpl_trm.
+    : simpl_trms.
 
-  Lemma foo N a :
-    @close_trm N a @ (open_trm a)
-    =m= morph_id.
+  (* Unfolding operations *)
+
+  Lemma unfold_open_ktrm {N} n :
+    open_ktrm n = open_ivar n (@unit N).
+  Proof. easy. Qed.
+
+  Lemma unfold_close_ktrm {N} n :
+    close_ktrm n = close_ivar n (@unit (S N)).
+  Proof. easy. Qed.
+
+  Lemma unfold_weak_ktrm {N} :
+    weak_ktrm = weak_ivar (@unit (S N)).
+  Proof. easy. Qed.
+
+  Lemma unfold_bind_ktrm {N} a :
+    bind_ktrm a = bind_ivar a (@unit N).
+  Proof. easy. Qed.
+
+  Lemma unfold_swap_ktrm {N} :
+    swap_ktrm = swap_ivar (@unit (S (S N))).
+  Proof. easy. Qed.
+
+  Lemma unfold_open_trm {N} n :
+    open_trm n = kleisli (@open_ktrm N n).
+  Proof. easy. Qed.
+
+  Lemma unfold_close_trm {N} n :
+    close_trm n = kleisli (@close_ktrm N n).
+  Proof. easy. Qed.
+
+  Lemma unfold_weak_trm {N} :
+    weak_trm = kleisli (@weak_ktrm N).
+  Proof. easy. Qed.
+
+  Lemma unfold_bind_trm {N} a :
+    bind_trm a = kleisli (@bind_ktrm N a).
+  Proof. easy. Qed.
+
+  Lemma unfold_swap_trm {N} :
+    swap_trm = kleisli (@swap_ktrm N).
+  Proof. easy. Qed.
+
+  Hint Rewrite @unfold_open_ktrm @unfold_close_ktrm
+       @unfold_weak_ktrm @unfold_bind_ktrm @unfold_swap_ktrm
+       @unfold_open_trm @unfold_close_trm
+       @unfold_weak_trm @unfold_bind_trm @unfold_swap_trm
+    : unfold_trms.
+
+  (* Folding operations *)
+
+  Lemma fold_open_ktrm {N} n :
+    open_ivar n (@unit N) = open_ktrm n.
+  Proof. easy. Qed.
+
+  Lemma fold_close_ktrm {N} n :
+    close_ivar n (@unit (S N)) = close_ktrm n.
+  Proof. easy. Qed.
+
+  Lemma fold_weak_ktrm {N} :
+    weak_ivar (@unit (S N)) = weak_ktrm.
+  Proof. easy. Qed.
+
+  Lemma fold_bind_ktrm {N} a :
+    bind_ivar a (@unit N) = bind_ktrm a.
+  Proof. easy. Qed.
+
+  Lemma fold_swap_ktrm {N} :
+    swap_ivar (@unit (S (S N))) = swap_ktrm.
+  Proof. easy. Qed.
+
+  Lemma fold_open_trm {N} n :
+    kleisli (@open_ktrm N n) = open_trm n.
+  Proof. easy. Qed.
+
+  Lemma fold_close_trm {N} n :
+    kleisli (@close_ktrm N n) = close_trm n.
+  Proof. easy. Qed.
+
+  Lemma fold_weak_trm {N} :
+    kleisli (@weak_ktrm N) = weak_trm.
+  Proof. easy. Qed.
+
+  Lemma fold_bind_trm {N} a :
+    kleisli (@bind_ktrm N a) = bind_trm a.
+  Proof. easy. Qed.
+
+  Lemma fold_swap_trm {N} :
+    kleisli (@swap_ktrm N) = swap_trm.
+  Proof. easy. Qed.
+
+  Hint Rewrite @fold_open_ktrm @fold_close_ktrm
+       @fold_weak_ktrm @fold_bind_ktrm @fold_swap_ktrm
+       @fold_open_trm @fold_close_trm
+       @fold_weak_trm @fold_bind_trm @fold_swap_trm
+    : fold_trms.
+
+  Ltac simpl_trm :=
+    autorewrite with unfold_trms;
+    autorewrite with simpl_trms;
+    simpl_ivars;
+    repeat progress
+      (cbn;
+       try (rewrite_strat topdown (hints simpl_trms));
+       simpl_ivars);
+    autorewrite with fold_trms.
+
+  (* Transposing operations *)
+
+  (* Push operations *)
+  Inductive push_op : Type :=
+  | close : name -> push_op
+  | weak : push_op.
+
+  (* Pop operations *)
+  Inductive pop_op N : Type :=
+  | open : name -> pop_op N
+  | bind : pnset trm N -> pop_op N.
+  Arguments open {N} n.
+  Arguments bind {N} a.
+
+  Definition apply_push_op {N} (op : push_op)
+    : morph trm N trm (S N) :=
+    match op with
+    | close n => close_trm n
+    | weak => weak_trm
+    end.
+
+  Definition apply_pop_op {N} (op : pop_op N)
+    : morph trm (S N) trm N :=
+    match op with
+    | open n => open_trm n
+    | bind a => bind_trm a
+    end.
+
+  (* Precondition on transposing two operations *)
+  Definition irreducible_push_pop_ops
+             {N} op1 (op2 : pop_op N) : Prop :=
+    match op1, op2 with
+    | close n1, open n2 => n1 <> n2
+    | weak, open _ => True
+    | close _, bind _ => True
+    | weak, bind _ => True
+    end.
+
+  Definition transpose_push_pop_left {N} op1 (op2 : pop_op N) :=
+    match op1, op2 with
+    | close n2, open n1 => open (unshift_name n2 n1)
+    | weak, open n1 => open n1
+    | close n2, bind a =>
+        bind (morph_apply (close_trm n2) a)
+    | weak, bind a => bind (morph_apply weak_trm a)
+    end.
+  Arguments transpose_push_pop_left {N} !op1 !op2.
+
+  Definition transpose_push_pop_right {N} (op2 : pop_op N) op1 :=
+    match op1, op2 with
+    | close n2, open n1 => close (unshift_name n1 n2)
+    | weak, open n1 => weak
+    | close n2, bind a => close n2
+    | weak, bind a => weak
+    end.
+  Arguments transpose_push_pop_right {N} !op2 !op1.
+
+  Lemma transpose_push_pop {N} op1 op2 :
+    irreducible_push_pop_ops op1 op2 ->
+    (@apply_push_op N op1) @ (apply_pop_op op2)
+    =m=
+    (apply_pop_op (transpose_push_pop_left op1 op2))
+      @ swap_trm
+      @ (apply_push_op (transpose_push_pop_right op2 op1)).
   Proof.
-    unfold open_trm, close_trm, open_ktrm, close_ktrm.
-    autorewrite with simpl_trm.
-    intros V t.
-    replace (kleisli (open_ivar a (close_ivar a unit)) V t)
-      with (kleisli unit V t).
-    - autorewrite with simpl_trm.
+    destruct op1, op2; cbn; intro Hirr; simpl_trm; try easy.
+    - transpose_iname delete _ (insert _) _; try congruence.
+      transpose_get_iname _ (insert _) _; congruence.
+  Qed.
+
+  Definition transpose_pop_pop_left
+             {N} (op1 : pop_op N) op2 :=
+    match op1, op2 with
+    | open n1, open n2 => open (shift_below_name n1 n2)
+    | open n1, bind a2 => bind (morph_apply (open_trm n1) a2)
+    | bind a1, open n2 => open n2
+    | bind a1, bind a2 => bind (morph_apply (bind_trm a1) a2)
+    end.
+  Arguments transpose_pop_pop_left {N} !op1 !op2.
+
+  Definition transpose_pop_pop_right
+             {N} (op2 : pop_op (S N)) (op1 : pop_op N) :=
+    match op1, op2 with
+    | open n1, open n2 => open (unshift_name n2 n1)
+    | open n1, bind n2 => open n1
+    | bind a1, open n2 => bind (morph_apply (close_trm n2) a1)
+    | bind a1, bind a2 => bind (morph_apply weak_trm a1)
+    end.
+  Arguments transpose_pop_pop_right {N} !op2 !op1.
+
+  Lemma transpose_pop_pop {N} op1 op2 :
+    (@apply_pop_op N op1)
+      @ (apply_pop_op op2)
+    =m=
+    (apply_pop_op (transpose_pop_pop_left op1 op2))
+      @ (apply_pop_op (transpose_pop_pop_right op2 op1))
+      @ swap_trm.
+  Proof.
+    destruct op1, op2; cbn; simpl_trm; try easy.
+    - transpose_iname delete _ delete _.
+      transpose_get_iname _ delete _.
+      transpose_get_iname _ delete _.
+      transpose_iname_squared_right Del _ Del _.
       easy.
-    - apply extensional.
-      intros V' t'.
-      time simpl_ivars.
-    easy.
+    - rewrite <- morph_apply_compose.
+      simpl_trm.
+      rewrite morph_apply_id.
+      easy.
+    - rewrite <- morph_apply_compose.
+      simpl_trm.
+      rewrite morph_apply_id.
+      easy.
+  Qed.
+
+  Definition transpose_push_push_left op1 op2 :=
+    match op1, op2 with
+    | close n1, close n2 => close (unshift_name n1 n2)
+    | close n1, weak => weak
+    | weak, close n2 => close n2
+    | weak, weak => weak
+    end.
+  Arguments transpose_push_push_left !op1 !op2.
+
+  Definition transpose_push_push_right op2 op1 :=
+    match op1, op2 with
+    | close n1, close n2 => close (shift_below_name n2 n1)
+    | close n1, weak => close n1
+    | weak, close n2 => weak
+    | weak, weak => weak
+    end.
+  Arguments transpose_push_push_right !op2 !op1.
+
+  Lemma transpose_push_push {N} op1 op2 :
+    (apply_push_op op1)
+      @ (@apply_push_op N op2)
+    =m=
+    swap_trm
+    @ (apply_push_op (transpose_push_push_left op1 op2))
+      @ (apply_push_op (transpose_push_push_right op2 op1)).
+  Proof.
+    destruct op1, op2; cbn; simpl_trm; try easy.
+    - transpose_iname (insert _) _ (insert _) _.
+      easy.
   Qed.
 
 End Term.

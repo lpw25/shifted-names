@@ -87,21 +87,15 @@ Lemma ilevel_beta_tl {N} {T : nset} {M} (a : forall V, T (M + V))
   tl_ilevel (cons_ilevel a f) = f.
 Proof. easy. Qed.
 
-Lemma ilevel_eta_pointwise {N T M} (f : ilevel (S N) T M) :
+Lemma ilevel_eta {N T M} (f : ilevel (S N) T M) :
   cons_ilevel (hd_ilevel f) (tl_ilevel f) =m= f.
 Proof.
   intros V l.
   destruct l; cbn; easy.
 Qed.
 
-Definition ilevel_eta {N T M} f :=
-  eq_morph_expand (@ilevel_eta_pointwise N T M f).
-
 Hint Rewrite @ilevel_beta_hd @ilevel_beta_tl @ilevel_eta
   : simpl_ilevels.
-
-Hint Rewrite @ilevel_beta_hd @ilevel_beta_tl @ilevel_eta_pointwise
-  : simpl_ilevels_pointwise.
 
 (* Unfolding derived operations *)
 
@@ -134,14 +128,6 @@ Ltac simpl_ilevels :=
   repeat progress
     (cbn;
      try (rewrite_strat topdown (hints simpl_ilevels)));
-  autorewrite with fold_ilevels.
-
-Ltac simpl_ilevels_pointwise :=
-  autorewrite with unfold_ilevels;
-  autorewrite with simpl_ilevels_pointwise;
-  repeat progress
-    (cbn;
-     try (rewrite_strat topdown (hints simpl_ilevels_pointwise)));
   autorewrite with fold_ilevels.
 
 (* There is a full covariant functor from [T O] to [ilevel N T O]
