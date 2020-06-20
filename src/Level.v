@@ -40,7 +40,7 @@ Arguments cons_ilevel {N T M} a f V !l.
 
 (* Derived operations *)
 
-Definition transpose_ilevel {N T M} (f : ilevel (S (S N)) T M) :=
+Definition swap_ilevel {N T M} (f : ilevel (S (S N)) T M) :=
   cons_ilevel (hd_ilevel (tl_ilevel f))
     (cons_ilevel (hd_ilevel f)
       (tl_ilevel (tl_ilevel f))).
@@ -68,10 +68,10 @@ Add Parametric Morphism {N T M} : (@cons_ilevel N T M)
   destruct l; rewrite ?Heq1, ?Heq2; easy.
 Qed.
 
-Add Parametric Morphism {N T M} : (@transpose_ilevel N T M)
+Add Parametric Morphism {N T M} : (@swap_ilevel N T M)
     with signature eq_morph ==> eq_morph
-    as transpose_ilevel_mor.
-  intros * Heq V l; unfold transpose_ilevel.
+    as swap_ilevel_mor.
+  intros * Heq V l; unfold swap_ilevel.
   destruct l; rewrite ?Heq; easy.
 Qed.
 
@@ -105,26 +105,26 @@ Hint Rewrite @ilevel_beta_hd @ilevel_beta_tl @ilevel_eta_pointwise
 
 (* Unfolding derived operations *)
 
-Lemma unfold_transpose_ilevel {N T M} (f : ilevel (S (S N)) T M) :
-  transpose_ilevel f
+Lemma unfold_swap_ilevel {N T M} (f : ilevel (S (S N)) T M) :
+  swap_ilevel f
   = cons_ilevel (hd_ilevel (tl_ilevel f))
       (cons_ilevel (hd_ilevel f)
         (tl_ilevel (tl_ilevel f))).
 Proof. easy. Qed.
 
-Hint Rewrite @unfold_transpose_ilevel
+Hint Rewrite @unfold_swap_ilevel
   : unfold_ilevels.
 
 (* Folding derived operations *)
 
-Lemma fold_transpose_ilevel {N T M} (f : ilevel (S (S N)) T M) :
+Lemma fold_swap_ilevel {N T M} (f : ilevel (S (S N)) T M) :
   cons_ilevel (hd_ilevel (tl_ilevel f))
       (cons_ilevel (hd_ilevel f)
         (tl_ilevel (tl_ilevel f)))
-      = transpose_ilevel f.
+      = swap_ilevel f.
 Proof. easy. Qed.
 
-Hint Rewrite @fold_transpose_ilevel
+Hint Rewrite @fold_swap_ilevel
   : fold_ilevels.
 
 (* Simplify [ilevel] terms by unfolding, simplifying and folding *)
@@ -167,11 +167,11 @@ Proof.
   destruct l; easy.
 Qed.
 
-Lemma transpose_ilevel_compose_distribute {N T M R L}
+Lemma swap_ilevel_compose_distribute {N T M R L}
       (f : ilevel (S (S N)) T M) (g : morph T M R L) :
-  g @ (transpose_ilevel f) =m= transpose_ilevel (g @ f).
+  g @ (swap_ilevel f) =m= swap_ilevel (g @ f).
 Proof.
-  unfold transpose_ilevel.
+  unfold swap_ilevel.
   rewrite cons_ilevel_compose_distribute.
   rewrite hd_ilevel_compose_distribute.
   rewrite tl_ilevel_compose_distribute.

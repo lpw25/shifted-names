@@ -42,7 +42,7 @@ Definition open_ivar {N T M} n (f : ivar N T M)
 
 Definition close_ivar {N T M} n (f : ivar (S N) T M) : ivar N T M :=
   pair_ivar
-    (insert_iname n (hd_ilevel (snd_ivar f)) (fst_ivar f))
+    (insert_iname (hd_ilevel (snd_ivar f)) n (fst_ivar f))
     (tl_ilevel (snd_ivar f)).
 
 Definition weak_ivar {N T M} (f : ivar (S N) T M) : ivar N T M :=
@@ -55,15 +55,6 @@ Definition bind_ivar {N T M} (a : pnset T M) (f : ivar N T M)
 Definition swap_ivar {N T M} (f : ivar (S (S N)) T M)
   : ivar (S (S N)) T M :=
   pair_ivar (fst_ivar f) (swap_ilevel (snd_ivar f)).
-
-Definition rename_ivar {N T M} n m (f : ivar N T M) : ivar N T M :=
-  close_ivar n (open_ivar m f).
-
-Definition shift_ivar {N T M} n (f : ivar N T M) : ivar N T M :=
-  weak_ivar (open_ivar n f).
-
-Definition subst_ivar {N T M} n a (f : ivar N T M) : ivar N T M :=
-  close_ivar n (bind_ivar a f).
 
 (* Morphism definitions *)
 
@@ -123,27 +114,6 @@ Add Parametric Morphism {N T M} : (@swap_ivar N T M)
   rewrite Heq; easy.
 Qed.
 
-Add Parametric Morphism {N T M} : (@rename_ivar N T M)
-    with signature eq ==> eq ==> eq_morph ==> eq_morph
-    as rename_ivar_mor.
-  intros * Heq V v; unfold rename_ivar.
-  rewrite Heq; easy.
-Qed.
-
-Add Parametric Morphism {N T M} : (@shift_ivar N T M)
-    with signature eq ==> eq_morph ==> eq_morph
-    as shift_ivar_mor.
-  intros * Heq V v; unfold shift_ivar.
-  rewrite Heq; easy.
-Qed.
-
-Add Parametric Morphism {N T M} : (@subst_ivar N T M)
-    with signature eq ==> eq_pnset ==> eq_morph ==> eq_morph
-    as subst_ivar_mor.
-  intros * Heq1 * Heq2 V v; unfold subst_ivar.
-  rewrite Heq1, Heq2; easy.
-Qed.
-
 (* Beta and eta rules for [ivar] operations *)
 
 Lemma ivar_beta_fst {N T M} f (g : ilevel N T M) :
@@ -181,7 +151,7 @@ Proof. easy. Qed.
 Lemma unfold_close_ivar {N T M} n (f : ivar (S N) T M) :
   close_ivar n f
   = pair_ivar
-      (insert_iname n (hd_ilevel (snd_ivar f)) (fst_ivar f))
+      (insert_iname (hd_ilevel (snd_ivar f)) n (fst_ivar f))
       (tl_ilevel (snd_ivar f)).
 Proof. easy. Qed.
 
@@ -200,24 +170,8 @@ Lemma unfold_swap_ivar {N T M} (f : ivar (S (S N)) T M) :
   = pair_ivar (fst_ivar f) (swap_ilevel (snd_ivar f)).
 Proof. easy. Qed.
 
-Lemma unfold_rename_ivar {N T M} n m (f : ivar N T M) :
-  rename_ivar n m f
-  = close_ivar n (open_ivar m f).
-Proof. easy. Qed.
-
-Lemma unfold_shift_ivar {N T M} n (f : ivar N T M) :
-  shift_ivar n f
-  = weak_ivar (open_ivar n f).
-Proof. easy. Qed.
-
-Lemma unfold_subst_ivar {N T M} n a (f : ivar N T M) :
-  subst_ivar n a f
-  = close_ivar n (bind_ivar a f).
-Proof. easy. Qed.
-
 Hint Rewrite @unfold_open_ivar @unfold_close_ivar
      @unfold_weak_ivar @unfold_bind_ivar @unfold_swap_ivar
-     @unfold_rename_ivar @unfold_shift_ivar @unfold_subst_ivar
   : unfold_ivars.
 
 (* Folding derived operations *)
@@ -231,7 +185,7 @@ Proof. easy. Qed.
 
 Lemma fold_close_ivar {N T M} n (f : ivar (S N) T M) :
   pair_ivar
-    (insert_iname n (hd_ilevel (snd_ivar f)) (fst_ivar f))
+    (insert_iname (hd_ilevel (snd_ivar f)) n (fst_ivar f))
     (tl_ilevel (snd_ivar f))
   = close_ivar n f.
 Proof. easy. Qed.
@@ -251,24 +205,8 @@ Lemma fold_swap_ivar {N T M} (f : ivar (S (S N)) T M) :
   = swap_ivar f.
 Proof. easy. Qed.
 
-Lemma fold_rename_ivar {N T M} n m (f : ivar N T M) :
-  close_ivar n (open_ivar m f)
-  = rename_ivar n m f.
-Proof. easy. Qed.
-
-Lemma fold_shift_ivar {N T M} n (f : ivar N T M) :
-  weak_ivar (open_ivar n f)
-  = shift_ivar n f.
-Proof. easy. Qed.
-
-Lemma fold_subst_ivar {N T M} n a (f : ivar N T M) :
-  close_ivar n (bind_ivar a f)
-  = subst_ivar n a f.
-Proof. easy. Qed.
-
 Hint Rewrite @fold_open_ivar @fold_close_ivar
      @fold_weak_ivar @fold_bind_ivar @fold_swap_ivar
-     @fold_rename_ivar @fold_shift_ivar @fold_subst_ivar
   : fold_ivars.
 
 (* Simplify [ivars] terms by unfolding, simplifying and folding *)
@@ -278,18 +216,15 @@ Ltac simpl_ivars :=
   autorewrite with unfold_ilevels;
   autorewrite with simpl_ilevels;
   autorewrite with unfold_inames;
-  autorewrite with simpl_names simpl_inames;
-  autorewrite with unfold_iindexs;
-  autorewrite with simpl_indexs simpl_iindexs;
+  autorewrite with simpl_inames;
+  autorewrite with simpl_iindexs;
   repeat progress
     (cbn;
      try (rewrite_strat topdown (hints simpl_ivars));
      try (rewrite_strat topdown (hints simpl_ilevels));
-     try (rewrite_strat topdown (hints simpl_names));
      try (rewrite_strat topdown (hints simpl_inames));
-     try (rewrite_strat topdown (hints simpl_indexs));
      try (rewrite_strat topdown (hints simpl_iindexs)));
-  autorewrite with fold_iindexs fold_inames fold_ivars.
+  autorewrite with fold_inames fold_ilevels fold_ivars.
 
 Ltac simpl_ivars_eqn :=
   autorewrite with unfold_ivars;
@@ -297,20 +232,17 @@ Ltac simpl_ivars_eqn :=
   autorewrite with unfold_ilevels;
   autorewrite with simpl_ilevels;
   autorewrite with unfold_inames;
-  autorewrite with simpl_names simpl_inames;
-  autorewrite with unfold_iindexs;
-  autorewrite with simpl_indexs simpl_iindexs;
+  autorewrite with simpl_inames;
+  autorewrite with simpl_iindexs;
   repeat progress
     (cbn;
      try (rewrite_strat topdown (hints simpl_ivars));
      try (rewrite_strat topdown (hints simpl_ilevels));
-     try (rewrite_strat topdown (hints simpl_names));
      try (rewrite_strat topdown (hints simpl_inames));
      try (rewrite_strat topdown (hints simpl_inames_eqn));
-     try (rewrite_strat topdown (hints simpl_indexs));
      try (rewrite_strat topdown (hints simpl_iindexs));
      try (rewrite_strat topdown (hints simpl_iindexs_eqn)));
-  autorewrite with fold_iindexs fold_inames fold_ivars.
+  autorewrite with fold_inames fold_ilevels fold_ivars.
 
 Ltac simpl_ivars_pointwise :=
   autorewrite with unfold_ivars;
@@ -318,18 +250,15 @@ Ltac simpl_ivars_pointwise :=
   autorewrite with unfold_ilevels;
   autorewrite with simpl_ilevels_pointwise;
   autorewrite with unfold_inames;
-  autorewrite with simpl_names simpl_inames_pointwise;
-  autorewrite with unfold_iindexs;
-  autorewrite with simpl_indexs simpl_iindexs_pointwise;
+  autorewrite with simpl_inames_pointwise;
+  autorewrite with simpl_iindexs_pointwise;
   repeat progress
     (cbn;
      try (rewrite_strat topdown (hints simpl_ivars_pointwise));
      try (rewrite_strat topdown (hints simpl_ilevels_pointwise));
-     try (rewrite_strat topdown (hints simpl_names));
      try (rewrite_strat topdown (hints simpl_inames_pointwise));
-     try (rewrite_strat topdown (hints simpl_indexs));
      try (rewrite_strat topdown (hints simpl_iindexs_pointwise)));
-  autorewrite with fold_iindexs fold_inames fold_ivars.
+  autorewrite with fold_inames fold_ilevels fold_ivars.
 
 Ltac simpl_ivars_pointwise_eqn :=
   autorewrite with unfold_ivars;
@@ -337,491 +266,74 @@ Ltac simpl_ivars_pointwise_eqn :=
   autorewrite with unfold_ilevels;
   autorewrite with simpl_ilevels_pointwise;
   autorewrite with unfold_inames;
-  autorewrite with simpl_names simpl_inames_pointwise;
-  autorewrite with unfold_iindexs;
-  autorewrite with simpl_indexs simpl_iindexs_pointwise;
+  autorewrite with simpl_inames_pointwise;
+  autorewrite with simpl_iindexs_pointwise;
   repeat progress
     (cbn;
      try (rewrite_strat topdown (hints simpl_ivars_pointwise));
      try (rewrite_strat topdown (hints simpl_ilevels_pointwise));
-     try (rewrite_strat topdown (hints simpl_names));
      try (rewrite_strat topdown (hints simpl_inames_pointwise));
      try (rewrite_strat topdown (hints simpl_inames_pointwise_eqn));
-     try (rewrite_strat topdown (hints simpl_indexs));
      try (rewrite_strat topdown (hints simpl_iindexs_pointwise));
      try (rewrite_strat topdown (hints simpl_iindexs_pointwise_eqn)));
-  autorewrite with fold_iindexs fold_inames fold_ivars.
+  autorewrite with fold_inames fold_ilevels fold_ivars.
 
-(* Commute operations *)
+(* Transposing operations
 
-Lemma swap_open_ivar_open_ivar_pointwise {N T M} n m
+   Unlike [iindex] and [iname] we don't provide general
+   support for permutations, just a few simple
+   transpositions.
+*)
+
+Lemma transpose_open_ivar_open_ivar_pointwise {N T M} n m
       (f : ivar N T M) :
   open_ivar n (open_ivar m f)
   =m= swap_ivar
         (open_ivar (unshift_name n m)
-          (open_ivar (shift_name m n) f)).
+          (open_ivar (shift_below_name m n) f)).
 Proof.
   intros; simpl_ivars_pointwise.
-  rewrite swap_delete_iname_delete_iname_pointwise.
-  rewrite swap_get_iname_delete_iname_pointwise.
-  rewrite swap_get_iname_delete_iname_pointwise.
-  simpl_names; easy.
+  transpose_iname Del _ Del _.
+  transpose_get_iname _ Del _.
+  transpose_get_iname _ Del _.
+  transpose_iname_squared_right delete _ delete _.
+  easy.
 Qed.
 
-Definition swap_open_ivar_open_ivar {N T M} n m f :=
+Definition transpose_open_ivar_open_ivar {N T M} n m f :=
   eq_morph_expand
-    (@swap_open_ivar_open_ivar_pointwise N T M n m f).
+    (@transpose_open_ivar_open_ivar_pointwise N T M n m f).
 
-Lemma swap_open_ivar_close_ivar_pointwise {N T M} n m
+Lemma transpose_open_ivar_close_ivar_pointwise {N T M} n m
       (f : ivar (S N) T M) :
   n <> m ->
   open_ivar n (close_ivar m f)
   =m= close_ivar (unshift_name n m)
         (swap_ivar
           (open_ivar (unshift_name m n) f)).
-Proof.
-  intros; simpl_ivars_pointwise.
-  rewrite swap_delete_iname_insert_iname_pointwise by easy.
-  rewrite swap_get_iname_insert_iname_pointwise by easy.
-  easy.
-Qed.
+ Proof.
+   intros; simpl_ivars_pointwise.
+   transpose_iname Del _ (Ins _) _.
+   transpose_get_iname _ (Ins _) _.
+   easy.
+ Qed.
 
-Definition swap_open_ivar_close_ivar {N T M} n m f :=
+Definition transpose_open_ivar_close_ivar {N T M} n m f :=
   fun V l Hneq =>
     eq_morph_expand
-      (@swap_open_ivar_close_ivar_pointwise N T M n m f Hneq)
+      (@transpose_open_ivar_close_ivar_pointwise
+         N T M n m f Hneq)
       V l.
 
-Lemma swap_open_ivar_weak_ivar_pointwise {N T M} n
+Lemma transpose_open_ivar_weak_ivar_pointwise {N T M} n
       (f : ivar (S N) T M) :
   open_ivar n (weak_ivar f)
   =m= weak_ivar (swap_ivar (open_ivar n f)).
 Proof. easy. Qed.
 
-Definition swap_open_ivar_weak_ivar {N T M} n f :=
+Definition transpose_open_ivar_weak_ivar {N T M} n f :=
   eq_morph_expand
-    (@swap_open_ivar_weak_ivar_pointwise N T M n f).
-
-Lemma swap_open_ivar_bind_ivar_pointwise {N T M} n t
-      (f : ivar N T M) :
-  open_ivar n (bind_ivar t f)
-  =m= swap_ivar (bind_ivar t (open_ivar n f)).
-Proof. easy. Qed.
-
-Definition swap_open_ivar_bind_ivar {N T M} n t f :=
-  eq_morph_expand
-    (@swap_open_ivar_bind_ivar_pointwise N T M n t f).
-
-Lemma swap_open_ivar_rename_ivar_pointwise {N T M} n m o
-      (f : ivar N T M) :
-  n <> m ->
-  open_ivar n (rename_ivar m o f)
-  =m= rename_ivar
-         (unshift_name n m) (unshift_name (unshift_name m n) o)
-         (open_ivar (shift_name o (unshift_name m n)) f).
-Proof.
-  intros; simpl_ivars_pointwise.
-  rewrite swap_delete_iname_move_iname_pointwise by easy.
-  rewrite swap_get_iname_move_iname_pointwise by easy.
-  easy.
-Qed.
-
-Definition swap_open_ivar_rename_ivar {N T M} n m o f :=
-  fun V l Hneq =>
-    eq_morph_expand
-      (@swap_open_ivar_rename_ivar_pointwise N T M n m o f Hneq)
-      V l.
-
-Lemma swap_open_ivar_shift_ivar_pointwise {N T M} n m
-      (f : ivar N T M) :
-  open_ivar n (shift_ivar m f)
-  =m= shift_ivar (unshift_name n m)
-        (open_ivar (shift_name m n) f).
-Proof.
-  simpl_ivars_pointwise.
-  rewrite swap_delete_iname_delete_iname_pointwise.
-  rewrite swap_get_iname_delete_iname_pointwise.
-  easy.
-Qed.
-
-Definition swap_open_ivar_shift_ivar {N T M} n m f :=
-  eq_morph_expand
-    (@swap_open_ivar_shift_ivar_pointwise N T M n m f).
-
-Lemma swap_open_ivar_subst_ivar_pointwise {N T M} n m t
-      (f : ivar N T M) :
-  n <> m ->
-  open_ivar n (subst_ivar m t f)
-  =m= subst_ivar (unshift_name n m) t
-        (open_ivar (unshift_name m n) f).
-Proof.
-  intros; simpl_ivars_pointwise.
-  rewrite swap_delete_iname_insert_iname_pointwise by easy.
-  rewrite swap_get_iname_insert_iname_pointwise by easy.
-  easy.
-Qed.
-
-Definition swap_open_ivar_subst_ivar {N T M} n m t f :=
-  fun V l Hneq =>
-    eq_morph_expand
-      (@swap_open_ivar_rename_ivar_pointwise N T M n m t f Hneq)
-      V l.
-
-Lemma swap_close_ivar_close_ivar_pointwise {N T M} n m
-      (f : ivar (S (S N)) T M) :
-  close_ivar n (close_ivar m f)
-  =m= close_ivar (shift_name n m)
-        (close_ivar (unshift_name m n)
-          (swap_ivar f)).
-Proof.
-  simpl_ivars_pointwise.
-  rewrite swap_insert_iname_insert_iname_pointwise.
-  easy.
-Qed.
-
-Definition swap_close_ivar_close_ivar {N T M} n m f :=
-  eq_morph_expand
-    (@swap_close_ivar_close_ivar_pointwise N T M n m f).
-
-Lemma swap_close_ivar_weak_ivar_pointwise {N T M} n
-      (f : ivar (S (S N)) T M) :
-  close_ivar n (weak_ivar f)
-  =m= weak_ivar (close_ivar n (swap_ivar f)).
-Proof. easy. Qed.
-
-Definition swap_close_ivar_weak_ivar {N T M} n f :=
-  eq_morph_expand
-    (@swap_close_ivar_weak_ivar_pointwise N T M n f).
-
-Lemma swap_close_ivar_rename_ivar_pointwise {N T M} n m o
-      (f : ivar (S N) T M) :
-  close_ivar n (rename_ivar m o f)
-  =m= rename_ivar
-         (shift_name n m) (shift_above_name (unshift_name m n) o)
-         (close_ivar (shift_name o (unshift_name m n)) f).
-Proof.
-  simpl_ivars_pointwise.
-  rewrite swap_insert_iname_move_iname_pointwise.
-  easy.
-Qed.
-
-Definition swap_close_ivar_rename_ivar {N T M} n m o f :=
-  eq_morph_expand
-    (@swap_close_ivar_rename_ivar_pointwise N T M n m o f).
-
-Lemma swap_close_ivar_shift_ivar_pointwise {N T M} n m
-      (f : ivar (S N) T M) :
-  close_ivar n (shift_ivar m f)
-  =m= shift_ivar (shift_above_name n m)
-        (close_ivar (shift_name m n) f).
-Proof.
-  simpl_ivars_pointwise.
-  rewrite swap_insert_iname_delete_iname_pointwise.
-  easy.
-Qed.
-
-Definition swap_close_ivar_shift_ivar {N T M} n m f :=
-  eq_morph_expand
-    (@swap_close_ivar_shift_ivar_pointwise N T M n m f).
-
-Lemma swap_close_ivar_subst_ivar_pointwise {N T M} n m t
-      (f : ivar (S N) T M) :
-  close_ivar n (subst_ivar m t f)
-  =m= subst_ivar (shift_name n m) t
-        (close_ivar (unshift_name m n) f).
-Proof.
-  simpl_ivars_pointwise.
-  rewrite swap_insert_iname_insert_iname_pointwise.
-  easy.
-Qed.
-
-Definition swap_close_ivar_subst_ivar {N T M} n m t f :=
-  eq_morph_expand
-    (@swap_close_ivar_subst_ivar_pointwise N T M n m t f).
-
-Lemma swap_weak_ivar_close_ivar_pointwise {N T M} n
-      (f : ivar (S (S N)) T M) :
-  weak_ivar (close_ivar n f)
-  =m= close_ivar n (weak_ivar (swap_ivar f)).
-Proof. easy. Qed.
-
-Definition swap_weak_ivar_close_ivar {N T M} n f :=
-  eq_morph_expand
-    (@swap_weak_ivar_close_ivar_pointwise N T M n f).
-
-Lemma swap_weak_ivar_weak_ivar_pointwise {N T M}
-      (f : ivar (S (S N)) T M) :
-  weak_ivar (weak_ivar f)
-  =m= weak_ivar (weak_ivar (swap_ivar f)).
-Proof. easy. Qed.
-
-Definition swap_weak_ivar_weak_ivar {N T M} f :=
-  eq_morph_expand
-    (@swap_weak_ivar_weak_ivar_pointwise N T M f).
-
-Lemma swap_weak_ivar_rename_ivar_pointwise {N T M} n m
-      (f : ivar (S N) T M) :
-  weak_ivar (rename_ivar n m f)
-  =m= rename_ivar n m (weak_ivar f).
-Proof. easy. Qed.
-
-Definition swap_weak_ivar_rename_ivar {N T M} n m f :=
-  eq_morph_expand
-    (@swap_weak_ivar_rename_ivar_pointwise N T M n m f).
-
-Lemma swap_weak_ivar_shift_ivar_pointwise {N T M} n
-      (f : ivar (S N) T M) :
-  weak_ivar (shift_ivar n f)
-  =m= shift_ivar n (weak_ivar f).
-Proof. easy. Qed.
-
-Definition swap_weak_ivar_shift_ivar {N T M} n f :=
-  eq_morph_expand
-    (@swap_weak_ivar_shift_ivar_pointwise N T M n f).
-
-Lemma swap_weak_ivar_subst_ivar_pointwise {N T M} n t
-      (f : ivar (S N) T M) :
-  weak_ivar (subst_ivar n t f)
-  =m= subst_ivar n t (weak_ivar f).
-Proof. easy. Qed.
-
-Definition swap_weak_ivar_subst_ivar {N T M} n t f :=
-  eq_morph_expand
-    (@swap_weak_ivar_subst_ivar_pointwise N T M n t f).
-
-Lemma swap_bind_ivar_open_ivar_pointwise {N T M} t n
-      (f : ivar N T M) :
-  bind_ivar t (open_ivar n f)
-  =m= swap_ivar (open_ivar n (bind_ivar t f)).
-Proof. easy. Qed.
-
-Definition swap_bind_ivar_open_ivar {N T M} t n f :=
-  eq_morph_expand
-    (@swap_bind_ivar_open_ivar_pointwise N T M t n f).
-
-Lemma swap_bind_ivar_close_ivar_pointwise {N T M} t n
-      (f : ivar (S N) T M) :
-  bind_ivar t (close_ivar n f)
-  =m= close_ivar n (swap_ivar (bind_ivar t f)).
-Proof. easy. Qed.
-
-Definition swap_bind_ivar_close_ivar {N T M} t n f :=
-  eq_morph_expand
-    (@swap_bind_ivar_close_ivar_pointwise N T M t n f).
-
-Lemma swap_bind_ivar_weak_ivar_pointwise {N T M} t
-      (f : ivar (S N) T M) :
-  bind_ivar t (weak_ivar f)
-  =m= weak_ivar (swap_ivar (bind_ivar t f)).
-Proof. easy. Qed.
-
-Definition swap_bind_ivar_weak_ivar {N T M} t f :=
-  eq_morph_expand
-    (@swap_bind_ivar_weak_ivar_pointwise N T M t f).
-
-Lemma swap_bind_ivar_bind_ivar_pointwise {N T M} t s
-      (f : ivar N T M) :
-  bind_ivar t (bind_ivar s f)
-  =m= swap_ivar (bind_ivar s (bind_ivar t f)).
-Proof. easy. Qed.
-
-Definition swap_bind_ivar_bind_ivar {N T M} t s f :=
-  eq_morph_expand
-    (@swap_bind_ivar_bind_ivar_pointwise N T M t s f).
-
-Lemma swap_bind_ivar_rename_ivar_pointwise {N T M} t n m
-      (f : ivar N T M) :
-  bind_ivar t (rename_ivar n m f)
-  =m= rename_ivar n m (bind_ivar t f).
-Proof. easy. Qed.
-
-Definition swap_bind_ivar_rename_ivar {N T M} t n m f :=
-  eq_morph_expand
-    (@swap_bind_ivar_rename_ivar_pointwise N T M t n m f).
-
-Lemma swap_bind_ivar_shift_ivar_pointwise {N T M} t n
-      (f : ivar N T M) :
-  bind_ivar t (shift_ivar n f)
-  =m= shift_ivar n (bind_ivar t f).
-Proof. easy. Qed.
-
-Definition swap_bind_ivar_shift_ivar {N T M} t n f :=
-  eq_morph_expand
-    (@swap_bind_ivar_shift_ivar_pointwise N T M t n f).
-
-Lemma swap_bind_ivar_subst_ivar_pointwise {N T M} t n s
-      (f : ivar N T M) :
-  bind_ivar t (subst_ivar n s f)
-  =m= subst_ivar n s (bind_ivar t f).
-Proof. easy. Qed.
-
-Definition swap_bind_ivar_subst_ivar {N T M} t n s f :=
-  eq_morph_expand
-    (@swap_bind_ivar_subst_ivar_pointwise N T M t n s f).
-
-Lemma swap_rename_ivar_open_ivar_pointwise {N T M} n m o
-      (f : ivar N T M) :
-  rename_ivar n m (open_ivar o f)
-  =m= open_ivar (shift_above_name n (unshift_name m o))
-        (rename_ivar (shift_name (unshift_name m o) n)
-                     (shift_name o m) f).
-Proof.
-  simpl_ivars_pointwise.
-  rewrite swap_move_iname_delete_iname_pointwise.
-  rewrite swap_get_iname_move_iname_pointwise
-    by auto using shift_above_name_neq_shift_name.
-  simpl_names; easy.
-Qed.
-
-Definition swap_rename_ivar_open_ivar {N T M} n m o f :=
-  eq_morph_expand
-    (@swap_rename_ivar_open_ivar_pointwise N T M n m o f).
-
-Lemma swap_rename_ivar_close_ivar_pointwise {N T M} n m o
-      (f : ivar (S N) T M) :
-  m <> o ->
-  rename_ivar n m (close_ivar o f)
-  =m= close_ivar (shift_name n (unshift_name m o))
-         (rename_ivar (unshift_name (unshift_name m o) n)
-            (unshift_name o m) f).
-Proof.
-  intros; simpl_ivars_pointwise.
-  rewrite swap_move_iname_insert_iname_pointwise by easy.
-  easy.
-Qed.
-
-Definition swap_rename_ivar_close_ivar {N T M} n m o f :=
-  fun V l Hneq =>
-    eq_morph_expand
-      (@swap_rename_ivar_close_ivar_pointwise N T M n m o f Hneq)
-      V l.
-
-Lemma swap_rename_ivar_weak_ivar_pointwise {N T M} n m
-      (f : ivar (S N) T M) :
-  rename_ivar n m (weak_ivar f)
-  =m= weak_ivar (rename_ivar n m f).
-Proof. easy. Qed.
-
-Definition swap_rename_ivar_weak_ivar {N T M} n m f :=
-  eq_morph_expand
-    (@swap_rename_ivar_weak_ivar_pointwise N T M n m f).
-
-Lemma swap_rename_ivar_bind_ivar_pointwise {N T M} n m t
-      (f : ivar N T M) :
-  rename_ivar n m (bind_ivar t f)
-  =m= bind_ivar t (rename_ivar n m f).
-Proof. easy. Qed.
-
-Definition swap_rename_ivar_bind_ivar {N T M} n m t f :=
-  eq_morph_expand
-    (@swap_rename_ivar_bind_ivar_pointwise N T M n m t f).
-
-Lemma swap_shift_ivar_open_ivar_pointwise {N T M} n m
-      (f : ivar N T M) :
-  shift_ivar n (open_ivar m f)
-  =m= open_ivar (unshift_name n m)
-         (shift_ivar (shift_name m n) f).
-Proof.
-  simpl_ivars_pointwise.
-  rewrite swap_delete_iname_delete_iname_pointwise.
-  rewrite swap_get_iname_delete_iname_pointwise.
-  simpl_names.
-  easy.
-Qed.
-
-Definition swap_shift_ivar_open_ivar {N T M} n m f :=
-  eq_morph_expand
-    (@swap_shift_ivar_open_ivar_pointwise N T M n m f).
-
-Lemma swap_shift_ivar_close_ivar_pointwise {N T M} n m
-      (f : ivar (S N) T M) :
-  n <> m ->
-  shift_ivar n (close_ivar m f)
-  =m= close_ivar (unshift_name n m)
-         (shift_ivar (unshift_name m n) f).
-Proof.
-  intros; simpl_ivars_pointwise.
-  rewrite swap_delete_iname_insert_iname_pointwise by easy.
-  easy.
-Qed.
-
-Definition swap_shift_ivar_close_ivar {N T M} n m f :=
-  fun V l Hneq =>
-    eq_morph_expand
-      (@swap_shift_ivar_close_ivar_pointwise N T M n m f Hneq)
-      V l.
-
-Lemma swap_shift_ivar_weak_ivar_pointwise {N T M} n
-      (f : ivar (S N) T M) :
-  shift_ivar n (weak_ivar f)
-  =m= weak_ivar (shift_ivar n f).
-Proof. easy. Qed.
-
-Definition swap_shift_ivar_weak_ivar {N T M} n f :=
-  eq_morph_expand
-    (@swap_shift_ivar_weak_ivar_pointwise N T M n f).
-
-Lemma swap_shift_ivar_bind_ivar_pointwise {N T M} n t
-      (f : ivar N T M) :
-  shift_ivar n (bind_ivar t f)
-  =m= bind_ivar t (shift_ivar n f).
-Proof. easy. Qed.
-
-Definition swap_shift_ivar_bind_ivar {N T M} n t f :=
-  eq_morph_expand
-    (@swap_shift_ivar_bind_ivar_pointwise N T M n t f).
-
-Lemma swap_subst_ivar_open_ivar_pointwise {N T M} n t m
-      (f : ivar N T M) :
-  subst_ivar n t (open_ivar m f)
-  =m= open_ivar (shift_above_name n m)
-         (subst_ivar (shift_name m n) t f).
-Proof.
-  simpl_ivars_pointwise.
-  rewrite swap_insert_iname_delete_iname_pointwise.
-  rewrite swap_get_iname_insert_iname_pointwise
-    by apply shift_above_name_neq_shift_name.
-  simpl_names; easy.
-Qed.
-
-Definition swap_subst_ivar_open_ivar {N T M} n t m f :=
-  eq_morph_expand
-    (@swap_subst_ivar_open_ivar_pointwise N T M n t m f).
-
-Lemma swap_subst_ivar_close_ivar_pointwise {N T M} n t m
-      (f : ivar (S N) T M) :
-  subst_ivar n t (close_ivar m f)
-  =m= close_ivar (shift_name n m)
-         (subst_ivar (unshift_name m n) t f).
-Proof.
-  simpl_ivars_pointwise.
-  rewrite swap_insert_iname_insert_iname_pointwise.
-  easy.
-Qed.
-
-Definition swap_subst_ivar_close_ivar {N T M} n t m f :=
-    eq_morph_expand
-      (@swap_subst_ivar_close_ivar_pointwise N T M n t m f).
-
-Lemma swap_subst_ivar_weak_ivar_pointwise {N T M} n t
-      (f : ivar (S N) T M) :
-  subst_ivar n t (weak_ivar f)
-  =m= weak_ivar (subst_ivar n t f).
-Proof. easy. Qed.
-
-Definition swap_subst_ivar_weak_ivar {N T M} n t f :=
-  eq_morph_expand
-    (@swap_subst_ivar_weak_ivar_pointwise N T M n t f).
-
-Lemma swap_subst_ivar_bind_ivar_pointwise {N T M} n t s
-      (f : ivar N T M) :
-  subst_ivar n t (bind_ivar s f)
-  =m= bind_ivar s (subst_ivar n t f).
-Proof. easy. Qed.
-
-Definition swap_subst_ivar_bind_ivar {N T M} n t s f :=
-  eq_morph_expand
-    (@swap_subst_ivar_bind_ivar_pointwise N T M n t s f).
+    (@transpose_open_ivar_weak_ivar_pointwise N T M n f).
 
 (* There is a full covariant functor from [T O] to [ivar N T O]
    by composition.
@@ -900,34 +412,16 @@ Proof.
   easy.
 Qed.
 
-Lemma rename_ivar_compose_distribute {N T M R L} n m
-      (f : ivar N T M) (g : morph T M R L) :
-  g @ (rename_ivar n m f) =m= rename_ivar n m (g @ f).
+Lemma swap_ivar_compose_distribute {N T M R L}
+      (f : ivar (S (S N)) T M) (g : morph T M R L) :
+  g @ swap_ivar f
+  =m= swap_ivar (g @ f).
 Proof.
-  unfold rename_ivar.
-  rewrite close_ivar_compose_distribute.
-  rewrite open_ivar_compose_distribute.
-  easy.
-Qed.
-
-Lemma shift_ivar_compose_distribute {N T M R L} n
-      (f : ivar N T M) (g : morph T M R L) :
-  g @ (shift_ivar n f) =m= shift_ivar n (g @ f).
-Proof.
-  unfold shift_ivar.
-  rewrite weak_ivar_compose_distribute.
-  rewrite open_ivar_compose_distribute.
-  easy.
-Qed.
-
-Lemma subst_ivar_compose_distribute {N T M R L} n t
-      (f : ivar N T M) (g : morph T M R L) :
-  g @ (subst_ivar n t f)
-  =m= subst_ivar n (morph_apply g t) (g @ f).
-Proof.
-  unfold subst_ivar.
-  rewrite close_ivar_compose_distribute.
-  rewrite bind_ivar_compose_distribute.
+  unfold swap_ivar.
+  rewrite pair_ivar_compose_distribute.
+  rewrite fst_ivar_compose_distribute.
+  rewrite swap_ilevel_compose_distribute.
+  rewrite snd_ivar_compose_distribute.
   easy.
 Qed.
 
@@ -937,24 +431,28 @@ Qed.
    Operations not involving bind are in the image of that
    functor. We call these operations "static". *)
 
-Definition open_var a : ivar 1 var 0 := open_ivar a 1.
-Definition close_var a : ivar 0 var 1 := close_ivar a 1.
-Definition weak_var : ivar 0 var 1 := weak_ivar 1.
-Definition rename_var a b : ivar 0 var 0 :=
-  (open_var b) @ (close_var a).
-Definition shift_var a : ivar 0 var 0 := (open_var a) @ weak_var.
+Definition open_var {N} a : ivar (S N) var N :=
+  open_ivar a 1.
+
+Definition close_var {N} a : ivar N var (S N) :=
+  close_ivar a 1.
+
+Definition weak_var {N} : ivar N var (S N) := weak_ivar 1.
+
+Definition swap_var {N} : ivar (S (S N)) var (S (S N)) :=
+  swap_ivar 1.
 
 Lemma open_ivar_as_composition {N T M} n (f : ivar N T M) :
-  open_ivar n f =m= f @ (morph_extend_by N (open_var n)).
+  open_ivar n f =m= f @ open_var n.
 Proof.
   rewrite <- morph_right_identity with (f := f) at 1.
   rewrite <- open_ivar_compose_distribute.
   easy.
 Qed.
 
-Lemma close_ivar_as_composition {N T M} n (f : ivar (S N) T M) :
-  close_ivar n f =m=
-  f @ (morph_extend_by N (close_var n)).
+Lemma close_ivar_as_composition {N T M} n
+      (f : ivar (S N) T M) :
+  close_ivar n f =m= f @ close_var n.
 Proof.
   rewrite <- morph_right_identity with (f := f) at 1.
   rewrite <- close_ivar_compose_distribute.
@@ -962,29 +460,92 @@ Proof.
 Qed.
 
 Lemma weak_ivar_as_composition {N T M} (f : ivar (S N) T M) :
-  weak_ivar f =m= f @ (morph_extend_by N weak_var).
+  weak_ivar f =m= f @ weak_var.
 Proof.
   rewrite <- morph_right_identity with (f := f) at 1.
   rewrite <- weak_ivar_compose_distribute.
   easy.
 Qed.
 
-Lemma rename_ivar_as_composition {N T M} n m (f : ivar N T M) :
-  rename_ivar n m f
-  =m= f @ (morph_extend_by N (rename_var n m)).
+Lemma swap_ivar_as_composition {N T M} (f : ivar (S (S N)) T M) :
+  swap_ivar f =m= f @ swap_var.
 Proof.
-  unfold rename_var, rename_ivar.
-  rewrite morph_extend_by_compose,
-    open_ivar_as_composition, close_ivar_as_composition.
+  rewrite <- morph_right_identity with (f := f) at 1.
+  rewrite <- swap_ivar_compose_distribute.
   easy.
 Qed.
 
-Lemma shift_ivar_as_composition {N T M} n (f : ivar N T M) :
-  shift_ivar n f
-  =m= f @ (morph_extend_by N (shift_var n)).
-Proof.
-  unfold shift_var, shift_ivar.
-  rewrite morph_extend_by_compose,
-    open_ivar_as_composition, weak_ivar_as_composition.
-  easy.
-Qed.
+Section Term.
+
+  Context {trm : nset}.
+
+  Variable unit : forall {N}, ivar N (@trm) N.
+
+  Definition open_ktrm {N} a := open_ivar a (@unit N).
+  Definition close_ktrm {N} a := close_ivar a (@unit (S N)).
+  Definition weak_ktrm {N} := weak_ivar (@unit (S N)).
+  Definition bind_ktrm {N} t := bind_ivar t (@unit N).
+  Definition swap_ktrm {N} := swap_ivar (@unit (S (S N))).
+
+  Variable kleisli :
+    forall {N M},
+      ivar N (@trm) M ->
+      morph (@trm) N (@trm) M.
+
+  Definition open_trm {N} a := kleisli (@open_ktrm N a).
+  Definition close_trm {N} a := kleisli (@close_ktrm N a).
+  Definition weak_trm {N} := kleisli (@weak_ktrm N).
+  Definition bind_trm {N} t := kleisli (@bind_ktrm N t).
+  Definition swap_trm {N} := kleisli (@swap_ktrm N).
+
+  Axiom extensional :
+    forall N M (f g : morph (@var) N (@trm) M),
+      f =m= g ->
+      kleisli f =m= kleisli g.
+
+  Add Parametric Morphism {N M} : (@kleisli N M)
+    with signature eq_morph ==> eq_morph
+    as kleisli_mor.
+    intros * Heq V n; unfold fst_ivar.
+    apply extensional; easy.
+  Qed.
+
+  Axiom left_identity :
+    forall N M (f : morph (@var) N (@trm) M),
+      kleisli f @ unit =m= f.
+
+  Axiom right_identity :
+    forall N, kleisli (@unit N) =m= 1.
+
+  Axiom associativity :
+    forall N M L
+      (f : morph (@var) N (@trm) M)
+      (g : morph (@var) M (@trm) L),
+      (kleisli g) @ (kleisli f)
+      =m= kleisli (kleisli g @ f).
+
+  Hint Rewrite left_identity right_identity associativity
+       @pair_ivar_compose_distribute @fst_ivar_compose_distribute
+       @snd_ivar_compose_distribute @open_ivar_compose_distribute
+       @close_ivar_compose_distribute @weak_ivar_compose_distribute
+       @bind_ivar_compose_distribute @swap_ivar_compose_distribute
+    : simpl_trm.
+
+  Lemma foo N a :
+    @close_trm N a @ (open_trm a)
+    =m= morph_id.
+  Proof.
+    unfold open_trm, close_trm, open_ktrm, close_ktrm.
+    autorewrite with simpl_trm.
+    intros V t.
+    replace (kleisli (open_ivar a (close_ivar a unit)) V t)
+      with (kleisli unit V t).
+    - autorewrite with simpl_trm.
+      easy.
+    - apply extensional.
+      intros V' t'.
+      time simpl_ivars.
+    easy.
+  Qed.
+
+End Term.

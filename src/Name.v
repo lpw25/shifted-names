@@ -330,21 +330,19 @@ Hint Rewrite @unfold_get_iname @unfold_delete_iname
 
 (* Folding derived operations *)
 
-Lemma fold_get_iname {T M} n (f : iname T M) :
-  get_iindex (n_index n) (project_iname (n_string n) f)
-  = get_iname n f.
+Lemma fold_get_iname {T M} s i (f : iname T M) :
+  get_iindex i (project_iname s f)
+  = get_iname (mkname s i) f.
 Proof. easy. Qed.
 
-Lemma fold_delete_iname {T M} n (f : iname T M) :
-  with_iname (n_string n)
-    (delete_iindex (n_index n) (project_iname (n_string n) f)) f
-  = delete_iname n f.
+Lemma fold_delete_iname {T M} s i (f : iname T M) :
+  with_iname s (delete_iindex i (project_iname s f)) f
+  = delete_iname (mkname s i) f.
 Proof. easy. Qed.
 
-Lemma fold_insert_iname {T M} n a (f : iname T M) :
-  with_iname (n_string n)
-    (insert_iindex a (n_index n) (project_iname (n_string n) f)) f
-  = insert_iname a n f.
+Lemma fold_insert_iname {T M} s i a (f : iname T M) :
+  with_iname s (insert_iindex a i (project_iname s f)) f
+  = insert_iname a (mkname s i) f.
 Proof. easy. Qed.
 
 Hint Rewrite @fold_get_iname @fold_delete_iname
@@ -627,6 +625,27 @@ Hint Rewrite @red_shift_below_name_index_distinct
      @red_unshift_name_distinct
      @red_unshift_name_indistinct
      using (cbn; congruence) : red_inames.
+
+(* Folds *)
+
+Lemma fold_shift_below_name n m :
+  mkname (n_string m) (shift_below_name_index n m)
+  = shift_below_name n m.
+Proof. easy. Qed.
+
+Lemma fold_shift_above_name n m :
+  mkname (n_string m) (shift_above_name_index n m)
+  = shift_above_name n m.
+Proof. easy. Qed.
+
+Lemma fold_unshift_name n m :
+  mkname (n_string m) (unshift_name_index n m)
+  = unshift_name n m.
+Proof. easy. Qed.
+
+Hint Rewrite fold_shift_below_name
+     fold_shift_above_name fold_unshift_name
+ : fold_inames.
 
 (* Useful lemmas about shifting *)
 
@@ -1300,8 +1319,9 @@ Proof.
   - case_string (n_string n1) (n_string n2).
     + simpl_inames_pointwise_eqn.
       transpose_get_iindex _ (Ins _) _;
-        auto using name_neq_string_eq_index_neq;
-        congruence.
+        auto using name_neq_string_eq_index_neq.
+      simpl_inames_pointwise_eqn.
+      congruence.
     + autorewrite with unfold_inames; red_inames.
       rewrite transpose_project_iname_with_iname
         by congruence.
@@ -1309,8 +1329,9 @@ Proof.
   - case_string (n_string n1) (n_string n2).
     + simpl_inames_pointwise_eqn.
       transpose_get_iindex _ Del _;
-        auto using name_neq_string_eq_index_neq;
-        congruence.
+        auto using name_neq_string_eq_index_neq.
+      simpl_inames_pointwise_eqn.
+      congruence.
     + autorewrite with unfold_inames; red_inames.
       rewrite transpose_project_iname_with_iname
         by congruence.
