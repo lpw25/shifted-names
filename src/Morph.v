@@ -41,6 +41,14 @@ Proof.
   eauto using eq_dep_trans.
 Qed.
 
+Lemma heq_const : forall {T N M} {t : knset T N} {s : knset T M},
+    N = M -> t = s -> t ~= s.
+Proof.
+  intros * Heq1 Heq2.
+  rewrite Heq1, Heq2.
+  apply heq_intro.
+Qed.
+
 Lemma heq_under : forall T N M t1 t2,
   @heq T (S N) t1 (S M) t2
   <-> @heq (fun V : nat => T (S V)) N t1 M t2.
@@ -49,7 +57,7 @@ Proof.
   intros T N M t1 t2.
   split; intro H;
     inversion H; subst;
-      apply heq_eq in H; subst;
+      apply @heq_eq in H; subst;
         apply eq_dep_intro.
 Qed.
 
@@ -114,7 +122,7 @@ Lemma nset_pop_under : forall T N V t,
   = @nset_pop T (S N) V t.
 Proof.
   intros.
-  apply heq_eq.
+  apply @heq_eq.
   apply heq_trans with (s := t).
   - rewrite heq_under.
     apply nset_pop_heq.
@@ -127,7 +135,7 @@ Lemma nset_push_under : forall T N V t,
   = @nset_push T (S N) V t.
 Proof.
   intros.
-  apply heq_eq.
+  apply @heq_eq.
   apply heq_trans with (s := t).
   - rewrite heq_under.
     apply nset_push_heq.
@@ -135,61 +143,105 @@ Proof.
     apply nset_push_heq with (N := S N).
 Qed.
 
-Definition extended_eq N V I :=
-  nat_ind (fun N' : nat => N' + (I + V) = (N' + I) + V)
-    (@eq_refl nat (I + V))
-    (fun (N' : nat) (IHn : N' + (I + V) = (N' + I) + V) =>
+Lemma nset_pop_const : forall T N V t,
+  @nset_pop (knset T) N V t = t.
+Proof.
+  intros.
+  apply @heq_eq.
+  apply heq_trans with (s := t).
+  - apply nset_pop_heq.
+  - apply heq_const; easy.
+Qed.
+
+Lemma nset_push_const : forall T N V t,
+  @nset_push (knset T) N V t = t.
+Proof.
+  intros.
+  apply @heq_eq.
+  apply heq_trans with (s := t).
+  - apply nset_push_heq.
+  - apply heq_const; easy.
+Qed.
+
+Definition extended_eq N V K :=
+  nat_ind (fun N' : nat => N' + (K + V) = (N' + K) + V)
+    (@eq_refl nat (K + V))
+    (fun (N' : nat) (IHn : N' + (K + V) = (N' + K) + V) =>
        (f_equal S IHn)) N.
 
-Definition unextended_eq N V I :=
-  eq_sym (extended_eq N V I).
+Definition unextended_eq N V K :=
+  eq_sym (extended_eq N V K).
 
-Definition nset_extended {T : nset} {N V} I
-           (t : @T (N + (I + V))) : @T ((N + I) + V) :=
-  cast (extended_eq N V I) t.
+Definition nset_extended {T : nset} {N V} K
+           (t : @T (N + (K + V))) : @T ((N + K) + V) :=
+  cast (extended_eq N V K) t.
 
-Definition nset_unextended {T : nset} {N V} I
-           (t : @T ((N + I) + V)) : @T (N + (I + V)) :=
-  cast (unextended_eq N V I) t.
+Definition nset_unextended {T : nset} {N V} K
+           (t : @T ((N + K) + V)) : @T (N + (K + V)) :=
+  cast (unextended_eq N V K) t.
 
 Lemma nset_extended_heq :
-  forall (T : nset) N V I (t : @T (N + (I + V))),
-    nset_extended I t ~= t.
+  forall (T : nset) N V K (t : @T (N + (K + V))),
+    nset_extended K t ~= t.
 Proof.
   intros.
   unfold nset_extended, cast.
-  destruct (extended_eq N V I).
+  destruct (extended_eq N V K).
   apply eq_dep_intro.
 Qed.
 
 Lemma nset_unextended_heq :
-  forall (T : nset) N V I (t : @T ((N + I) + V)),
-    nset_unextended I t ~= t.
+  forall (T : nset) N V K (t : @T ((N + K) + V)),
+    nset_unextended K t ~= t.
 Proof.
   intros.
   unfold nset_unextended, cast.
-  destruct (unextended_eq N V I).
+  destruct (unextended_eq N V K).
   apply eq_dep_intro.
 Qed.
 
 Lemma nset_extended_unextended_eq :
-  forall (T : nset) N V I (t : @T ((N + I) + V)),
-    nset_extended I (nset_unextended I t) = t.
+  forall (T : nset) N V K (t : @T ((N + K) + V)),
+    nset_extended K (nset_unextended K t) = t.
 Proof.
-  intros T N V I t.
+  intros T N V K t.
   unfold nset_extended, nset_unextended, cast, unextended_eq.
-  destruct (extended_eq N V I); cbn.
+  destruct (extended_eq N V K); cbn.
   reflexivity.
 Qed.
 
 Lemma nset_unextended_extended_eq :
-  forall (T : nset) N V I (t : @T (N + (I + V))),
-    nset_unextended I (nset_extended I t) = t.
+  forall (T : nset) N V K (t : @T (N + (K + V))),
+    nset_unextended K (nset_extended K t) = t.
 Proof.
-  intros T N V I t.
+  intros T N V K t.
   unfold nset_extended, nset_unextended, cast, unextended_eq.
-  destruct (extended_eq N V I); cbn.
+  destruct (extended_eq N V K); cbn.
   reflexivity.
+Qed.
+
+Lemma nset_extended_const : forall T N V K t,
+  @nset_extended (knset T) N V K t = t.
+Proof.
+  intros.
+  apply @heq_eq.
+  apply heq_trans with (s := t).
+  - apply nset_extended_heq.
+  - apply heq_const.
+    + apply extended_eq.
+    + reflexivity.
+Qed.
+
+Lemma nset_unextended_const : forall T N V K t,
+  @nset_unextended (knset T) N V K t = t.
+Proof.
+  intros.
+  apply @heq_eq.
+  apply heq_trans with (s := t).
+  - apply nset_unextended_heq.
+  - apply heq_const.
+    + apply unextended_eq.
+    + reflexivity.
 Qed.
 
 (* Extendable nset values *)
@@ -209,9 +261,9 @@ Definition pnset_extend {T N} (m : pnset T N)
   : pnset T (S N) :=
   fun V => nset_push (m (S V)).
 
-Definition pnset_extend_by {T N} I (m : pnset T N)
-  : pnset T (N + I) :=
-  fun V => nset_extended I (m (I + V)).
+Definition pnset_extend_by {T N} K (m : pnset T N)
+  : pnset T (N + K) :=
+  fun V => nset_extended K (m (K + V)).
 
 (* Equality *)
 
@@ -223,7 +275,7 @@ Notation "f =p= g" := (eq_pnset f g) (at level 70).
 Instance eq_pnset_equiv {T M} :
   Equivalence (@eq_pnset T M).
 Proof.
-  apply Build_Equivalence; try easy.
+  apply @Build_Equivalence; try easy.
   intros f g h Heq1 Heq2 V.
   rewrite Heq1, Heq2; easy.
 Qed.
@@ -291,10 +343,10 @@ Definition morph_extend {T N R L} (m : morph (@T) N (@R) L)
   : morph (@T) (S N) (@R) (S L) :=
   fun V t => nset_push (m (S V) (nset_pop t)).
 
-Definition morph_extend_by {T N R L} I
+Definition morph_extend_by {T N R L} K
            (m : morph (@T) N (@R) L)
-  : morph (@T) (N + I) (@R) (L + I) :=
-  fun V t => nset_extended I (m (I + V) (nset_unextended I t)).
+  : morph (@T) (N + K) (@R) (L + K) :=
+  fun V t => nset_extended K (m (K + V) (nset_unextended K t)).
 
 (* Application to pnsets *)
 Definition morph_apply {T N R L} (m : morph (@T) N (@R) L)
@@ -308,7 +360,7 @@ Proof. easy. Qed.
 
 Lemma morph_apply_compose {T N S M R L}
       (f : morph (@S) M (@R) L) (g : morph (@T) N (@S) M) p :
-  morph_apply (f @ g) p =p= morph_apply f (morph_apply g p).
+  morph_apply f (morph_apply g p) =p= morph_apply (f @ g) p.
 Proof. easy. Qed.
 
 (* Equality *)
@@ -323,7 +375,7 @@ Notation "f =m= g" := (eq_morph f g) (at level 70).
 Instance eq_morph_equiv {S N T M} :
   Equivalence (@eq_morph S N T M).
 Proof.
-  apply Build_Equivalence; try easy.
+  apply @Build_Equivalence; try easy.
   intros f g h Heq1 Heq2 V s.
   rewrite Heq1, Heq2; easy.
 Qed.
@@ -377,17 +429,17 @@ Proof.
   easy.
 Qed.
 
-Lemma morph_extend_by_id {T N I} :
-  @morph_extend_by T N T N I 1 =m= 1.
+Lemma morph_extend_by_id {T N K} :
+  @morph_extend_by T N T N K 1 =m= 1.
 Proof.
   intros V v; unfold morph_extend_by, morph_id.
   apply nset_extended_unextended_eq.
 Qed.
 
-Lemma morph_extend_by_compose {T N S M R L I}
+Lemma morph_extend_by_compose {T N S M R L K}
       (f : morph (@S) M (@R) L) (g : morph (@T) N (@S) M) :
-  morph_extend_by I (f @ g)
-  =m= morph_extend_by I f @ morph_extend_by I g.
+  morph_extend_by K (f @ g)
+  =m= morph_extend_by K f @ morph_extend_by K g.
 Proof.
   intros V v; unfold morph_extend_by, morph_compose.
   rewrite nset_unextended_extended_eq.
@@ -447,6 +499,33 @@ Lemma kmorph_associative :
     (f @ (g @ h) = (f @ g) @ h)%kmorph.
 Proof. reflexivity. Qed.
 
+(* Extension *)
+
+Definition kmorph_extend {T R N} (m : kmorph T (@R) N)
+  : kmorph T (@R) (S N) :=
+  fun V v => nset_push (m (S V) v).
+
+Definition kmorph_extend_by {T R N} K (m : kmorph T (@R) N)
+  : kmorph T (@R) (N + K) :=
+  fun V v => nset_extended K (m (K + V) v).
+
+(* Application *)
+
+Definition kmorph_apply {T R L} (m : kmorph T (@R) L)
+           (c : T) : pnset R L :=
+  fun V => m V c.
+Arguments kmorph_apply {T R L} m c V /.
+
+Lemma kmorph_apply_id {T : Set} {N} (c : T) :
+  kmorph_apply 1 c =p= @pnset_const T N c.
+Proof. easy. Qed.
+
+Lemma kmorph_apply_compose {T S M R L}
+      (f : morph (@S) M (@R) L) (g : kmorph (@T) (@S) M) p :
+  morph_apply f (kmorph_apply g p)
+  =p= kmorph_apply (f @ g) p.
+Proof. easy. Qed.
+
 (* Equality on k-morphisms *)
 
 Definition eq_kmorph {S T M} (f g : kmorph S T M) :=
@@ -459,7 +538,7 @@ Notation "f =km= g" := (eq_kmorph f g) (at level 70).
 Instance eq_kmorph_equiv {S T M} :
   Equivalence (@eq_kmorph S T M).
 Proof.
-  apply Build_Equivalence; try easy.
+  apply @Build_Equivalence; try easy.
   intros f g h Heq1 Heq2 V s.
   rewrite Heq1, Heq2; easy.
 Qed.
@@ -475,6 +554,61 @@ Qed.
 Definition eq_kmorph_expand {S T M} {f g : kmorph S T M}
            (eq : eq_kmorph f g) :
   forall (V : nat) (s : S), f V s = g V s := eq.
+
+Add Parametric Morphism {T S M R L} : (@kmorph_compose T S M R L)
+    with signature eq_morph ==> eq_kmorph ==> eq_kmorph
+      as kmorph_compose_mor.
+  intros * Heq1 * Heq2 V v; unfold kmorph_compose.
+  rewrite Heq1, Heq2; easy.
+Qed.
+
+Add Parametric Morphism {T R L} : (@kmorph_extend T R L)
+    with signature eq_kmorph ==> eq_kmorph
+      as kmorph_extend_mor.
+  intros * Heq V v; unfold kmorph_extend.
+  rewrite Heq; easy.
+Qed.
+
+Add Parametric Morphism {T R L} : (@kmorph_apply T R L)
+    with signature eq_kmorph ==> eq ==> eq_pnset
+      as kmorph_apply_mor.
+  intros * Heq * V; unfold kmorph_apply.
+  rewrite Heq; easy.
+Qed.
+
+Lemma kmorph_extend_id {T N} :
+  kmorph_extend (@kmorph_id T N) =km= 1.
+Proof.
+  intros V v; unfold kmorph_extend, kmorph_id.
+  apply nset_push_const.
+Qed.
+
+Lemma kmorph_extend_compose {T S M R L}
+      (f : morph (@S) M (@R) L) (g : kmorph T (@S) M) :
+  kmorph_extend (f @ g) =km= morph_extend f @ kmorph_extend g.
+Proof.
+  intros V v; unfold kmorph_extend, kmorph_compose, morph_extend.
+  rewrite nset_pop_push_eq.
+  easy.
+Qed.
+
+Lemma kmorph_extend_by_id {T N K} :
+  @kmorph_extend_by T (knset T) N K 1 =km= 1.
+Proof.
+  intros V v; unfold kmorph_extend_by, kmorph_id.
+  apply nset_extended_const.
+Qed.
+
+Lemma kmorph_extend_by_compose {T S M R L K}
+      (f : morph (@S) M (@R) L) (g : kmorph T (@S) M) :
+  kmorph_extend_by K (f @ g)
+  =km= morph_extend_by K f @ kmorph_extend_by K g.
+Proof.
+  intros V v.
+  unfold morph_extend_by, kmorph_extend_by, kmorph_compose.
+  rewrite nset_unextended_extended_eq.
+  easy.
+Qed.
 
 (* Automation *)
 
@@ -540,6 +674,12 @@ Ltac popped_term t :=
           ltac:(let y := context T[N] in exact y))
       in
       constr:(f' (@nset_pop R N V s))
+    | context T [S ?N + ?V] =>
+      let R :=
+        constr:(fun N =>
+          ltac:(let y := context T[N] in exact y))
+      in
+      constr:(f' (@nset_pop R N V s))
     | nat =>
       match s with
       | S (?N + ?V) => constr:(f' (N + S V))
@@ -555,12 +695,12 @@ Ltac popped_term t :=
 Ltac popT :=
   cbn in *;
   match goal with
-  | |- context T [@nset_pop ?T' ?N ?V ?t] =>
+  | |- context T [@nset_pop ?T' ?N' ?V ?t] =>
     let t' := popped_term t in
-    replace (@nset_pop T' N V t) with t';
-      [> | symmetry; apply heq_eq;
+    replace (@nset_pop T' N' V t) with t';
+      [| symmetry; apply heq_eq;
            apply eq_dep_trans with (y := t);
-           [>apply nset_pop_heq|];
+           [apply nset_pop_heq with (N := N')|];
            pop_term_arguments t;
            reflexivity
       ]
@@ -625,9 +765,9 @@ Ltac pushT :=
   | |- context T [@nset_push ?T' ?N ?V ?t] =>
     let t' := pushed_term t in
     replace (@nset_push T' N V t) with t';
-      [> | symmetry; apply heq_eq;
+      [ | symmetry; apply heq_eq;
            apply eq_dep_trans with (y := t);
-           [>apply nset_push_heq|];
+           [apply nset_push_heq|];
            push_term_arguments t;
            reflexivity
       ]
@@ -635,7 +775,9 @@ Ltac pushT :=
   repeat rewrite nset_push_under.
 
 Ltac simplT :=
+  unfold pnset_extend in *;
   unfold morph_extend in *;
+  unfold kmorph_extend in *;
   try popT;
   try pushT;
   repeat
@@ -643,7 +785,7 @@ Ltac simplT :=
     | IH : forall (_ : nat) (_ : _),
              _ ~= _ -> _ = _ -> _ = _ |- _ =>
       rewrite IH;
-      [> |
+      [|
        match goal with
        | |- @nset_pop ?T' ?N' ?V' ?t' ~= ?t' =>
          apply nset_pop_heq with (N := N')

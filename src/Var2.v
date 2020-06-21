@@ -361,30 +361,116 @@ Proof.
   easy.
 Qed.
 
+(* Morphism extension distributes over the operations *)
+
+Lemma fst_ivar_extend {N T M} (f : ivar N T M) :
+  kmorph_extend (fst_ivar f)
+  =km= fst_ivar (morph_extend f).
+Proof.
+  intros V v; simplT; easy.
+Qed.
+
+Lemma snd_ivar_extend {N T M} (f : ivar N T M) :
+  morph_extend (snd_ivar f)
+  =m= snd_ivar (morph_extend f).
+Proof.
+  intros V v; simplT; easy.
+Qed.
+
+Lemma pair_ivar_extend {N T M}
+      (f : iname T M) (g : ilevel N T M) :
+  morph_extend (pair_ivar f g)
+  =m= pair_ivar (kmorph_extend f) (morph_extend g).
+Proof.
+  intros V v.
+  destruct v; simplT; easy.
+Qed.
+
+Lemma open_ivar_extend {N T M} n (f : ivar N T M) :
+  morph_extend (open_ivar n f)
+  =m= open_ivar n (morph_extend f).
+Proof.
+  intros V v; unfold open_ivar.
+  rewrite pair_ivar_extend, delete_iname_extend,
+    cons_ilevel_extend, get_iname_extend,
+    !fst_ivar_extend, !snd_ivar_extend.
+  easy.
+Qed.
+
+Lemma close_ivar_extend {N T M} n (f : ivar (S N) T M) :
+  morph_extend (close_ivar n f)
+  =m= close_ivar n (morph_extend f).
+Proof.
+  intros V v; unfold close_ivar.
+  rewrite pair_ivar_extend, insert_iname_extend,
+    hd_ilevel_extend, tl_ilevel_extend,
+    !fst_ivar_extend, !snd_ivar_extend.
+  easy.
+Qed.
+
+Lemma weak_ivar_extend {N T M} (f : ivar (S N) T M) :
+  morph_extend (weak_ivar f)
+  =m= weak_ivar (morph_extend f).
+Proof.
+  intros V v; unfold weak_ivar.
+  rewrite pair_ivar_extend, tl_ilevel_extend,
+    !fst_ivar_extend, !snd_ivar_extend.
+  easy.
+Qed.
+
+Lemma bind_ivar_extend {N T M} a (f : ivar N T M) :
+  morph_extend (bind_ivar a f)
+  =m= bind_ivar (pnset_extend a) (morph_extend f).
+Proof.
+  intros V v; unfold bind_ivar.
+  rewrite pair_ivar_extend, cons_ilevel_extend,
+    !fst_ivar_extend, !snd_ivar_extend.
+  easy.
+Qed.
+
+Lemma swap_ivar_extend {N T M} (f : ivar (S (S N)) T M) :
+  morph_extend (swap_ivar f)
+  =m= swap_ivar (morph_extend f).
+Proof.
+  intros V v; unfold swap_ivar.
+  rewrite pair_ivar_extend, swap_ilevel_extend,
+    !fst_ivar_extend, !snd_ivar_extend.
+  easy.
+Qed.
+
 Section Term.
 
   Context {trm : nset}.
 
   Variable unit : forall {N}, ivar N (@trm) N.
 
-  Definition open_ktrm {N} n := open_ivar n (@unit N).
-  Definition close_ktrm {N} n := close_ivar n (@unit (S N)).
-  Definition weak_ktrm {N} := weak_ivar (@unit (S N)).
-  Definition bind_ktrm {N} a := bind_ivar a (@unit N).
-  Definition swap_ktrm {N} := swap_ivar (@unit (S (S N))).
-
   Variable kleisli :
     forall {N M},
       ivar N (@trm) M ->
       morph (@trm) N (@trm) M.
 
-  Definition open_trm {N} n := kleisli (@open_ktrm N n).
-  Definition close_trm {N} n := kleisli (@close_ktrm N n).
-  Definition weak_trm {N} := kleisli (@weak_ktrm N).
-  Definition bind_trm {N} t := kleisli (@bind_ktrm N t).
-  Definition swap_trm {N} := kleisli (@swap_ktrm N).
+  Definition open_ktrm n := open_ivar n (@unit 0).
+  Definition open_trm n := kleisli (open_ktrm n).
 
-  Axiom extensional :
+  Definition close_ktrm n := close_ivar n (@unit 1).
+  Definition close_trm n := kleisli (close_ktrm n).
+
+  Definition weak_ktrm := weak_ivar (@unit 1).
+  Definition weak_trm := kleisli weak_ktrm.
+
+  Fixpoint weaken_trm (t : @trm 0) V : @trm (0 + V) :=
+    match V with
+    | 0 => t
+    | S V => weak_trm V (weaken_trm t V)
+    end.
+
+  Definition bind_ktrm t := bind_ivar (weaken_trm t) (@unit 0).
+  Definition bind_trm t := kleisli (bind_ktrm t).
+
+  Definition swap_ktrm := swap_ivar (@unit 2).
+  Definition swap_trm := kleisli swap_ktrm.
+
+  Hypothesis extensional :
     forall N M (f g : morph (@var) N (@trm) M),
       f =m= g ->
       kleisli f =m= kleisli g.
@@ -396,67 +482,82 @@ Section Term.
     apply extensional; easy.
   Qed.
 
-  Axiom left_identity :
+  Hypothesis left_identity :
     forall N M (f : morph (@var) N (@trm) M),
       kleisli f @ unit =m= f.
 
-  Axiom right_identity :
+  Hypothesis right_identity :
     forall N, kleisli (@unit N) =m= 1.
 
-  Axiom associativity :
+  Hypothesis associativity :
     forall N M L
       (f : morph (@var) N (@trm) M)
       (g : morph (@var) M (@trm) L),
       (kleisli g) @ (kleisli f)
       =m= kleisli (kleisli g @ f).
 
-  Hint Rewrite left_identity right_identity associativity
+  Hypothesis unit_extend :
+    forall N,
+      morph_extend (@unit N) =m= unit.
+
+  Hypothesis kleisli_extend :
+    forall N M (f : morph (@var) N (@trm) M),
+      morph_extend (kleisli f)
+      =m= kleisli (morph_extend f).
+
+  Hint Rewrite @left_identity @right_identity @associativity
+       @unit_extend @kleisli_extend
+       @morph_apply_compose @morph_apply_id
        @pair_ivar_compose_distribute @fst_ivar_compose_distribute
        @snd_ivar_compose_distribute @open_ivar_compose_distribute
        @close_ivar_compose_distribute @weak_ivar_compose_distribute
        @bind_ivar_compose_distribute @swap_ivar_compose_distribute
+       @pair_ivar_extend @fst_ivar_extend
+       @snd_ivar_extend @open_ivar_extend
+       @close_ivar_extend @weak_ivar_extend
+       @bind_ivar_extend @swap_ivar_extend
     : simpl_trms.
 
   (* Unfolding operations *)
 
-  Lemma unfold_open_ktrm {N} n :
-    open_ktrm n = open_ivar n (@unit N).
+  Lemma unfold_open_ktrm n :
+    open_ktrm n = open_ivar n (@unit 0).
   Proof. easy. Qed.
 
-  Lemma unfold_close_ktrm {N} n :
-    close_ktrm n = close_ivar n (@unit (S N)).
+  Lemma unfold_close_ktrm n :
+    close_ktrm n = close_ivar n (@unit 1).
   Proof. easy. Qed.
 
-  Lemma unfold_weak_ktrm {N} :
-    weak_ktrm = weak_ivar (@unit (S N)).
+  Lemma unfold_weak_ktrm :
+    weak_ktrm = weak_ivar (@unit 1).
   Proof. easy. Qed.
 
-  Lemma unfold_bind_ktrm {N} a :
-    bind_ktrm a = bind_ivar a (@unit N).
+  Lemma unfold_bind_ktrm t :
+    bind_ktrm t = bind_ivar (weaken_trm t) (@unit 0).
   Proof. easy. Qed.
 
-  Lemma unfold_swap_ktrm {N} :
-    swap_ktrm = swap_ivar (@unit (S (S N))).
+  Lemma unfold_swap_ktrm :
+    swap_ktrm = swap_ivar (@unit 2).
   Proof. easy. Qed.
 
-  Lemma unfold_open_trm {N} n :
-    open_trm n = kleisli (@open_ktrm N n).
+  Lemma unfold_open_trm n :
+    open_trm n = kleisli (open_ktrm n).
   Proof. easy. Qed.
 
-  Lemma unfold_close_trm {N} n :
-    close_trm n = kleisli (@close_ktrm N n).
+  Lemma unfold_close_trm n :
+    close_trm n = kleisli (close_ktrm n).
   Proof. easy. Qed.
 
-  Lemma unfold_weak_trm {N} :
-    weak_trm = kleisli (@weak_ktrm N).
+  Lemma unfold_weak_trm :
+    weak_trm = kleisli weak_ktrm.
   Proof. easy. Qed.
 
-  Lemma unfold_bind_trm {N} a :
-    bind_trm a = kleisli (@bind_ktrm N a).
+  Lemma unfold_bind_trm t :
+    bind_trm t = kleisli (bind_ktrm t).
   Proof. easy. Qed.
 
-  Lemma unfold_swap_trm {N} :
-    swap_trm = kleisli (@swap_ktrm N).
+  Lemma unfold_swap_trm :
+    swap_trm = kleisli swap_ktrm.
   Proof. easy. Qed.
 
   Hint Rewrite @unfold_open_ktrm @unfold_close_ktrm
@@ -467,44 +568,44 @@ Section Term.
 
   (* Folding operations *)
 
-  Lemma fold_open_ktrm {N} n :
-    open_ivar n (@unit N) = open_ktrm n.
+  Lemma fold_open_ktrm n :
+    open_ivar n (@unit 0) = open_ktrm n.
   Proof. easy. Qed.
 
-  Lemma fold_close_ktrm {N} n :
-    close_ivar n (@unit (S N)) = close_ktrm n.
+  Lemma fold_close_ktrm n :
+    close_ivar n (@unit 1) = close_ktrm n.
   Proof. easy. Qed.
 
-  Lemma fold_weak_ktrm {N} :
-    weak_ivar (@unit (S N)) = weak_ktrm.
+  Lemma fold_weak_ktrm :
+    weak_ivar (@unit 1) = weak_ktrm.
   Proof. easy. Qed.
 
-  Lemma fold_bind_ktrm {N} a :
-    bind_ivar a (@unit N) = bind_ktrm a.
+  Lemma fold_bind_ktrm t :
+    bind_ivar (weaken_trm t) (@unit 0) = bind_ktrm t.
   Proof. easy. Qed.
 
-  Lemma fold_swap_ktrm {N} :
-    swap_ivar (@unit (S (S N))) = swap_ktrm.
+  Lemma fold_swap_ktrm :
+    swap_ivar (@unit 2) = swap_ktrm.
   Proof. easy. Qed.
 
-  Lemma fold_open_trm {N} n :
-    kleisli (@open_ktrm N n) = open_trm n.
+  Lemma fold_open_trm n :
+    kleisli (open_ktrm n) = open_trm n.
   Proof. easy. Qed.
 
-  Lemma fold_close_trm {N} n :
-    kleisli (@close_ktrm N n) = close_trm n.
+  Lemma fold_close_trm n :
+    kleisli (close_ktrm n) = close_trm n.
   Proof. easy. Qed.
 
-  Lemma fold_weak_trm {N} :
-    kleisli (@weak_ktrm N) = weak_trm.
+  Lemma fold_weak_trm :
+    kleisli weak_ktrm = weak_trm.
   Proof. easy. Qed.
 
-  Lemma fold_bind_trm {N} a :
-    kleisli (@bind_ktrm N a) = bind_trm a.
+  Lemma fold_bind_trm t :
+    kleisli (bind_ktrm t) = bind_trm t.
   Proof. easy. Qed.
 
-  Lemma fold_swap_trm {N} :
-    kleisli (@swap_ktrm N) = swap_trm.
+  Lemma fold_swap_trm :
+    kleisli swap_ktrm = swap_trm.
   Proof. easy. Qed.
 
   Hint Rewrite @fold_open_ktrm @fold_close_ktrm
@@ -513,7 +614,7 @@ Section Term.
        @fold_weak_trm @fold_bind_trm @fold_swap_trm
     : fold_trms.
 
-  Ltac simpl_trm :=
+  Ltac simpl_trms :=
     autorewrite with unfold_trms;
     autorewrite with simpl_trms;
     simpl_ivars;
@@ -525,24 +626,37 @@ Section Term.
 
   (* Transposing operations *)
 
-  (* Push operations *)
-  Inductive push_op : Type :=
-  | close : name -> push_op
-  | weak : push_op.
+  Lemma transpose_close_trm_open_trm n1 n2 :
+    n1 <> n2 ->
+    (close_trm n1) @ (open_trm n2)
+    =m=
+    morph_extend (open_trm (unshift_name n1 n2))
+      @ swap_trm
+      @ morph_extend (close_trm (unshift_name n2 n1)).
+  Proof.
+    intro Hirr; simpl_trms.
+    transpose_iname delete _ (insert _) _; try congruence.
+    transpose_get_iname _ (insert _) _; congruence.
+  Qed.
 
   (* Pop operations *)
+
   Inductive pop_op N : Type :=
   | open : name -> pop_op N
   | bind : pnset trm N -> pop_op N.
   Arguments open {N} n.
   Arguments bind {N} a.
 
-  Definition apply_push_op {N} (op : push_op)
-    : morph trm N trm (S N) :=
-    match op with
-    | close n => close_trm n
-    | weak => weak_trm
+  Definition eq_pop_op {N} (op1 op2 : pop_op N) :=
+    match op1, op2 with
+    | open n1, open n2 => n1 = n2
+    | open _, bind _ => False
+    | bind p1, bind p2 => p1 =p= p2
+    | bind _, open _ => False
     end.
+
+  Notation "op1 =pop= op2" :=
+    (eq_pop_op op1 op2) (at level 70).
 
   Definition apply_pop_op {N} (op : pop_op N)
     : morph trm (S N) trm N :=
@@ -551,49 +665,7 @@ Section Term.
     | bind a => bind_trm a
     end.
 
-  (* Precondition on transposing two operations *)
-  Definition irreducible_push_pop_ops
-             {N} op1 (op2 : pop_op N) : Prop :=
-    match op1, op2 with
-    | close n1, open n2 => n1 <> n2
-    | weak, open _ => True
-    | close _, bind _ => True
-    | weak, bind _ => True
-    end.
-
-  Definition transpose_push_pop_left {N} op1 (op2 : pop_op N) :=
-    match op1, op2 with
-    | close n2, open n1 => open (unshift_name n2 n1)
-    | weak, open n1 => open n1
-    | close n2, bind a =>
-        bind (morph_apply (close_trm n2) a)
-    | weak, bind a => bind (morph_apply weak_trm a)
-    end.
-  Arguments transpose_push_pop_left {N} !op1 !op2.
-
-  Definition transpose_push_pop_right {N} (op2 : pop_op N) op1 :=
-    match op1, op2 with
-    | close n2, open n1 => close (unshift_name n1 n2)
-    | weak, open n1 => weak
-    | close n2, bind a => close n2
-    | weak, bind a => weak
-    end.
-  Arguments transpose_push_pop_right {N} !op2 !op1.
-
-  Lemma transpose_push_pop {N} op1 op2 :
-    irreducible_push_pop_ops op1 op2 ->
-    (@apply_push_op N op1) @ (apply_pop_op op2)
-    =m=
-    (apply_pop_op (transpose_push_pop_left op1 op2))
-      @ swap_trm
-      @ (apply_push_op (transpose_push_pop_right op2 op1)).
-  Proof.
-    destruct op1, op2; cbn; intro Hirr; simpl_trm; try easy.
-    - transpose_iname delete _ (insert _) _; try congruence.
-      transpose_get_iname _ (insert _) _; congruence.
-  Qed.
-
-  Definition transpose_pop_pop_left
+  Definition transpose_trm_pop_pop_left
              {N} (op1 : pop_op N) op2 :=
     match op1, op2 with
     | open n1, open n2 => open (shift_below_name n1 n2)
@@ -601,9 +673,9 @@ Section Term.
     | bind a1, open n2 => open n2
     | bind a1, bind a2 => bind (morph_apply (bind_trm a1) a2)
     end.
-  Arguments transpose_pop_pop_left {N} !op1 !op2.
+  Arguments transpose_trm_pop_pop_left {N} !op1 !op2.
 
-  Definition transpose_pop_pop_right
+  Definition transpose_trm_pop_pop_right
              {N} (op2 : pop_op (S N)) (op1 : pop_op N) :=
     match op1, op2 with
     | open n1, open n2 => open (unshift_name n2 n1)
@@ -611,14 +683,14 @@ Section Term.
     | bind a1, open n2 => bind (morph_apply (close_trm n2) a1)
     | bind a1, bind a2 => bind (morph_apply weak_trm a1)
     end.
-  Arguments transpose_pop_pop_right {N} !op2 !op1.
+  Arguments transpose_trm_pop_pop_right {N} !op2 !op1.
 
-  Lemma transpose_pop_pop {N} op1 op2 :
+  Lemma transpose_trm_pop_pop {N} op1 op2 :
     (@apply_pop_op N op1)
       @ (apply_pop_op op2)
     =m=
-    (apply_pop_op (transpose_pop_pop_left op1 op2))
-      @ (apply_pop_op (transpose_pop_pop_right op2 op1))
+    (apply_pop_op (transpose_trm_pop_pop_left op1 op2))
+      @ (apply_pop_op (transpose_trm_pop_pop_right op2 op1))
       @ swap_trm.
   Proof.
     destruct op1, op2; cbn; simpl_trm; try easy.
@@ -627,45 +699,86 @@ Section Term.
       transpose_get_iname _ delete _.
       transpose_iname_squared_right Del _ Del _.
       easy.
-    - rewrite <- morph_apply_compose.
-      simpl_trm.
-      rewrite morph_apply_id.
-      easy.
-    - rewrite <- morph_apply_compose.
-      simpl_trm.
-      rewrite morph_apply_id.
+  Qed.
+
+  Ltac transpose_trm_pop_pop op1 op2 :=
+    let Hrw := fresh "Hrw" in
+    epose (transpose_trm_pop_pop op1 op2) as Hrw;
+    cbn in Hrw; rewrite Hrw; clear Hrw.
+
+  Lemma transpose_trm_pop_pop_squared_left {N}
+        (op1 : pop_op N) op2 :
+    transpose_trm_pop_pop_left
+      (transpose_trm_pop_pop_left op1 op2)
+      (transpose_trm_pop_pop_right op2 op1)
+    =pop= op1.
+  Proof.
+    intros.
+    destruct op1, op2; cbn; simpl_trm; try easy.
+    - transpose_iname_squared_left Ins _ Ins _.
       easy.
   Qed.
 
-  Definition transpose_push_push_left op1 op2 :=
+  Lemma transpose_trm_pop_pop_squared_right {N}
+        (op1 : pop_op N) op2 :
+    transpose_trm_pop_pop_right
+      (transpose_trm_pop_pop_right op2 op1)
+      (transpose_trm_pop_pop_left op1 op2)
+    =pop= op2.
+  Proof.
+    intros.
+    destruct op1, op2; cbn; simpl_trm; try easy.
+    - transpose_iname_squared_right Ins _ Ins _.
+      easy.
+    - 
+  Qed.
+
+  (* Push operations *)
+  Inductive push_op : Type :=
+  | close : name -> push_op
+  | weak : push_op.
+
+  Definition apply_push_op {N} (op : push_op)
+    : morph trm N trm (S N) :=
+    match op with
+    | close n => close_trm n
+    | weak => weak_trm
+    end.
+
+  Definition transpose_trm_push_push_left op1 op2 :=
     match op1, op2 with
     | close n1, close n2 => close (unshift_name n1 n2)
     | close n1, weak => weak
     | weak, close n2 => close n2
     | weak, weak => weak
     end.
-  Arguments transpose_push_push_left !op1 !op2.
+  Arguments transpose_trm_push_push_left !op1 !op2.
 
-  Definition transpose_push_push_right op2 op1 :=
+  Definition transpose_trm_push_push_right op2 op1 :=
     match op1, op2 with
     | close n1, close n2 => close (shift_below_name n2 n1)
     | close n1, weak => close n1
     | weak, close n2 => weak
     | weak, weak => weak
     end.
-  Arguments transpose_push_push_right !op2 !op1.
+  Arguments transpose_trm_push_push_right !op2 !op1.
 
-  Lemma transpose_push_push {N} op1 op2 :
+  Lemma transpose_trm_push_push {N} op1 op2 :
     (apply_push_op op1)
       @ (@apply_push_op N op2)
     =m=
     swap_trm
-    @ (apply_push_op (transpose_push_push_left op1 op2))
-      @ (apply_push_op (transpose_push_push_right op2 op1)).
+    @ (apply_push_op (transpose_trm_push_push_left op1 op2))
+      @ (apply_push_op (transpose_trm_push_push_right op2 op1)).
   Proof.
     destruct op1, op2; cbn; simpl_trm; try easy.
     - transpose_iname (insert _) _ (insert _) _.
       easy.
   Qed.
+
+  Ltac transpose_trm_push_push op1 op2 :=
+    let Hrw := fresh "Hrw" in
+    epose (transpose_trm_push_push op1 op2) as Hrw;
+    cbn in Hrw; rewrite Hrw; clear Hrw.
 
 End Term.

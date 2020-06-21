@@ -407,7 +407,8 @@ Proof.
 Qed.
 
 Tactic Notation
-  "transpose_iindex" uconstr(op1) uconstr(i1) uconstr(op2) uconstr(i2) :=
+  "transpose_iindex" open_constr(op1) open_constr(i1)
+  open_constr(op2) open_constr(i2) :=
   let Hrw := fresh "Hrw" in
     epose (transpose_iindex op1 op2 i1 i2) as Hrw;
       cbn in Hrw; rewrite Hrw;
@@ -415,7 +416,8 @@ Tactic Notation
 
 Tactic Notation
   "transpose_iindex"
-    uconstr(op1) uconstr(i1) uconstr(op2) uconstr(i2)
+    open_constr(op1) open_constr(i1)
+    open_constr(op2) open_constr(i2)
     "at" occurrences(occ) :=
   let Hrw := fresh "Hrw" in
     epose (transpose_iindex op1 op2 i1 i2) as Hrw;
@@ -549,14 +551,16 @@ Proof.
 Qed.
 
 Tactic Notation
-  "normalize_iindex" uconstr(op1) uconstr(i1) uconstr(op2) uconstr(i2) :=
+  "normalize_iindex" open_constr(op1) open_constr(i1)
+  open_constr(op2) open_constr(i2) :=
   let Hrw := fresh "Hrw" in
     epose (normalize_iindex op1 op2 i1 i2) as Hrw;
       cbn in Hrw; rewrite Hrw; clear Hrw.
 
 Tactic Notation
   "normalize_iindex"
-    uconstr(op1) uconstr(i1) uconstr(op2) uconstr(i2)
+    open_constr(op1) open_constr(i1)
+    open_constr(op2) open_constr(i2)
     "at" occurrences(occ) :=
   let Hrw := fresh "Hrw" in
     epose (normalize_iindex op1 op2 i1 i2) as Hrw;
@@ -590,14 +594,16 @@ Qed.
 
 Tactic Notation
   "normalize_transpose_iindex_left"
-    uconstr(op1) uconstr(i1) uconstr(op2) uconstr(i2) :=
+    open_constr(op1) open_constr(i1)
+    open_constr(op2) open_constr(i2) :=
   let Hrw := fresh "Hrw" in
     epose (normalize_transpose_iindex_left op1 op2 i1 i2)
       as Hrw; cbn in Hrw; rewrite Hrw; clear Hrw.
 
 Tactic Notation
   "normalize_transpose_iindex_left"
-    uconstr(op1) uconstr(i1) uconstr(op2) uconstr(i2)
+    open_constr(op1) open_constr(i1)
+    open_constr(op2) open_constr(i2)
     "at" occurrences(occ) :=
   let Hrw := fresh "Hrw" in
     epose (normalize_transpose_iindex_left op1 op2 i1 i2)
@@ -605,14 +611,16 @@ Tactic Notation
 
 Tactic Notation
   "normalize_transpose_iindex_right"
-    uconstr(op1) uconstr(i1) uconstr(op2) uconstr(i2) :=
+    open_constr(op1) open_constr(i1)
+    open_constr(op2) open_constr(i2) :=
   let Hrw := fresh "Hrw" in
     epose (normalize_transpose_iindex_right op1 op2 i1 i2)
       as Hrw; cbn in Hrw; rewrite Hrw; clear Hrw.
 
 Tactic Notation
   "normalize_transpose_iindex_right"
-    uconstr(op1) uconstr(i1) uconstr(op2) uconstr(i2)
+    open_constr(op1) open_constr(i1)
+    open_constr(op2) open_constr(i2)
     "at" occurrences(occ) :=
   let Hrw := fresh "Hrw" in
     epose (normalize_transpose_iindex_right op1 op2 i1 i2)
@@ -678,28 +686,32 @@ Proof.
 Qed.
 
 Tactic Notation "transpose_iindex_squared_left"
-       uconstr(op1) uconstr(i1) uconstr(op2) uconstr(i2) :=
+       open_constr(op1) open_constr(i1)
+       open_constr(op2) open_constr(i2) :=
   let Hrw := fresh "Hrw" in
     epose (transpose_iindex_squared_left op1 op2 i1 i2)
       as Hrw; cbn in Hrw; rewrite Hrw; clear Hrw.
 
 Tactic Notation "transpose_iindex_squared_left"
-       uconstr(op1) uconstr(i1) uconstr(op2) uconstr(i2)
+       open_constr(op1) open_constr(i1)
+       open_constr(op2) open_constr(i2)
        "at" occurrences(occ) :=
   let Hrw := fresh "Hrw" in
     epose (transpose_iindex_squared_left op1 op2 i1 i2)
       as Hrw; cbn in Hrw; rewrite Hrw at occ; clear Hrw.
 
 Tactic Notation "transpose_iindex_squared_right"
-       uconstr(op1) uconstr(i1) uconstr(op2) uconstr(i2) :=
+       open_constr(op1) open_constr(i1)
+       open_constr(op2) open_constr(i2) :=
   let Hrw := fresh "Hrw" in
     epose (transpose_iindex_squared_right op1 op2 i1 i2)
       as Hrw; cbn in Hrw;
         rewrite Hrw; [> | try easy]; clear Hrw.
 
 Tactic Notation "transpose_iindex_squared_right"
-       uconstr(op1) uconstr(i1) uconstr(op2) uconstr(i2)
-       occurrences(occ) :=
+       open_constr(op1) open_constr(i1)
+       open_constr(op2) open_constr(i2)
+       "at" occurrences(occ) :=
   let Hrw := fresh "Hrw" in
     epose (transpose_iindex_squared_right op1 op2 i1 i2)
       as Hrw; cbn in Hrw;
@@ -806,9 +818,9 @@ Proof.
 Qed.
 
 Tactic Notation "transpose_iindex_reverse_left"
-       uconstr(op1) uconstr(i1)
-       uconstr(op2) uconstr(i2)
-       uconstr(op3) uconstr(i3) :=
+       open_constr(op1) open_constr(i1)
+       open_constr(op2) open_constr(i2)
+       open_constr(op3) open_constr(i3) :=
   let Hrw := fresh "Hrw" in
     epose (transpose_iindex_reverse_left
              op1 op2 op3 i1 i2 i3) as Hrw;
@@ -816,9 +828,9 @@ Tactic Notation "transpose_iindex_reverse_left"
       [> | try easy | try easy | try easy]; clear Hrw.
 
 Tactic Notation "transpose_iindex_reverse_left"
-       uconstr(op1) uconstr(i1)
-       uconstr(op2) uconstr(i2)
-       uconstr(op3) uconstr(i3)
+       open_constr(op1) open_constr(i1)
+       open_constr(op2) open_constr(i2)
+       open_constr(op3) open_constr(i3)
        "at" occurrences(occ) :=
   let Hrw := fresh "Hrw" in
     epose (transpose_iindex_reverse_left
@@ -827,9 +839,9 @@ Tactic Notation "transpose_iindex_reverse_left"
       [> | try easy | try easy | try easy]; clear Hrw.
 
 Tactic Notation "transpose_iindex_reverse_middle"
-       uconstr(op1) uconstr(i1)
-       uconstr(op2) uconstr(i2)
-       uconstr(op3) uconstr(i3) :=
+       open_constr(op1) open_constr(i1)
+       open_constr(op2) open_constr(i2)
+       open_constr(op3) open_constr(i3) :=
   let Hrw := fresh "Hrw" in
     epose (transpose_iindex_reverse_middle
              op1 op2 op3 i1 i2 i3) as Hrw;
@@ -837,9 +849,9 @@ Tactic Notation "transpose_iindex_reverse_middle"
       [> | try easy | try easy | try easy]; clear Hrw.
 
 Tactic Notation "transpose_iindex_reverse_middle"
-       uconstr(op1) uconstr(i1)
-       uconstr(op2) uconstr(i2)
-       uconstr(op3) uconstr(i3)
+       open_constr(op1) open_constr(i1)
+       open_constr(op2) open_constr(i2)
+       open_constr(op3) open_constr(i3)
        "at" occurrences(occ) :=
   let Hrw := fresh "Hrw" in
     epose (transpose_iindex_reverse_middle
@@ -848,9 +860,9 @@ Tactic Notation "transpose_iindex_reverse_middle"
       [> | try easy | try easy | try easy]; clear Hrw.
 
 Tactic Notation "transpose_iindex_reverse_right"
-       uconstr(op1) uconstr(i1)
-       uconstr(op2) uconstr(i2)
-       uconstr(op3) uconstr(i3) :=
+       open_constr(op1) open_constr(i1)
+       open_constr(op2) open_constr(i2)
+       open_constr(op3) open_constr(i3) :=
   let Hrw := fresh "Hrw" in
     epose (transpose_iindex_reverse_right
              op1 op2 op3 i1 i2 i3) as Hrw;
@@ -858,9 +870,9 @@ Tactic Notation "transpose_iindex_reverse_right"
       [> | try easy | try easy | try easy]; clear Hrw.
 
 Tactic Notation "transpose_iindex_reverse_right"
-       uconstr(op1) uconstr(i1)
-       uconstr(op2) uconstr(i2)
-       uconstr(op3) uconstr(i3)
+       open_constr(op1) open_constr(i1)
+       open_constr(op2) open_constr(i2)
+       open_constr(op3) open_constr(i3)
        "at" occurrences(occ) :=
   let Hrw := fresh "Hrw" in
     epose (transpose_iindex_reverse_right
@@ -887,13 +899,14 @@ Proof.
 Qed.
 
 Tactic Notation "transpose_get_iindex"
-       uconstr(i1) uconstr(op) uconstr(i2) :=
+       open_constr(i1) open_constr(op) open_constr(i2) :=
   let Hrw := fresh "Hrw" in
     epose (transpose_get_iindex op i1 i2) as Hrw;
       cbn in Hrw; rewrite Hrw; [> | try easy]; clear Hrw.
 
 Tactic Notation "transpose_get_iindex"
-       uconstr(i1) uconstr(op) uconstr(i2) "at" occurrences(occ) :=
+       open_constr(i1) open_constr(op)
+       open_constr(i2) "at" occurrences(occ) :=
   let Hrw := fresh "Hrw" in
     epose (transpose_get_iindex op i1 i2) as Hrw;
       cbn in Hrw; rewrite Hrw at occ; [> | try easy]; clear Hrw.
@@ -924,3 +937,32 @@ Proof.
   intros V j.
   case_order i j; easy.
 Qed.
+
+(* Morphism extension distributes over the operations *)
+
+Lemma get_iindex_extend {T M} i (f : iindex T M) :
+  pnset_extend (get_iindex i f)
+  =p= get_iindex i (kmorph_extend f).
+Proof.
+  intros V; simplT; easy.
+Qed.
+
+Lemma insert_iindex_extend {T M} a i (f : iindex T M) :
+  kmorph_extend (insert_iindex a i f)
+  =km= insert_iindex (pnset_extend a) i (kmorph_extend f).
+Proof.
+  intros V v.
+  case_order i v;
+    simplT; red_iindexs; easy.
+Qed.
+
+Lemma delete_iindex_extend {T M} i (f : iindex T M) :
+  kmorph_extend (delete_iindex i f)
+  =km= delete_iindex i (kmorph_extend f).
+Proof.
+  intros V v.
+  simplT.
+  case_order i v;
+    simplT; red_iindexs; easy.
+Qed.
+

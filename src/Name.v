@@ -225,7 +225,7 @@ Ltac red_inames :=
 (* Case split on the equality of the string parameters. *)
 Ltac case_string s1 s2 :=
   destruct (string_dec s1 s2);
-    red_inames; [> replace s2 with s1 by easy |]; try contradiction.
+    red_inames; [replace s2 with s1 by easy |]; try contradiction.
 
 (* Beta and eta rules for [iname] operations *)
 
@@ -658,20 +658,22 @@ Qed.
 
 Tactic Notation
   "transpose_iname"
-    uconstr(op1) uconstr(n1) uconstr(op2) uconstr(n2) :=
+    open_constr(op1) open_constr(n1)
+    open_constr(op2) open_constr(n2) :=
   let Hrw := fresh "Hrw" in
     epose (transpose_iname op1 op2 n1 n2) as Hrw;
       cbn in Hrw; rewrite Hrw;
-        [> | try easy]; clear Hrw.
+        [| try easy]; clear Hrw.
 
 Tactic Notation
   "transpose_iname"
-    uconstr(op1) uconstr(n1) uconstr(op2) uconstr(n2)
+    open_constr(op1) open_constr(n1)
+    open_constr(op2) open_constr(n2)
     "at" occurrences(occ) :=
   let Hrw := fresh "Hrw" in
     epose (transpose_iname op1 op2 n1 n2) as Hrw;
       cbn in Hrw; rewrite Hrw at occ;
-        [> | try easy]; clear Hrw.
+        [| try easy]; clear Hrw.
 
 (* Normalizing pairs of operations
 
@@ -867,14 +869,16 @@ Proof.
 Qed.
 
 Tactic Notation
-  "normalize_iname" uconstr(op1) uconstr(i1) uconstr(op2) uconstr(i2) :=
+  "normalize_iname" open_constr(op1) open_constr(i1)
+  open_constr(op2) open_constr(i2) :=
   let Hrw := fresh "Hrw" in
     epose (normalize_iname op1 op2 i1 i2) as Hrw;
       cbn in Hrw; rewrite Hrw; clear Hrw.
 
 Tactic Notation
   "normalize_iname"
-    uconstr(op1) uconstr(i1) uconstr(op2) uconstr(i2)
+    open_constr(op1) open_constr(i1)
+    open_constr(op2) open_constr(i2)
     "at" occurrences(occ) :=
   let Hrw := fresh "Hrw" in
     epose (normalize_iname op1 op2 i1 i2) as Hrw;
@@ -981,32 +985,36 @@ Proof.
 Qed.
 
 Tactic Notation "transpose_iname_squared_left"
-       uconstr(op1) uconstr(n1) uconstr(op2) uconstr(n2) :=
+       open_constr(op1) open_constr(n1)
+       open_constr(op2) open_constr(n2) :=
   let Hrw := fresh "Hrw" in
     epose (transpose_iname_squared_left op1 op2 n1 n2)
       as Hrw; cbn in Hrw; rewrite Hrw; clear Hrw.
 
 Tactic Notation "transpose_iname_squared_left"
-       uconstr(op1) uconstr(n1) uconstr(op2) uconstr(n2)
+       open_constr(op1) open_constr(n1)
+       open_constr(op2) open_constr(n2)
        "at" occurrences(occ) :=
   let Hrw := fresh "Hrw" in
     epose (transpose_iname_squared_left op1 op2 n1 n2)
       as Hrw; cbn in Hrw; rewrite Hrw at occ; clear Hrw.
 
 Tactic Notation "transpose_iname_squared_right"
-       uconstr(op1) uconstr(n1) uconstr(op2) uconstr(n2) :=
+       open_constr(op1) open_constr(n1)
+       open_constr(op2) open_constr(n2) :=
   let Hrw := fresh "Hrw" in
     epose (transpose_iname_squared_right op1 op2 n1 n2)
       as Hrw; cbn in Hrw;
-        rewrite Hrw; [> | try easy]; clear Hrw.
+        rewrite Hrw; [| try easy]; clear Hrw.
 
 Tactic Notation "transpose_iname_squared_right"
-       uconstr(op1) uconstr(n1) uconstr(op2) uconstr(n2)
+       open_constr(op1) open_constr(n1)
+       open_constr(op2) open_constr(n2)
        "at" occurrences(occ) :=
   let Hrw := fresh "Hrw" in
     epose (transpose_iname_squared_right op1 op2 n1 n2)
       as Hrw; cbn in Hrw;
-        rewrite Hrw at occ; [> | try easy]; clear Hrw.
+        rewrite Hrw at occ; [| try easy]; clear Hrw.
 
 Lemma transpose_iname_reverse_left (op1 op2 op3 : stream_op) :
   forall n1 n2 n3,
@@ -1177,67 +1185,67 @@ Proof.
 Qed.
 
 Tactic Notation "transpose_iname_reverse_left"
-       uconstr(op1) uconstr(n1)
-       uconstr(op2) uconstr(n2)
-       uconstr(op3) uconstr(n3) :=
+       open_constr(op1) open_constr(n1)
+       open_constr(op2) open_constr(n2)
+       open_constr(op3) open_constr(n3) :=
   let Hrw := fresh "Hrw" in
     epose (transpose_iname_reverse_left
              op1 op2 op3 n1 n2 n3) as Hrw;
       cbn in Hrw; rewrite Hrw;
-      [> | try easy | try easy | try easy]; clear Hrw.
+      [| try easy | try easy | try easy]; clear Hrw.
 
 Tactic Notation "transpose_iname_reverse_left"
-       uconstr(op1) uconstr(n1)
-       uconstr(op2) uconstr(n2)
-       uconstr(op3) uconstr(n3)
+       open_constr(op1) open_constr(n1)
+       open_constr(op2) open_constr(n2)
+       open_constr(op3) open_constr(n3)
        "at" occurrences(occ) :=
   let Hrw := fresh "Hrw" in
     epose (transpose_iname_reverse_left
              op1 op2 op3 n1 n2 n3) as Hrw;
       cbn in Hrw; rewrite Hrw at occ;
-      [> | try easy | try easy | try easy]; clear Hrw.
+      [| try easy | try easy | try easy]; clear Hrw.
 
 Tactic Notation "transpose_iname_reverse_middle"
-       uconstr(op1) uconstr(n1)
-       uconstr(op2) uconstr(n2)
-       uconstr(op3) uconstr(n3) :=
+       open_constr(op1) open_constr(n1)
+       open_constr(op2) open_constr(n2)
+       open_constr(op3) open_constr(n3) :=
   let Hrw := fresh "Hrw" in
     epose (transpose_iname_reverse_middle
              op1 op2 op3 n1 n2 n3) as Hrw;
       cbn in Hrw; rewrite Hrw;
-      [> | try easy | try easy | try easy]; clear Hrw.
+      [| try easy | try easy | try easy]; clear Hrw.
 
 Tactic Notation "transpose_iname_reverse_middle"
-       uconstr(op1) uconstr(n1)
-       uconstr(op2) uconstr(n2)
-       uconstr(op3) uconstr(n3)
+       open_constr(op1) open_constr(n1)
+       open_constr(op2) open_constr(n2)
+       open_constr(op3) open_constr(n3)
        "at" occurrences(occ) :=
   let Hrw := fresh "Hrw" in
     epose (transpose_iname_reverse_middle
              op1 op2 op3 n1 n2 n3) as Hrw;
       cbn in Hrw; rewrite Hrw at occ;
-      [> | try easy | try easy | try easy]; clear Hrw.
+      [| try easy | try easy | try easy]; clear Hrw.
 
 Tactic Notation "transpose_iname_reverse_right"
-       uconstr(op1) uconstr(n1)
-       uconstr(op2) uconstr(n2)
-       uconstr(op3) uconstr(n3) :=
+       open_constr(op1) open_constr(n1)
+       open_constr(op2) open_constr(n2)
+       open_constr(op3) open_constr(n3) :=
   let Hrw := fresh "Hrw" in
     epose (transpose_iname_reverse_right
              op1 op2 op3 n1 n2 n3) as Hrw;
       cbn in Hrw; rewrite Hrw;
-      [> | try easy | try easy | try easy]; clear Hrw.
+      [| try easy | try easy | try easy]; clear Hrw.
 
 Tactic Notation "transpose_iname_reverse_right"
-       uconstr(op1) uconstr(n1)
-       uconstr(op2) uconstr(n2)
-       uconstr(op3) uconstr(n3)
+       open_constr(op1) open_constr(n1)
+       open_constr(op2) open_constr(n2)
+       open_constr(op3) open_constr(n3)
        "at" occurrences(occ) :=
   let Hrw := fresh "Hrw" in
     epose (transpose_iname_reverse_right
              op1 op2 op3 n1 n2 n3) as Hrw;
       cbn in Hrw; rewrite Hrw at occ;
-      [> | try easy | try easy | try easy]; clear Hrw.
+      [| try easy | try easy | try easy]; clear Hrw.
 
 (* Pushing [get_iname] through other operations
 
@@ -1277,16 +1285,17 @@ Proof.
 Qed.
 
 Tactic Notation "transpose_get_iname"
-       uconstr(n1) uconstr(op) uconstr(n2) :=
+       open_constr(n1) open_constr(op) open_constr(n2) :=
   let Hrw := fresh "Hrw" in
     epose (transpose_get_iname op n1 n2) as Hrw;
-      cbn in Hrw; rewrite Hrw; [> | try easy]; clear Hrw.
+      cbn in Hrw; rewrite Hrw; [| try easy]; clear Hrw.
 
 Tactic Notation "transpose_get_iname"
-       uconstr(n1) uconstr(op) uconstr(n2) "at" occurrences(occ) :=
+       open_constr(n1) open_constr(op) open_constr(n2)
+       "at" occurrences(occ) :=
   let Hrw := fresh "Hrw" in
     epose (transpose_get_iname op n1 n2) as Hrw;
-      cbn in Hrw; rewrite Hrw at occ; [> | try easy]; clear Hrw.
+      cbn in Hrw; rewrite Hrw at occ; [| try easy]; clear Hrw.
 
 (* There is a full covariant functor from [T O] to [iname N
    T O] by composition.
@@ -1336,5 +1345,52 @@ Proof.
   rewrite with_iname_compose_distribute.
   rewrite insert_iindex_compose_distribute.
   rewrite project_iname_compose_distribute.
+  easy.
+Qed.
+
+(* Morphism extension distributes over the operations *)
+
+Lemma project_iname_extend {T M} s (f : iname T M) :
+  kmorph_extend (project_iname s f)
+  =km= project_iname s (kmorph_extend f).
+Proof.
+  intros V; simplT; easy.
+Qed.
+
+Lemma with_iname_extend {T M} s (f : iindex T M) (g : iname T M) :
+  kmorph_extend (with_iname s f g)
+  =km= with_iname s (kmorph_extend f) (kmorph_extend g).
+Proof.
+  intros V v.
+  case_string (n_string v) s;
+    simplT; red_inames; easy.
+Qed.
+
+Lemma get_iname_extend {T M} i (f : iname T M) :
+  pnset_extend (get_iname i f)
+  =p= get_iname i (kmorph_extend f).
+Proof.
+  unfold get_iname.
+  rewrite get_iindex_extend, project_iname_extend.
+  easy.
+Qed.
+
+Lemma insert_iname_extend {T M} a i (f : iname T M) :
+  kmorph_extend (insert_iname a i f)
+  =km= insert_iname (pnset_extend a) i (kmorph_extend f).
+Proof.
+  unfold insert_iname.
+  rewrite with_iname_extend,
+    insert_iindex_extend, project_iname_extend.
+  easy.
+Qed.
+
+Lemma delete_iname_extend {T M} i (f : iname T M) :
+  kmorph_extend (delete_iname i f)
+  =km= delete_iname i (kmorph_extend f).
+Proof.
+  unfold delete_iname.
+  rewrite with_iname_extend, delete_iindex_extend,
+    project_iname_extend.
   easy.
 Qed.

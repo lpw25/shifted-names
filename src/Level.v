@@ -5,14 +5,21 @@ Require Import Morph.
 
 Definition Zero := Empty_set.
 
-Inductive Succ {S : Set} : Set := l0 | lS (s : S).
+Inductive Succ {S : Set} : Set := succ0 | succS (s : S).
 
 Fixpoint level (V : nat) : Set :=
   match V with
   | 0 => Zero
   | S V => @Succ (level V)
   end.
-Arguments level !V.
+Arguments level V : simpl never.
+
+Definition l0 {V} : level (S V) := succ0.
+Definition lS {V} : level V -> level (S V) := succS.
+
+Inductive lv : nat -> Set :=
+  | lv0 : forall V, lv (S V)
+  | lvS : forall V, lv V -> lv (S V).
 
 (* Liftable morphisms from [level]s that we treat like streams *)
 Definition ilevel N T M := morph level N T M.
@@ -20,7 +27,7 @@ Definition ilevel N T M := morph level N T M.
 Bind Scope morph_scope with ilevel.
 
 Definition hd_ilevel {N T M} (f : ilevel (S N) T M) : pnset T M :=
-  fun V => @f V l0.
+  fun V => @f V (@l0 (N + V)).
 
 Definition tl_ilevel {N T M} (f : ilevel (S N) T M)
   : ilevel N T M :=
@@ -30,8 +37,8 @@ Definition cons_ilevel {N T M} (a : pnset T M)
            (f : ilevel N T M) : ilevel (S N) T M :=
   fun V l =>
     match l with
-    | l0 => a V
-    | lS l => f V l
+    | succ0 => a V
+    | succS l => f V l
     end.
 
 Arguments hd_ilevel {N T M} f V /.
@@ -167,3 +174,47 @@ Proof.
   easy.
 Qed.
 
+(* Morphism extension distributes over the operations *)
+
+Lemma hd_ilevel_extend {N T M} (f : ilevel (S N) T M) :
+  pnset_extend (hd_ilevel f)
+  =p= hd_ilevel (morph_extend f).
+Proof.
+  intros V; simplT; easy.
+Qed.
+
+Lemma tl_ilevel_extend {N T M} (f : ilevel (S N) T M) :
+  morph_extend (tl_ilevel f)
+  =m= tl_ilevel (morph_extend f).
+Proof.
+  intros V v; simplT; easy.
+Qed.
+
+Lemma cons_ilevel_extend {N T M}
+      (a : pnset T M) (f : ilevel N T M) :
+  morph_extend (cons_ilevel a f)
+  =m= cons_ilevel (pnset_extend a) (morph_extend f).
+Proof.
+  intros V v.
+  destruct v.
+  - fold level plus.
+    change (@succ0 (@Succ (level (N + V))))
+      with (@l0 (S (N + V))).
+    simplT; easy.
+  - fold level plus in *.
+    change (@Succ (level (N + V)))
+      with (level (S (N + V))) in s.
+    change (@succS (@Succ (level (N + V))))
+      with (@lS (S (N + V))).
+    simplT; easy.
+Qed.
+
+Lemma swap_ilevel_extend {N T M} (f : ilevel (S (S N)) T M) :
+  morph_extend (swap_ilevel f)
+  =m= swap_ilevel (morph_extend f).
+Proof.
+  unfold swap_ilevel.
+  rewrite !cons_ilevel_extend,
+    !hd_ilevel_extend, !tl_ilevel_extend.
+  easy.
+Qed.
