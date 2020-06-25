@@ -17,9 +17,17 @@ Arguments level V : simpl never.
 Definition l0 {V} : level (S V) := succ0.
 Definition lS {V} : level V -> level (S V) := succS.
 
-Inductive lv : nat -> Set :=
-  | lv0 : forall V, lv (S V)
-  | lvS : forall V, lv V -> lv (S V).
+Fixpoint level_extend {V} : level V -> level (S V) :=
+  match V return level V -> level (S V) with
+  | 0 => fun l => Empty_set_rec _ l
+  | S V =>
+    fun l =>
+      match l with
+      | succ0 => l0
+      | succS s => lS (@level_extend V s)
+      end
+  end.
+Arguments level_extend {V} !l.
 
 (* Liftable morphisms from [level]s that we treat like streams *)
 Definition ilevel N T M := morph level N T M.
@@ -47,10 +55,22 @@ Arguments cons_ilevel {N T M} a f V !l.
 
 (* Derived operations *)
 
-Definition swap_ilevel {N T M} (f : ilevel (S (S N)) T M) :=
-  cons_ilevel (hd_ilevel (tl_ilevel f))
-    (cons_ilevel (hd_ilevel f)
-      (tl_ilevel (tl_ilevel f))).
+Fixpoint swap_ilevel {N T M}
+  : level N -> ilevel (S N) T M -> ilevel (S N) T M :=
+  match N return level N -> ilevel (S N) T M -> ilevel (S N) T M with
+  | 0 => fun l f => Empty_set_rec _ l
+  | S N =>
+    fun l f =>
+      match l with
+      | succ0 =>
+          cons_ilevel (hd_ilevel (tl_ilevel f))
+            (cons_ilevel (hd_ilevel f)
+              (tl_ilevel (tl_ilevel f)))
+      | succS l =>
+          cons_ilevel (hd_ilevel f) (@swap_ilevel N T M l (tl_ilevel f))
+      end
+  end.
+Arguments swap_ilevel {N T M} !l f.
 
 (* Morphism definitions *)
 
@@ -75,11 +95,13 @@ Add Parametric Morphism {N T M} : (@cons_ilevel N T M)
   destruct l; rewrite ?Heq1, ?Heq2; easy.
 Qed.
 
-Add Parametric Morphism {N T M} : (@swap_ilevel N T M)
+Add Parametric Morphism {N T M l} : (@swap_ilevel N T M l)
     with signature eq_morph ==> eq_morph
     as swap_ilevel_mor.
-  intros * Heq V l; unfold swap_ilevel.
-  destruct l; rewrite ?Heq; easy.
+  intros * Heq.
+  induction N; destruct l; cbn.
+  - rewrite ?Heq; easy.
+  - rewrite IHN with (y := tl_ilevel y); rewrite ?Heq; easy.
 Qed.
 
 (* Beta and eta rules for [ilevel] operations *)
@@ -106,26 +128,36 @@ Hint Rewrite @ilevel_beta_hd @ilevel_beta_tl @ilevel_eta
 
 (* Unfolding derived operations *)
 
-Lemma unfold_swap_ilevel {N T M} (f : ilevel (S (S N)) T M) :
-  swap_ilevel f
+Lemma unfold_swap_ilevel_zero {N T M} (f : ilevel (S (S N)) T M) :
+  swap_ilevel l0 f
   = cons_ilevel (hd_ilevel (tl_ilevel f))
       (cons_ilevel (hd_ilevel f)
         (tl_ilevel (tl_ilevel f))).
 Proof. easy. Qed.
 
-Hint Rewrite @unfold_swap_ilevel
+Lemma unfold_swap_ilevel_succ {N T M} s (f : ilevel (S (S N)) T M) :
+  swap_ilevel (lS s) f
+  = cons_ilevel (hd_ilevel f) (swap_ilevel s (tl_ilevel f)).
+Proof. easy. Qed.
+
+Hint Rewrite @unfold_swap_ilevel_zero @unfold_swap_ilevel_succ
   : unfold_ilevels.
 
 (* Folding derived operations *)
 
-Lemma fold_swap_ilevel {N T M} (f : ilevel (S (S N)) T M) :
+Lemma fold_swap_ilevel_zero {N T M} (f : ilevel (S (S N)) T M) :
   cons_ilevel (hd_ilevel (tl_ilevel f))
       (cons_ilevel (hd_ilevel f)
         (tl_ilevel (tl_ilevel f)))
-      = swap_ilevel f.
+      = swap_ilevel l0 f.
 Proof. easy. Qed.
 
-Hint Rewrite @fold_swap_ilevel
+Lemma fold_swap_ilevel_succ {N T M} s (f : ilevel (S (S N)) T M) :
+  cons_ilevel (hd_ilevel f) (swap_ilevel s (tl_ilevel f))
+  = swap_ilevel (lS s) f.
+Proof. easy. Qed.
+
+Hint Rewrite @fold_swap_ilevel_zero @fold_swap_ilevel_succ
   : fold_ilevels.
 
 (* Simplify [ilevel] terms by unfolding, simplifying and folding *)
@@ -160,18 +192,17 @@ Proof.
   destruct l; easy.
 Qed.
 
-Lemma swap_ilevel_compose_distribute {N T M R L}
-      (f : ilevel (S (S N)) T M) (g : morph T M R L) :
-  g @ (swap_ilevel f) =m= swap_ilevel (g @ f).
+Lemma swap_ilevel_compose_distribute {N T M R L} l
+      (f : ilevel (S N) T M) (g : morph T M R L) :
+  g @ (swap_ilevel l f) =m= swap_ilevel l (g @ f).
 Proof.
-  unfold swap_ilevel.
-  rewrite cons_ilevel_compose_distribute.
-  rewrite hd_ilevel_compose_distribute.
-  rewrite tl_ilevel_compose_distribute.
-  rewrite cons_ilevel_compose_distribute.
-  rewrite hd_ilevel_compose_distribute.
-  rewrite tl_ilevel_compose_distribute.
-  easy.
+  induction N; destruct l; cbn.
+  - rewrite !cons_ilevel_compose_distribute,
+      !hd_ilevel_compose_distribute, !tl_ilevel_compose_distribute.
+    easy.
+  - rewrite cons_ilevel_compose_distribute,
+      hd_ilevel_compose_distribute, IHN.
+    easy.
 Qed.
 
 (* Morphism extension distributes over the operations *)
@@ -209,12 +240,15 @@ Proof.
     simplT; easy.
 Qed.
 
-Lemma swap_ilevel_extend {N T M} (f : ilevel (S (S N)) T M) :
-  morph_extend (swap_ilevel f)
-  =m= swap_ilevel (morph_extend f).
+Lemma swap_ilevel_extend {N T M} l (f : ilevel (S N) T M) :
+  morph_extend (swap_ilevel l f)
+  =m= swap_ilevel (level_extend l) (morph_extend f).
 Proof.
-  unfold swap_ilevel.
-  rewrite !cons_ilevel_extend,
-    !hd_ilevel_extend, !tl_ilevel_extend.
-  easy.
+  induction N; destruct l; cbn.
+  - rewrite !cons_ilevel_extend,
+      !hd_ilevel_extend, !tl_ilevel_extend.
+    easy.
+  - rewrite cons_ilevel_extend,
+      hd_ilevel_extend, IHN, tl_ilevel_extend.
+    easy.
 Qed.
