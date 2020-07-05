@@ -1,47 +1,5 @@
-Require Import String Morph Var Context.
+Require Import String Morph VarOld Context.
 Require Setoid Morphisms.
-
-Module Type Term.
-
-  Parameter term : forall {V : nat}, Set.
-
-  Parameter unit : forall {N}, morph (@var) N (@term) N.
-
-  Parameter kleisli :
-    forall {N M},
-      morph (@var) N (@term) M ->
-      morph (@term) N (@term) M. 
-
-  Axiom left_identity :
-    forall N M (f : morph (@var) N (@term) M) V t,
-      kleisli f V (unit V t) = f V t.
-
-  Axiom right_identity :
-    forall N V (t : @term (N + V)),
-      kleisli unit V t = t.
-
-  Axiom associativity :
-    forall N M L
-      (f : morph (@var) N (@term) M)
-      (g : morph (@var) M (@term) L) V t,
-      kleisli (fun V' t' => kleisli g V' (f V' t')) V t
-      = kleisli g V (kleisli f V t).
-
-  Axiom unit_extend :
-    forall N V v,
-      morph_extend (@unit N) V v = unit V v.
-
-  Axiom kleisli_extend :
-    forall N M (f : morph (@var) N (@term) M) V t,
-      morph_extend (kleisli f) V t
-      = kleisli (morph_extend f) V t.
-
-  Axiom extensional :
-    forall N M (f g : morph (@var) N (@term) M) V t,
-      (forall V t, f V t = g V t) ->
-      kleisli f V t = kleisli g V t.
-
-End Term.
 
 Module Renamings (T : Term).
 

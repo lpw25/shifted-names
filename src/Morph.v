@@ -6,8 +6,8 @@ Definition nset := forall (V : nat), Set.
 Definition knset T : nset := fun V => T.
 
 Definition heq {T : nset} :
-  forall {N : nat}, @T N -> forall {M : nat}, @T M -> Prop :=
-    eq_dep nat (@T).
+  forall {N : nat}, T N -> forall {M : nat}, T M -> Prop :=
+    eq_dep nat T.
 
 Definition heq_intro := eq_dep_intro.
 
@@ -16,12 +16,12 @@ Hint Resolve heq_intro : core.
 Notation " x ~= y " :=
   (heq x y) (at level 70, no associativity).
 
-Definition cast {T : nset} {N M} (pf : N = M) (t : @T N) : @T M :=
-  match pf in (_ = L) return (@T L) with
+Definition cast {T : nset} {N M} (pf : N = M) (t : T N) : T M :=
+  match pf in (_ = L) return (T L) with
   | eq_refl => t
   end.
 
-Lemma eq_heq : forall {T : nset} {N} {t s : @T N},
+Lemma eq_heq : forall {T : nset} {N} {t s : T N},
     t = s -> t ~= s.
 Proof.
   intros T N t s H.
@@ -30,11 +30,11 @@ Proof.
 Qed.
 
 Definition heq_eq :
-  forall {T : nset} {N} {t s : @T N}, t ~= s -> t = s :=
+  forall {T : nset} {N} {t s : T N}, t ~= s -> t = s :=
   eq_dep_eq_dec eq_nat_dec.
 
 Lemma heq_trans :
-  forall (T:nset) N M L (t : @T N) (s : @T M) (r : @T L),
+  forall (T:nset) N M L (t : T N) (s : T M) (r : T L),
     t ~= s -> s ~= r -> t ~= r.
 Proof.
   unfold heq.
@@ -70,15 +70,15 @@ Definition push_eq N V :=
 Definition pop_eq N V := eq_sym (push_eq N V).
 
 Definition nset_push {T : nset} {N V}
-           (t : @T (N + S V)) : @T (S (N + V)) :=
+           (t : T (N + S V)) : T (S (N + V)) :=
   cast (push_eq N V) t.
 
 Definition nset_pop {T : nset} {N V}
-           (t : @T (S (N + V))) : @T (N + S V) :=
+           (t : T (S (N + V))) : T (N + S V) :=
   cast (pop_eq N V) t.
 
 Lemma nset_push_heq :
-  forall (T : nset) N V (t : @T (N + S V)),
+  forall (T : nset) N V (t : T (N + S V)),
     nset_push t ~= t.
 Proof.
   intros.
@@ -88,7 +88,7 @@ Proof.
 Qed.
 
 Lemma nset_pop_heq :
-  forall (T : nset) N V (t : @T (S (N + V))),
+  forall (T : nset) N V (t : T (S (N + V))),
     nset_pop t ~= t.
 Proof.
   intros.
@@ -98,7 +98,7 @@ Proof.
 Qed.
 
 Lemma nset_push_pop_eq :
-  forall (T : nset) N V (t : @T (S (N + V))),
+  forall (T : nset) N V (t : T (S (N + V))),
     nset_push (nset_pop t) = t.
 Proof.
   intros T N V t.
@@ -108,7 +108,7 @@ Proof.
 Qed.
 
 Lemma nset_pop_push_eq :
-  forall (T : nset) N V (t : @T (N + S V)),
+  forall (T : nset) N V (t : T (N + S V)),
     nset_pop (nset_push t) = t.
 Proof.
   intros T N V t.
@@ -173,15 +173,15 @@ Definition unextended_eq N V K :=
   eq_sym (extended_eq N V K).
 
 Definition nset_extended {T : nset} {N V} K
-           (t : @T (N + (K + V))) : @T ((N + K) + V) :=
+           (t : T (N + (K + V))) : T ((N + K) + V) :=
   cast (extended_eq N V K) t.
 
 Definition nset_unextended {T : nset} {N V} K
-           (t : @T ((N + K) + V)) : @T (N + (K + V)) :=
+           (t : T ((N + K) + V)) : T (N + (K + V)) :=
   cast (unextended_eq N V K) t.
 
 Lemma nset_extended_heq :
-  forall (T : nset) N V K (t : @T (N + (K + V))),
+  forall (T : nset) N V K (t : T (N + (K + V))),
     nset_extended K t ~= t.
 Proof.
   intros.
@@ -191,7 +191,7 @@ Proof.
 Qed.
 
 Lemma nset_unextended_heq :
-  forall (T : nset) N V K (t : @T ((N + K) + V)),
+  forall (T : nset) N V K (t : T ((N + K) + V)),
     nset_unextended K t ~= t.
 Proof.
   intros.
@@ -201,7 +201,7 @@ Proof.
 Qed.
 
 Lemma nset_extended_unextended_eq :
-  forall (T : nset) N V K (t : @T ((N + K) + V)),
+  forall (T : nset) N V K (t : T ((N + K) + V)),
     nset_extended K (nset_unextended K t) = t.
 Proof.
   intros T N V K t.
@@ -211,7 +211,7 @@ Proof.
 Qed.
 
 Lemma nset_unextended_extended_eq :
-  forall (T : nset) N V K (t : @T (N + (K + V))),
+  forall (T : nset) N V K (t : T (N + (K + V))),
     nset_unextended K (nset_extended K t) = t.
 Proof.
   intros T N V K t.
@@ -252,7 +252,6 @@ Definition pnset (T : nset) (M : nat) :=
 Definition pnset_const {T : Set} {N} (c : T) :
   pnset (knset T) N
   := fun V => c.
-
 Arguments pnset_const {T N} c V /.
 
 (* Extension *)
@@ -260,10 +259,12 @@ Arguments pnset_const {T N} c V /.
 Definition pnset_extend {T N} (m : pnset T N)
   : pnset T (S N) :=
   fun V => nset_push (m (S V)).
+Arguments pnset_extend {T N} m V /.
 
 Definition pnset_extend_by {T N} K (m : pnset T N)
   : pnset T (N + K) :=
   fun V => nset_extended K (m (K + V)).
+Arguments pnset_extend_by {T N} K m V /.
 
 (* Equality *)
 
@@ -287,32 +288,29 @@ Definition eq_pnset_expand {T M} {f g : pnset T M}
 (* Extendable nset morphisms *)
 
 Definition morph (T : nset) (N : nat) (S : nset) (M : nat) :=
-  forall V, @T (N + V) -> @S (M + V).
+  forall V, T (N + V) -> S (M + V).
 
 Declare Scope morph_scope.
 Delimit Scope morph_scope with morph.
 Bind Scope morph_scope with morph.
 
 Definition morph_inject {T S: nset} {N}
-           (f : forall V, @T V -> @S V)
-  : morph (@T) N (@S) N := fun V t => f (N + V) t.
-
+           (f : forall V, T V -> S V)
+  : morph T N S N := fun V t => f (N + V) t.
 Arguments morph_inject {T S N} f /.
 
-Definition morph_id {T N} : morph (@T) N (@T) N :=
+Definition morph_id {T N} : morph T N T N :=
   (fun _ t => t).
-
 Arguments morph_id {T N} V t /.
 
 Notation " 1 " := morph_id : morph_scope.
 
 Definition morph_compose {T N S M R L} :
-  morph (@S) M (@R) L ->
-  morph (@T) N (@S) M ->
-  morph (@T) N (@R) L :=
+  morph S M R L ->
+  morph T N S M ->
+  morph T N R L :=
   fun m2 m1 =>
     fun V t => m2 V (m1 V t).
-
 Arguments morph_compose {T N S M R L} m1 m2 V t /.
 
 Notation "m1 @ m2" := (morph_compose m1 m2)
@@ -320,36 +318,38 @@ Notation "m1 @ m2" := (morph_compose m1 m2)
   : morph_scope.
 
 Lemma morph_left_identity :
-  forall T N S M (f : morph (@T) N (@S) M),
+  forall T N S M (f : morph T N S M),
     (1 @ f = f)%morph.
 Proof. reflexivity. Qed.
 
 Lemma morph_right_identity :
-  forall T N S M (f : morph (@T) N (@S) M),
+  forall T N S M (f : morph T N S M),
     (f @ 1 = f)%morph.
 Proof. reflexivity. Qed.
 
 Lemma morph_associative :
   forall T N S M R L U O
-     (f : morph (@T) N (@S) M)
-     (g : morph (@R) L (@T) N)
-     (h : morph (@U) O (@R) L),
+     (f : morph T N S M)
+     (g : morph R L T N)
+     (h : morph (@U) O R L),
     (f @ (g @ h) = (f @ g) @ h)%morph.
 Proof. reflexivity. Qed.
 
 (* Extension *)
 
-Definition morph_extend {T N R L} (m : morph (@T) N (@R) L)
-  : morph (@T) (S N) (@R) (S L) :=
+Definition morph_extend {T N R L} (m : morph T N R L)
+  : morph T (S N) R (S L) :=
   fun V t => nset_push (m (S V) (nset_pop t)).
+Arguments morph_extend {T N R L} m V t /.
 
 Definition morph_extend_by {T N R L} K
-           (m : morph (@T) N (@R) L)
-  : morph (@T) (N + K) (@R) (L + K) :=
+           (m : morph T N R L)
+  : morph T (N + K) R (L + K) :=
   fun V t => nset_extended K (m (K + V) (nset_unextended K t)).
+Arguments morph_extend_by {T N R L} K m V t /.
 
 (* Application to pnsets *)
-Definition morph_apply {T N R L} (m : morph (@T) N (@R) L)
+Definition morph_apply {T N R L} (m : morph T N R L)
            (p : pnset T N) : pnset R L :=
   fun V => m V (p V).
 Arguments morph_apply {T N R L} m p V /.
@@ -359,7 +359,7 @@ Lemma morph_apply_id {T N} (p : pnset T N) :
 Proof. easy. Qed.
 
 Lemma morph_apply_compose {T N S M R L}
-      (f : morph (@S) M (@R) L) (g : morph (@T) N (@S) M) p :
+      (f : morph S M R L) (g : morph T N S M) p :
   morph_apply f (morph_apply g p) =p= morph_apply (f @ g) p.
 Proof. easy. Qed.
 
@@ -421,7 +421,7 @@ Proof.
 Qed.
 
 Lemma morph_extend_compose {T N S M R L}
-      (f : morph (@S) M (@R) L) (g : morph (@T) N (@S) M) :
+      (f : morph S M R L) (g : morph T N S M) :
   morph_extend (f @ g) =m= morph_extend f @ morph_extend g.
 Proof.
   intros V v; unfold morph_extend, morph_compose.
@@ -437,7 +437,7 @@ Proof.
 Qed.
 
 Lemma morph_extend_by_compose {T N S M R L K}
-      (f : morph (@S) M (@R) L) (g : morph (@T) N (@S) M) :
+      (f : morph S M R L) (g : morph T N S M) :
   morph_extend_by K (f @ g)
   =m= morph_extend_by K f @ morph_extend_by K g.
 Proof.
@@ -455,23 +455,20 @@ Delimit Scope kmorph_scope with kmorph.
 Bind Scope kmorph_scope with kmorph.
 
 Definition kmorph_inject {T : Set} {S: nset} {N}
-           (f : forall V, T -> @S V)
-  : kmorph T (@S) N := fun V t => f (N + V) t.
-
+           (f : forall V, T -> S V)
+  : kmorph T S N := fun V t => f (N + V) t.
 Arguments kmorph_inject {T S N} f /.
 
 Definition kmorph_id {T N} : kmorph T (knset T) N :=
   (fun _ t => t).
-
 Arguments kmorph_id {T N} V t /.
 
 Definition kmorph_compose {T S M R L} :
-  morph (@S) M (@R) L ->
-  kmorph T (@S) M ->
-  kmorph T (@R) L :=
+  morph S M R L ->
+  kmorph T S M ->
+  kmorph T R L :=
   fun m2 m1 =>
     fun V t => m2 V (m1 V t).
-
 Arguments kmorph_compose {T S M R L} m1 m2 V t /.
 
 Notation " 1 " := kmorph_id : kmorph_scope.
@@ -482,36 +479,38 @@ Notation "m1 @ m2" := (kmorph_compose m1 m2)
 
 
 Lemma kmorph_left_identity :
-  forall T S M (f : kmorph T (@S) M),
+  forall T S M (f : kmorph T S M),
     (1 @ f = f)%kmorph.
 Proof. reflexivity. Qed.
 
 Lemma kmorph_right_identity :
-  forall T N S M (f : kmorph T (@S) M),
-    @kmorph_compose T (knset T) N (@S) M f 1 = f.
+  forall T N S M (f : kmorph T S M),
+    @kmorph_compose T (knset T) N S M f 1 = f.
 Proof. reflexivity. Qed.
 
 Lemma kmorph_associative :
   forall T N S M R L U
-     (f : morph (@T) N (@S) M)
-     (g : morph (@R) L (@T) N)
-     (h : kmorph U (@R) L),
+     (f : morph T N S M)
+     (g : morph R L T N)
+     (h : kmorph U R L),
     (f @ (g @ h) = (f @ g) @ h)%kmorph.
 Proof. reflexivity. Qed.
 
 (* Extension *)
 
-Definition kmorph_extend {T R N} (m : kmorph T (@R) N)
-  : kmorph T (@R) (S N) :=
+Definition kmorph_extend {T R N} (m : kmorph T R N)
+  : kmorph T R (S N) :=
   fun V v => nset_push (m (S V) v).
+Arguments kmorph_extend {T R N} m V v /.
 
-Definition kmorph_extend_by {T R N} K (m : kmorph T (@R) N)
-  : kmorph T (@R) (N + K) :=
+Definition kmorph_extend_by {T R N} K (m : kmorph T R N)
+  : kmorph T R (N + K) :=
   fun V v => nset_extended K (m (K + V) v).
+Arguments kmorph_extend_by {T R N} K m V v /.
 
 (* Application *)
 
-Definition kmorph_apply {T R L} (m : kmorph T (@R) L)
+Definition kmorph_apply {T R L} (m : kmorph T R L)
            (c : T) : pnset R L :=
   fun V => m V c.
 Arguments kmorph_apply {T R L} m c V /.
@@ -521,7 +520,7 @@ Lemma kmorph_apply_id {T : Set} {N} (c : T) :
 Proof. easy. Qed.
 
 Lemma kmorph_apply_compose {T S M R L}
-      (f : morph (@S) M (@R) L) (g : kmorph (@T) (@S) M) p :
+      (f : morph S M R L) (g : kmorph T S M) p :
   morph_apply f (kmorph_apply g p)
   =p= kmorph_apply (f @ g) p.
 Proof. easy. Qed.
@@ -584,7 +583,7 @@ Proof.
 Qed.
 
 Lemma kmorph_extend_compose {T S M R L}
-      (f : morph (@S) M (@R) L) (g : kmorph T (@S) M) :
+      (f : morph S M R L) (g : kmorph T S M) :
   kmorph_extend (f @ g) =km= morph_extend f @ kmorph_extend g.
 Proof.
   intros V v; unfold kmorph_extend, kmorph_compose, morph_extend.
@@ -600,7 +599,7 @@ Proof.
 Qed.
 
 Lemma kmorph_extend_by_compose {T S M R L K}
-      (f : morph (@S) M (@R) L) (g : kmorph T (@S) M) :
+      (f : morph S M R L) (g : kmorph T S M) :
   kmorph_extend_by K (f @ g)
   =km= morph_extend_by K f @ kmorph_extend_by K g.
 Proof.
@@ -631,7 +630,7 @@ Ltac inductT t :=
   | context T [?N + ?V] =>
     fail "unexpected failure"
   | _ =>
-    fail "term's type is not of the form '@T (?N + ?V)'"
+    fail "term's type is not of the form 'T (?N + ?V)'"
   end.
 
 Ltac pop_term_arguments t :=

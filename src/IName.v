@@ -1,72 +1,5 @@
 Require Import String Omega Setoid Morphisms.
-Require Import Morph Index.
-
-(* Free names are a pair of a string and an index *)
-
-Set Primitive Projections.
-Record name := mkname { name_string : string; name_index : index }.
-Add Printing Constructor name.
-Unset Primitive Projections.
-
-(* Alias the projections to avoid bug in rewrite_strat *)
-Definition n_string := name_string.
-Definition n_index := name_index.
-
-Definition name_of_string s := mkname s 0.
-Coercion name_of_string : string >-> name.
-Bind Scope string_scope with name.
-
-(* Boolean equality function *)
-Definition name_eqb n m :=
-  andb (String.eqb (n_string n) (n_string m))
-       (index_eqb (n_index n) (n_index m)).
-
-Lemma name_eqb_eq n m :
-  name_eqb n m = true <-> n = m.
-Proof.
-  destruct n as [ns ni], m as [ms mi]; unfold name_eqb; cbn.
-  rewrite Bool.andb_true_iff; intuition auto.
-  - f_equal.
-    + apply String.eqb_eq; easy.
-    + apply index_eqb_eq; easy.
-  - rewrite String.eqb_eq; congruence.
-  - rewrite index_eqb_eq; congruence.
-Qed.
-
-Lemma name_eqb_neq n m :
-  name_eqb n m = false <-> n <> m.
-Proof.
-  split.
-  - intros Heq1 Heq2.
-    rewrite <- name_eqb_eq in Heq2.
-    rewrite Heq1 in Heq2; discriminate.
-  - intro Hneq.
-    remember (name_eqb n m) as nm eqn:Hnm.
-    symmetry in Hnm.
-    destruct nm; try easy.
-    rewrite name_eqb_eq in Hnm.
-    contradiction.
-Qed.
-
-Lemma name_eqb_refl n :
-  name_eqb n n = true.
-Proof.
-  unfold name_eqb.
-  rewrite index_eqb_refl.
-  rewrite String.eqb_refl.
-  easy.
-Qed.
-
-(* Useful lemma *)
-Lemma name_neq_string_eq_index_neq n m :
-  n <> m ->
-  n_string n = n_string m ->
-  n_index n <> n_index m.
-Proof.
-  intros Hneq Heq1 Heq2; apply Hneq.
-  replace n with (mkname (n_string n) (n_index n)) by easy.
-  rewrite Heq1, Heq2; easy.
-Qed.
+Require Import Morph Var IIndex.
 
 (* Liftable functions from [names]s to [nset]s that we treat
    like direct sums of streams *)
@@ -81,7 +14,7 @@ Arguments project_iname {T M} s f V i /.
 Definition with_iname {T M} s (f : iindex T M) (g : iname T M)
   : iname T M :=
   fun V (n : name) =>
-    if string_dec (n_string n) s then get_iindex (n_index n) f V
+    if string_dec s (n_string n) then get_iindex (n_index n) f V
     else g V n.
 
 (* Derived operations *)
@@ -165,7 +98,7 @@ Lemma red_with_iname_neq {T M} s f (g : iname T M) V n :
   with_iname s f g V n = g V n.
 Proof.
   intro Heq; unfold with_iname.
-  destruct (string_dec (n_string n) s); subst;
+  destruct (string_dec s (n_string n)); subst;
     try contradiction; easy.
 Qed.
 
@@ -216,9 +149,25 @@ Hint Rewrite @red_with_iname_eq @red_with_iname_neq
      @red_insert_iname_distinct @red_insert_iname_indistinct
      using (cbn; congruence) : red_inames.
 
+(* Useful lemma *)
+Lemma red_name_neq n m :
+  n_string n = n_string m ->
+  n <> m <-> n_index n <> n_index m.
+Proof.
+  intro Heq1; split.
+  - intros Hneq Heq2; apply Hneq.
+    change n with (mkname (n_string n) (n_index n)).
+    rewrite Heq1, Heq2; easy.
+  - intros Hneq Heq2; apply Hneq.
+    rewrite Heq2; easy.
+Qed.
+
+Hint Rewrite red_name_neq using (cbn; congruence) : red_name_neq.
+
 (* Rewrite operations using reductions *)
 Ltac red_inames :=
   autorewrite with red_inames;
+  autorewrite with red_name_neq in *;
   repeat progress
     (try (rewrite_strat topdown (hints red_inames)); cbn).
 
@@ -331,6 +280,104 @@ Ltac simpl_inames :=
      try (rewrite_strat topdown (hints simpl_iindexs)));
   autorewrite with fold_inames;
   try (rewrite_strat topdown (hints fold_inames)).
+
+(* There is a full covariant functor from [T O] to [iname N
+   T O] by composition.
+
+   Such composition distributes over our operations. *)
+
+Lemma project_iname_compose_distribute {T M R L} s
+      (f : iname T M) (g : morph T M R L) :
+  g @ (project_iname s f) =km= project_iname s (g @ f).
+Proof. easy. Qed.
+
+Lemma with_iname_compose_distribute {T M R L} s
+      (f : iindex T M) (g : iname T M) (h : morph T M R L) :
+  h @ (with_iname s f g) =km= with_iname s (h @ f) (h @ g).
+Proof.
+  intros V n.
+  case_string s (n_string n); easy.
+Qed.
+
+Lemma get_iname_compose_distribute {T M R L} n
+      (f : iname T M) (g : morph T M R L) :
+  morph_apply g (get_iname n f) =p= get_iname n (g @ f).
+Proof.
+  unfold get_iname.
+  rewrite get_iindex_compose_distribute.
+  rewrite project_iname_compose_distribute.
+  easy.
+Qed.
+
+Lemma delete_iname_compose_distribute {T M R L} n
+      (f : iname T M) (g : morph T M R L) :
+  g @ (delete_iname n f) =km= delete_iname n (g @ f).
+Proof.
+  unfold delete_iname.
+  rewrite with_iname_compose_distribute.
+  rewrite delete_iindex_compose_distribute.
+  rewrite project_iname_compose_distribute.
+  easy.
+Qed.
+
+Lemma insert_iname_compose_distribute {T M R L} n a
+      (f : iname T M) (g : morph T M R L) :
+  g @ (insert_iname a n f)
+  =km= insert_iname (morph_apply g a) n (g @ f).
+Proof.
+  unfold insert_iname.
+  rewrite with_iname_compose_distribute.
+  rewrite insert_iindex_compose_distribute.
+  rewrite project_iname_compose_distribute.
+  easy.
+Qed.
+
+(* Morphism extension distributes over the operations *)
+
+Lemma project_iname_extend {T M} s (f : iname T M) :
+  kmorph_extend (project_iname s f)
+  =km= project_iname s (kmorph_extend f).
+Proof.
+  intros V; simplT; easy.
+Qed.
+
+Lemma with_iname_extend {T M} s (f : iindex T M) (g : iname T M) :
+  kmorph_extend (with_iname s f g)
+  =km= with_iname s (kmorph_extend f) (kmorph_extend g).
+Proof.
+  intros V v.
+  case_string (n_string v) s;
+    simplT; red_inames; easy.
+Qed.
+
+Lemma get_iname_extend {T M} i (f : iname T M) :
+  pnset_extend (get_iname i f)
+  =p= get_iname i (kmorph_extend f).
+Proof.
+  unfold get_iname.
+  rewrite get_iindex_extend, project_iname_extend.
+  easy.
+Qed.
+
+Lemma insert_iname_extend {T M} a i (f : iname T M) :
+  kmorph_extend (insert_iname a i f)
+  =km= insert_iname (pnset_extend a) i (kmorph_extend f).
+Proof.
+  unfold insert_iname.
+  rewrite with_iname_extend,
+    insert_iindex_extend, project_iname_extend.
+  easy.
+Qed.
+
+Lemma delete_iname_extend {T M} i (f : iname T M) :
+  kmorph_extend (delete_iname i f)
+  =km= delete_iname i (kmorph_extend f).
+Proof.
+  unfold delete_iname.
+  rewrite with_iname_extend, delete_iindex_extend,
+    project_iname_extend.
+  easy.
+Qed.
 
 (* Transposing distinct operations *)
 
@@ -592,9 +639,7 @@ Lemma shift_below_name_neq n m :
   shift_below_name n m <> n.
 Proof.
   pose shift_below_index_neq.
-  case_string (n_string n) (n_string m);
-    try congruence.
-  destruct n, m; cbn in *; congruence.
+  case_string (n_string n) (n_string m); congruence.
 Qed.
 
 Lemma shift_above_name_neq_shift_below_name n m :
@@ -640,8 +685,7 @@ Proof.
       congruence.
     + transpose_iindex (insert _) _ delete _.
       congruence.
-    + transpose_iindex delete _ (insert _) _;
-        auto using name_neq_string_eq_index_neq.
+    + transpose_iindex delete _ (insert _) _.
       congruence.
     + transpose_iindex delete _ delete _.
       congruence.
@@ -978,8 +1022,7 @@ Proof.
   - destruct op1, op2; cbn in *; red_inames.
     + transpose_iindex_squared_right Ins _ Ins _; easy.
     + transpose_iindex_squared_right Ins _ Del _; easy.
-    + transpose_iindex_squared_right Del _ Ins _;
-        auto using name_neq_string_eq_index_neq.
+    + transpose_iindex_squared_right Del _ Ins _; easy.
     + transpose_iindex_squared_right Del _ Del _; easy.
   - destruct op1, op2; cbn; red_inames; easy.
 Qed.
@@ -1043,21 +1086,15 @@ Proof.
     + transpose_iindex_reverse_left
         Ins _ Ins _ Del _; easy.
     + transpose_iindex_reverse_left
-        Ins _ Del _ Ins _;
-          auto using name_neq_string_eq_index_neq.
+        Ins _ Del _ Ins _; easy.
     + transpose_iindex_reverse_left
         Ins _ Del _ Del _; easy.
     + transpose_iindex_reverse_left
-        Del _ Ins _ Ins _;
-          auto using name_neq_string_eq_index_neq.
-      apply name_neq_string_eq_index_neq in Hirr3; auto.
+        Del _ Ins _ Ins _; easy.
     + transpose_iindex_reverse_left
-        Del _ Ins _ Del _;
-          auto using name_neq_string_eq_index_neq.
+        Del _ Ins _ Del _; easy.
     + transpose_iindex_reverse_left
-        Del _ Del _ Ins _;
-          auto using name_neq_string_eq_index_neq.
-      apply name_neq_string_eq_index_neq in Hirr3; auto.
+        Del _ Del _ Ins _; easy.
     + transpose_iindex_reverse_left
         Del _ Del _ Del _; easy.
   - destruct op1, op2, op3; cbn; red_inames; easy.
@@ -1102,21 +1139,15 @@ Proof.
     + transpose_iindex_reverse_middle
         Ins _ Ins _ Del _; easy.
     + transpose_iindex_reverse_middle
-        Ins _ Del _ Ins _;
-          auto using name_neq_string_eq_index_neq.
+        Ins _ Del _ Ins _; easy.
     + transpose_iindex_reverse_middle
         Ins _ Del _ Del _; easy.
     + transpose_iindex_reverse_middle
-        Del _ Ins _ Ins _;
-          auto using name_neq_string_eq_index_neq.
-      apply name_neq_string_eq_index_neq in Hirr3; auto.
+        Del _ Ins _ Ins _; easy.
     + transpose_iindex_reverse_middle
-        Del _ Ins _ Del _;
-          auto using name_neq_string_eq_index_neq.
+        Del _ Ins _ Del _; easy.
     + transpose_iindex_reverse_middle
-        Del _ Del _ Ins _;
-          auto using name_neq_string_eq_index_neq.
-      apply name_neq_string_eq_index_neq in Hirr3; auto.
+        Del _ Del _ Ins _; easy.
     + transpose_iindex_reverse_middle
         Del _ Del _ Del _; easy.
   - destruct op1, op2, op3; cbn; red_inames; try easy;
@@ -1158,21 +1189,15 @@ Proof.
     + transpose_iindex_reverse_right
         Ins _ Ins _ Del _; easy.
     + transpose_iindex_reverse_right
-        Ins _ Del _ Ins _;
-          auto using name_neq_string_eq_index_neq.
+        Ins _ Del _ Ins _; easy.
     + transpose_iindex_reverse_right
         Ins _ Del _ Del _; easy.
     + transpose_iindex_reverse_right
-        Del _ Ins _ Ins _;
-          auto using name_neq_string_eq_index_neq.
-      apply name_neq_string_eq_index_neq in Hirr3; auto.
+        Del _ Ins _ Ins _; easy.
     + transpose_iindex_reverse_right
-        Del _ Ins _ Del _;
-          auto using name_neq_string_eq_index_neq.
+        Del _ Ins _ Del _; easy.
     + transpose_iindex_reverse_right
-        Del _ Del _ Ins _;
-          auto using name_neq_string_eq_index_neq.
-      apply name_neq_string_eq_index_neq in Hirr3; auto.
+        Del _ Del _ Ins _; easy.
     + transpose_iindex_reverse_right
         Del _ Del _ Del _; easy.
   - destruct op1, op2, op3; cbn; red_inames; try easy;
@@ -1264,8 +1289,7 @@ Proof.
   destruct op; cbn; intro Hirr.
   - case_string (n_string n1) (n_string n2).
     + simpl_inames.
-      transpose_get_iindex _ (insert _) _;
-        auto using name_neq_string_eq_index_neq.
+      transpose_get_iindex _ (insert _) _.
       simpl_inames.
       congruence.
     + autorewrite with unfold_inames; red_inames.
@@ -1274,8 +1298,7 @@ Proof.
       easy.
   - case_string (n_string n1) (n_string n2).
     + simpl_inames.
-      transpose_get_iindex _ delete _;
-        auto using name_neq_string_eq_index_neq.
+      transpose_get_iindex _ delete _.
       simpl_inames.
       congruence.
     + autorewrite with unfold_inames; red_inames.
@@ -1296,101 +1319,3 @@ Tactic Notation "transpose_get_iname"
   let Hrw := fresh "Hrw" in
     epose (transpose_get_iname op n1 n2) as Hrw;
       cbn in Hrw; rewrite Hrw at occ; [| try easy]; clear Hrw.
-
-(* There is a full covariant functor from [T O] to [iname N
-   T O] by composition.
-
-   Such composition distributes over our operations. *)
-
-Lemma project_iname_compose_distribute {T M R L} s
-      (f : iname T M) (g : morph T M R L) :
-  g @ (project_iname s f) =km= project_iname s (g @ f).
-Proof. easy. Qed.
-
-Lemma with_iname_compose_distribute {T M R L} s
-      (f : iindex T M) (g : iname T M) (h : morph T M R L) :
-  h @ (with_iname s f g) =km= with_iname s (h @ f) (h @ g).
-Proof.
-  intros V n.
-  case_string s (n_string n); easy.
-Qed.
-
-Lemma get_iname_compose_distribute {T M R L} n
-      (f : iname T M) (g : morph T M R L) :
-  morph_apply g (get_iname n f) =p= get_iname n (g @ f).
-Proof.
-  unfold get_iname.
-  rewrite get_iindex_compose_distribute.
-  rewrite project_iname_compose_distribute.
-  easy.
-Qed.
-
-Lemma delete_iname_compose_distribute {T M R L} n
-      (f : iname T M) (g : morph T M R L) :
-  g @ (delete_iname n f) =km= delete_iname n (g @ f).
-Proof.
-  unfold delete_iname.
-  rewrite with_iname_compose_distribute.
-  rewrite delete_iindex_compose_distribute.
-  rewrite project_iname_compose_distribute.
-  easy.
-Qed.
-
-Lemma insert_iname_compose_distribute {T M R L} n a
-      (f : iname T M) (g : morph T M R L) :
-  g @ (insert_iname a n f)
-  =km= insert_iname (morph_apply g a) n (g @ f).
-Proof.
-  unfold insert_iname.
-  rewrite with_iname_compose_distribute.
-  rewrite insert_iindex_compose_distribute.
-  rewrite project_iname_compose_distribute.
-  easy.
-Qed.
-
-(* Morphism extension distributes over the operations *)
-
-Lemma project_iname_extend {T M} s (f : iname T M) :
-  kmorph_extend (project_iname s f)
-  =km= project_iname s (kmorph_extend f).
-Proof.
-  intros V; simplT; easy.
-Qed.
-
-Lemma with_iname_extend {T M} s (f : iindex T M) (g : iname T M) :
-  kmorph_extend (with_iname s f g)
-  =km= with_iname s (kmorph_extend f) (kmorph_extend g).
-Proof.
-  intros V v.
-  case_string (n_string v) s;
-    simplT; red_inames; easy.
-Qed.
-
-Lemma get_iname_extend {T M} i (f : iname T M) :
-  pnset_extend (get_iname i f)
-  =p= get_iname i (kmorph_extend f).
-Proof.
-  unfold get_iname.
-  rewrite get_iindex_extend, project_iname_extend.
-  easy.
-Qed.
-
-Lemma insert_iname_extend {T M} a i (f : iname T M) :
-  kmorph_extend (insert_iname a i f)
-  =km= insert_iname (pnset_extend a) i (kmorph_extend f).
-Proof.
-  unfold insert_iname.
-  rewrite with_iname_extend,
-    insert_iindex_extend, project_iname_extend.
-  easy.
-Qed.
-
-Lemma delete_iname_extend {T M} i (f : iname T M) :
-  kmorph_extend (delete_iname i f)
-  =km= delete_iname i (kmorph_extend f).
-Proof.
-  unfold delete_iname.
-  rewrite with_iname_extend, delete_iindex_extend,
-    project_iname_extend.
-  easy.
-Qed.

@@ -1,33 +1,5 @@
 Require Import String Omega Setoid Morphisms.
-Require Import Morph.
-
-(* Bound variables are represented by a level *)
-
-Definition Zero := Empty_set.
-
-Inductive Succ {S : Set} : Set := succ0 | succS (s : S).
-
-Fixpoint level (V : nat) : Set :=
-  match V with
-  | 0 => Zero
-  | S V => @Succ (level V)
-  end.
-Arguments level V : simpl never.
-
-Definition l0 {V} : level (S V) := succ0.
-Definition lS {V} : level V -> level (S V) := succS.
-
-Fixpoint level_extend {V} : level V -> level (S V) :=
-  match V return level V -> level (S V) with
-  | 0 => fun l => Empty_set_rec _ l
-  | S V =>
-    fun l =>
-      match l with
-      | succ0 => l0
-      | succS s => lS (@level_extend V s)
-      end
-  end.
-Arguments level_extend {V} !l.
+Require Import Morph Var.
 
 (* Liftable morphisms from [level]s that we treat like streams *)
 Definition ilevel N T M := morph level N T M.

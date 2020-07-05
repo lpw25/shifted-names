@@ -1,8 +1,9 @@
 COQC=coqc
 COQPARAMS=-R . SNames
 
-MODULES=Morph.vok Index.vok Name.vok Level.vok Var.vok \
-	Var2.vok Trm.vok Renaming2.vok Context.vok Relative.vok
+MODULES=Morph.vok Var.vok Context.vok \
+	IIndex.vok IName.vok ILevel.vok IVar.vok \
+	Term.vok
 
 all: ${MODULES}
 
@@ -12,21 +13,15 @@ all: ${MODULES}
 %.vok: %.v
 	${COQC} -vok ${COQPARAMS} $<
 
-Var.vok Var.vos: Morph.vos
+Context.vok Context.vos: Morph.vos Var.vos
 
-Index.vok Index.vos: Morph.vos
+IIndex.vok IIndex.vos: Morph.vos Var.vos
 
-Name.vok Name.vos: Morph.vos Index.vos
+IName.vok IName.vos: Morph.vos Var.vos IIndex.vos
 
-Level.vok Level.vos: Morph.vos
+ILevel.vok ILevel.vos: Morph.vos Var.vos
 
-Var2.vok Var2.vos: Morph.vos Index.vos Name.vos Level.vos
+IVar.vok IVar.vos: Morph.vos Var.vos IIndex.vos IName.vos ILevel.vos
 
-Trm.vok Trm.vos: Morph.vos Trm.vos
-
-Renaming2.vok Renaming2.vos: Morph.vos Var2.vos
-
-Context.vok Context.vos: Var.vos
-
-Relative.vok Relative.vos: Morph.vos Var.vos Context.vos
+Term.vok Term.vos: Morph.vos Var.vos IIndex.vos IName.vos ILevel.vos IVar.vos
 

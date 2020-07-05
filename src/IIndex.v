@@ -1,36 +1,5 @@
 Require Import String Omega Morph Setoid Morphisms.
-Arguments string_dec !s1 !s2.
-
-(* Name indices are [nat]s *)
-Definition index := nat.
-
-(* Boolean equality function *)
-Definition index_eqb := Nat.eqb.
-
-Lemma index_eqb_eq i j :
-  index_eqb i j = true <-> i = j.
-Proof. apply Nat.eqb_eq. Qed.
-
-Lemma index_eqb_neq i j :
-  index_eqb i j = false <-> i <> j.
-Proof.
-  split.
-  - intros Heq1 Heq2.
-    rewrite <- index_eqb_eq in Heq2.
-    rewrite Heq1 in Heq2; discriminate.
-  - intro Hneq.
-    remember (index_eqb i j) as ij eqn:Hij.
-    symmetry in Hij.
-    destruct ij; try easy.
-    rewrite index_eqb_eq in Hij.
-    contradiction.
-Qed.
-
-Lemma index_eqb_refl i :
-  index_eqb i i = true.
-Proof.
-  induction i; easy.
-Qed.
+Require Import Var.
 
 (* Liftable functions from [index]s to nsets that we treat
    like streams *)
@@ -205,6 +174,61 @@ Ltac simpl_iindexs :=
   repeat progress
     (cbn;
      try (rewrite_strat topdown (hints simpl_iindexs))).
+
+(* There is a full covariant functor from [T O] to [iindex N T O]
+   by composition.
+
+   Such composition distributes over our operations. *)
+
+Lemma get_iindex_compose_distribute {T M R L} i
+      (f : iindex T M) (g : morph T M R L) :
+  morph_apply g (get_iindex i f) =p= get_iindex i (g @ f).
+Proof. easy. Qed.
+
+Lemma delete_iindex_compose_distribute {T M R L} i
+      (f : iindex T M) (g : morph T M R L) :
+  g @ (delete_iindex i f) =km= delete_iindex i (g @ f).
+Proof.
+  intros V j.
+  case_order i j; easy.
+Qed.
+
+Lemma insert_iindex_compose_distribute {T M R L} i a
+      (f : iindex T M) (g : morph T M R L) :
+  g @ (insert_iindex a i f)
+  =km= insert_iindex (morph_apply g a) i (g @ f).
+Proof.
+  intros V j.
+  case_order i j; easy.
+Qed.
+
+(* Morphism extension distributes over the operations *)
+
+Lemma get_iindex_extend {T M} i (f : iindex T M) :
+  pnset_extend (get_iindex i f)
+  =p= get_iindex i (kmorph_extend f).
+Proof.
+  intros V; simplT; easy.
+Qed.
+
+Lemma insert_iindex_extend {T M} a i (f : iindex T M) :
+  kmorph_extend (insert_iindex a i f)
+  =km= insert_iindex (pnset_extend a) i (kmorph_extend f).
+Proof.
+  intros V v.
+  case_order i v;
+    simplT; red_iindexs; easy.
+Qed.
+
+Lemma delete_iindex_extend {T M} i (f : iindex T M) :
+  kmorph_extend (delete_iindex i f)
+  =km= delete_iindex i (kmorph_extend f).
+Proof.
+  intros V v.
+  simplT.
+  case_order i v;
+    simplT; red_iindexs; easy.
+Qed.
 
 (* Transposing [iindex] operations
 
@@ -910,59 +934,3 @@ Tactic Notation "transpose_get_iindex"
   let Hrw := fresh "Hrw" in
     epose (transpose_get_iindex op i1 i2) as Hrw;
       cbn in Hrw; rewrite Hrw at occ; [> | try easy]; clear Hrw.
-
-(* There is a full covariant functor from [T O] to [iindex N T O]
-   by composition.
-
-   Such composition distributes over our operations. *)
-
-Lemma get_iindex_compose_distribute {T M R L} i
-      (f : iindex T M) (g : morph T M R L) :
-  morph_apply g (get_iindex i f) =p= get_iindex i (g @ f).
-Proof. easy. Qed.
-
-Lemma delete_iindex_compose_distribute {T M R L} i
-      (f : iindex T M) (g : morph T M R L) :
-  g @ (delete_iindex i f) =km= delete_iindex i (g @ f).
-Proof.
-  intros V j.
-  case_order i j; easy.
-Qed.
-
-Lemma insert_iindex_compose_distribute {T M R L} i a
-      (f : iindex T M) (g : morph T M R L) :
-  g @ (insert_iindex a i f)
-  =km= insert_iindex (morph_apply g a) i (g @ f).
-Proof.
-  intros V j.
-  case_order i j; easy.
-Qed.
-
-(* Morphism extension distributes over the operations *)
-
-Lemma get_iindex_extend {T M} i (f : iindex T M) :
-  pnset_extend (get_iindex i f)
-  =p= get_iindex i (kmorph_extend f).
-Proof.
-  intros V; simplT; easy.
-Qed.
-
-Lemma insert_iindex_extend {T M} a i (f : iindex T M) :
-  kmorph_extend (insert_iindex a i f)
-  =km= insert_iindex (pnset_extend a) i (kmorph_extend f).
-Proof.
-  intros V v.
-  case_order i v;
-    simplT; red_iindexs; easy.
-Qed.
-
-Lemma delete_iindex_extend {T M} i (f : iindex T M) :
-  kmorph_extend (delete_iindex i f)
-  =km= delete_iindex i (kmorph_extend f).
-Proof.
-  intros V v.
-  simplT.
-  case_order i v;
-    simplT; red_iindexs; easy.
-Qed.
-

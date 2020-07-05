@@ -1,4 +1,5 @@
-Require Import String Morph Var.
+(*
+Require Import String Morph VarOld.
 
 Inductive context {A : Set} : Set :=
 | ctx_empty
@@ -159,3 +160,4 @@ Proof.
   apply relates_intro with (total := tl).
   auto using has_swap.
 Qed.
+*)
