@@ -13,6 +13,8 @@ all: ${MODULES}
 %.vok: %.v
 	${COQC} -vok ${COQPARAMS} $<
 
+Var.vok Var.vos: Morph.vos
+
 Context.vok Context.vos: Morph.vos Var.vos
 
 IIndex.vok IIndex.vos: Morph.vos Var.vos

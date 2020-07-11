@@ -2,7 +2,7 @@ Require Import String Omega Setoid Morphisms.
 Require Import Morph IIndex IName ILevel IVar Var.
 Set Loose Hint Behavior "Strict".
 
-Module Type Term.
+Module Type Relative_monad.
 
   Parameter term : nset.
 
@@ -41,13 +41,112 @@ Module Type Term.
       morph_extend (kleisli f)
       =m= kleisli (morph_extend f).
 
-End Term.
+End Relative_monad.
 
-Module MakeTerm (T : Term).
+Module MakeTerm (T : Relative_monad).
 
   Import T.
 
   Arguments unit N {V} v.
+
+  Definition apply_pushes_k {N M} (r : pushes N M)
+  : morph var M term N :=
+    @unit N @ apply_pushes_var r.
+
+  Definition apply_pushes {N M} (r : pushes N M)
+  : morph term M term N :=
+    kleisli (apply_pushes_k r).
+
+  Definition apply_static_renaming_k {N M}
+             (r : static_renaming N M)
+  : morph var M term N :=
+    @unit N @ apply_static_renaming_var r.
+
+  Definition apply_static_renaming {N M}
+             (r : static_renaming N M)
+  : morph term M term N :=
+    kleisli (apply_static_renaming_k r).
+
+  Definition bind_k {N} (t : term N) : morph var (S N) term N :=
+    fun {V} v =>
+      match v with
+      | free n => unit N (free n)
+      | bound succ0 =>
+        morph_apply_zero (apply_pushes weaken_var_n_pushes) t
+      | bound (succS l) => unit N (bound l)
+      end.
+  Arguments bind_k {N} t {V} v : simpl nomatch.
+
+  Definition lift_morph_k {N M} (m : morph var M term N) :
+    morph var (S M) term (S N) :=
+    fun V v =>
+      match v with
+      | free n =>
+        apply_pushes (r_weak l0 (r_idN N)) V (m V (free n))
+      | bound succ0 => unit (S N) (bound l0)
+      | bound (succS l) =>
+        apply_pushes (r_weak l0 (r_idN N)) V (m V (bound l))
+      end.
+
+  Fixpoint apply_renaming_k {N M} (r : renaming term N M)
+  : morph var M term N :=
+  match r in renaming _ _ M
+        return morph var M term N with
+  | r_static r => apply_static_renaming_k r
+  | @r_bind _ _ M t r l =>
+      kleisli (@bind_k N t)
+      @ lift_morph_k (apply_renaming_k r)
+      @ @cycle_in_var (S M) l
+  | @r_subst _ _ M t r n =>
+      kleisli (@bind_k N t)
+      @ lift_morph_k (apply_renaming_k r)
+      @ morph_extend_by M (@close_var n)
+  end.
+
+  Definition renaming_id : renaming term 0 0 :=
+    r_static (r_pushes r_id).
+  Arguments renaming_id : simpl never.
+
+  Fixpoint renaming_swap {N M}
+           (l1 : level (S N)) (r : renaming term N M) :
+    level (S M) -> renaming term (S N) (S M) :=
+    match r with
+    | r_static r =>
+      fun l2 => r_static (static_renaming_swap l1 r l2)
+    | r_bind t r l =>
+      fun l2 =>
+        r_bind (morph_apply_zero
+                  (apply_pushes (r_weak l1 (r_idN N))) t)
+               (renaming_swap l1 r (unshift_level l l2))
+               (shift_level l2 l)
+    | r_subst t r n =>
+      fun l2 =>
+        r_subst (morph_apply_zero
+                   (apply_pushes (r_weak l1 (r_idN N))) t)
+                (renaming_swap l1 r l2) n
+    end.
+
+    level (S N) -> pushes N M -> level (S M) -> pushes (S N) (S M)
+
+  renaming_open : forall M,
+    name -> static_renaming N M -> level (S M) ->
+  renaming_close : forall N M,
+    level (S N) -> pushes N M -> name -> pushes (S N) M.
+  renaming_weak :
+    level (S N) -> pushes N M -> pushes (S N) M
+  renaming_bind : forall M,
+    term N -> renaming term N M -> level (S M) ->
+    renaming term N (S M)
+
+  renaming_shift : forall M,
+    name -> static_renaming N M -> static_renaming N M
+    static_renaming N (S M)
+  renaming_rename : forall M,
+    name -> static_renaming N M -> name -> static_renaming N M
+  renaming_subst : forall M,
+    term N -> renaming term N M -> name -> renaming term N (S M).
+
+
 
   Definition open_k n : morph var 1 term 0 :=
     @unit 0 @ @open_var n.

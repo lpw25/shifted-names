@@ -69,6 +69,14 @@ Definition push_eq N V :=
 
 Definition pop_eq N V := eq_sym (push_eq N V).
 
+Definition add_zero_eq N :=
+  nat_ind (fun N' : nat => N' = N' + 0)
+    (@eq_refl nat 0)
+    (fun (N' : nat) (IHn : N' = N' + 0) =>
+       f_equal_nat nat S N' (N' + 0) IHn) N.
+
+Definition remove_zero_eq N := eq_sym (add_zero_eq N).
+
 Definition nset_push {T : nset} {N V}
            (t : T (N + S V)) : T (S (N + V)) :=
   cast (push_eq N V) t.
@@ -76,6 +84,14 @@ Definition nset_push {T : nset} {N V}
 Definition nset_pop {T : nset} {N V}
            (t : T (S (N + V))) : T (N + S V) :=
   cast (pop_eq N V) t.
+
+Definition nset_add_zero {T : nset} {N}
+           (t : T N) : T (N + 0) :=
+  cast (add_zero_eq N) t.
+
+Definition nset_remove_zero {T : nset} {N}
+           (t : T (N + 0)) : T N :=
+  cast (remove_zero_eq N) t.
 
 Lemma nset_push_heq :
   forall (T : nset) N V (t : T (N + S V)),
@@ -97,6 +113,26 @@ Proof.
   apply eq_dep_intro.
 Qed.
 
+Lemma nset_add_zero_heq :
+  forall (T : nset) N (t : T N),
+    nset_add_zero t ~= t.
+Proof.
+  intros.
+  unfold nset_add_zero, cast.
+  destruct (add_zero_eq N).
+  apply eq_dep_intro.
+Qed.
+
+Lemma nset_remove_zero_heq :
+  forall (T : nset) N (t : T (N + 0)),
+    nset_remove_zero t ~= t.
+Proof.
+  intros.
+  unfold nset_remove_zero, cast.
+  destruct (remove_zero_eq N).
+  apply eq_dep_intro.
+Qed.
+
 Lemma nset_push_pop_eq :
   forall (T : nset) N V (t : T (S (N + V))),
     nset_push (nset_pop t) = t.
@@ -114,6 +150,28 @@ Proof.
   intros T N V t.
   unfold nset_push, nset_pop, cast, pop_eq.
   destruct (push_eq N V); cbn.
+  reflexivity.
+Qed.
+
+Lemma nset_add_zero_remove_zero_eq :
+  forall (T : nset) N (t : T (N + 0)),
+    nset_add_zero (nset_remove_zero t) = t.
+Proof.
+  intros T N t.
+  unfold nset_add_zero, nset_remove_zero,
+    cast, remove_zero_eq.
+  destruct (add_zero_eq N); cbn.
+  reflexivity.
+Qed.
+
+Lemma nset_remove_zero_add_zero_eq :
+  forall (T : nset) N (t : T N),
+    nset_remove_zero (nset_add_zero t) = t.
+Proof.
+  intros T N t.
+  unfold nset_add_zero, nset_remove_zero,
+    cast, remove_zero_eq.
+  destruct (add_zero_eq N); cbn.
   reflexivity.
 Qed.
 
@@ -362,6 +420,24 @@ Lemma morph_apply_compose {T N S M R L}
       (f : morph S M R L) (g : morph T N S M) p :
   morph_apply f (morph_apply g p) =p= morph_apply (f @ g) p.
 Proof. easy. Qed.
+
+(* Application at zero *)
+Definition morph_apply_zero {T N R L} (m : morph T N R L)
+           (t : T N) : R L :=
+  nset_remove_zero (m 0 (nset_add_zero t)).
+Arguments morph_apply_zero {T N R L} m t /.
+
+Lemma morph_apply_zero_id {T : nset} {N} (t : T N) :
+  morph_apply_zero 1 t = t.
+Proof. apply nset_remove_zero_add_zero_eq. Qed.
+
+Lemma morph_apply_zero_compose {T N S M R L}
+      (f : morph S M R L) (g : morph T N S M) t :
+  morph_apply_zero f (morph_apply_zero g t)
+  = morph_apply_zero (f @ g) t.
+Proof.
+  cbn; rewrite nset_add_zero_remove_zero_eq; easy.
+Qed.
 
 (* Equality *)
 
