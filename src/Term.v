@@ -1,5 +1,5 @@
 Require Import String Omega Setoid Morphisms.
-Require Import Morph IIndex IName ILevel IVar Var.
+Require Import Morph Var.
 Set Loose Hint Behavior "Strict".
 
 Module Type Relative_monad.
@@ -71,9 +71,10 @@ Module MakeTerm (T : Relative_monad).
     fun {V} v =>
       match v with
       | free n => unit N (free n)
-      | bound succ0 =>
-        morph_apply_zero (apply_pushes weaken_var_n_pushes) t
-      | bound (succS l) => unit N (bound l)
+      | bound (mklevel 0 _) =>
+        morph_apply_zero (apply_pushes pushes_weakening) t
+      | bound (mklevel (S l) lt) =>
+        unit N (bound (mklevel l (less_than_pred lt)))
       end.
   Arguments bind_k {N} t {V} v : simpl nomatch.
 
@@ -82,48 +83,56 @@ Module MakeTerm (T : Relative_monad).
     fun V v =>
       match v with
       | free n =>
-        apply_pushes (r_weak l0 (r_idN N)) V (m V (free n))
-      | bound succ0 => unit (S N) (bound l0)
-      | bound (succS l) =>
-        apply_pushes (r_weak l0 (r_idN N)) V (m V (bound l))
+        apply_pushes
+          (pushes_weak l0 pushes_id_n) V (m V (free n))
+      | bound (mklevel 0 _) => unit (S N) (bound l0)
+      | bound (mklevel (S l) lt) =>
+        apply_pushes
+          (pushes_weak l0 pushes_id_n) V
+          (m V (bound (mklevel l (less_than_pred lt))))
       end.
 
   Fixpoint apply_renaming_k {N M} (r : renaming term N M)
   : morph var M term N :=
   match r in renaming _ _ M
         return morph var M term N with
-  | r_static r => apply_static_renaming_k r
-  | @r_bind _ _ M t r l =>
+  | renaming_static r => apply_static_renaming_k r
+  | @renaming_bind _ _ M t r l =>
       kleisli (@bind_k N t)
       @ lift_morph_k (apply_renaming_k r)
       @ @cycle_in_var (S M) l
-  | @r_subst _ _ M t r n =>
+  | @renaming_subst _ _ M t r n =>
       kleisli (@bind_k N t)
       @ lift_morph_k (apply_renaming_k r)
       @ morph_extend_by M (@close_var n)
   end.
 
   Definition renaming_id : renaming term 0 0 :=
-    r_static (r_pushes r_id).
+    renaming_static (static_renaming_id).
   Arguments renaming_id : simpl never.
 
   Fixpoint renaming_swap {N M}
            (l1 : level (S N)) (r : renaming term N M) :
     level (S M) -> renaming term (S N) (S M) :=
     match r with
-    | r_static r =>
-      fun l2 => r_static (static_renaming_swap l1 r l2)
-    | r_bind t r l =>
+    | renaming_static r =>
       fun l2 =>
-        r_bind (morph_apply_zero
-                  (apply_pushes (r_weak l1 (r_idN N))) t)
-               (renaming_swap l1 r (unshift_level l l2))
-               (shift_level l2 l)
-    | r_subst t r n =>
+        renaming_static (static_renaming_swap l1 r l2)
+    | renaming_bind t r l =>
       fun l2 =>
-        r_subst (morph_apply_zero
-                   (apply_pushes (r_weak l1 (r_idN N))) t)
-                (renaming_swap l1 r l2) n
+        renaming_bind
+          (morph_apply_zero
+             (apply_pushes
+                (pushes_weak l1 pushes_id_n)) t)
+          (renaming_swap l1 r (unshift_level l l2))
+          (shift_level l2 l)
+    | renaming_subst t r n =>
+      fun l2 =>
+        renaming_subst
+          (morph_apply_zero
+             (apply_pushes
+                (pushes_weak l1 pushes_id_n)) t)
+          (renaming_swap l1 r l2) n
     end.
 
     level (S N) -> pushes N M -> level (S M) -> pushes (S N) (S M)
