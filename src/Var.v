@@ -185,8 +185,8 @@ Defined.
 
 Definition less_than_pred_le {N M O} :
    S N <= M ->
-   less_than M (S O) ->
-   less_than (pred M) O.
+   less_than M O ->
+   less_than (pred M) (pred O).
   intros Hle Hlt.
   destruct Hle.
   - apply (less_than_pred Hlt).
@@ -243,6 +243,14 @@ Definition less_than_cast {N M O} :
     with
     | eq_refl => fun l => l
     end.
+
+Definition less_than_succ_pred_le {N M O} :
+   S N <= M ->
+   less_than M O ->
+   less_than (S (pred M)) O.
+  intros Hle Hlt.
+  destruct M; easy.
+Defined.
 
 Set Primitive Projections.
 Record level N := mklevel { l_nat : nat; l_less_than : less_than l_nat N }.
@@ -1124,6 +1132,13 @@ Hint Rewrite reduce_shift_name_ge reduce_shift_name_lt
 Ltac reduce_names :=
   autorewrite with reduce_names in *; cbn in *.
 
+Lemma reduce_non_zero_name {i} n :
+  i < n_index n ->
+  mkname (n_string n) (S (pred (n_index n))) = n.
+Proof.
+  intros; destruct n as [s i2], i2; cbn in *; easy.
+Qed.
+
 (* Useful lemma *)
 Lemma red_name_neq n1 n2 :
   n_string n1 = n_string n2 ->
@@ -1146,10 +1161,17 @@ Ltac case_name n1 n2 :=
      autorewrite with red_name_neq in *;
      destruct (Compare_dec.lt_eq_lt_dec (n_index n1) (n_index n2))
         as [[|]|];
-     [|replace n2 with n1
+     [replace n2
+        with (mkname (n_string n2) (S (pred (n_index n2))))
+       by (apply (@reduce_non_zero_name (n_index n1)); easy)
+     |replace n2 with n1
         by (change n1 with (mkname (n_string n1) (n_index n1));
             change n2 with (mkname (n_string n2) (n_index n2));
-            congruence)|] |];
+            congruence)
+     |replace n1
+        with (mkname (n_string n1) (S (pred (n_index n1))))
+       by (apply (@reduce_non_zero_name (n_index n2)); easy) ]
+    |];
     reduce_names;
     change (mkname (n_string n1) (n_index n1)) with n1;
     change (mkname (n_string n2) (n_index n2)) with n2;
@@ -1160,9 +1182,7 @@ Lemma open_close_identity (n : name) :
 Proof.
   intros V v; unfold open_var, close_var.
   destruct v as [n2|?]; cbn; try easy.
-  case_name n n2; try easy.
-  destruct n2 as [s2 i2]; cbn in *.
-  destruct i2; easy.
+  case_name n n2; easy.
 Qed.
 
 Lemma close_open_identity (n : name) :
@@ -1309,7 +1329,9 @@ Ltac case_level l1 l2 :=
   let Heq := fresh "Heq" in
   destruct (Compare_dec.lt_eq_lt_dec (l_nat l1) (l_nat l2))
     as [[|Heq]|];
-  [|replace l2 with (mklevel (l_nat l1) (less_than_cast (eq_sym Heq) (l_less_than l2)))
+  [|replace l2
+      with (mklevel (l_nat l1)
+             (less_than_cast (eq_sym Heq) (l_less_than l2)))
       by (apply lift_level_eq; easy);
     replace (l_nat l2) with (l_nat l1) by easy;
     cbn in Heq;
