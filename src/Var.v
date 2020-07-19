@@ -2,11 +2,20 @@ Require Import String Omega StrictProp.
 Require Import Morph.
 Arguments string_dec !s1 !s2.
 
-(* Useful conversion *)
+(* Some utilities for working with SProp *)
 
-Definition neq_sym {A} {x y : A} :
-  x <> y -> y <> x :=
-  fun neq eql => neq (eq_sym eql).
+Inductive ssumbool (A B:SProp) : Set :=
+  | sleft : A -> ssumbool A B
+  | sright : B -> ssumbool A B.
+Arguments sleft {A B} a.
+Arguments sright {A B} b.
+
+Definition sneq_sym {A} {x y : A} :
+  Squash (x <> y) -> Squash (y <> x) :=
+  fun sneq =>
+    match sneq with
+    | squash neq => squash (fun eql => neq (eq_sym eql))
+    end.
 
 (* Name indices are [nat]s *)
 
@@ -23,7 +32,41 @@ Unset Primitive Projections.
 
 Definition name_of_string s := mkname s 0.
 Coercion name_of_string : string >-> name.
-Bind Scope string_scope with name.
+
+Declare Scope name_scope.
+Delimit Scope name_scope with name.
+Bind Scope name_scope with name.
+Arguments mkname n%name_scope i : rename.
+
+String Notation string string_of_list_byte list_byte_of_string
+  : name_scope.
+Notation "s ₍₁₎" :=
+  (mkname s 1) (at level 9, format "s '₍₁₎'")
+  : name_scope.
+Notation "s ₍₂₎" :=
+  (mkname s 2) (at level 9, format "s '₍₂₎'")
+  : name_scope.
+Notation "s ₍₃₎" :=
+  (mkname s 3) (at level 9, format "s '₍₃₎'")
+  : name_scope.
+Notation "s ₍₄₎" :=
+  (mkname s 4) (at level 9, format "s '₍₄₎'")
+  : name_scope.
+Notation "s ₍₅₎" :=
+  (mkname s 5) (at level 9, format "s '₍₅₎'")
+  : name_scope.
+Notation "s ₍₆₎" :=
+  (mkname s 6) (at level 9, format "s '₍₆₎'")
+  : name_scope.
+Notation "s ₍₇₎" :=
+  (mkname s 7) (at level 9, format "s '₍₇₎'")
+  : name_scope.
+Notation "s ₍₈₎" :=
+  (mkname s 8) (at level 9, format "s '₍₈₎'")
+  : name_scope.
+Notation "s ₍₉₎" :=
+  (mkname s 9) (at level 9, format "s '₍₉₎'")
+  : name_scope.
 
 Definition name_dec n1 n2 : {n1 = n2} + {n1 <> n2} :=
   match string_dec (n_string n1) (n_string n2) with
@@ -44,6 +87,12 @@ Definition name_dec n1 n2 : {n1 = n2} + {n1 <> n2} :=
              s_neql (eq_ind_r
                        (fun n => n_string n = n_string n2)
                        eq_refl eql))
+  end.
+
+Definition name_eqb n1 n2 : bool :=
+  match name_dec n1 n2 with
+  | left _ => true
+  | right _ => false
   end.
 
 Definition shift_name n1 n2 :=
@@ -71,47 +120,60 @@ Inductive less_than : nat -> nat -> SProp :=
 Arguments less_than_zero {N}.
 Arguments less_than_succ {N M} lt.
 
+Notation lt_0 := less_than_zero.
+Notation lt_S := less_than_succ.
+
+Notation lt_1 := (lt_S lt_0).
+Notation lt_2 := (lt_S lt_1).
+Notation lt_3 := (lt_S lt_2).
+Notation lt_4 := (lt_S lt_3).
+Notation lt_5 := (lt_S lt_4).
+Notation lt_6 := (lt_S lt_5).
+Notation lt_7 := (lt_S lt_6).
+Notation lt_8 := (lt_S lt_7).
+Notation lt_9 := (lt_S lt_8).
+
 Fixpoint less_than_extend {N M} (lt : less_than N M) :
   less_than N (S M) :=
   match lt in less_than N M return less_than N (S M) with
-  | less_than_zero => less_than_zero
-  | less_than_succ lt' => less_than_succ (less_than_extend lt')
+  | lt_0 => lt_0
+  | lt_S lt' => lt_S (less_than_extend lt')
   end.
 
 Fixpoint less_than_extend_by {N M} V (lt : less_than N M) :
   less_than N (M + V) :=
   match lt in less_than N M return less_than N (M + V) with
-  | less_than_zero => less_than_zero
-  | less_than_succ lt' => less_than_succ (less_than_extend_by V lt')
+  | lt_0 => lt_0
+  | lt_S lt' => lt_S (less_than_extend_by V lt')
   end.
 
-Definition less_than_zero_empty {N} : less_than N 0 -> False.
+Definition lt_0_empty {N} : less_than N 0 -> False.
   intro Hlt.
   apply sEmpty_rec.
   inversion Hlt.
 Defined.
 
-Definition less_than_zero' {N M}
+Definition lt_0' {N M}
   : less_than N M -> less_than 0 M :=
   match M return less_than _ M
                  -> less_than _ M with
-  | 0 => fun l => False_sind _ (less_than_zero_empty l)
-  | S M => fun l => less_than_zero
+  | 0 => fun l => False_sind _ (lt_0_empty l)
+  | S M => fun l => lt_0
   end.
 
-Definition less_than_succ' {N M}
+Definition lt_S' {N M}
   : less_than N (pred M) -> less_than (S N) M :=
   match M return less_than _ (pred M)
                  -> less_than _ M with
-  | 0 => fun l => False_sind _ (less_than_zero_empty l)
-  | S M => fun l => less_than_succ l
+  | 0 => fun l => False_sind _ (lt_0_empty l)
+  | S M => fun l => lt_S l
   end.
 
 Definition less_than_extend' {N M} :
   less_than N (pred M) -> less_than N M :=
   match M return less_than _ (pred M)
                  -> less_than _ M with
-  | 0 => fun l => False_sind _ (less_than_zero_empty l)
+  | 0 => fun l => False_sind _ (lt_0_empty l)
   | S M => fun l => less_than_extend l
   end.
 
@@ -191,17 +253,23 @@ Arguments l_nat {N} l.
 Arguments l_less_than {N} l.
 
 Definition lift_level_eq {N M O} :
-  forall (Heq : N = M) (lt : less_than N O),
-    mklevel N lt = mklevel M (less_than_cast Heq lt) :=
+  forall (Heq : N = M) (lt1 : less_than N O) (lt2 : less_than M O),
+    mklevel N lt1 = mklevel M lt2 :=
   fun Heq =>
     match Heq in eq _ M'
           return
-          forall (lt : less_than N O),
-            mklevel _ lt = mklevel M' (less_than_cast Heq lt)
+          forall (lt1 : less_than N O) (lt2 : less_than M' O),
+            mklevel _ lt1 = mklevel M' lt2
     with
-    | eq_refl => fun lt => eq_refl
+    | eq_refl => fun lt1 lt2 => eq_refl
     end.
-Arguments lift_level_eq {N M O} Heq {lt}.
+Arguments lift_level_eq {N M O} Heq {lt1 lt2}.
+
+Definition lift_level_neq {N M O}
+  (Hneq : N <> M) (lt1 : less_than N O) (lt2 : less_than M O) :
+  mklevel N lt1 <> mklevel M lt2 :=
+  fun Heq => Hneq (f_equal l_nat Heq).
+Arguments lift_level_neq {N M O} Hneq {lt1 lt2}.
 
 Definition l_nat_injective {N} {l1 l2 : level N} :
   l1 <> l2 ->
@@ -209,32 +277,43 @@ Definition l_nat_injective {N} {l1 l2 : level N} :
   fun Hneq Heq =>
     Hneq (lift_level_eq Heq).
 
-Definition l0 {N} : level (S N) := mklevel 0 less_than_zero.
-Definition lS {N} (l : level N) : level (S N) :=
-  mklevel (S (l_nat l)) (less_than_succ (l_less_than l)).
+Notation l_0 := (mklevel 0 lt_0).
+Notation l_S l :=
+  (mklevel (S (l_nat l)) (lt_S (l_less_than l))).
+
+Notation l_1 := (mklevel 1 lt_1).
+Notation l_2 := (mklevel 2 lt_2).
+Notation l_3 := (mklevel 3 lt_3).
+Notation l_4 := (mklevel 4 lt_4).
+Notation l_5 := (mklevel 5 lt_5).
+Notation l_6 := (mklevel 6 lt_6).
+Notation l_7 := (mklevel 7 lt_7).
+Notation l_8 := (mklevel 8 lt_8).
+Notation l_9 := (mklevel 9 lt_9).
 
 Definition level_extend {N} : level N -> level (S N) :=
   fun l => mklevel (l_nat l) (less_than_extend (l_less_than l)).
-Arguments level_extend {N} l.
+Arguments level_extend {N} l /.
 
 Definition level_extend_by {N} V : level N -> level (N + V) :=
   fun l => mklevel (l_nat l) (less_than_extend_by V (l_less_than l)).
-Arguments level_extend_by {N} V l.
+Arguments level_extend_by {N} V l /.
 
-Definition l0' {N} (l : Squash (level N)) : level N :=
+Definition l_0' {N} (l : Squash (level N)) : level N :=
   mklevel 0 (match l with
-             | squash l => less_than_zero' (l_less_than l)
+             | squash l => lt_0' (l_less_than l)
              end).
 
-Definition lS' {N} (l : level (pred N)) : level N :=
-  mklevel (S (l_nat l)) (less_than_succ' (l_less_than l)).
+Definition l_S' {N} (l : level (pred N)) : level N :=
+  mklevel (S (l_nat l)) (lt_S' (l_less_than l)).
+Arguments l_S' {N} l /.
 
 Definition level_extend' {N} : level (pred N) -> level N :=
   fun l => mklevel (l_nat l) (less_than_extend' (l_less_than l)).
-Arguments level_extend' {N} l.
+Arguments level_extend' {N} l /.
 
 Definition level_zero_empty : level 0 -> False :=
-  fun l => less_than_zero_empty (l_less_than l).
+  fun l => lt_0_empty (l_less_than l).
 
 Definition level_dec {N} (l1 : level N) (l2 : level N) :
     {l1 = l2} + {l1 <> l2} :=
@@ -242,12 +321,19 @@ Definition level_dec {N} (l1 : level N) (l2 : level N) :
   | left Heq =>
     left (lift_level_eq Heq)
   | right Hneq =>
-    right (fun Heq => Hneq (f_equal l_nat Heq))
+    right (lift_level_neq Hneq)
+  end.
+
+Definition level_sdec {N} (l1 : level N) (l2 : level N) :
+    ssumbool (Squash (l1 = l2)) (Squash (l1 <> l2)) :=
+  match level_dec l1 l2 with
+  | left Heq => sleft (squash Heq)
+  | right Hneq => sright (squash Hneq)
   end.
 
 Definition shift_level {N}
            (l1 : level N) (l2 : level (pred N)) : level N :=
-  if le_gt_dec (l_nat l1) (l_nat l2) then lS' l2
+  if le_gt_dec (l_nat l1) (l_nat l2) then l_S' l2
   else level_extend' l2.
 Arguments shift_level {N} l1 l2 : simpl nomatch.
 
@@ -296,9 +382,9 @@ Arguments cycle_in_level {N} l1 {V} l2 : simpl nomatch.
 Definition cycle_out_level {N}
   : level N -> morph level N level N :=
   fun l1 V l2 =>
-    if level_dec (level_extend_by V l1) l2 then
-      l0' (squash (level_extend_by V l1))
-    else (unshift_level (level_extend_by V l1) (lS l2)).
+    if level_sdec (level_extend_by V l1) l2 then
+      l_0' (squash (level_extend_by V l1))
+    else (unshift_level (level_extend_by V l1) (l_S l2)).
 Arguments cycle_out_level {N} l1 {V} l2 : simpl nomatch.
 
 (* Variables are either free names or bound levels *)
@@ -324,9 +410,9 @@ Definition close_var n : morph var 0 var 1 :=
   fun V v =>
     match v with
     | free n2 =>
-      if name_dec n n2 then bound l0
+      if name_eqb n n2 then bound l_0
       else free (unshift_name n n2)
-    | bound l => bound (lS l)
+    | bound l => bound (l_S l)
     end.
 Arguments close_var n {V} v : simpl nomatch.
 
@@ -334,7 +420,7 @@ Definition weak_var : morph var 0 var 1 :=
   fun V v =>
     match v with
     | free n => free n
-    | bound l => bound (lS l)
+    | bound l => bound (l_S l)
     end.
 Arguments weak_var {V} v : simpl nomatch.
 
@@ -361,576 +447,973 @@ Definition lift_morph_var {N M} (m : morph var M var N) :
     | free n =>
       match m V (free n) with
       | free n => free n
-      | bound l => bound (lS l)
+      | bound l => bound (l_S l)
       end
-    | bound (mklevel 0 _) => bound l0
+    | bound (mklevel 0 _) => bound l_0
     | bound (mklevel (S l) lt') =>
       match m V (bound (mklevel l (less_than_pred lt'))) with
       | free n => free n
-      | bound l => bound (lS l)
+      | bound l => bound (l_S l)
       end
     end.
 
 (* Algebra of operations on [var] *)
 
-Inductive pushes : nat -> nat -> Set :=
-| pushes_id : pushes 0 0
-| pushes_weak : forall N M,
-    level (S N) -> pushes N M -> pushes (S N) M
-| pushes_swap : forall N M,
-    level (S N) -> pushes N M -> level (S M) -> pushes (S N) (S M)
-| pushes_close : forall N M,
-    level (S N) -> pushes N M -> name -> pushes (S N) M.
+Inductive closing : nat -> nat -> Set :=
+| closing_id : closing 0 0
+| closing_weak : forall N M,
+    level (S N) -> closing N M -> closing (S N) M
+| closing_swap : forall N M,
+    level (S N) -> closing N M -> level (S M) -> closing (S N) (S M)
+| closing_close : forall N M,
+    level (S N) -> closing N M -> name -> closing (S N) M.
 
-Arguments pushes_weak {N} {M} l r.
-Arguments pushes_swap {N} {M} l1 r l2.
-Arguments pushes_close {N} {M} l r n.
+Arguments closing_weak {N} {M} l r.
+Arguments closing_swap {N} {M} l1 r l2.
+Arguments closing_close {N} {M} l r n.
 
-Fixpoint pushes_weak_n {N} : pushes N 0 :=
-  match N return pushes N _ with
-  | 0 => pushes_id
-  | S N => pushes_weak l0 pushes_weak_n
+Fixpoint closing_weak_n {N} : closing N 0 :=
+  match N return closing N _ with
+  | 0 => closing_id
+  | S N => closing_weak l_0 closing_weak_n
   end.
 
-Fixpoint pushes_weakening {N M} : pushes (N + M) N :=
-  match N return pushes (N + _) N with
-  | 0 => pushes_weak_n
-  | S N => pushes_swap l0 pushes_weakening l0
+Fixpoint closing_weakening {N M} : closing (N + M) N :=
+  match N return closing (N + _) N with
+  | 0 => closing_weak_n
+  | S N => closing_swap l_0 closing_weakening l_0
   end.
 
-Fixpoint pushes_id_n {N} : pushes N N :=
-  match N return pushes N N with
-  | 0 => pushes_id
-  | S N => pushes_swap l0 pushes_id_n l0
+Fixpoint closing_id_n {N} : closing N N :=
+  match N return closing N N with
+  | 0 => closing_id
+  | S N => closing_swap l_0 closing_id_n l_0
   end.
 
-Inductive static_renaming (N : nat) : nat -> Set :=
-| static_renaming_pushes : forall M, pushes N M -> static_renaming N M
-| static_renaming_shift : forall M,
-    name -> static_renaming N M -> static_renaming N M
-| static_renaming_open : forall M,
-    name -> static_renaming N M -> level (S M) ->
-    static_renaming N (S M)
-| static_renaming_rename : forall M,
-    name -> static_renaming N M -> name -> static_renaming N M.
+Inductive renaming (N : nat) : nat -> Set :=
+| renaming_closing : forall M, closing N M -> renaming N M
+| renaming_shift : forall M,
+    name -> renaming N M -> renaming N M
+| renaming_open : forall M,
+    name -> renaming N M -> level (S M) ->
+    renaming N (S M)
+| renaming_rename : forall M,
+    name -> renaming N M -> name -> renaming N M.
 
-Arguments static_renaming_pushes {N} {M} r.
-Arguments static_renaming_shift {N} {M} n r.
-Arguments static_renaming_open {N} {M} n r l.
-Arguments static_renaming_rename {N} {M} n1 r n2.
+Arguments renaming_closing {N} {M} r.
+Arguments renaming_shift {N} {M} n r.
+Arguments renaming_open {N} {M} n r l.
+Arguments renaming_rename {N} {M} n1 r n2.
 
-Definition static_renaming_id :=
-  static_renaming_pushes pushes_id.
+Definition renaming_id :=
+  renaming_closing closing_id.
 
-Fixpoint static_renaming_weak {N M}
-         (l : level (S N)) (r : static_renaming N M) :
-  static_renaming (S N) M :=
-  match r in static_renaming _ M
-        return static_renaming _ M
+Definition renaming_id_n {N} : renaming N N :=
+  renaming_closing closing_id_n.
+
+Fixpoint renaming_weak {N M}
+         (l : level (S N)) (r : renaming N M) :
+  renaming (S N) M :=
+  match r in renaming _ M
+        return renaming _ M
   with
-  | static_renaming_pushes r =>
-    static_renaming_pushes (pushes_weak l r)
-  | static_renaming_shift n r =>
-    static_renaming_shift n (static_renaming_weak l r)
-  | @static_renaming_open _ M n r l' =>
-    static_renaming_open n (static_renaming_weak l r) l'
-  | static_renaming_rename n1 r n2 =>
-    static_renaming_rename n1 (static_renaming_weak l r) n2
+  | renaming_closing r =>
+    renaming_closing (closing_weak l r)
+  | renaming_shift n r =>
+    renaming_shift n (renaming_weak l r)
+  | @renaming_open _ M n r l' =>
+    renaming_open n (renaming_weak l r) l'
+  | renaming_rename n1 r n2 =>
+    renaming_rename n1 (renaming_weak l r) n2
   end.
 
-Fixpoint static_renaming_swap {N M}
-         (l1 : level (S N)) (r : static_renaming N M) :
-  level (S M) -> static_renaming (S N) (S M) :=
-  match r in static_renaming _ M
-        return level (S M) -> static_renaming _ (S M)
+Fixpoint renaming_swap {N M}
+         (l1 : level (S N)) (r : renaming N M) :
+  level (S M) -> renaming (S N) (S M) :=
+  match r in renaming _ M
+        return level (S M) -> renaming _ (S M)
   with
-  | static_renaming_pushes r =>
-    fun l2 => static_renaming_pushes (pushes_swap l1 r l2)
-  | static_renaming_shift n r =>
-    fun l2 => static_renaming_shift n (static_renaming_swap l1 r l2)
-  | @static_renaming_open _ M n r l =>
+  | renaming_closing r =>
+    fun l2 => renaming_closing (closing_swap l1 r l2)
+  | renaming_shift n r =>
+    fun l2 => renaming_shift n (renaming_swap l1 r l2)
+  | @renaming_open _ M n r l =>
     fun l2 =>
-      static_renaming_open
-        n (static_renaming_swap l1 r (unshift_level l l2))
+      renaming_open
+        n (renaming_swap l1 r (unshift_level l l2))
         (shift_level l2 l)
-  | static_renaming_rename n1 r n2 =>
+  | renaming_rename n1 r n2 =>
     fun l2 =>
-      static_renaming_rename n1 (static_renaming_swap l1 r l2) n2
+      renaming_rename n1 (renaming_swap l1 r l2) n2
   end.
 
-Fixpoint static_renaming_close {N M}
-         (l : level (S N)) (r : static_renaming N M) (n : name) :
-  static_renaming (S N) M :=
-  match r in static_renaming _ M
-        return static_renaming _ M
+Fixpoint renaming_close {N M}
+         (l : level (S N)) (r : renaming N M) (n : name) :
+  renaming (S N) M :=
+  match r in renaming _ M
+        return renaming _ M
   with
-  | static_renaming_pushes r =>
-    static_renaming_pushes (pushes_close l r n)
-  | static_renaming_shift n' r =>
-    static_renaming_shift n' (static_renaming_close l r n)
-  | @static_renaming_open _ M n' r l' =>
-    static_renaming_open n' (static_renaming_close l r n) l'
-  | static_renaming_rename n1 r n2 =>
-    static_renaming_rename
-      n1 (static_renaming_close l r (unshift_name n2 n))
+  | renaming_closing r =>
+    renaming_closing (closing_close l r n)
+  | renaming_shift n' r =>
+    renaming_shift n' (renaming_close l r n)
+  | @renaming_open _ M n' r l' =>
+    renaming_open n' (renaming_close l r n) l'
+  | renaming_rename n1 r n2 =>
+    renaming_rename
+      n1 (renaming_close l r (unshift_name n2 n))
       (shift_name n n2)
   end.
 
-Fixpoint apply_pushes_var {N M} (r : pushes N M)
+Fixpoint apply_closing_var {N M} (r : closing N M)
   : morph var M var N :=
-  match r in pushes N M return morph _ M _ N with
-  | pushes_id => morph_id
-  | @pushes_weak N M l r =>
+  match r in closing N M return morph _ M _ N with
+  | closing_id => morph_id
+  | @closing_weak N M l r =>
       (@cycle_out_var (S N) l)
-      @ lift_morph_var (apply_pushes_var r)
+      @ lift_morph_var (apply_closing_var r)
       @ morph_extend_by M (@weak_var)
-  | @pushes_swap N M l1 r l2 =>
+  | @closing_swap N M l1 r l2 =>
         (@cycle_out_var (S N) l1)
-      @ lift_morph_var (apply_pushes_var r)
+      @ lift_morph_var (apply_closing_var r)
       @ @cycle_in_var (S M) l2
-  | @pushes_close N M l r n =>
+  | @closing_close N M l r n =>
         (@cycle_out_var (S N) l)
-      @ lift_morph_var (apply_pushes_var r)
+      @ lift_morph_var (apply_closing_var r)
       @ morph_extend_by M (@close_var n)
   end.
 
-Fixpoint apply_static_renaming_var {N M}
-         (r : static_renaming N M)
+Fixpoint apply_renaming_var {N M}
+         (r : renaming N M)
   : morph var M var N :=
-  match r in static_renaming _ M
+  match r in renaming _ M
         return morph _ M _ _ with
-  | static_renaming_pushes r => apply_pushes_var r
-  | @static_renaming_shift _ M n r =>
+  | renaming_closing r => apply_closing_var r
+  | @renaming_shift _ M n r =>
       morph_extend_by N (@open_var n)
-      @ lift_morph_var (apply_static_renaming_var r)
+      @ lift_morph_var (apply_renaming_var r)
       @ morph_extend_by M (@weak_var)
-  | @static_renaming_open _ M n r l =>
+  | @renaming_open _ M n r l =>
       morph_extend_by N (@open_var n)
-      @ lift_morph_var (apply_static_renaming_var r)
+      @ lift_morph_var (apply_renaming_var r)
       @ @cycle_in_var (S M) l
-  | @static_renaming_rename _ M n1 r n2 =>
+  | @renaming_rename _ M n1 r n2 =>
       morph_extend_by N (@open_var n1)
-      @ lift_morph_var (apply_static_renaming_var r)
+      @ lift_morph_var (apply_renaming_var r)
       @ morph_extend_by M (@close_var n2)
   end.
 
-Inductive pushes_rhs (N : nat) : nat -> Set :=
-| pushes_rhs_weak_rhs : forall M,
-    pushes N M -> pushes_rhs N M
-| pushes_rhs_swap_rhs : forall M,
-    pushes N M -> level (S M) -> pushes_rhs N (S M)
-| pushes_rhs_close_rhs : forall M,
-    pushes N M -> name -> pushes_rhs N M.
+Inductive closing_rhs (N : nat) : nat -> Set :=
+| closing_rhs_weak_rhs : forall M,
+    closing N M -> closing_rhs N M
+| closing_rhs_swap_rhs : forall M,
+    closing N M -> level (S M) -> closing_rhs N (S M)
+| closing_rhs_close_rhs : forall M,
+    closing N M -> name -> closing_rhs N M.
 
-Arguments pushes_rhs_weak_rhs {N} {M} r.
-Arguments pushes_rhs_swap_rhs {N} {M} r l.
-Arguments pushes_rhs_close_rhs {N} {M} r n.
+Arguments closing_rhs_weak_rhs {N} {M} r.
+Arguments closing_rhs_swap_rhs {N} {M} r l.
+Arguments closing_rhs_close_rhs {N} {M} r n.
 
-Definition pushes_rhs_weak {N M}
-  : level N -> pushes_rhs (pred N) M -> pushes_rhs N M :=
+Definition closing_rhs_weak {N M}
+  : level N -> closing_rhs (pred N) M -> closing_rhs N M :=
   match N
-        return level N -> pushes_rhs (pred N) _ -> pushes_rhs N _
+        return level N -> closing_rhs (pred N) _ -> closing_rhs N _
   with
   | 0 => fun l1 => False_rec _ (level_zero_empty l1)
   | S N' =>
     fun l1 r =>
-      match r in pushes_rhs _ M
-            return pushes_rhs (S N') M with
-      | pushes_rhs_weak_rhs r =>
-        pushes_rhs_weak_rhs (pushes_weak l1 r)
-      | pushes_rhs_swap_rhs r l =>
-        pushes_rhs_swap_rhs (pushes_weak l1 r) l
-      | pushes_rhs_close_rhs r n =>
-        pushes_rhs_close_rhs (pushes_weak l1 r) n
+      match r in closing_rhs _ M
+            return closing_rhs (S N') M with
+      | closing_rhs_weak_rhs r =>
+        closing_rhs_weak_rhs (closing_weak l1 r)
+      | closing_rhs_swap_rhs r l =>
+        closing_rhs_swap_rhs (closing_weak l1 r) l
+      | closing_rhs_close_rhs r n =>
+        closing_rhs_close_rhs (closing_weak l1 r) n
       end
   end.
 
-Definition pushes_rhs_swap {N M}
-  : level N -> pushes_rhs (pred N) M
-    -> level (S M) -> pushes_rhs N (S M) :=
+Definition closing_rhs_swap {N M}
+  : level N -> closing_rhs (pred N) M
+    -> level (S M) -> closing_rhs N (S M) :=
   match N
-        return level N -> pushes_rhs (pred N) _ ->
-               _ -> pushes_rhs N _
+        return level N -> closing_rhs (pred N) _ ->
+               _ -> closing_rhs N _
   with
   | 0 => fun l1 => False_rec _ (level_zero_empty l1)
   | S N' =>
     fun l1 r =>
-      match r in pushes_rhs _ M
-            return level (S M) -> pushes_rhs (S N') (S M) with
-      | pushes_rhs_weak_rhs r =>
-        fun l2 => pushes_rhs_weak_rhs (pushes_swap l1 r l2)
-      | pushes_rhs_swap_rhs r l =>
+      match r in closing_rhs _ M
+            return level (S M) -> closing_rhs (S N') (S M) with
+      | closing_rhs_weak_rhs r =>
+        fun l2 => closing_rhs_weak_rhs (closing_swap l1 r l2)
+      | closing_rhs_swap_rhs r l =>
         fun l2 =>
-          pushes_rhs_swap_rhs (pushes_swap l1 r (unshift_level l l2))
+          closing_rhs_swap_rhs (closing_swap l1 r (unshift_level l l2))
                           (shift_level l2 l)
-      | pushes_rhs_close_rhs r n =>
-        fun l2 => pushes_rhs_close_rhs (pushes_swap l1 r l2) n
+      | closing_rhs_close_rhs r n =>
+        fun l2 => closing_rhs_close_rhs (closing_swap l1 r l2) n
       end
   end.
 
-Definition pushes_rhs_close {N M}
-  : level N -> pushes_rhs (pred N) M
-    -> name -> pushes_rhs N M :=
+Definition closing_rhs_close {N M}
+  : level N -> closing_rhs (pred N) M
+    -> name -> closing_rhs N M :=
   match N
-        return level N -> pushes_rhs (pred N) _ ->
-               _ -> pushes_rhs N _
+        return level N -> closing_rhs (pred N) _ ->
+               _ -> closing_rhs N _
   with
   | 0 => fun l1 => False_rec _ (level_zero_empty l1)
   | S N' =>
     fun l1 r =>
-      match r in pushes_rhs _ M
-            return _ -> pushes_rhs _ M with
-      | pushes_rhs_weak_rhs r =>
-        fun n1 => pushes_rhs_weak_rhs (pushes_close l1 r n1)
-      | pushes_rhs_swap_rhs r l =>
-        fun n1 => pushes_rhs_swap_rhs (pushes_close l1 r n1) l
-      | pushes_rhs_close_rhs r n =>
+      match r in closing_rhs _ M
+            return _ -> closing_rhs _ M with
+      | closing_rhs_weak_rhs r =>
+        fun n1 => closing_rhs_weak_rhs (closing_close l1 r n1)
+      | closing_rhs_swap_rhs r l =>
+        fun n1 => closing_rhs_swap_rhs (closing_close l1 r n1) l
+      | closing_rhs_close_rhs r n =>
         fun n1 =>
-          pushes_rhs_close_rhs (pushes_close l1 r (unshift_name n n1))
+          closing_rhs_close_rhs (closing_close l1 r (unshift_name n n1))
                            (shift_name n1 n)
       end
   end.
 
-Fixpoint transpose_level_pushes {N M}
-         (r : pushes N M)
-  : level N -> pushes_rhs (pred N) M :=
-  match r in pushes N M
-        return level N -> pushes_rhs (pred N) M
+Fixpoint transpose_level_closing {N M}
+         (r : closing N M)
+  : level N -> closing_rhs (pred N) M :=
+  match r in closing N M
+        return level N -> closing_rhs (pred N) M
   with
-  | pushes_id => fun l => False_rec _ (level_zero_empty l)
-  | @pushes_weak N' M' l1 r =>
+  | closing_id => fun l => False_rec _ (level_zero_empty l)
+  | @closing_weak N' M' l1 r =>
     fun l =>
-      match level_dec l l1 with
-      | left _ => pushes_rhs_weak_rhs r
-      | right neq =>
-        pushes_rhs_weak
-          (unshift_level_neq l l1 (squash neq))
-          (transpose_level_pushes
-             r (unshift_level_neq l1 l (squash (neq_sym neq))))
+      match level_sdec l l1 with
+      | sleft _ => closing_rhs_weak_rhs r
+      | sright neq =>
+        closing_rhs_weak
+          (unshift_level_neq l l1 neq)
+          (transpose_level_closing
+             r (unshift_level_neq l1 l (sneq_sym neq)))
       end
-  | pushes_swap l1 r l2 =>
+  | closing_swap l1 r l2 =>
     fun l =>
-      match level_dec l l1 with
-      | left _ => pushes_rhs_swap_rhs r l2
-      | right neq =>
-        pushes_rhs_swap
-          (unshift_level_neq l l1 (squash neq))
-          (transpose_level_pushes
-             r (unshift_level_neq l1 l (squash (neq_sym neq))))
+      match level_sdec l l1 with
+      | sleft _ => closing_rhs_swap_rhs r l2
+      | sright neq =>
+        closing_rhs_swap
+          (unshift_level_neq l l1 neq)
+          (transpose_level_closing
+             r (unshift_level_neq l1 l (sneq_sym neq)))
           l2
       end
-  | pushes_close l1 r n =>
+  | closing_close l1 r n =>
     fun l =>
-      match level_dec l l1 with
-      | left _ => pushes_rhs_close_rhs r n
-      | right neq =>
-        pushes_rhs_close
-          (unshift_level_neq l l1 (squash neq))
-          (transpose_level_pushes
-             r (unshift_level_neq l1 l (squash (neq_sym neq))))
+      match level_sdec l l1 with
+      | sleft _ => closing_rhs_close_rhs r n
+      | sright neq =>
+        closing_rhs_close
+          (unshift_level_neq l l1 neq)
+          (transpose_level_closing
+             r (unshift_level_neq l1 l (sneq_sym neq)))
           n
       end
   end.
 
-Fixpoint transpose_name_pushes {N M}
-         (r : pushes N M) n : pushes_rhs N M :=
-  match r in pushes N M return pushes_rhs N M with
-  | pushes_id => pushes_rhs_close_rhs pushes_id n
-  | pushes_weak l1 r =>
-      pushes_rhs_weak
-        l1 (transpose_name_pushes r n)
-  | pushes_swap l1 r l2 =>
-      pushes_rhs_swap
-        l1 (transpose_name_pushes r n) l2
-  | pushes_close l1 r n2 =>
-      pushes_rhs_close
-        l1 (transpose_name_pushes r n) n2
+Definition transpose_level_closing' {N M}
+         (r : closing (S N) M) l
+  : closing_rhs N M :=
+  transpose_level_closing r l.
+
+Fixpoint transpose_name_closing {N M}
+         (r : closing N M) n : closing_rhs N M :=
+  match r in closing N M return closing_rhs N M with
+  | closing_id => closing_rhs_close_rhs closing_id n
+  | closing_weak l1 r =>
+      closing_rhs_weak
+        l1 (transpose_name_closing r n)
+  | closing_swap l1 r l2 =>
+      closing_rhs_swap
+        l1 (transpose_name_closing r n) l2
+  | closing_close l1 r n2 =>
+      closing_rhs_close
+        l1 (transpose_name_closing r n) n2
   end.
 
-Fixpoint compose_pushes {N M O}
-         (r1 : pushes O N) {struct r1}
-  : pushes N M -> pushes O M :=
-  match r1 in pushes O' N'
-        return pushes N' _ -> pushes O' _
+Fixpoint compose_closing {N M O}
+         (r1 : closing O N) {struct r1}
+  : closing N M -> closing O M :=
+  match r1 in closing O' N'
+        return closing N' _ -> closing O' _
   with
-  | pushes_id => fun r2 => r2
-  | pushes_weak l r1 =>
-    fun r2 => pushes_weak l (compose_pushes r1 r2)
-  | pushes_swap l1 r1 l2 =>
+  | closing_id => fun r2 => r2
+  | closing_weak l r1 =>
+    fun r2 => closing_weak l (compose_closing r1 r2)
+  | closing_swap l1 r1 l2 =>
     fun r2 =>
-      match transpose_level_pushes r2 l2 in pushes_rhs _ M
-            return pushes _ M
+      match transpose_level_closing r2 l2 in closing_rhs _ M
+            return closing _ M
        with
-      | pushes_rhs_weak_rhs r2 =>
-          pushes_weak l1 (compose_pushes r1 r2)
-      | pushes_rhs_swap_rhs r2 l2 =>
-          pushes_swap l1 (compose_pushes r1 r2) l2
-      | pushes_rhs_close_rhs r2 n =>
-          pushes_close l1 (compose_pushes r1 r2) n
+      | closing_rhs_weak_rhs r2 =>
+          closing_weak l1 (compose_closing r1 r2)
+      | closing_rhs_swap_rhs r2 l2 =>
+          closing_swap l1 (compose_closing r1 r2) l2
+      | closing_rhs_close_rhs r2 n =>
+          closing_close l1 (compose_closing r1 r2) n
       end
-  | @pushes_close O'' N'' l r1 n =>
-    fun (r2 : pushes N'' M) =>
-      match transpose_name_pushes r2 n
-            in pushes_rhs _ M return pushes _ M
+  | @closing_close O'' N'' l r1 n =>
+    fun (r2 : closing N'' M) =>
+      match transpose_name_closing r2 n
+            in closing_rhs _ M return closing _ M
       with
-      | pushes_rhs_weak_rhs r2 =>
-          pushes_weak l (compose_pushes r1 r2)
-      | pushes_rhs_swap_rhs r2 l2 =>
-          pushes_swap l (compose_pushes r1 r2) l2
-      | pushes_rhs_close_rhs r2 n =>
-          pushes_close l (compose_pushes r1 r2) n
+      | closing_rhs_weak_rhs r2 =>
+          closing_weak l (compose_closing r1 r2)
+      | closing_rhs_swap_rhs r2 l2 =>
+          closing_swap l (compose_closing r1 r2) l2
+      | closing_rhs_close_rhs r2 n =>
+          closing_close l (compose_closing r1 r2) n
       end
   end.
 
-Inductive static_renaming_rhs (N : nat) : nat -> Set :=
-| static_renaming_rhs_shift_rhs : forall M,
-    static_renaming N M -> static_renaming_rhs N M
-| static_renaming_rhs_open_rhs : forall M,
-    static_renaming N M -> level (S M) ->
-    static_renaming_rhs N (S M)
-| static_renaming_rhs_rename_rhs : forall M,
-    static_renaming N M -> name ->
-    static_renaming_rhs N M.
+Inductive renaming_rhs (N : nat) : nat -> Set :=
+| renaming_rhs_shift_rhs : forall M,
+    renaming N M -> renaming_rhs N M
+| renaming_rhs_open_rhs : forall M,
+    renaming N M -> level (S M) ->
+    renaming_rhs N (S M)
+| renaming_rhs_rename_rhs : forall M,
+    renaming N M -> name ->
+    renaming_rhs N M.
 
-Arguments static_renaming_rhs_shift_rhs {N} {M} r.
-Arguments static_renaming_rhs_open_rhs {N} {M} r l.
-Arguments static_renaming_rhs_rename_rhs {N} {M} r n.
+Arguments renaming_rhs_shift_rhs {N} {M} r.
+Arguments renaming_rhs_open_rhs {N} {M} r l.
+Arguments renaming_rhs_rename_rhs {N} {M} r n.
 
-Definition static_renaming_rhs_shift {N M}
-          n1 (r : static_renaming_rhs N M)
-  : static_renaming_rhs N M :=
-  match r in static_renaming_rhs _ M
-        return static_renaming_rhs _ M with
-  | static_renaming_rhs_shift_rhs r =>
-      static_renaming_rhs_shift_rhs
-        (static_renaming_shift n1 r)
-  | static_renaming_rhs_open_rhs r l =>
-      static_renaming_rhs_open_rhs
-        (static_renaming_shift n1 r) l
-  | static_renaming_rhs_rename_rhs r n =>
-      static_renaming_rhs_rename_rhs
-        (static_renaming_shift n1 r) n
+Definition renaming_rhs_shift {N M}
+          n1 (r : renaming_rhs N M)
+  : renaming_rhs N M :=
+  match r in renaming_rhs _ M
+        return renaming_rhs _ M with
+  | renaming_rhs_shift_rhs r =>
+      renaming_rhs_shift_rhs
+        (renaming_shift n1 r)
+  | renaming_rhs_open_rhs r l =>
+      renaming_rhs_open_rhs
+        (renaming_shift n1 r) l
+  | renaming_rhs_rename_rhs r n =>
+      renaming_rhs_rename_rhs
+        (renaming_shift n1 r) n
   end.
 
-Definition static_renaming_rhs_open {N M}
-           n1 (r : static_renaming_rhs N M)
-  : level (S M) -> static_renaming_rhs N (S M) :=
-  match r in static_renaming_rhs _ M
+Definition renaming_rhs_open {N M}
+           n1 (r : renaming_rhs N M)
+  : level (S M) -> renaming_rhs N (S M) :=
+  match r in renaming_rhs _ M
         return level (S M) ->
-               static_renaming_rhs _ (S M)
+               renaming_rhs _ (S M)
   with
-  | static_renaming_rhs_shift_rhs r =>
+  | renaming_rhs_shift_rhs r =>
     fun l1 =>
-      static_renaming_rhs_shift_rhs
-        (static_renaming_open n1 r l1)
-  | static_renaming_rhs_open_rhs r l =>
+      renaming_rhs_shift_rhs
+        (renaming_open n1 r l1)
+  | renaming_rhs_open_rhs r l =>
     fun l1 =>
-      static_renaming_rhs_open_rhs
-        (static_renaming_open n1 r (unshift_level l l1))
+      renaming_rhs_open_rhs
+        (renaming_open n1 r (unshift_level l l1))
         (shift_level l1 l)
-  | static_renaming_rhs_rename_rhs r n =>
+  | renaming_rhs_rename_rhs r n =>
     fun l1 =>
-      static_renaming_rhs_rename_rhs
-        (static_renaming_open n1 r l1) n
+      renaming_rhs_rename_rhs
+        (renaming_open n1 r l1) n
   end.
 
-Definition static_renaming_rhs_rename {N M}
-           n1 (r : static_renaming_rhs N M) n2
-  : static_renaming_rhs N M :=
-  match r in static_renaming_rhs _ M
-        return static_renaming_rhs _ M
+Definition renaming_rhs_rename {N M}
+           n1 (r : renaming_rhs N M) n2
+  : renaming_rhs N M :=
+  match r in renaming_rhs _ M
+        return renaming_rhs _ M
   with
-  | static_renaming_rhs_shift_rhs r =>
-    static_renaming_rhs_shift_rhs
-      (static_renaming_rename n1 r n2)
-  | static_renaming_rhs_open_rhs r l =>
-    static_renaming_rhs_open_rhs
-      (static_renaming_rename n1 r n2) l
-  | static_renaming_rhs_rename_rhs r n =>
-    static_renaming_rhs_rename_rhs
-      (static_renaming_rename n1 r (unshift_name n n2))
+  | renaming_rhs_shift_rhs r =>
+    renaming_rhs_shift_rhs
+      (renaming_rename n1 r n2)
+  | renaming_rhs_open_rhs r l =>
+    renaming_rhs_open_rhs
+      (renaming_rename n1 r n2) l
+  | renaming_rhs_rename_rhs r n =>
+    renaming_rhs_rename_rhs
+      (renaming_rename n1 r (unshift_name n n2))
       (shift_name n2 n)
   end.
 
-Fixpoint transpose_level_static_renaming {N M}
-         l (r : static_renaming N M)
-  : static_renaming_rhs (pred N) M :=
-  match r in static_renaming _ M
-        return static_renaming_rhs _ M
+Fixpoint transpose_level_renaming {N M}
+         l (r : renaming N M)
+  : renaming_rhs (pred N) M :=
+  match r in renaming _ M
+        return renaming_rhs _ M
   with
-  | static_renaming_pushes r =>
-      match transpose_level_pushes r l
-            in pushes_rhs _ M'
-            return static_renaming_rhs _ M'
+  | renaming_closing r =>
+      match transpose_level_closing r l
+            in closing_rhs _ M'
+            return renaming_rhs _ M'
       with
-      | pushes_rhs_weak_rhs r =>
-        static_renaming_rhs_shift_rhs
-          (static_renaming_pushes r)
-      | pushes_rhs_swap_rhs r l =>
-        static_renaming_rhs_open_rhs
-          (static_renaming_pushes r) l
-      | pushes_rhs_close_rhs r n =>
-        static_renaming_rhs_rename_rhs
-          (static_renaming_pushes r) n
+      | closing_rhs_weak_rhs r =>
+        renaming_rhs_shift_rhs
+          (renaming_closing r)
+      | closing_rhs_swap_rhs r l =>
+        renaming_rhs_open_rhs
+          (renaming_closing r) l
+      | closing_rhs_close_rhs r n =>
+        renaming_rhs_rename_rhs
+          (renaming_closing r) n
       end
-  | static_renaming_shift n1 r =>
-      static_renaming_rhs_shift n1
-        (transpose_level_static_renaming l r)
-  | static_renaming_open n1 r l2 =>
-      static_renaming_rhs_open
-        n1 (transpose_level_static_renaming l r) l2
-  | static_renaming_rename n1 r n2 =>
-      static_renaming_rhs_rename
-        n1 (transpose_level_static_renaming l r) n2
+  | renaming_shift n1 r =>
+      renaming_rhs_shift n1
+        (transpose_level_renaming l r)
+  | renaming_open n1 r l2 =>
+      renaming_rhs_open
+        n1 (transpose_level_renaming l r) l2
+  | renaming_rename n1 r n2 =>
+      renaming_rhs_rename
+        n1 (transpose_level_renaming l r) n2
   end.
 
-Fixpoint transpose_name_static_renaming {N M}
-         n (r : static_renaming N M)
-  : static_renaming_rhs N M :=
-  match r in static_renaming _ M
-        return static_renaming_rhs _ M
+Fixpoint transpose_name_renaming {N M}
+         n (r : renaming N M)
+  : renaming_rhs N M :=
+  match r in renaming _ M
+        return renaming_rhs _ M
   with
-  | static_renaming_pushes r =>
-    match transpose_name_pushes r n
-          in pushes_rhs _ M'
-          return static_renaming_rhs _ M'
+  | renaming_closing r =>
+    match transpose_name_closing r n
+          in closing_rhs _ M'
+          return renaming_rhs _ M'
     with
-    | pushes_rhs_weak_rhs r =>
-      static_renaming_rhs_shift_rhs
-        (static_renaming_pushes r)
-    | pushes_rhs_swap_rhs r l =>
-      static_renaming_rhs_open_rhs
-        (static_renaming_pushes r) l
-    | pushes_rhs_close_rhs r n =>
-      static_renaming_rhs_rename_rhs
-        (static_renaming_pushes r) n
+    | closing_rhs_weak_rhs r =>
+      renaming_rhs_shift_rhs
+        (renaming_closing r)
+    | closing_rhs_swap_rhs r l =>
+      renaming_rhs_open_rhs
+        (renaming_closing r) l
+    | closing_rhs_close_rhs r n =>
+      renaming_rhs_rename_rhs
+        (renaming_closing r) n
     end
-  | static_renaming_shift n1 r =>
-    if name_dec n n1 then
-      static_renaming_rhs_shift_rhs r
+  | renaming_shift n1 r =>
+    if name_eqb n n1 then
+      renaming_rhs_shift_rhs r
     else
-      static_renaming_rhs_shift
+      renaming_rhs_shift
         (unshift_name n n1)
-        (transpose_name_static_renaming (unshift_name n1 n) r)
-  | static_renaming_open n1 r l2 =>
-    if name_dec n n1 then
-      static_renaming_rhs_open_rhs r l2
+        (transpose_name_renaming (unshift_name n1 n) r)
+  | renaming_open n1 r l2 =>
+    if name_eqb n n1 then
+      renaming_rhs_open_rhs r l2
     else
-      static_renaming_rhs_open
+      renaming_rhs_open
         (unshift_name n n1)
-        (transpose_name_static_renaming (unshift_name n1 n) r) l2
-  | static_renaming_rename n1 r n2 =>
-    if name_dec n n1 then
-      static_renaming_rhs_rename_rhs r n2
+        (transpose_name_renaming (unshift_name n1 n) r) l2
+  | renaming_rename n1 r n2 =>
+    if name_eqb n n1 then
+      renaming_rhs_rename_rhs r n2
     else
-      static_renaming_rhs_rename
+      renaming_rhs_rename
         (unshift_name n n1)
-        (transpose_name_static_renaming (unshift_name n1 n) r) n2
+        (transpose_name_renaming (unshift_name n1 n) r) n2
   end.
 
-Fixpoint compose_pushes_static_renaming {N M O}
-         (r1 : pushes O N) {struct r1}
-  : static_renaming N M -> static_renaming O M :=
-  match r1 in pushes O' N'
-        return static_renaming N' _ -> static_renaming O' _
+Fixpoint compose_closing_renaming {N M O}
+         (r1 : closing O N) {struct r1}
+  : renaming N M -> renaming O M :=
+  match r1 in closing O' N'
+        return renaming N' _ -> renaming O' _
   with
-  | pushes_id => fun r2 => r2
-  | pushes_weak l r1 =>
+  | closing_id => fun r2 => r2
+  | closing_weak l r1 =>
     fun r2 =>
-      static_renaming_weak l
-        (compose_pushes_static_renaming r1 r2)
-  | pushes_swap l1 r1 l2 =>
+      renaming_weak l
+        (compose_closing_renaming r1 r2)
+  | closing_swap l1 r1 l2 =>
     fun r2 =>
-      match transpose_level_static_renaming l2 r2
-             in static_renaming_rhs _ M
-             return static_renaming _ M
+      match transpose_level_renaming l2 r2
+             in renaming_rhs _ M
+             return renaming _ M
       with
-      | static_renaming_rhs_shift_rhs r2 =>
-          static_renaming_weak
-            l1 (compose_pushes_static_renaming r1 r2)
-      | static_renaming_rhs_open_rhs r2 l2 =>
-          static_renaming_swap
-            l1 (compose_pushes_static_renaming r1 r2) l2
-      | static_renaming_rhs_rename_rhs r2 n =>
-          static_renaming_close
-            l1 (compose_pushes_static_renaming r1 r2) n
+      | renaming_rhs_shift_rhs r2 =>
+          renaming_weak
+            l1 (compose_closing_renaming r1 r2)
+      | renaming_rhs_open_rhs r2 l2 =>
+          renaming_swap
+            l1 (compose_closing_renaming r1 r2) l2
+      | renaming_rhs_rename_rhs r2 n =>
+          renaming_close
+            l1 (compose_closing_renaming r1 r2) n
       end
-  | pushes_close l r1 n =>
+  | closing_close l r1 n =>
     fun r2 =>
-      match transpose_name_static_renaming n r2
-            in static_renaming_rhs _ M
-            return static_renaming _ M
+      match transpose_name_renaming n r2
+            in renaming_rhs _ M
+            return renaming _ M
        with
-      | static_renaming_rhs_shift_rhs r2 =>
-          static_renaming_weak
-            l (compose_pushes_static_renaming r1 r2)
-      | static_renaming_rhs_open_rhs r2 l2 =>
-          static_renaming_swap
-            l (compose_pushes_static_renaming r1 r2) l2
-      | static_renaming_rhs_rename_rhs r2 n =>
-          static_renaming_close
-            l (compose_pushes_static_renaming r1 r2) n
+      | renaming_rhs_shift_rhs r2 =>
+          renaming_weak
+            l (compose_closing_renaming r1 r2)
+      | renaming_rhs_open_rhs r2 l2 =>
+          renaming_swap
+            l (compose_closing_renaming r1 r2) l2
+      | renaming_rhs_rename_rhs r2 n =>
+          renaming_close
+            l (compose_closing_renaming r1 r2) n
       end
   end.
 
-Fixpoint compose_static_renamings {N M O}
-         (r1 : static_renaming O N) {struct r1}
-  : static_renaming N M -> static_renaming O M :=
-  match r1 in static_renaming _ N'
-        return static_renaming N' _ -> _
+Fixpoint compose_renamings {N M O} (r1 : renaming O N) {struct r1}
+  : renaming N M -> renaming O M :=
+  match r1 in renaming _ N'
+        return renaming N' _ -> _
   with
-  | static_renaming_pushes r1 =>
+  | renaming_closing r1 =>
     fun r2 =>
-      compose_pushes_static_renaming r1 r2
-  | static_renaming_shift n r1 =>
+      compose_closing_renaming r1 r2
+  | renaming_shift n r1 =>
     fun r2 =>
-      static_renaming_shift n (compose_static_renamings r1 r2)
-  | static_renaming_open n r1 l =>
+      renaming_shift n (compose_renamings r1 r2)
+  | renaming_open n r1 l =>
     fun r2 =>
-      match transpose_level_static_renaming l r2
-             in static_renaming_rhs _ M
-             return static_renaming _ M
+      match transpose_level_renaming l r2
+             in renaming_rhs _ M
+             return renaming _ M
       with
-      | static_renaming_rhs_shift_rhs r2 =>
-          static_renaming_shift
-            n (compose_static_renamings r1 r2)
-      | static_renaming_rhs_open_rhs r2 l2 =>
-          static_renaming_open
-            n (compose_static_renamings r1 r2) l2
-      | static_renaming_rhs_rename_rhs r2 n2 =>
-          static_renaming_rename
-            n (compose_static_renamings r1 r2) n2
+      | renaming_rhs_shift_rhs r2 =>
+          renaming_shift
+            n (compose_renamings r1 r2)
+      | renaming_rhs_open_rhs r2 l2 =>
+          renaming_open
+            n (compose_renamings r1 r2) l2
+      | renaming_rhs_rename_rhs r2 n2 =>
+          renaming_rename
+            n (compose_renamings r1 r2) n2
       end
-  | static_renaming_rename n1 r1 n2 =>
+  | renaming_rename n1 r1 n2 =>
     fun r2 =>
-      match transpose_name_static_renaming n2 r2
-            in static_renaming_rhs _ M
-            return static_renaming _ M
+      match transpose_name_renaming n2 r2
+            in renaming_rhs _ M
+            return renaming _ M
        with
-      | static_renaming_rhs_shift_rhs r2 =>
-          static_renaming_shift
-            n1 (compose_static_renamings r1 r2)
-      | static_renaming_rhs_open_rhs r2 l =>
-          static_renaming_open
-            n1 (compose_static_renamings r1 r2) l
-      | static_renaming_rhs_rename_rhs r2 n3 =>
-          static_renaming_rename
-            n1 (compose_static_renamings r1 r2) n3
+      | renaming_rhs_shift_rhs r2 =>
+          renaming_shift
+            n1 (compose_renamings r1 r2)
+      | renaming_rhs_open_rhs r2 l =>
+          renaming_open
+            n1 (compose_renamings r1 r2) l
+      | renaming_rhs_rename_rhs r2 n3 =>
+          renaming_rename
+            n1 (compose_renamings r1 r2) n3
       end
   end.
 
-Inductive renaming (term : nset) (N : nat) : nat -> Set :=
-| renaming_static : forall M,
-    static_renaming N M -> renaming term N M
-| renaming_bind : forall M,
-    term N -> renaming term N M -> level (S M) ->
-    renaming term N (S M)
-| renaming_subst : forall M,
-    term N -> renaming term N M -> name -> renaming term N M.
+(* Reasoning about shifts and unshifts of names *)
 
-Arguments renaming_static {term} {N} {M} r.
-Arguments renaming_bind {term} {N} {M} t r l.
-Arguments renaming_subst {term} {N} {M} t r n.
+Lemma reduce_shift_name_distinct n1 n2 :
+  n_string n1 <> n_string n2 ->
+  shift_name n1 n2 = n2.
+Proof.
+  intros; unfold shift_name.
+  destruct (string_dec (n_string n1) (n_string n2)); subst;
+    try contradiction; easy.
+Qed.
+
+Lemma reduce_shift_name_ge n1 n2 :
+  n_string n1 = n_string n2 ->
+  n_index n1 <= n_index n2 ->
+  shift_name n1 n2 = mkname (n_string n2) (S (n_index n2)).
+Proof.
+  intros; unfold shift_name.
+  destruct (string_dec (n_string n1) (n_string n2));
+    try contradiction.
+  destruct (le_gt_dec (n_index n1) (n_index n2));
+    try easy; omega.
+Qed.
+
+Lemma reduce_shift_name_lt n1 n2 :
+  n_string n1 = n_string n2 ->
+  S (n_index n2) <= n_index n1 ->
+  shift_name n1 n2 = n2.
+Proof.
+  intros; unfold shift_name.
+  destruct (string_dec (n_string n1) (n_string n2));
+    try contradiction.
+  destruct (le_gt_dec (n_index n1) (n_index n2));
+    try easy; omega.
+Qed.
+
+Lemma reduce_unshift_name_distinct n1 n2 :
+  n_string n1 <> n_string n2 ->
+  unshift_name n1 n2 = n2.
+Proof.
+  intros; unfold unshift_name.
+  destruct (string_dec (n_string n1) (n_string n2)); subst;
+    try contradiction; easy.
+Qed.
+
+Lemma reduce_unshift_name_gt n1 n2 :
+  n_string n1 = n_string n2 ->
+  S (n_index n1) <= n_index n2 ->
+  unshift_name n1 n2 = mkname (n_string n2) (pred (n_index n2)).
+Proof.
+  intros; unfold unshift_name.
+  destruct (string_dec (n_string n1) (n_string n2));
+    try contradiction.
+  destruct (le_gt_dec (n_index n2) (n_index n1));
+    try easy; omega.
+Qed.
+
+Lemma reduce_unshift_name_le n1 n2 :
+  n_string n1 = n_string n2 ->
+  n_index n2 <= n_index n1 ->
+  unshift_name n1 n2 = n2.
+Proof.
+  intros; unfold unshift_name.
+  destruct (string_dec (n_string n1) (n_string n2));
+    try contradiction.
+  destruct (le_gt_dec (n_index n2) (n_index n1));
+    try easy; omega.
+Qed.
+
+Lemma reduce_name_eqb_distinct n1 n2 :
+  n_string n1 <> n_string n2 ->
+  name_eqb n1 n2 = false.
+Proof.
+  intros; unfold name_eqb.
+  destruct (name_dec n1 n2); try easy.
+  destruct n1, n2; cbn in *; subst.
+  congruence.
+Qed.
+
+Lemma reduce_name_eqb_eq n1 n2 :
+  n_string n1 = n_string n2 ->
+  n_index n1 = n_index n2 ->
+  name_eqb n1 n2 = true.
+Proof.
+  intros; unfold name_eqb.
+  destruct (name_dec n1 n2); try easy.
+  destruct n1, n2; cbn in *; subst.
+  contradiction.
+Qed.
+
+Lemma reduce_name_eqb_neq n1 n2 :
+  n_index n1 <> n_index n2 ->
+  name_eqb n1 n2 = false.
+Proof.
+  intros; unfold name_eqb.
+  destruct (name_dec n1 n2); try easy.
+  destruct n1, n2; cbn in *; subst.
+  congruence.
+Qed.
+
+Hint Rewrite reduce_shift_name_distinct
+     reduce_unshift_name_distinct
+     reduce_name_eqb_distinct
+     using (cbn; congruence) : reduce_names.
+
+Hint Rewrite reduce_shift_name_ge reduce_shift_name_lt
+     reduce_unshift_name_le reduce_unshift_name_gt
+     reduce_name_eqb_eq reduce_name_eqb_neq
+     using (cbn; try congruence; omega) : reduce_names.
+
+Ltac reduce_names :=
+  autorewrite with reduce_names in *; cbn in *.
+
+(* Useful lemma *)
+Lemma red_name_neq n1 n2 :
+  n_string n1 = n_string n2 ->
+  n1 <> n2 <-> n_index n1 <> n_index n2.
+Proof.
+  intro Heq1; split.
+  - intros Hneq Heq2; apply Hneq.
+    change n1 with (mkname (n_string n1) (n_index n1)).
+    rewrite Heq1, Heq2; easy.
+  - intros Hneq Heq2; apply Hneq.
+    rewrite Heq2; easy.
+Qed.
+
+Hint Rewrite red_name_neq using (cbn; congruence) : red_name_neq.
+
+(* Case split on the order of the name parameters. *)
+Ltac case_name n1 n2 :=
+  destruct (string_dec (n_string n1) (n_string n2));
+    [replace (n_string n2) with (n_string n1) by easy;
+     autorewrite with red_name_neq in *;
+     destruct (Compare_dec.lt_eq_lt_dec (n_index n1) (n_index n2))
+        as [[|]|];
+     [|replace n2 with n1
+        by (change n1 with (mkname (n_string n1) (n_index n1));
+            change n2 with (mkname (n_string n2) (n_index n2));
+            congruence)|] |];
+    reduce_names;
+    change (mkname (n_string n1) (n_index n1)) with n1;
+    change (mkname (n_string n2) (n_index n2)) with n2;
+    try contradiction; try omega.
+
+Lemma open_close_identity (n : name) :
+  @open_var n @ @close_var n =m= 1.
+Proof.
+  intros V v; unfold open_var, close_var.
+  destruct v as [n2|?]; cbn; try easy.
+  case_name n n2; try easy.
+  destruct n2 as [s2 i2]; cbn in *.
+  destruct i2; easy.
+Qed.
+
+Lemma close_open_identity (n : name) :
+  @close_var n @ @open_var n =m= 1.
+Proof.
+  intros V v; unfold open_var, close_var.
+  destruct v as [n2|l2]; cbn.
+  - case_name n n2; easy.
+  - destruct l2 as [n3 lt2]; cbn in *.
+    destruct n3; try easy.
+    case_name n n; easy.
+Qed.
+
+(* Reasoning about shifts and unshifts of levels *)
+
+Lemma reduce_shift_level_ge {N} (l1 : level N) l2 :
+  l_nat l1 <= l_nat l2 ->
+  shift_level l1 l2 = l_S' l2.
+Proof.
+  intros; unfold shift_level.
+  destruct (le_gt_dec (l_nat l1) (l_nat l2));
+    try easy; omega.
+Qed.
+
+Lemma reduce_shift_level_lt {N} (l1 : level N) l2 :
+  S (l_nat l2) <= l_nat l1 ->
+  shift_level l1 l2 = level_extend' l2.
+Proof.
+  intros; unfold shift_level.
+  destruct (le_gt_dec (l_nat l1) (l_nat l2));
+    try easy; omega.
+Qed.
+
+Lemma reduce_unshift_level_gt {N} (l1 : level N) l2 :
+  forall (le : S (l_nat l1) <= l_nat l2),
+  unshift_level l1 l2
+  = mklevel (pred (l_nat l2))
+            (less_than_pred_le le (l_less_than l2)).
+Proof.
+  intros; unfold unshift_level.
+  destruct (le_gt_dec (l_nat l2) (l_nat l1));
+    try easy; omega.
+Qed.
+
+Lemma reduce_unshift_level_le {N} (l1 : level N) l2 :
+  forall (le : l_nat l2 <= l_nat l1),
+  unshift_level l1 l2
+  = mklevel (l_nat l2) (less_than_le le (l_less_than l1)).
+Proof.
+  intros; unfold unshift_level.
+  destruct (le_gt_dec (l_nat l2) (l_nat l1));
+    try easy; omega.
+Qed.
+
+Lemma reduce_unshift_level_neq_gt {N}
+      (l1 : level (S N)) l2 (neq : l1 <> l2) :
+  forall (le : S (l_nat l1) <= l_nat l2),
+  unshift_level_neq l1 l2 (squash neq)
+  = mklevel (pred (l_nat l2))
+            (less_than_pred_le le (l_less_than l2)).
+Proof.
+  intros; unfold unshift_level_neq.
+  destruct (le_gt_dec (l_nat l2) (l_nat l1));
+    try easy; omega.
+Qed.
+
+Lemma reduce_unshift_level_neq_le {N}
+      (l1 : level (S N)) l2 (neq : l1 <> l2) :
+  forall (le : l_nat l2 <= l_nat l1),
+  unshift_level_neq l1 l2 (squash neq) =
+    mklevel (l_nat l2)
+      (less_than_le_neq le (l_nat_injective neq)
+         (l_less_than l1)).
+Proof.
+  intros; unfold unshift_level_neq.
+  destruct (le_gt_dec (l_nat l2) (l_nat l1));
+    try easy; omega.
+Qed.
+
+Lemma reduce_level_sdec_eq {N} (l1 : level N) l2 :
+  forall (eql : l_nat l1 = l_nat l2),
+  level_sdec l1 l2 = sleft (squash (lift_level_eq eql)).
+Proof.
+  intros; unfold level_sdec, level_dec.
+  destruct (Nat.eq_dec (l_nat l1) (l_nat l2)) as [eql2|neql]; easy.
+Qed.
+
+Lemma reduce_level_sdec_neq {N} (l1 : level N) l2 :
+  forall (neql : l_nat l1 <> l_nat l2),
+  level_sdec l1 l2 = sright (squash (lift_level_neq neql)).
+Proof.
+  intros; unfold level_sdec, level_dec.
+  destruct (Nat.eq_dec (l_nat l1) (l_nat l2)) as [eql|neql2]; easy.
+Qed.
+
+Definition reduce_level_irrelevant {N} (l : level N) :
+  forall (lt : less_than (l_nat l) N),
+    mklevel (l_nat l) lt = l :=
+  fun _ => eq_refl.
+
+Hint Rewrite @reduce_level_irrelevant : reduce_level_irrelevant.
+
+Ltac reduce_levels_step :=
+  cbn;
+  try rewrite @reduce_shift_level_ge by (cbn in *; omega);
+  try rewrite @reduce_shift_level_lt by (cbn in *; omega);
+  try
+    (unshelve
+       (eassert (_ <= _) as le by shelve;
+        rewrite (reduce_unshift_level_le _ _ le) in *);
+       [> cbn in *; omega|]);
+  try
+    (unshelve
+       (eassert (_ <= _) as le by shelve;
+        rewrite (reduce_unshift_level_gt _ _ le) in *);
+       [> cbn in *; omega|]);
+  try
+    (unshelve
+       (eassert (_ <= _) as le by shelve;
+        rewrite (reduce_unshift_level_neq_le _ _ _ le) in *);
+       [> cbn in *; omega|]);
+  try
+    (unshelve
+       (eassert (_ <= _) as le by shelve;
+        rewrite (reduce_unshift_level_neq_gt _ _ _ le) in *);
+       [> cbn in *; omega|]);
+  try
+    (unshelve
+       (eassert (_ = (_ : nat)) as eql by shelve;
+        rewrite (reduce_level_sdec_eq _ _ eql) in *);
+       [> cbn in *; omega|]);
+  try
+    (unshelve
+       (eassert (_ <> (_ : nat)) as neql by shelve;
+        rewrite (reduce_level_sdec_neq _ _ neql) in *);
+       [> cbn in *; omega|]).
+
+Ltac reduce_levels :=
+  try repeat reduce_levels_step;
+  cbn in *; autorewrite with reduce_level_irrelevant.
+
+(* Case split on the order of the level parameters. *)
+Ltac case_level l1 l2 :=
+  let Heq := fresh "Heq" in
+  destruct (Compare_dec.lt_eq_lt_dec (l_nat l1) (l_nat l2))
+    as [[|Heq]|];
+  [|replace l2 with (mklevel (l_nat l1) (less_than_cast (eq_sym Heq) (l_less_than l2)))
+      by (apply lift_level_eq; easy);
+    replace (l_nat l2) with (l_nat l1) by easy;
+    cbn in Heq;
+    try destruct (Heq)|];
+  reduce_levels; try omega.
+
+Lemma cycle_in_cycle_out_identity N (l : level N) :
+  @cycle_in_var _ l @ @cycle_out_var _ l =m= 1.
+Proof.
+  intros V v.
+  destruct v as [?|l2]; cbn; try easy.
+  unfold cycle_in_level, cycle_out_level.
+  case_level l l2; try easy.
+  destruct l2 as [n2 lt2]; cbn in *.
+  destruct n2; reduce_levels; easy.
+Qed.
+
+Lemma cycle_out_cycle_in_identity N (l : level N) :
+  @cycle_out_var _ l @ @cycle_in_var _ l =m= 1.
+Proof.
+  intros V v.
+  destruct v as [?|l2]; cbn; try easy.
+  unfold cycle_in_level, cycle_out_level.
+  destruct l as [n1 lt1]; cbn in *.
+  destruct l2 as [n2 lt2]; cbn in *.
+  destruct n2; reduce_levels; try easy.
+  case_level
+    (mklevel n1 (less_than_extend_by V lt1))
+    (mklevel n2 (less_than_pred lt2)); easy.
+Qed.
+
+Definition apply_closing_rhs_var {N M} (r : closing_rhs N M)
+  : morph var M var (S N) :=
+  match r in closing_rhs _ M return morph _ M _ _ with
+  | @closing_rhs_weak_rhs _ M r =>
+      lift_morph_var (apply_closing_var r)
+      @ morph_extend_by M (@weak_var)
+  | @closing_rhs_swap_rhs _ M r l2 =>
+      lift_morph_var (apply_closing_var r)
+      @ @cycle_in_var (S M) l2
+  | @closing_rhs_close_rhs _ M r n =>
+      lift_morph_var (apply_closing_var r)
+      @ morph_extend_by M (@close_var n)
+  end.
+
+Definition morph_id_succ_pred {N} :
+  level N -> morph var N var (S (pred N)) :=
+  match N return level N -> morph _ N _ (S (pred N)) with
+  | 0 => fun l => False_rec _ (level_zero_empty l)
+  | S N => fun _ => morph_id
+  end.
+
+Lemma apply_transpose_level_closing_aux N M
+      (r : closing N M) (l : level N):
+  morph_id_succ_pred l
+  @ (@cycle_in_var _ l)
+  @ apply_closing_var r
+  =m=
+  apply_closing_rhs_var (transpose_level_closing r l).
+Proof.
+  induction r; cbn; try rewrite morph_left_identity.
+  - exfalso; apply (level_zero_empty l).
+  - destruct (level_dec l l0); subst; cbn.
+    + admit.
+    + destruct N.
+      * admit.
+      * admit.
+  - destruct (level_dec l l1); subst; cbn.
+    + admit.
+    + destruct N.
+      * admit.
+      * admit.
+  - destruct (level_dec l l1); subst; cbn.
+    + admit.
+    + destruct N.
+      * admit.
+      * admit.
+Admitted.
+
+Lemma apply_transpose_level_closing N M
+      (r : closing (S N) M) (l : level (S N)):
+  (@cycle_in_var _ l)
+  @ apply_closing_var r
+  =m=
+  apply_closing_rhs_var (transpose_level_closing r l).
+Proof.
+  rewrite <- apply_transpose_level_closing_aux; cbn.
+  rewrite morph_left_identity.
+  easy.
+Qed.
+
+Inductive substitution (term : nset) (N : nat) : nat -> Set :=
+| substitution_renaming : forall M,
+    renaming N M -> substitution term N M
+| substitution_bind : forall M,
+    term N -> substitution term N M -> level (S M) ->
+    substitution term N (S M)
+| substitution_subst : forall M,
+    term N -> substitution term N M ->
+    name -> substitution term N M.
+
+Arguments substitution_renaming {term} {N} {M} r.
+Arguments substitution_bind {term} {N} {M} t r l.
+Arguments substitution_subst {term} {N} {M} t r n.
 
 (*
 

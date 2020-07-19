@@ -49,30 +49,31 @@ Module MakeTerm (T : Relative_monad).
 
   Arguments unit N {V} v.
 
-  Definition apply_pushes_k {N M} (r : pushes N M)
+  Definition apply_closing_k {N M} (r : closing N M)
   : morph var M term N :=
-    @unit N @ apply_pushes_var r.
+    @unit N @ apply_closing_var r.
 
-  Definition apply_pushes {N M} (r : pushes N M)
+  Definition apply_closing {N M} (r : closing N M)
   : morph term M term N :=
-    kleisli (apply_pushes_k r).
+    kleisli (apply_closing_k r).
 
-  Definition apply_static_renaming_k {N M}
-             (r : static_renaming N M)
+  Definition apply_renaming_k {N M}
+             (r : renaming N M)
   : morph var M term N :=
-    @unit N @ apply_static_renaming_var r.
+    @unit N @ apply_renaming_var r.
 
-  Definition apply_static_renaming {N M}
-             (r : static_renaming N M)
+  Definition apply_renaming {N M}
+             (r : renaming N M)
   : morph term M term N :=
-    kleisli (apply_static_renaming_k r).
+    kleisli (apply_renaming_k r).
 
-  Definition bind_k {N} (t : term N) : morph var (S N) term N :=
+  Definition bind_k {N} (t : term N)
+    : morph var (S N) term N :=
     fun {V} v =>
       match v with
       | free n => unit N (free n)
       | bound (mklevel 0 _) =>
-        morph_apply_zero (apply_pushes pushes_weakening) t
+        morph_apply_zero (apply_closing closing_weakening) t
       | bound (mklevel (S l) lt) =>
         unit N (bound (mklevel l (less_than_pred lt)))
       end.
@@ -83,79 +84,233 @@ Module MakeTerm (T : Relative_monad).
     fun V v =>
       match v with
       | free n =>
-        apply_pushes
-          (pushes_weak l0 pushes_id_n) V (m V (free n))
+        apply_closing
+          (closing_weak l0 closing_id_n) V (m V (free n))
       | bound (mklevel 0 _) => unit (S N) (bound l0)
       | bound (mklevel (S l) lt) =>
-        apply_pushes
-          (pushes_weak l0 pushes_id_n) V
+        apply_closing
+          (closing_weak l0 closing_id_n) V
           (m V (bound (mklevel l (less_than_pred lt))))
       end.
 
-  Fixpoint apply_renaming_k {N M} (r : renaming term N M)
+  Fixpoint apply_substitution_k {N M}
+           (r : substitution term N M)
   : morph var M term N :=
-  match r in renaming _ _ M
+  match r in substitution _ _ M
         return morph var M term N with
-  | renaming_static r => apply_static_renaming_k r
-  | @renaming_bind _ _ M t r l =>
+  | substitution_renaming r => apply_renaming_k r
+  | @substitution_bind _ _ M t r l =>
       kleisli (@bind_k N t)
-      @ lift_morph_k (apply_renaming_k r)
+      @ lift_morph_k (apply_substitution_k r)
       @ @cycle_in_var (S M) l
-  | @renaming_subst _ _ M t r n =>
+  | @substitution_subst _ _ M t r n =>
       kleisli (@bind_k N t)
-      @ lift_morph_k (apply_renaming_k r)
+      @ lift_morph_k (apply_substitution_k r)
       @ morph_extend_by M (@close_var n)
   end.
 
-  Definition renaming_id : renaming term 0 0 :=
-    renaming_static (static_renaming_id).
-  Arguments renaming_id : simpl never.
+  Definition apply_substitution {N M}
+             (r : substitution term N M)
+  : morph term M term N :=
+    kleisli (apply_substitution_k r).
 
-  Fixpoint renaming_swap {N M}
-           (l1 : level (S N)) (r : renaming term N M) :
-    level (S M) -> renaming term (S N) (S M) :=
+  Definition substitution_id : substitution term 0 0 :=
+    substitution_renaming (renaming_id).
+  Arguments substitution_id : simpl never.
+
+  Fixpoint substitution_weak {N M}
+           (l1 : level (S N)) (r : substitution term N M) :
+    substitution term (S N) M :=
     match r with
-    | renaming_static r =>
-      fun l2 =>
-        renaming_static (static_renaming_swap l1 r l2)
-    | renaming_bind t r l =>
-      fun l2 =>
-        renaming_bind
+    | substitution_renaming r =>
+        substitution_renaming (renaming_weak l1 r)
+    | substitution_bind t r l =>
+        substitution_bind
           (morph_apply_zero
-             (apply_pushes
-                (pushes_weak l1 pushes_id_n)) t)
-          (renaming_swap l1 r (unshift_level l l2))
-          (shift_level l2 l)
-    | renaming_subst t r n =>
-      fun l2 =>
-        renaming_subst
+             (apply_closing
+                (closing_weak l1 closing_id_n)) t)
+          (substitution_weak l1 r) l
+    | substitution_subst t r n =>
+        substitution_subst
           (morph_apply_zero
-             (apply_pushes
-                (pushes_weak l1 pushes_id_n)) t)
-          (renaming_swap l1 r l2) n
+             (apply_closing
+                (closing_weak l1 closing_id_n)) t)
+          (substitution_weak l1 r) n
     end.
 
-    level (S N) -> pushes N M -> level (S M) -> pushes (S N) (S M)
+  Fixpoint substitution_swap {N M}
+           (l1 : level (S N)) (r : substitution term N M) :
+    level (S M) -> substitution term (S N) (S M) :=
+    match r with
+    | substitution_renaming r =>
+      fun l2 =>
+        substitution_renaming (renaming_swap l1 r l2)
+    | substitution_bind t r l =>
+      fun l2 =>
+        substitution_bind
+          (morph_apply_zero
+             (apply_closing
+                (closing_weak l1 closing_id_n)) t)
+          (substitution_swap l1 r (unshift_level l l2))
+          (shift_level l2 l)
+    | substitution_subst t r n =>
+      fun l2 =>
+        substitution_subst
+          (morph_apply_zero
+             (apply_closing
+                (closing_weak l1 closing_id_n)) t)
+          (substitution_swap l1 r l2) n
+    end.
 
-  renaming_open : forall M,
-    name -> static_renaming N M -> level (S M) ->
-  renaming_close : forall N M,
-    level (S N) -> pushes N M -> name -> pushes (S N) M.
-  renaming_weak :
-    level (S N) -> pushes N M -> pushes (S N) M
-  renaming_bind : forall M,
-    term N -> renaming term N M -> level (S M) ->
-    renaming term N (S M)
+  Fixpoint substitution_close {N M}
+           (l : level (S N)) (r : substitution term N M) n :
+    substitution term (S N) M :=
+    match r with
+    | substitution_renaming r =>
+        substitution_renaming (renaming_close l r n)
+    | substitution_bind t r l' =>
+        substitution_bind
+          (morph_apply_zero
+             (apply_closing
+                (closing_weak l closing_id_n)) t)
+          (substitution_close l r n) l'
+    | substitution_subst t r n' =>
+        substitution_subst
+          (morph_apply_zero
+             (apply_closing
+                (closing_weak l closing_id_n)) t)
+          (substitution_close l r (unshift_name n' n))
+          (shift_name n n')
+    end.
 
-  renaming_shift : forall M,
-    name -> static_renaming N M -> static_renaming N M
-    static_renaming N (S M)
-  renaming_rename : forall M,
-    name -> static_renaming N M -> name -> static_renaming N M
-  renaming_subst : forall M,
-    term N -> renaming term N M -> name -> renaming term N (S M).
+  Fixpoint substitution_shift {N M}
+           n (r : substitution term N M) :
+    substitution term N M :=
+    match r with
+    | substitution_renaming r =>
+        substitution_renaming (renaming_shift n r)
+    | substitution_bind t r l =>
+        substitution_bind
+          (morph_apply_zero
+             (apply_renaming
+                (renaming_shift n
+                   renaming_id_n)) t)
+          (substitution_shift n r) l
+    | substitution_subst t r n' =>
+        substitution_subst
+          (morph_apply_zero
+             (apply_renaming
+                (renaming_shift n
+                   renaming_id_n)) t)
+          (substitution_shift n r) n'
+    end.
 
+  Fixpoint substitution_open {N M}
+           n (r : substitution term N M) :
+    level (S M) -> substitution term N (S M) :=
+    match r with
+    | substitution_renaming r =>
+      fun l =>
+        substitution_renaming (renaming_open n r l)
+    | substitution_bind t r l' =>
+      fun l =>
+        substitution_bind
+          (morph_apply_zero
+             (apply_renaming
+                (renaming_shift n
+                   renaming_id_n)) t)
+          (substitution_open n r (unshift_level l' l))
+          (shift_level l l')
+    | substitution_subst t r n' =>
+      fun l =>
+        substitution_subst
+          (morph_apply_zero
+             (apply_renaming
+                (renaming_shift n
+                   renaming_id_n)) t)
+          (substitution_open n r l) n'
+    end.
 
+  Fixpoint substitution_rename {N M}
+           n1 (r : substitution term N M) n2 :
+    substitution term N M :=
+    match r with
+    | substitution_renaming r =>
+        substitution_renaming (renaming_rename n1 r n2)
+    | substitution_bind t r l =>
+        substitution_bind
+          (morph_apply_zero
+             (apply_renaming
+                (renaming_shift n1
+                   renaming_id_n)) t)
+          (substitution_rename n1 r n2) l
+    | substitution_subst t r n' =>
+        substitution_subst
+          (morph_apply_zero
+             (apply_renaming
+                (renaming_shift n1
+                   renaming_id_n)) t)
+          (substitution_rename n1 r (unshift_name n' n2))
+          (shift_name n2 n')
+    end.
+
+  Fixpoint compose_substitution_renaming {N M O}
+         (r1 : substitution term O N) {struct r1}
+  : renaming N M -> substitution term O M :=
+  match r1 with
+  | substitution_renaming r1 =>
+    fun r2 =>
+      substitution_renaming (compose_renamings r1 r2)
+  | substitution_bind t r1 l =>
+    fun r2 =>
+      match transpose_level_renaming l r2
+             in renaming_rhs _ M
+             return substitution _ _ M
+      with
+      | renaming_rhs_shift_rhs r2 =>
+          compose_substitution_renaming r1 r2
+      | renaming_rhs_open_rhs r2 l =>
+          substitution_bind
+            t (compose_substitution_renaming r1 r2) l
+      | renaming_rhs_rename_rhs r2 n =>
+          substitution_subst
+            t (compose_substitution_renaming r1 r2) n
+      end
+  | substitution_subst t r1 n =>
+    fun r2 =>
+      match transpose_name_renaming n r2
+            in renaming_rhs _ M
+            return substitution _ _ M
+       with
+      | renaming_rhs_shift_rhs r2 =>
+        compose_substitution_renaming r1 r2
+      | renaming_rhs_open_rhs r2 l =>
+          substitution_bind
+            t (compose_substitution_renaming r1 r2) l
+      | renaming_rhs_rename_rhs r2 n =>
+          substitution_subst
+            t (compose_substitution_renaming r1 r2) n
+      end
+  end.
+
+  Fixpoint compose_substitutions {N M O}
+           (r1 : substitution term O N)
+           (r2 : substitution term N M)
+    : substitution term O M :=
+    match r2 with
+    | substitution_renaming r2 =>
+      compose_substitution_renaming r1 r2
+    | substitution_bind t r2 l =>
+      substitution_bind
+        (morph_apply_zero (apply_substitution r1) t)
+        (compose_substitutions r1 r2)
+        l
+    | substitution_subst t r2 n =>
+      substitution_subst
+        (morph_apply_zero (apply_substitution r1) t)
+        (compose_substitutions r1 r2)
+        n
+    end.
 
   Definition open_k n : morph var 1 term 0 :=
     @unit 0 @ @open_var n.

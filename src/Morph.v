@@ -33,6 +33,10 @@ Definition heq_eq :
   forall {T : nset} {N} {t s : T N}, t ~= s -> t = s :=
   eq_dep_eq_dec eq_nat_dec.
 
+Definition eq_nat_uip :
+  forall (x y:nat) (p1 p2:x = y), p1 = p2 :=
+  UIP_dec eq_nat_dec.
+
 Lemma heq_trans :
   forall (T:nset) N M L (t : T N) (s : T M) (r : T L),
     t ~= s -> s ~= r -> t ~= r.
