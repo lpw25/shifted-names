@@ -1,4 +1,4 @@
-Require Import String Omega StrictProp.
+Require Import String Omega StrictProp Setoid Morphisms.
 Require Import Morph.
 Arguments string_dec !s1 !s2.
 
@@ -16,6 +16,7 @@ Definition sneq_sym {A} {x y : A} :
     match sneq with
     | squash neq => squash (fun eql => neq (eq_sym eql))
     end.
+Arguments sneq_sym {A} {x} {y} sneq : simpl never.
 
 (* Name indices are [nat]s *)
 
@@ -395,6 +396,16 @@ Definition cycle_out_level {N}
     else (unshift_level (level_extend_by V l1) (l_S l2)).
 Arguments cycle_out_level {N} l1 {V} l2 : simpl nomatch.
 
+Definition swap_level
+  : morph level 2 level 2 :=
+  fun V l =>
+    match l with
+    | mklevel 0 _ => l_1
+    | mklevel 1 _ => l_0
+    | l => l
+    end.
+Arguments swap_level {V} l : simpl nomatch.
+
 (* Variables are either free names or bound levels *)
 
 Inductive var (V : nat) :=
@@ -448,6 +459,14 @@ Definition cycle_out_var {N} (l : level N) : morph var N var N :=
     end.
 Arguments cycle_out_var {N} l {V} v : simpl nomatch.
 
+Definition swap_var : morph var 2 var 2 :=
+  fun V v =>
+    match v with
+    | free n => free n
+    | bound l => bound (swap_level l)
+    end.
+Arguments swap_var {V} v : simpl nomatch.
+
 Definition lift_morph_var {N M} (m : morph var M var N) :
   morph var (S M) var (S N) :=
   fun V v =>
@@ -464,6 +483,13 @@ Definition lift_morph_var {N M} (m : morph var M var N) :
       | bound l => bound (l_S l)
       end
     end.
+
+Add Parametric Morphism {N M} : (@lift_morph_var N M)
+    with signature (eq_morph ==> eq_morph)
+      as lift_morph_var_mor.
+  intros * Heq V v; unfold lift_morph_var.
+  destruct v as [n|[[|ln] lt]]; try rewrite Heq; easy.
+Qed.
 
 (* Algebra of operations on [var] *)
 
@@ -641,6 +667,7 @@ Definition closing_rhs_weak {N M}
         closing_rhs_close_rhs (closing_weak l1 r) n
       end
   end.
+Arguments closing_rhs_weak {N M} l r : simpl nomatch.
 
 Definition closing_rhs_swap {N M}
   : level N -> closing_rhs (pred N) M
@@ -664,6 +691,7 @@ Definition closing_rhs_swap {N M}
         fun l2 => closing_rhs_close_rhs (closing_swap l1 r l2) n
       end
   end.
+Arguments closing_rhs_swap {N M} l1 r l2 : simpl nomatch.
 
 Definition closing_rhs_close {N M}
   : level N -> closing_rhs (pred N) M
@@ -687,6 +715,7 @@ Definition closing_rhs_close {N M}
                            (shift_name n1 n)
       end
   end.
+Arguments closing_rhs_close {N M} l r n : simpl nomatch.
 
 Fixpoint transpose_level_closing {N M}
          (r : closing N M)
@@ -1020,6 +1049,18 @@ Fixpoint compose_renamings {N M O} (r1 : renaming O N) {struct r1}
       end
   end.
 
+(* Inversion on the index of a level *)
+Ltac inv_level l :=
+  let l' := fresh "l'" in
+  let Heql := fresh "Heql" in
+  remember l as l' eqn:Heql;
+  match type of l' with
+  | level ?N =>
+    destruct N;
+      [exfalso; apply (level_zero_empty l')|];
+      rewrite Heql; clear Heql; try clear l'; cbn
+  end.
+
 (* Reasoning about shifts and unshifts of names *)
 
 Lemma reduce_shift_name_distinct n1 n2 :
@@ -1155,7 +1196,7 @@ Qed.
 Hint Rewrite red_name_neq using (cbn; congruence) : red_name_neq.
 
 (* Case split on the order of the name parameters. *)
-Ltac case_name n1 n2 :=
+Ltac case_names n1 n2 :=
   destruct (string_dec (n_string n1) (n_string n2));
     [replace (n_string n2) with (n_string n1) by easy;
      autorewrite with red_name_neq in *;
@@ -1176,25 +1217,6 @@ Ltac case_name n1 n2 :=
     change (mkname (n_string n1) (n_index n1)) with n1;
     change (mkname (n_string n2) (n_index n2)) with n2;
     try contradiction; try omega.
-
-Lemma open_close_identity (n : name) :
-  @open_var n @ @close_var n =m= 1.
-Proof.
-  intros V v; unfold open_var, close_var.
-  destruct v as [n2|?]; cbn; try easy.
-  case_name n n2; easy.
-Qed.
-
-Lemma close_open_identity (n : name) :
-  @close_var n @ @open_var n =m= 1.
-Proof.
-  intros V v; unfold open_var, close_var.
-  destruct v as [n2|l2]; cbn.
-  - case_name n n2; easy.
-  - destruct l2 as [n3 lt2]; cbn in *.
-    destruct n3; try easy.
-    case_name n n; easy.
-Qed.
 
 (* Reasoning about shifts and unshifts of levels *)
 
@@ -1325,7 +1347,7 @@ Ltac reduce_levels :=
   cbn in *; autorewrite with reduce_level_irrelevant.
 
 (* Case split on the order of the level parameters. *)
-Ltac case_level l1 l2 :=
+Ltac case_levels l1 l2 :=
   let Heq := fresh "Heq" in
   destruct (Compare_dec.lt_eq_lt_dec (l_nat l1) (l_nat l2))
     as [[|Heq]|];
@@ -1338,29 +1360,188 @@ Ltac case_level l1 l2 :=
     try destruct (Heq)|];
   reduce_levels; try omega.
 
-Lemma cycle_in_cycle_out_identity N (l : level N) :
+(* Case split on a level *)
+Tactic Notation "case_level" constr(l) "as" ident(ln) ident(lt) :=
+  let l' := fresh "l" in
+  let Heql := fresh "Heql" in
+  remember l as l' eqn:Heql;
+  symmetry in Heql;
+  destruct l' as [[|ln] lt]; cbn in *;
+    reduce_levels; try omega.
+
+Tactic Notation "case_level" constr(l) :=
+  let ln := fresh "ln" in
+  let lt := fresh "lt" in
+  case_level l as ln lt.
+
+(* Identities *)
+
+Lemma open_close_identity {N} (n : name) :
+  morph_extend_by N (@open_var n)
+  @ morph_extend_by N (@close_var n) =m= 1.
+Proof.
+  intros V v; unfold open_var, close_var.
+  destruct v as [n2|?]; cbn; try easy.
+  case_names n n2; easy.
+Qed.
+
+Lemma open_close_identity' {N M} (n : name) (m : morph var M var N) :
+  morph_extend_by N (@open_var n)
+  @ (morph_extend_by N (@close_var n) @ m) =m= m.
+Proof.
+  rewrite morph_associative.
+  rewrite open_close_identity.
+  rewrite morph_left_identity.
+  easy.
+Qed.
+
+Lemma close_open_identity {N} (n : name) :
+  morph_extend_by N (@close_var n)
+  @ morph_extend_by N (@open_var n) =m= 1.
+Proof.
+  intros V v; unfold open_var, close_var.
+  destruct v as [n2|l2]; cbn.
+  - case_names n n2; easy.
+  - case_level l2; try easy.
+    case_names n n; easy.
+Qed.
+
+Lemma close_open_identity' {N M} (n : name)
+      (m : morph var M var (S N)) :
+  morph_extend_by N (@close_var n)
+  @ (morph_extend_by N (@open_var n) @ m) =m= m.
+Proof.
+  rewrite morph_associative.
+  rewrite close_open_identity.
+  rewrite morph_left_identity.
+  easy.
+Qed.
+
+Lemma cycle_in_cycle_out_identity {N} (l : level N) :
   @cycle_in_var _ l @ @cycle_out_var _ l =m= 1.
 Proof.
   intros V v.
   destruct v as [?|l2]; cbn; try easy.
   unfold cycle_in_level, cycle_out_level.
-  case_level l l2; try easy.
-  destruct l2 as [n2 lt2]; cbn in *.
-  destruct n2; reduce_levels; easy.
+  case_levels l l2; try easy.
+  case_level l2; easy.
 Qed.
 
-Lemma cycle_out_cycle_in_identity N (l : level N) :
+Lemma cycle_in_cycle_out_identity' {N M} (l : level N)
+      (m : morph var M var N) :
+  @cycle_in_var _ l @ (@cycle_out_var _ l @ m) =m= m.
+Proof.
+  rewrite morph_associative.
+  rewrite cycle_in_cycle_out_identity.
+  rewrite morph_left_identity.
+  easy.
+Qed.
+
+Lemma cycle_out_cycle_in_identity {N} (l : level N) :
   @cycle_out_var _ l @ @cycle_in_var _ l =m= 1.
 Proof.
   intros V v.
   destruct v as [?|l2]; cbn; try easy.
   unfold cycle_in_level, cycle_out_level.
-  destruct l as [n1 lt1]; cbn in *.
-  destruct l2 as [n2 lt2]; cbn in *.
-  destruct n2; reduce_levels; try easy.
-  case_level
-    (mklevel n1 (less_than_extend_by V lt1))
-    (mklevel n2 (less_than_pred lt2)); easy.
+  case_level l2 as ln2 lt2; try easy.
+  case_levels
+    (mklevel (l_nat l)
+             (less_than_extend_by V (l_less_than l)))
+    (mklevel ln2 (less_than_pred lt2)); easy.
+Qed.
+
+Lemma cycle_out_cycle_in_identity' {N M} (l : level N)
+      (m : morph var M var N) :
+  @cycle_out_var _ l @ (@cycle_in_var _ l @ m) =m= m.
+Proof.
+  rewrite morph_associative.
+  rewrite cycle_out_cycle_in_identity.
+  rewrite morph_left_identity.
+  easy.
+Qed.
+
+(* [lift_morph_var] distributes over composition and identity *)
+
+Lemma lift_morph_var_compose {N M O}
+      (m1 : morph var N var M) (m2 : morph var O var N) :
+  lift_morph_var (m1 @ m2)
+  =m= lift_morph_var m1 @ lift_morph_var m2.
+Proof.
+  intros V v.
+  destruct v as [n|l]; cbn.
+  - destruct (m2 V (free n)); easy.
+  - case_level l; try easy.
+    destruct
+      (m2 V (bound (@mklevel (O + V) ln (less_than_pred lt))));
+      easy.
+Qed.
+
+Lemma lift_morph_var_id {N} :
+  @lift_morph_var N N 1 =m= 1.
+Proof.
+  intros V v.
+  destruct v as [n|l]; cbn; try easy.
+  case_level l; easy.
+Qed.
+
+(* Tactic to simplify compositions of var operations *)
+
+Hint Rewrite <- morph_associative
+  : normalize_morph_compose.
+Hint Rewrite morph_left_identity morph_right_identity
+  : normalize_morph_compose.
+
+Hint Rewrite <- @lift_morph_var_id @lift_morph_var_compose
+  : pull_lift_morph_var.
+
+Hint Rewrite @open_close_identity @open_close_identity'
+     @close_open_identity @close_open_identity'
+     @cycle_in_cycle_out_identity @cycle_in_cycle_out_identity'
+     @cycle_out_cycle_in_identity @cycle_out_cycle_in_identity'
+  : var_morph_identities.
+
+Hint Rewrite @lift_morph_var_id @lift_morph_var_compose
+  : push_lift_morph_var.
+
+Ltac simplify_var_morphs :=
+  autorewrite with push_lift_morph_var;
+  autorewrite with normalize_morph_compose.
+
+Ltac apply_var_morph_identities :=
+  autorewrite with pull_lift_morph_var;
+  autorewrite with var_morph_identities;
+  autorewrite with push_lift_morph_var.
+
+(* [swap_var] transposes with lifted morphisms *)
+
+Lemma transpose_swap_lifted N M m :
+  morph_extend_by N (@swap_var)
+  @ lift_morph_var (lift_morph_var m)
+  =m= lift_morph_var (lift_morph_var m)
+      @ morph_extend_by M (@swap_var).
+Proof.
+  intros V v.
+  destruct v as [n|l]; cbn.
+  - destruct (m V (free n)); easy.
+  - case_level l as ln lt; try easy.
+    destruct ln; cbn; try easy.
+    destruct
+      (m V (@bound (M + V)
+         (@mklevel (M + V) ln (less_than_pred (less_than_pred lt)))));
+      easy.
+Qed.
+
+Lemma transpose_swap_lifted' {N M O} m1
+      (m2 : morph var O var (S (S M))) :
+  morph_extend_by N (@swap_var)
+  @ (lift_morph_var (lift_morph_var m1) @ m2)
+  =m= lift_morph_var (lift_morph_var m1)
+      @ (morph_extend_by M (@swap_var) @ m2).
+Proof.
+  rewrite morph_associative.
+  setoid_rewrite transpose_swap_lifted.
+  rewrite <- morph_associative.
+  easy.
 Qed.
 
 Definition apply_closing_rhs_var {N M} (r : closing_rhs N M)
@@ -1377,44 +1558,81 @@ Definition apply_closing_rhs_var {N M} (r : closing_rhs N M)
       @ morph_extend_by M (@close_var n)
   end.
 
-Definition morph_id_succ_pred {N} :
+Definition morph_id_to_succ_pred {N} :
   level N -> morph var N var (S (pred N)) :=
   match N return level N -> morph _ N _ (S (pred N)) with
   | 0 => fun l => False_rec _ (level_zero_empty l)
   | S N => fun _ => morph_id
   end.
 
+Definition morph_id_from_succ_pred {N} :
+  level N -> morph var (S (pred N)) var N :=
+  match N return level N -> morph _ (S (pred N)) _ N with
+  | 0 => fun l => False_rec _ (level_zero_empty l)
+  | S N => fun _ => morph_id
+  end.
+
+Lemma apply_closing_rhs_weak N M
+      (l : level N) (r : closing_rhs (pred N) M) :
+  apply_closing_rhs_var (closing_rhs_weak l r)
+  =m= lift_morph_var (@cycle_out_var N l)
+      @ lift_morph_var (morph_id_from_succ_pred l)
+      @ morph_extend_by (pred N) (@swap_var)
+      @ lift_morph_var (apply_closing_rhs_var r)
+      @ morph_extend_by M (@weak_var).
+Proof.
+  destruct r; cbn.
+  - inv_level l.
+    simplify_var_morphs.
+    setoid_rewrite transpose_swap_lifted'.
+    admit.
+  - inv_level l.
+    simplify_var_morphs.
+    setoid_rewrite transpose_swap_lifted'.
+    admit.
+  - inv_level l.
+    simplify_var_morphs.
+    setoid_rewrite transpose_swap_lifted'.
+    admit.
+Admitted.
+
 Lemma apply_transpose_level_closing_aux N M
       (r : closing N M) (l : level N):
-  morph_id_succ_pred l
+  morph_id_to_succ_pred l
   @ (@cycle_in_var _ l)
   @ apply_closing_var r
   =m=
   apply_closing_rhs_var (transpose_level_closing r l).
 Proof.
-  induction r; cbn; try rewrite morph_left_identity.
-  - exfalso; apply (level_zero_empty l).
-  - destruct (level_dec l l0); subst; cbn.
+  generalize dependent l.
+  induction r; intro l'; cbn; try rewrite morph_left_identity.
+  - exfalso; apply (level_zero_empty l').
+  - unfold level_sdec.
+    destruct (level_dec l' l); subst; cbn.
+    + rewrite morph_associative.
+      rewrite cycle_in_cycle_out_identity.
+      rewrite morph_left_identity.
+      easy.
+    + inv_level (unshift_level_neq l' l (squash n)).
+      rewrite apply_closing_rhs_weak; cbn.
+      rewrite <- IHr; cbn.
+      simplify_var_morphs.
+      admit.
+  - unfold level_sdec.
+    destruct (level_dec l' l); subst; cbn.
+    + rewrite cycle_in_cycle_out_identity'.
+      easy.
     + admit.
-    + destruct N.
-      * admit.
-      * admit.
-  - destruct (level_dec l l1); subst; cbn.
+  - unfold level_sdec.
+    destruct (level_dec l' l); subst; cbn.
+    + rewrite cycle_in_cycle_out_identity'.
+      easy.
     + admit.
-    + destruct N.
-      * admit.
-      * admit.
-  - destruct (level_dec l l1); subst; cbn.
-    + admit.
-    + destruct N.
-      * admit.
-      * admit.
 Admitted.
 
 Lemma apply_transpose_level_closing N M
       (r : closing (S N) M) (l : level (S N)):
-  (@cycle_in_var _ l)
-  @ apply_closing_var r
+  (@cycle_in_var _ l) @ apply_closing_var r
   =m=
   apply_closing_rhs_var (transpose_level_closing r l).
 Proof.
