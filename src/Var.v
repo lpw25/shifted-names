@@ -1,4 +1,5 @@
-Require Import String Omega StrictProp Setoid Morphisms.
+Require Import String PeanoNat Compare_dec
+        Psatz StrictProp Setoid Morphisms.
 Require Import Morph.
 Arguments string_dec !s1 !s2.
 
@@ -68,6 +69,12 @@ Notation "s ₍₈₎" :=
 Notation "s ₍₉₎" :=
   (mkname s 9) (at level 9, format "s '₍₉₎'")
   : name_scope.
+
+Ltac eta_reduce_name n :=
+  change (mkname (n_string n) (n_index n)) with n.
+
+Ltac eta_expand_name n :=
+  change n with (mkname (n_string n) (n_index n)).
 
 Definition name_dec n1 n2 : {n1 = n2} + {n1 <> n2} :=
   match string_dec (n_string n1) (n_string n2) with
@@ -253,6 +260,13 @@ Definition less_than_succ_pred_le {N M O} :
   destruct M; easy.
 Defined.
 
+Definition less_than_succ_pred {N M} :
+  less_than N M ->
+  less_than N (S (pred M)).
+  intros Hlt.
+  destruct M; easy.
+Defined.
+
 Set Primitive Projections.
 Record level N := mklevel { l_nat : nat; l_less_than : less_than l_nat N }.
 Add Printing Constructor level.
@@ -260,6 +274,12 @@ Unset Primitive Projections.
 Arguments mklevel {N} l_nat l_less_than.
 Arguments l_nat {N} l.
 Arguments l_less_than {N} l.
+
+Ltac eta_reduce_level l :=
+  change (mklevel (l_nat l) (l_less_than l)) with l.
+
+Ltac eta_expand_level l :=
+  change l with (mklevel (l_nat l) (l_less_than l)).
 
 Definition lift_level_eq {N M O} :
   forall (Heq : N = M) (lt1 : less_than N O) (lt2 : less_than M O),
@@ -340,6 +360,9 @@ Definition level_sdec {N} (l1 : level N) (l2 : level N) :
   | right Hneq => sright (squash Hneq)
   end.
 
+Definition level_succ_pred {N} (l : level N) :=
+  mklevel (l_nat l) (less_than_succ_pred (l_less_than l)).
+
 Definition shift_level {N}
            (l1 : level N) (l2 : level (pred N)) : level N :=
   if le_gt_dec (l_nat l1) (l_nat l2) then l_S' l2
@@ -377,7 +400,7 @@ Definition unshift_level_neq {N}
   end.
 Arguments unshift_level_neq {N} l1 l2 Hneq : simpl nomatch.
 
-Definition cycle_in_level {N}
+Definition cycle_out_level {N}
   : level N -> morph level N level N :=
   fun l1 V l2 =>
     match l2 with
@@ -386,15 +409,15 @@ Definition cycle_in_level {N}
       shift_level (level_extend_by V l1)
                   (mklevel l2' (less_than_pred lt'))
     end.
-Arguments cycle_in_level {N} l1 {V} l2 : simpl nomatch.
+Arguments cycle_out_level {N} l1 {V} l2 : simpl nomatch.
 
-Definition cycle_out_level {N}
+Definition cycle_in_level {N}
   : level N -> morph level N level N :=
   fun l1 V l2 =>
     if level_sdec (level_extend_by V l1) l2 then
       l_0' (squash (level_extend_by V l1))
     else (unshift_level (level_extend_by V l1) (l_S l2)).
-Arguments cycle_out_level {N} l1 {V} l2 : simpl nomatch.
+Arguments cycle_in_level {N} l1 {V} l2 : simpl nomatch.
 
 Definition swap_level
   : morph level 2 level 2 :=
@@ -443,14 +466,6 @@ Definition weak_var : morph var 0 var 1 :=
     end.
 Arguments weak_var {V} v : simpl nomatch.
 
-Definition cycle_in_var {N} (l : level N) : morph var N var N :=
-  fun V v =>
-    match v with
-    | free n => free n
-    | bound l2 => bound (cycle_in_level l l2)
-    end.
-Arguments cycle_in_var {N} l {V} v : simpl nomatch.
-
 Definition cycle_out_var {N} (l : level N) : morph var N var N :=
   fun V v =>
     match v with
@@ -458,6 +473,14 @@ Definition cycle_out_var {N} (l : level N) : morph var N var N :=
     | bound l2 => bound (cycle_out_level l l2)
     end.
 Arguments cycle_out_var {N} l {V} v : simpl nomatch.
+
+Definition cycle_in_var {N} (l : level N) : morph var N var N :=
+  fun V v =>
+    match v with
+    | free n => free n
+    | bound l2 => bound (cycle_in_level l l2)
+    end.
+Arguments cycle_in_var {N} l {V} v : simpl nomatch.
 
 Definition swap_var : morph var 2 var 2 :=
   fun V v =>
@@ -497,13 +520,13 @@ Inductive closing : nat -> nat -> Set :=
 | closing_id : closing 0 0
 | closing_weak : forall N M,
     level (S N) -> closing N M -> closing (S N) M
-| closing_swap : forall N M,
+| closing_exchange : forall N M,
     level (S N) -> closing N M -> level (S M) -> closing (S N) (S M)
 | closing_close : forall N M,
     level (S N) -> closing N M -> name -> closing (S N) M.
 
 Arguments closing_weak {N} {M} l r.
-Arguments closing_swap {N} {M} l1 r l2.
+Arguments closing_exchange {N} {M} l1 r l2.
 Arguments closing_close {N} {M} l r n.
 
 Fixpoint closing_weak_n {N} : closing N 0 :=
@@ -515,13 +538,13 @@ Fixpoint closing_weak_n {N} : closing N 0 :=
 Fixpoint closing_weakening {N M} : closing (N + M) N :=
   match N return closing (N + _) N with
   | 0 => closing_weak_n
-  | S N => closing_swap l_0 closing_weakening l_0
+  | S N => closing_exchange l_0 closing_weakening l_0
   end.
 
 Fixpoint closing_id_n {N} : closing N N :=
   match N return closing N N with
   | 0 => closing_id
-  | S N => closing_swap l_0 closing_id_n l_0
+  | S N => closing_exchange l_0 closing_id_n l_0
   end.
 
 Inductive renaming (N : nat) : nat -> Set :=
@@ -561,24 +584,24 @@ Fixpoint renaming_weak {N M}
     renaming_rename n1 (renaming_weak l r) n2
   end.
 
-Fixpoint renaming_swap {N M}
+Fixpoint renaming_exchange {N M}
          (l1 : level (S N)) (r : renaming N M) :
   level (S M) -> renaming (S N) (S M) :=
   match r in renaming _ M
         return level (S M) -> renaming _ (S M)
   with
   | renaming_closing r =>
-    fun l2 => renaming_closing (closing_swap l1 r l2)
+    fun l2 => renaming_closing (closing_exchange l1 r l2)
   | renaming_shift n r =>
-    fun l2 => renaming_shift n (renaming_swap l1 r l2)
+    fun l2 => renaming_shift n (renaming_exchange l1 r l2)
   | @renaming_open _ M n r l =>
     fun l2 =>
       renaming_open
-        n (renaming_swap l1 r (unshift_level l l2))
+        n (renaming_exchange l1 r (unshift_level l l2))
         (shift_level l2 l)
   | renaming_rename n1 r n2 =>
     fun l2 =>
-      renaming_rename n1 (renaming_swap l1 r l2) n2
+      renaming_rename n1 (renaming_exchange l1 r l2) n2
   end.
 
 Fixpoint renaming_close {N M}
@@ -607,7 +630,7 @@ Fixpoint apply_closing_var {N M} (r : closing N M)
       (@cycle_out_var (S N) l)
       @ lift_morph_var (apply_closing_var r)
       @ morph_extend_by M (@weak_var)
-  | @closing_swap N M l1 r l2 =>
+  | @closing_exchange N M l1 r l2 =>
         (@cycle_out_var (S N) l1)
       @ lift_morph_var (apply_closing_var r)
       @ @cycle_in_var (S M) l2
@@ -640,13 +663,13 @@ Fixpoint apply_renaming_var {N M}
 Inductive closing_rhs (N : nat) : nat -> Set :=
 | closing_rhs_weak_rhs : forall M,
     closing N M -> closing_rhs N M
-| closing_rhs_swap_rhs : forall M,
+| closing_rhs_exchange_rhs : forall M,
     closing N M -> level (S M) -> closing_rhs N (S M)
 | closing_rhs_close_rhs : forall M,
     closing N M -> name -> closing_rhs N M.
 
 Arguments closing_rhs_weak_rhs {N} {M} r.
-Arguments closing_rhs_swap_rhs {N} {M} r l.
+Arguments closing_rhs_exchange_rhs {N} {M} r l.
 Arguments closing_rhs_close_rhs {N} {M} r n.
 
 Definition closing_rhs_weak {N M}
@@ -661,15 +684,15 @@ Definition closing_rhs_weak {N M}
             return closing_rhs (S N') M with
       | closing_rhs_weak_rhs r =>
         closing_rhs_weak_rhs (closing_weak l1 r)
-      | closing_rhs_swap_rhs r l =>
-        closing_rhs_swap_rhs (closing_weak l1 r) l
+      | closing_rhs_exchange_rhs r l =>
+        closing_rhs_exchange_rhs (closing_weak l1 r) l
       | closing_rhs_close_rhs r n =>
         closing_rhs_close_rhs (closing_weak l1 r) n
       end
   end.
 Arguments closing_rhs_weak {N M} l r : simpl nomatch.
 
-Definition closing_rhs_swap {N M}
+Definition closing_rhs_exchange {N M}
   : level N -> closing_rhs (pred N) M
     -> level (S M) -> closing_rhs N (S M) :=
   match N
@@ -682,16 +705,16 @@ Definition closing_rhs_swap {N M}
       match r in closing_rhs _ M
             return level (S M) -> closing_rhs (S N') (S M) with
       | closing_rhs_weak_rhs r =>
-        fun l2 => closing_rhs_weak_rhs (closing_swap l1 r l2)
-      | closing_rhs_swap_rhs r l =>
+        fun l2 => closing_rhs_weak_rhs (closing_exchange l1 r l2)
+      | closing_rhs_exchange_rhs r l =>
         fun l2 =>
-          closing_rhs_swap_rhs (closing_swap l1 r (unshift_level l l2))
+          closing_rhs_exchange_rhs (closing_exchange l1 r (unshift_level l l2))
                           (shift_level l2 l)
       | closing_rhs_close_rhs r n =>
-        fun l2 => closing_rhs_close_rhs (closing_swap l1 r l2) n
+        fun l2 => closing_rhs_close_rhs (closing_exchange l1 r l2) n
       end
   end.
-Arguments closing_rhs_swap {N M} l1 r l2 : simpl nomatch.
+Arguments closing_rhs_exchange {N M} l1 r l2 : simpl nomatch.
 
 Definition closing_rhs_close {N M}
   : level N -> closing_rhs (pred N) M
@@ -707,8 +730,8 @@ Definition closing_rhs_close {N M}
             return _ -> closing_rhs _ M with
       | closing_rhs_weak_rhs r =>
         fun n1 => closing_rhs_weak_rhs (closing_close l1 r n1)
-      | closing_rhs_swap_rhs r l =>
-        fun n1 => closing_rhs_swap_rhs (closing_close l1 r n1) l
+      | closing_rhs_exchange_rhs r l =>
+        fun n1 => closing_rhs_exchange_rhs (closing_close l1 r n1) l
       | closing_rhs_close_rhs r n =>
         fun n1 =>
           closing_rhs_close_rhs (closing_close l1 r (unshift_name n n1))
@@ -734,12 +757,12 @@ Fixpoint transpose_level_closing {N M}
           (transpose_level_closing
              r (unshift_level_neq l1 l (sneq_sym neq)))
       end
-  | closing_swap l1 r l2 =>
+  | closing_exchange l1 r l2 =>
     fun l =>
       match level_sdec l l1 with
-      | sleft _ => closing_rhs_swap_rhs r l2
+      | sleft _ => closing_rhs_exchange_rhs r l2
       | sright neq =>
-        closing_rhs_swap
+        closing_rhs_exchange
           (unshift_level_neq l l1 neq)
           (transpose_level_closing
              r (unshift_level_neq l1 l (sneq_sym neq)))
@@ -770,8 +793,8 @@ Fixpoint transpose_name_closing {N M}
   | closing_weak l1 r =>
       closing_rhs_weak
         l1 (transpose_name_closing r n)
-  | closing_swap l1 r l2 =>
-      closing_rhs_swap
+  | closing_exchange l1 r l2 =>
+      closing_rhs_exchange
         l1 (transpose_name_closing r n) l2
   | closing_close l1 r n2 =>
       closing_rhs_close
@@ -787,15 +810,15 @@ Fixpoint compose_closing {N M O}
   | closing_id => fun r2 => r2
   | closing_weak l r1 =>
     fun r2 => closing_weak l (compose_closing r1 r2)
-  | closing_swap l1 r1 l2 =>
+  | closing_exchange l1 r1 l2 =>
     fun r2 =>
       match transpose_level_closing r2 l2 in closing_rhs _ M
             return closing _ M
        with
       | closing_rhs_weak_rhs r2 =>
           closing_weak l1 (compose_closing r1 r2)
-      | closing_rhs_swap_rhs r2 l2 =>
-          closing_swap l1 (compose_closing r1 r2) l2
+      | closing_rhs_exchange_rhs r2 l2 =>
+          closing_exchange l1 (compose_closing r1 r2) l2
       | closing_rhs_close_rhs r2 n =>
           closing_close l1 (compose_closing r1 r2) n
       end
@@ -806,8 +829,8 @@ Fixpoint compose_closing {N M O}
       with
       | closing_rhs_weak_rhs r2 =>
           closing_weak l (compose_closing r1 r2)
-      | closing_rhs_swap_rhs r2 l2 =>
-          closing_swap l (compose_closing r1 r2) l2
+      | closing_rhs_exchange_rhs r2 l2 =>
+          closing_exchange l (compose_closing r1 r2) l2
       | closing_rhs_close_rhs r2 n =>
           closing_close l (compose_closing r1 r2) n
       end
@@ -897,7 +920,7 @@ Fixpoint transpose_level_renaming {N M}
       | closing_rhs_weak_rhs r =>
         renaming_rhs_shift_rhs
           (renaming_closing r)
-      | closing_rhs_swap_rhs r l =>
+      | closing_rhs_exchange_rhs r l =>
         renaming_rhs_open_rhs
           (renaming_closing r) l
       | closing_rhs_close_rhs r n =>
@@ -929,7 +952,7 @@ Fixpoint transpose_name_renaming {N M}
     | closing_rhs_weak_rhs r =>
       renaming_rhs_shift_rhs
         (renaming_closing r)
-    | closing_rhs_swap_rhs r l =>
+    | closing_rhs_exchange_rhs r l =>
       renaming_rhs_open_rhs
         (renaming_closing r) l
     | closing_rhs_close_rhs r n =>
@@ -970,7 +993,7 @@ Fixpoint compose_closing_renaming {N M O}
     fun r2 =>
       renaming_weak l
         (compose_closing_renaming r1 r2)
-  | closing_swap l1 r1 l2 =>
+  | closing_exchange l1 r1 l2 =>
     fun r2 =>
       match transpose_level_renaming l2 r2
              in renaming_rhs _ M
@@ -980,7 +1003,7 @@ Fixpoint compose_closing_renaming {N M O}
           renaming_weak
             l1 (compose_closing_renaming r1 r2)
       | renaming_rhs_open_rhs r2 l2 =>
-          renaming_swap
+          renaming_exchange
             l1 (compose_closing_renaming r1 r2) l2
       | renaming_rhs_rename_rhs r2 n =>
           renaming_close
@@ -996,7 +1019,7 @@ Fixpoint compose_closing_renaming {N M O}
           renaming_weak
             l (compose_closing_renaming r1 r2)
       | renaming_rhs_open_rhs r2 l2 =>
-          renaming_swap
+          renaming_exchange
             l (compose_closing_renaming r1 r2) l2
       | renaming_rhs_rename_rhs r2 n =>
           renaming_close
@@ -1050,7 +1073,7 @@ Fixpoint compose_renamings {N M O} (r1 : renaming O N) {struct r1}
   end.
 
 (* Inversion on the index of a level *)
-Ltac inv_level l :=
+Ltac inversion_level l :=
   let l' := fresh "l'" in
   let Heql := fresh "Heql" in
   remember l as l' eqn:Heql;
@@ -1058,7 +1081,7 @@ Ltac inv_level l :=
   | level ?N =>
     destruct N;
       [exfalso; apply (level_zero_empty l')|];
-      rewrite Heql; clear Heql; try clear l'; cbn
+      rewrite Heql; clear Heql; try clear l'; cbn in *
   end.
 
 (* Reasoning about shifts and unshifts of names *)
@@ -1081,7 +1104,7 @@ Proof.
   destruct (string_dec (n_string n1) (n_string n2));
     try contradiction.
   destruct (le_gt_dec (n_index n1) (n_index n2));
-    try easy; omega.
+    try easy; lia.
 Qed.
 
 Lemma reduce_shift_name_lt n1 n2 :
@@ -1093,7 +1116,7 @@ Proof.
   destruct (string_dec (n_string n1) (n_string n2));
     try contradiction.
   destruct (le_gt_dec (n_index n1) (n_index n2));
-    try easy; omega.
+    try easy; lia.
 Qed.
 
 Lemma reduce_unshift_name_distinct n1 n2 :
@@ -1114,7 +1137,7 @@ Proof.
   destruct (string_dec (n_string n1) (n_string n2));
     try contradiction.
   destruct (le_gt_dec (n_index n2) (n_index n1));
-    try easy; omega.
+    try easy; lia.
 Qed.
 
 Lemma reduce_unshift_name_le n1 n2 :
@@ -1126,7 +1149,7 @@ Proof.
   destruct (string_dec (n_string n1) (n_string n2));
     try contradiction.
   destruct (le_gt_dec (n_index n2) (n_index n1));
-    try easy; omega.
+    try easy; lia.
 Qed.
 
 Lemma reduce_name_eqb_distinct n1 n2 :
@@ -1160,18 +1183,65 @@ Proof.
   congruence.
 Qed.
 
+Lemma reduce_close_var_distinct {V} n1 n2 :
+  n_string n1 <> n_string n2 ->
+  @close_var n1 V (free n2) = free n2.
+Proof.
+  intros; unfold close_var.
+  rewrite reduce_name_eqb_distinct by easy.
+  rewrite reduce_unshift_name_distinct by easy.
+  easy.
+Qed.
+
+Lemma reduce_close_var_lt {V} n1 n2 :
+  n_string n1 = n_string n2 ->
+  n_index n2 < n_index n1 ->
+  @close_var n1 V (free n2) = free n2.
+Proof.
+  intros; unfold close_var.
+  rewrite reduce_name_eqb_neq by lia.
+  rewrite reduce_unshift_name_le by (try congruence; lia).
+  easy.
+Qed.
+
+Lemma reduce_close_var_eq {V} n1 n2 :
+  n_string n1 = n_string n2 ->
+  n_index n1 = n_index n2 ->
+  @close_var n1 V (free n2) = bound l_0.
+Proof.
+  intros; unfold close_var.
+  rewrite reduce_name_eqb_eq by congruence.
+  easy.
+Qed.
+
+Lemma reduce_close_var_gt {V} n1 n2 :
+  n_string n1 = n_string n2 ->
+  n_index n1 < n_index n2 ->
+  @close_var n1 V (free n2)
+  = free (mkname (n_string n2) (pred (n_index n2))).
+Proof.
+  intros; unfold close_var.
+  rewrite reduce_name_eqb_neq by lia.
+  rewrite reduce_unshift_name_gt by (try congruence; lia).
+  easy.
+Qed.
+
 Hint Rewrite reduce_shift_name_distinct
      reduce_unshift_name_distinct
      reduce_name_eqb_distinct
+     @reduce_close_var_distinct
      using (cbn; congruence) : reduce_names.
 
 Hint Rewrite reduce_shift_name_ge reduce_shift_name_lt
      reduce_unshift_name_le reduce_unshift_name_gt
      reduce_name_eqb_eq reduce_name_eqb_neq
-     using (cbn; try congruence; omega) : reduce_names.
+     @reduce_close_var_lt @reduce_close_var_eq
+     @reduce_close_var_gt
+     using (cbn; try congruence; lia) : reduce_names.
 
 Ltac reduce_names :=
-  autorewrite with reduce_names in *; cbn in *.
+  try repeat
+    (autorewrite with reduce_names in *; cbn in *).
 
 Lemma reduce_non_zero_name {i} n :
   i < n_index n ->
@@ -1187,7 +1257,7 @@ Lemma red_name_neq n1 n2 :
 Proof.
   intro Heq1; split.
   - intros Hneq Heq2; apply Hneq.
-    change n1 with (mkname (n_string n1) (n_index n1)).
+    eta_expand_name n1.
     rewrite Heq1, Heq2; easy.
   - intros Hneq Heq2; apply Hneq.
     rewrite Heq2; easy.
@@ -1204,19 +1274,29 @@ Ltac case_names n1 n2 :=
         as [[|]|];
      [replace n2
         with (mkname (n_string n2) (S (pred (n_index n2))))
-       by (apply (@reduce_non_zero_name (n_index n1)); easy)
+       by (apply (@reduce_non_zero_name (n_index n1)); easy);
+      reduce_names;
+      replace (mkname (n_string n2) (S (pred (n_index n2))))
+        with n2
+       by (symmetry;
+           apply (@reduce_non_zero_name (n_index n1)); easy)
      |replace n2 with n1
         by (change n1 with (mkname (n_string n1) (n_index n1));
             change n2 with (mkname (n_string n2) (n_index n2));
-            congruence)
+            congruence);
+      reduce_names
      |replace n1
         with (mkname (n_string n1) (S (pred (n_index n1))))
-       by (apply (@reduce_non_zero_name (n_index n2)); easy) ]
-    |];
-    reduce_names;
+       by (apply (@reduce_non_zero_name (n_index n2)); easy);
+      reduce_names;
+      replace (mkname (n_string n1) (S (pred (n_index n1))))
+        with n1
+       by (symmetry;
+           apply (@reduce_non_zero_name (n_index n2)); easy)]
+    |reduce_names];
     change (mkname (n_string n1) (n_index n1)) with n1;
     change (mkname (n_string n2) (n_index n2)) with n2;
-    try contradiction; try omega.
+    try contradiction; try lia.
 
 (* Reasoning about shifts and unshifts of levels *)
 
@@ -1226,7 +1306,7 @@ Lemma reduce_shift_level_ge {N} (l1 : level N) l2 :
 Proof.
   intros; unfold shift_level.
   destruct (le_gt_dec (l_nat l1) (l_nat l2));
-    try easy; omega.
+    try easy; lia.
 Qed.
 
 Lemma reduce_shift_level_lt {N} (l1 : level N) l2 :
@@ -1235,7 +1315,7 @@ Lemma reduce_shift_level_lt {N} (l1 : level N) l2 :
 Proof.
   intros; unfold shift_level.
   destruct (le_gt_dec (l_nat l1) (l_nat l2));
-    try easy; omega.
+    try easy; lia.
 Qed.
 
 Lemma reduce_unshift_level_gt {N} (l1 : level N) l2 :
@@ -1246,7 +1326,7 @@ Lemma reduce_unshift_level_gt {N} (l1 : level N) l2 :
 Proof.
   intros; unfold unshift_level.
   destruct (le_gt_dec (l_nat l2) (l_nat l1));
-    try easy; omega.
+    try easy; lia.
 Qed.
 
 Lemma reduce_unshift_level_le {N} (l1 : level N) l2 :
@@ -1256,7 +1336,7 @@ Lemma reduce_unshift_level_le {N} (l1 : level N) l2 :
 Proof.
   intros; unfold unshift_level.
   destruct (le_gt_dec (l_nat l2) (l_nat l1));
-    try easy; omega.
+    try easy; lia.
 Qed.
 
 Lemma reduce_unshift_level_neq_gt {N}
@@ -1268,7 +1348,7 @@ Lemma reduce_unshift_level_neq_gt {N}
 Proof.
   intros; unfold unshift_level_neq.
   destruct (le_gt_dec (l_nat l2) (l_nat l1));
-    try easy; omega.
+    try easy; lia.
 Qed.
 
 Lemma reduce_unshift_level_neq_le {N}
@@ -1281,7 +1361,7 @@ Lemma reduce_unshift_level_neq_le {N}
 Proof.
   intros; unfold unshift_level_neq.
   destruct (le_gt_dec (l_nat l2) (l_nat l1));
-    try easy; omega.
+    try easy; lia.
 Qed.
 
 Lemma reduce_level_sdec_eq {N} (l1 : level N) l2 :
@@ -1297,8 +1377,60 @@ Lemma reduce_level_sdec_neq {N} (l1 : level N) l2 :
   level_sdec l1 l2 = sright (squash (lift_level_neq neql)).
 Proof.
   intros; unfold level_sdec, level_dec.
-  destruct (Nat.eq_dec (l_nat l1) (l_nat l2)) as [eql|neql2]; easy.
+  destruct (Nat.eq_dec (l_nat l1) (l_nat l2)); easy.
 Qed.
+
+Lemma reduce_cycle_in_level_lt {N V} (l1 : level N) l2 :
+  forall (lt : l_nat l2 < l_nat l1),
+  @cycle_in_level N l1 V l2
+  = mklevel (S (l_nat l2))
+      (less_than_le lt (less_than_extend_by V (l_less_than l1))).
+Proof.
+  intros; unfold cycle_in_level.
+  (unshelve
+     (eassert (_ <> (_ : nat)) as neql' by shelve;
+      rewrite (reduce_level_sdec_neq _ _ neql') in *);
+      [> cbn in *; lia|]).
+  (unshelve
+     (eassert (_ <= _) as le by shelve;
+      rewrite (reduce_unshift_level_le _ _ le) in *);
+      [> cbn in *; lia|]).
+   easy.
+Qed.
+
+Lemma reduce_cycle_in_level_eq {N V} (l1 : level N) l2 :
+  l_nat l1 = l_nat l2 ->
+  @cycle_in_level N l1 V l2
+  = l_0' (squash (level_extend_by V l1)).
+Proof.
+  intros; unfold cycle_in_level.
+  (unshelve
+     (eassert (_ = (_ : nat)) as eql' by shelve;
+      rewrite (reduce_level_sdec_eq _ _ eql') in *);
+      [> cbn in *; lia|]).
+   easy.
+Qed.
+
+Lemma reduce_cycle_in_level_gt {N V} (l1 : level N) l2 :
+  l_nat l1 < l_nat l2 ->
+  @cycle_in_level N l1 V l2 = l2.
+Proof.
+  intros; unfold cycle_in_level.
+  (unshelve
+     (eassert (_ <> (_ : nat)) as neql' by shelve;
+      rewrite (reduce_level_sdec_neq _ _ neql') in *);
+      [> cbn in *; lia|]).
+  (unshelve
+     (eassert (_ <= _) as le by shelve;
+      rewrite (reduce_unshift_level_gt _ _ le) in *);
+      [> cbn in *; lia|]).
+   easy.
+Qed.
+
+Hint Rewrite @reduce_shift_level_ge @reduce_shift_level_lt
+     @reduce_cycle_in_level_eq @reduce_cycle_in_level_gt
+     using (cbn in *; lia)
+  : reduce_levels.
 
 Definition reduce_level_irrelevant {N} (l : level N) :
   forall (lt : less_than (l_nat l) N),
@@ -1308,39 +1440,46 @@ Definition reduce_level_irrelevant {N} (l : level N) :
 Hint Rewrite @reduce_level_irrelevant : reduce_level_irrelevant.
 
 Ltac reduce_levels_step :=
+  let le := fresh "le" in
+  let neql := fresh "neql" in
+  let eql := fresh "eql" in
   cbn;
-  try rewrite @reduce_shift_level_ge by (cbn in *; omega);
-  try rewrite @reduce_shift_level_lt by (cbn in *; omega);
+  autorewrite with reduce_levels;
   try
     (unshelve
        (eassert (_ <= _) as le by shelve;
         rewrite (reduce_unshift_level_le _ _ le) in *);
-       [> cbn in *; omega|]);
+       [> cbn in *; lia|]);
   try
     (unshelve
        (eassert (_ <= _) as le by shelve;
         rewrite (reduce_unshift_level_gt _ _ le) in *);
-       [> cbn in *; omega|]);
+       [> cbn in *; lia|]);
   try
     (unshelve
        (eassert (_ <= _) as le by shelve;
         rewrite (reduce_unshift_level_neq_le _ _ _ le) in *);
-       [> cbn in *; omega|]);
+       [> cbn in *; lia|]);
   try
     (unshelve
        (eassert (_ <= _) as le by shelve;
         rewrite (reduce_unshift_level_neq_gt _ _ _ le) in *);
-       [> cbn in *; omega|]);
+       [> cbn in *; lia|]);
   try
     (unshelve
        (eassert (_ = (_ : nat)) as eql by shelve;
         rewrite (reduce_level_sdec_eq _ _ eql) in *);
-       [> cbn in *; omega|]);
+       [> cbn in *; lia|]);
   try
     (unshelve
        (eassert (_ <> (_ : nat)) as neql by shelve;
         rewrite (reduce_level_sdec_neq _ _ neql) in *);
-       [> cbn in *; omega|]).
+       [> cbn in *; lia|]);
+  try
+    (unshelve
+       (eassert (_ <= _) as le by shelve;
+        rewrite (reduce_cycle_in_level_lt _ _ le) in *);
+       [> cbn in *; lia|]).
 
 Ltac reduce_levels :=
   try repeat reduce_levels_step;
@@ -1357,22 +1496,62 @@ Ltac case_levels l1 l2 :=
       by (apply lift_level_eq; easy);
     replace (l_nat l2) with (l_nat l1) by easy;
     cbn in Heq;
-    try destruct (Heq)|];
-  reduce_levels; try omega.
+    try
+      (destruct (Heq);
+       match goal with
+       | |- context [l2] => fail 1
+       | _ => idtac
+       end)|];
+  reduce_levels; try lia.
 
 (* Case split on a level *)
-Tactic Notation "case_level" constr(l) "as" ident(ln) ident(lt) :=
+Tactic Notation "case_level" constr(l)
+       "as" simple_intropattern(ln) simple_intropattern(lt) :=
   let l' := fresh "l" in
   let Heql := fresh "Heql" in
   remember l as l' eqn:Heql;
   symmetry in Heql;
   destruct l' as [[|ln] lt]; cbn in *;
-    reduce_levels; try omega.
+    reduce_levels; try lia.
 
 Tactic Notation "case_level" constr(l) :=
   let ln := fresh "ln" in
   let lt := fresh "lt" in
   case_level l as ln lt.
+
+(* Case split on a variable *)
+Tactic Notation "case_var" constr(v)
+       "as" simple_intropattern(n) simple_intropattern(l) :=
+  destruct v as [n|l]; cbn in *;
+  match goal with
+  | |- context [mklevel (l_nat ?l) (l_less_than ?l)] =>
+    eta_reduce_level l
+  | _ => idtac
+  end.
+
+Tactic Notation "case_var" constr(v) :=
+  let n := fresh "n" in
+  let l := fresh "l" in
+  case_var v as n l.
+
+Tactic Notation "case_var" :=
+  match goal with
+  | |- context
+         [match ?v with
+          | free _ => _
+          | bound _ => _
+          end] => case_var v
+  end.
+
+Tactic Notation "case_var"
+       "as" simple_intropattern(n) simple_intropattern(l) :=
+  match goal with
+  | |- context
+         [match ?v with
+          | free _ => _
+          | bound _ => _
+          end] => case_var v as n l
+  end.
 
 (* Identities *)
 
@@ -1381,7 +1560,7 @@ Lemma open_close_identity {N} (n : name) :
   @ morph_extend_by N (@close_var n) =m= 1.
 Proof.
   intros V v; unfold open_var, close_var.
-  destruct v as [n2|?]; cbn; try easy.
+  case_var v as n2 ?; try easy.
   case_names n n2; easy.
 Qed.
 
@@ -1400,7 +1579,7 @@ Lemma close_open_identity {N} (n : name) :
   @ morph_extend_by N (@open_var n) =m= 1.
 Proof.
   intros V v; unfold open_var, close_var.
-  destruct v as [n2|l2]; cbn.
+  case_var v as n2 l2.
   - case_names n n2; easy.
   - case_level l2; try easy.
     case_names n n; easy.
@@ -1421,10 +1600,13 @@ Lemma cycle_in_cycle_out_identity {N} (l : level N) :
   @cycle_in_var _ l @ @cycle_out_var _ l =m= 1.
 Proof.
   intros V v.
-  destruct v as [?|l2]; cbn; try easy.
+  case_var v as ? l2; try easy.
   unfold cycle_in_level, cycle_out_level.
-  case_levels l l2; try easy.
-  case_level l2; easy.
+  case_level l2 as ln2 lt2; try easy.
+  case_levels
+    (mklevel (l_nat l)
+             (less_than_extend_by V (l_less_than l)))
+    (mklevel ln2 (less_than_pred lt2)); easy.
 Qed.
 
 Lemma cycle_in_cycle_out_identity' {N M} (l : level N)
@@ -1441,13 +1623,10 @@ Lemma cycle_out_cycle_in_identity {N} (l : level N) :
   @cycle_out_var _ l @ @cycle_in_var _ l =m= 1.
 Proof.
   intros V v.
-  destruct v as [?|l2]; cbn; try easy.
+  case_var v as ? l2; try easy.
   unfold cycle_in_level, cycle_out_level.
-  case_level l2 as ln2 lt2; try easy.
-  case_levels
-    (mklevel (l_nat l)
-             (less_than_extend_by V (l_less_than l)))
-    (mklevel ln2 (less_than_pred lt2)); easy.
+  case_levels l l2; try easy.
+  case_level l2; easy.
 Qed.
 
 Lemma cycle_out_cycle_in_identity' {N M} (l : level N)
@@ -1460,6 +1639,27 @@ Proof.
   easy.
 Qed.
 
+Lemma swap_swap_identity {N} :
+  morph_extend_by N (@swap_var)
+  @ morph_extend_by N (@swap_var) =m= 1.
+Proof.
+  intros V v.
+  case_var v as ? l; try easy.
+  unfold swap_level.
+  case_level l as ln lt; try easy.
+  destruct ln; easy.
+Qed.
+
+Lemma swap_swap_identity' {N M} (m : morph var M var (2 + N)) :
+  morph_extend_by N (@swap_var)
+  @ (morph_extend_by N (@swap_var) @ m) =m= m.
+Proof.
+  rewrite morph_associative.
+  rewrite swap_swap_identity.
+  rewrite morph_left_identity.
+  easy.
+Qed.
+
 (* [lift_morph_var] distributes over composition and identity *)
 
 Lemma lift_morph_var_compose {N M O}
@@ -1468,10 +1668,10 @@ Lemma lift_morph_var_compose {N M O}
   =m= lift_morph_var m1 @ lift_morph_var m2.
 Proof.
   intros V v.
-  destruct v as [n|l]; cbn.
-  - destruct (m2 V (free n)); easy.
+  case_var v as n l.
+  - case_var (m2 V (free n)); easy.
   - case_level l; try easy.
-    destruct
+    case_var
       (m2 V (bound (@mklevel (O + V) ln (less_than_pred lt))));
       easy.
 Qed.
@@ -1480,7 +1680,7 @@ Lemma lift_morph_var_id {N} :
   @lift_morph_var N N 1 =m= 1.
 Proof.
   intros V v.
-  destruct v as [n|l]; cbn; try easy.
+  case_var v as n l; try easy.
   case_level l; easy.
 Qed.
 
@@ -1491,26 +1691,12 @@ Hint Rewrite <- morph_associative
 Hint Rewrite morph_left_identity morph_right_identity
   : normalize_morph_compose.
 
-Hint Rewrite <- @lift_morph_var_id @lift_morph_var_compose
-  : pull_lift_morph_var.
-
-Hint Rewrite @open_close_identity @open_close_identity'
-     @close_open_identity @close_open_identity'
-     @cycle_in_cycle_out_identity @cycle_in_cycle_out_identity'
-     @cycle_out_cycle_in_identity @cycle_out_cycle_in_identity'
-  : var_morph_identities.
-
 Hint Rewrite @lift_morph_var_id @lift_morph_var_compose
   : push_lift_morph_var.
 
 Ltac simplify_var_morphs :=
   autorewrite with push_lift_morph_var;
   autorewrite with normalize_morph_compose.
-
-Ltac apply_var_morph_identities :=
-  autorewrite with pull_lift_morph_var;
-  autorewrite with var_morph_identities;
-  autorewrite with push_lift_morph_var.
 
 (* [swap_var] transposes with lifted morphisms *)
 
@@ -1521,13 +1707,14 @@ Lemma transpose_swap_lifted N M m :
       @ morph_extend_by M (@swap_var).
 Proof.
   intros V v.
-  destruct v as [n|l]; cbn.
-  - destruct (m V (free n)); easy.
+  case_var v as n l.
+  - case_var (m V (free n)); easy.
   - case_level l as ln lt; try easy.
     destruct ln; cbn; try easy.
-    destruct
+    case_var
       (m V (@bound (M + V)
-         (@mklevel (M + V) ln (less_than_pred (less_than_pred lt)))));
+         (@mklevel (M + V) ln
+            (less_than_pred (less_than_pred lt)))));
       easy.
 Qed.
 
@@ -1544,20 +1731,6 @@ Proof.
   easy.
 Qed.
 
-Definition apply_closing_rhs_var {N M} (r : closing_rhs N M)
-  : morph var M var (S N) :=
-  match r in closing_rhs _ M return morph _ M _ _ with
-  | @closing_rhs_weak_rhs _ M r =>
-      lift_morph_var (apply_closing_var r)
-      @ morph_extend_by M (@weak_var)
-  | @closing_rhs_swap_rhs _ M r l2 =>
-      lift_morph_var (apply_closing_var r)
-      @ @cycle_in_var (S M) l2
-  | @closing_rhs_close_rhs _ M r n =>
-      lift_morph_var (apply_closing_var r)
-      @ morph_extend_by M (@close_var n)
-  end.
-
 Definition morph_id_to_succ_pred {N} :
   level N -> morph var N var (S (pred N)) :=
   match N return level N -> morph _ N _ (S (pred N)) with
@@ -1572,6 +1745,237 @@ Definition morph_id_from_succ_pred {N} :
   | S N => fun _ => morph_id
   end.
 
+(* Transposing push operations
+
+   We wish to reason about transposing "push" operations
+   (i.e. [weak], [cycle_in] and [close]).
+   These operations are not commutative, however they can be
+   transposed by applying transformations to them.
+
+   This situation is very close to that studied by the "operational
+   transforms" literature in the context of collaborative text
+   editors. However, rather than define the "ET" and "IT"
+   transformations for our operations as they do, we will use a
+   slightly different formulation.
+
+   We define two transformations on operations:
+
+     transpose_pushes_left(op1, op2)
+
+     transpose_pushes_right(op2, op1)
+
+   such that:
+
+     lift_morph_var op1
+     @ op2
+     = swap_var
+       @ lift_morph_var (transpose_pushes_left(op1, op2))
+       @ (transpose_pushes_right(op2, op1)) *)
+
+Inductive push_op (N : nat) : (nat -> nat) -> Type :=
+| weak_op : push_op N (fun x => x)
+| cycle_in_op : level N -> push_op N pred
+| close_op : name -> push_op N (fun x => x).
+Arguments weak_op {N}.
+Arguments cycle_in_op {N}.
+Arguments close_op {N}.
+
+Definition apply_push_op_var {N f} (op : push_op N f)
+  : morph var N var (S (f N)) :=
+  match op in push_op _ f return morph _ _ _ (S (f N)) with
+  | weak_op => morph_extend_by N (@weak_var)
+  | cycle_in_op l =>
+    morph_id_to_succ_pred l
+    @ @cycle_in_var _ l
+  | close_op n => morph_extend_by N (@close_var n)
+  end.
+
+Definition transpose_pushes_left {N f1 f2}
+           (op1 : push_op (f2 N) f1) (op2 : push_op N f2) :
+  push_op (f1 N) f2 :=
+  match op2 in push_op _ f2, op1 in push_op _ f1
+        return push_op (f1 N) f2
+  with
+  | weak_op, weak_op => weak_op
+  | weak_op, cycle_in_op l => weak_op
+  | weak_op, close_op n => weak_op
+  | cycle_in_op l, weak_op => cycle_in_op l
+  | cycle_in_op l1, cycle_in_op l2 =>
+    cycle_in_op (unshift_level l2 (level_succ_pred l1))
+  | cycle_in_op l, close_op n => cycle_in_op l
+  | close_op n, weak_op => close_op n
+  | close_op n, cycle_in_op l => close_op n
+  | close_op n1, close_op n2 =>
+    close_op (unshift_name n2 n1)
+  end.
+
+Definition transpose_pushes_right {N f1 f2}
+           (op2 : push_op N f2) (op1 : push_op (f2 N) f1) :
+  push_op N f1 :=
+  match op2 in push_op _ f2, op1 in push_op _ f1
+        return push_op N f1
+  with
+  | weak_op, weak_op => weak_op
+  | weak_op, cycle_in_op l => cycle_in_op l
+  | weak_op, close_op n => close_op n
+  | cycle_in_op l, weak_op => weak_op
+  | cycle_in_op l1, cycle_in_op l2 =>
+    cycle_in_op (shift_level l1 l2)
+  | cycle_in_op l, close_op n => close_op n
+  | close_op n, weak_op => weak_op
+  | close_op n, cycle_in_op l => cycle_in_op l
+  | close_op n1, close_op n2 =>
+    close_op (shift_name n1 n2)
+  end.
+
+Definition transpose_pushes_indices {N f1 f2}
+  (op1 : push_op (f2 N) f1) (op2 : push_op N f2)
+  : morph var (f2 (f1 N)) var (f1 (f2 N)) :=
+    match op2 in push_op _ f2, op1 in push_op _ f1
+        return morph var (f2 (f1 N)) var (f1 (f2 N))
+    with
+    | weak_op, weak_op => 1
+    | weak_op, cycle_in_op l => 1
+    | weak_op, close_op n => 1
+    | cycle_in_op l, weak_op => 1
+    | cycle_in_op l1, cycle_in_op l2 => 1
+    | cycle_in_op l, close_op n => 1
+    | close_op n, weak_op => 1
+    | close_op n, cycle_in_op l => 1
+    | close_op n1, close_op n2 => 1
+    end.
+
+Lemma transpose_pushes {N f1 f2}
+  (op1 : push_op (f2 N) f1) (op2 : push_op N f2) :
+  lift_morph_var (apply_push_op_var op1)
+  @ apply_push_op_var op2
+  =m= lift_morph_var
+        (lift_morph_var
+           (transpose_pushes_indices op1 op2))
+      @ morph_extend_by (f2 (f1 N)) (@swap_var)
+      @ lift_morph_var
+          (apply_push_op_var (transpose_pushes_left op1 op2))
+      @ apply_push_op_var (transpose_pushes_right op2 op1).
+Proof.
+  intros V v.
+  destruct op1 as [|l1|n1], op2 as [|l2|n2];
+    simplify_var_morphs; cbn;
+    case_var v as n3 l3; try easy.
+  - case_var as ? l4; try easy.
+    case_level l4; easy.
+  - case_var as ? l4; try easy.
+    case_level l4; easy.
+  - case_var; try easy.
+    case_level l; easy.
+  - case_var as ? l4; try easy.
+    case_level l4; easy.
+  - case_var as ? l4; try easy.
+    case_level l4; easy.
+  - inversion_level l2.
+    inversion_level l1.
+    easy.
+  - inversion_level l2.
+    inversion_level l1.
+    case_levels l2 l3.
+    + case_level l3 as ln3 lt3.
+      case_levels l2 l1.
+      * case_levels l1 (mklevel ln3 (less_than_pred lt3));
+          try easy.
+        destruct ln3; easy.
+      * case_levels l2 (mklevel ln3 (less_than_pred lt3));
+          try easy.
+        destruct ln3; easy.
+      * destruct ln3; try lia; easy.
+    + case_levels l2 l1; try easy.
+      case_level l2; easy.
+    + case_levels l1 l3; try easy.
+      * case_level l3; easy.
+      * case_levels l2 l1; easy.
+  - inversion_level l1.
+    case_names n2 n3; easy.
+  - inversion_level l1.
+    case_level (cycle_in_level l1 l3); easy.
+  - case_var; try easy.
+    case_level l; easy.
+  - inversion_level l2.
+    case_names n1 n3; easy.
+  - inversion_level l2.
+    case_level (cycle_in_level l2 l3); easy.
+  - case_names n2 n3.
+    + case_names n1 (mkname (n_string n3) (pred (n_index n3)));
+        try easy.
+      case_names n1 n2; easy.
+    + case_names n2 n1; easy.
+    + case_names n1 n3; try easy.
+      case_names n1 n2; try easy.
+      congruence.
+    + case_names n1 n3; try easy.
+      case_names n1 n2; easy.
+Qed.
+
+Tactic Notation
+  "transpose_pushes" open_constr(op1) open_constr(op2) :=
+  let Hrw := fresh "Hrw" in
+    epose (transpose_pushes op1 op2) as Hrw;
+      cbn in Hrw;
+      autorewrite with push_lift_morph_var in Hrw;
+      autorewrite with normalize_morph_compose in Hrw;
+      rewrite Hrw; clear Hrw.
+
+Tactic Notation
+  "transpose_pushes" open_constr(op1) open_constr(op2)
+    "at" occurrences(occ) :=
+  let Hrw := fresh "Hrw" in
+    epose (transpose_pushes op1 op2) as Hrw;
+      cbn in Hrw;
+      autorewrite with push_lift_morph_var in Hrw;
+      autorewrite with normalize_morph_compose in Hrw;
+      rewrite Hrw at occ; clear Hrw.
+
+(* Permutations of push operations
+
+   Beyond transposing pairs of push operations, we wish to reason
+   about arbitrary permutations of sequences of push operations.
+
+   Given a sequence of n push operations, rewriting with
+   [transpose_pushes] essentially gives us transpositions σᵢ
+   which swap the ith and (i+1)th operations. The group of
+   permutations of n operations can be generated from these
+   transpositions and the following equations:
+
+   1) σᵢ ∘ σⱼ = σⱼ ∘ σᵢ where |i - j| > 1
+
+   2) σᵢ ∘ σᵢ = 1
+
+   3) σᵢ ∘ σᵢ₊₁ ∘ σᵢ = σᵢ₊₁ ∘ σᵢ ∘ σᵢ₊₁
+
+   The first equation follows automatically since rewriting
+   with [transpose_pushes] only affects the operations that
+   are transposed.
+
+   Lemmas [transpose_pushes_squared_left] and
+   [transpose_pushes_squared_right] below are equivalent to
+   the second equation.
+
+   Lemmas [transpose_pushes_reverse_left],
+   [transpose_pushes_reverse_middle] and
+   [transpose_pushes_reverse_right] below are equivalent to
+   the third equation. *)
+
+Definition apply_closing_rhs_var {N M} (r : closing_rhs N M)
+  : morph var M var (S N) :=
+  match r in closing_rhs _ M return morph _ M _ _ with
+  | @closing_rhs_weak_rhs _ M r =>
+      lift_morph_var (apply_closing_var r)
+      @ morph_extend_by M (@weak_var)
+  | @closing_rhs_exchange_rhs _ M r l2 =>
+      lift_morph_var (apply_closing_var r)
+      @ @cycle_in_var (S M) l2
+  | @closing_rhs_close_rhs _ M r n =>
+      lift_morph_var (apply_closing_var r)
+      @ morph_extend_by M (@close_var n)
+  end.
+
 Lemma apply_closing_rhs_weak N M
       (l : level N) (r : closing_rhs (pred N) M) :
   apply_closing_rhs_var (closing_rhs_weak l r)
@@ -1582,19 +1986,79 @@ Lemma apply_closing_rhs_weak N M
       @ morph_extend_by M (@weak_var).
 Proof.
   destruct r; cbn.
-  - inv_level l.
+  - inversion_level l.
     simplify_var_morphs.
     setoid_rewrite transpose_swap_lifted'.
-    admit.
-  - inv_level l.
+    transpose_pushes weak_op weak_op at 1.
+    easy.
+  - inversion_level l.
     simplify_var_morphs.
     setoid_rewrite transpose_swap_lifted'.
-    admit.
-  - inv_level l.
+    transpose_pushes weak_op (cycle_in_op l0).
+    easy.
+  - inversion_level l.
     simplify_var_morphs.
     setoid_rewrite transpose_swap_lifted'.
-    admit.
-Admitted.
+    transpose_pushes weak_op (close_op n).
+    easy.
+Qed.
+
+Lemma apply_closing_rhs_exchange N M
+      (l1 : level N) (r : closing_rhs (pred N) M)
+      (l2 : level (S M)):
+  apply_closing_rhs_var (closing_rhs_exchange l1 r l2)
+  =m= lift_morph_var (@cycle_out_var N l1)
+      @ lift_morph_var (morph_id_from_succ_pred l1)
+      @ morph_extend_by (pred N) (@swap_var)
+      @ lift_morph_var (apply_closing_rhs_var r)
+      @ (@cycle_in_var (S M) l2).
+Proof.
+  destruct r; cbn.
+  - inversion_level l1.
+    simplify_var_morphs.
+    setoid_rewrite transpose_swap_lifted'.
+    transpose_pushes (cycle_in_op l2) weak_op.
+    easy.
+  - inversion_level l1.
+    simplify_var_morphs.
+    setoid_rewrite transpose_swap_lifted'.
+    transpose_pushes (cycle_in_op l) (cycle_in_op l2).
+    rewrite swap_swap_identity'.
+    easy.
+  - inversion_level l1.
+    simplify_var_morphs.
+    setoid_rewrite transpose_swap_lifted'.
+    transpose_pushes (cycle_in_op l2) (close_op n).
+    easy.
+Qed.
+
+Lemma apply_closing_rhs_close N M
+      (l : level N) (r : closing_rhs (pred N) M) n :
+  apply_closing_rhs_var (closing_rhs_close l r n)
+  =m= lift_morph_var (@cycle_out_var N l)
+      @ lift_morph_var (morph_id_from_succ_pred l)
+      @ morph_extend_by (pred N) (@swap_var)
+      @ lift_morph_var (apply_closing_rhs_var r)
+      @ morph_extend_by M (@close_var n).
+Proof.
+  destruct r; cbn.
+  - inversion_level l.
+    simplify_var_morphs.
+    setoid_rewrite transpose_swap_lifted'.
+    transpose_pushes (close_op n) weak_op.
+    easy.
+  - inversion_level l.
+    simplify_var_morphs.
+    setoid_rewrite transpose_swap_lifted'.
+    transpose_pushes (close_op n) (cycle_in_op l0).
+    easy.
+  - inversion_level l.
+    simplify_var_morphs.
+    setoid_rewrite transpose_swap_lifted'.
+    transpose_pushes (close_op _) (close_op n).
+    rewrite swap_swap_identity'.
+    easy.
+Qed.
 
 Lemma apply_transpose_level_closing_aux N M
       (r : closing N M) (l : level N):
@@ -1613,7 +2077,7 @@ Proof.
       rewrite cycle_in_cycle_out_identity.
       rewrite morph_left_identity.
       easy.
-    + inv_level (unshift_level_neq l' l (squash n)).
+    + inversion_level (unshift_level_neq l' l (squash n)).
       rewrite apply_closing_rhs_weak; cbn.
       rewrite <- IHr; cbn.
       simplify_var_morphs.
@@ -1622,12 +2086,20 @@ Proof.
     destruct (level_dec l' l); subst; cbn.
     + rewrite cycle_in_cycle_out_identity'.
       easy.
-    + admit.
+    + inversion_level (unshift_level_neq l' l (squash n)).
+      rewrite apply_closing_rhs_exchange; cbn.
+      rewrite <- IHr; cbn.
+      simplify_var_morphs.
+      admit.
   - unfold level_sdec.
     destruct (level_dec l' l); subst; cbn.
     + rewrite cycle_in_cycle_out_identity'.
       easy.
-    + admit.
+    + inversion_level (unshift_level_neq l' l (squash n0)).
+      rewrite apply_closing_rhs_close; cbn.
+      rewrite <- IHr; cbn.
+      simplify_var_morphs.
+      admit.
 Admitted.
 
 Lemma apply_transpose_level_closing N M
