@@ -229,8 +229,8 @@ Defined.
 Definition less_than_le_neq {N M O} :
   N <= M ->
   M <> N ->
-  less_than M (S O) ->
-  less_than N O.
+  less_than M O ->
+  less_than N (pred O).
   intros Hle Hneq.
   assert (N < M) as Hle2.
   { inversion Hle.
@@ -388,7 +388,7 @@ Definition shift_level {N}
   else level_extend' l2.
 Arguments shift_level {N} l1 l2 : simpl nomatch.
 
-Definition unshift_level {N} (l1 : level N) (l2 : level (S N)) : level N :=
+Definition unshift_level {N} (l1 : level (pred N)) (l2 : level N) : level (pred N) :=
   match Compare_dec.le_gt_dec (l_nat l2) (l_nat l1) with
   | left le =>
     mklevel (l_nat l2)
@@ -400,8 +400,8 @@ Definition unshift_level {N} (l1 : level N) (l2 : level (S N)) : level N :=
 Arguments unshift_level {N} l1 l2 : simpl nomatch.
 
 Definition unshift_level_neq {N}
-         (l1 : level (S N)) (l2 : level (S N))
-  : Squash (l1 <> l2) -> level N :=
+         (l1 : level N) (l2 : level N)
+  : Squash (l1 <> l2) -> level (pred N) :=
   match Compare_dec.le_gt_dec (l_nat l2) (l_nat l1) with
   | left le =>
     fun sneql =>
@@ -435,7 +435,8 @@ Definition cycle_in_level {N}
   fun l1 V l2 =>
     if level_sdec (level_extend_by V l1) l2 then
       l_0' (squash (level_extend_by V l1))
-    else (unshift_level (level_extend_by V l1) (l_S l2)).
+    else @unshift_level (S N + V)
+           (level_extend_by V l1) (l_S l2).
 Arguments cycle_in_level {N} l1 {V} l2 : simpl nomatch.
 
 Definition swap_level
@@ -616,7 +617,8 @@ Fixpoint renaming_exchange {N M}
   | @renaming_open _ M n r l =>
     fun l2 =>
       renaming_open
-        n (renaming_exchange l1 r (unshift_level l l2))
+        n (renaming_exchange l1 r
+             (@unshift_level (S (S M)) l l2))
         (shift_level l2 l)
   | renaming_rename n1 r n2 =>
     fun l2 =>
@@ -725,10 +727,12 @@ Definition closing_rhs_exchange {N M}
             return level (S M) -> closing_rhs (S N') (S M) with
       | closing_rhs_weak_rhs r =>
         fun l2 => closing_rhs_weak_rhs (closing_exchange l1 r l2)
-      | closing_rhs_exchange_rhs r l =>
+      | @closing_rhs_exchange_rhs _ M' r l =>
         fun l2 =>
-          closing_rhs_exchange_rhs (closing_exchange l1 r (unshift_level l l2))
-                          (shift_level l2 l)
+          closing_rhs_exchange_rhs
+            (closing_exchange l1 r
+               (@unshift_level (S (S M')) l l2))
+            (shift_level l2 l)
       | closing_rhs_close_rhs r n =>
         fun l2 => closing_rhs_close_rhs (closing_exchange l1 r l2) n
       end
@@ -896,10 +900,10 @@ Definition renaming_rhs_open {N M}
     fun l1 =>
       renaming_rhs_shift_rhs
         (renaming_open n1 r l1)
-  | renaming_rhs_open_rhs r l =>
+  | @renaming_rhs_open_rhs _ M' r l =>
     fun l1 =>
       renaming_rhs_open_rhs
-        (renaming_open n1 r (unshift_level l l1))
+        (renaming_open n1 r (@unshift_level (S (S M')) l l1))
         (shift_level l1 l)
   | renaming_rhs_rename_rhs r n =>
     fun l1 =>
@@ -1357,7 +1361,7 @@ Qed.
 Lemma reduce_unshift_level_gt {N} (l1 : level N) l2 :
   S (l_nat l1) <= l_nat l2 ->
   forall (le : S (l_nat l1) <= l_nat l2),
-  unshift_level l1 l2
+  @unshift_level (S N) l1 l2
   = mklevel (pred (l_nat l2))
             (less_than_pred_le le (l_less_than l2)).
 Proof.
@@ -1369,7 +1373,7 @@ Qed.
 Lemma reduce_unshift_level_le {N} (l1 : level N) l2 :
   l_nat l2 <= l_nat l1 ->
   forall (le : l_nat l2 <= l_nat l1),
-  unshift_level l1 l2
+  @unshift_level (S N) l1 l2
   = mklevel (l_nat l2) (less_than_le le (l_less_than l1)).
 Proof.
   intros; unfold unshift_level.
@@ -1476,18 +1480,8 @@ Definition reduce_level_irrelevant {N} (l : level N) :
 
 Hint Rewrite @reduce_level_irrelevant : reduce_level_irrelevant.
 
-Ltac reduce_levels_step :=
-  cbn in *;
+Ltac reduce_levels_rewrite :=
   autorewrite with reduce_levels;
-  try (rewrite_strat (topdown (hints reduce_levels)));
-  try
-    (let le := fresh "le" in
-     unshelve
-       (eassert (_ <= _) as le by shelve;
-        unshelve
-          (rewrite_strat (innermost (hints reduce_levels_le)));
-        try apply le);
-     [> cbn in *; lia |]);
   try
     (let le := fresh "le" in
      unshelve
@@ -1531,8 +1525,64 @@ Ltac reduce_levels_step :=
         rewrite (reduce_level_sdec_neq _ _ neql) in *);
        [> cbn in *; lia|]).
 
+Ltac reduce_levels_rewrite_strat :=
+  try (rewrite_strat (topdown (hints reduce_levels)));
+  try
+    (let le := fresh "le" in
+     unshelve
+       (eassert (_ <= _) as le by shelve;
+        unshelve
+          (rewrite_strat (innermost (hints reduce_levels_le)));
+        try apply le);
+     [> cbn in *; lia |]).
+
+Ltac reduce_levels_match_rewrite :=
+  match goal with
+  | |- context [shift_level ?l1 ?l2] =>
+    let le := fresh "le" in
+    let Hrw := fresh "Hrw" in
+    first
+      [assert (l_nat l1 <= l_nat l2)
+        as le by (cbn in *; lia);
+       pose (reduce_shift_level_ge l1 l2 le) as Hrw
+      |assert (S (l_nat l2) <= l_nat l1)
+        as le by (cbn in *; lia);
+       pose (reduce_shift_level_lt l1 l2 le) as Hrw];
+    rewrite Hrw;
+    clear Hrw
+  | |- context [unshift_level ?l1 ?l2] =>
+    let le := fresh "le" in
+    let Hrw := fresh "Hrw" in
+    first
+      [assert (l_nat l2 <= l_nat l1)
+        as le by (cbn in *; lia);
+       pose (reduce_unshift_level_le l1 l2 le le) as Hrw
+      |assert (S (l_nat l1) <= l_nat l2)
+        as le by (cbn in *; lia);
+       pose (reduce_unshift_level_gt l1 l2 le le) as Hrw];
+    rewrite Hrw;
+    clear Hrw
+  | |- context [unshift_level_neq ?l1 ?l2 ?neq] =>
+    let le := fresh "le" in
+    let Hrw := fresh "Hrw" in
+    first
+      [assert (l_nat l2 <= l_nat l1)
+        as le by (cbn in *; lia);
+       pose (reduce_unshift_level_neq_le l1 l2 neq le le)
+         as Hrw
+      |assert (S (l_nat l1) <= l_nat l2)
+        as le by (cbn in *; lia);
+       pose (reduce_unshift_level_neq_gt l1 l2 neq le le)
+         as Hrw];
+    rewrite Hrw;
+    clear Hrw
+  | _ => idtac
+  end.
+
 Ltac reduce_levels :=
-  try repeat reduce_levels_step;
+  try repeat
+      (cbn in *; reduce_levels_rewrite_strat;
+       reduce_levels_rewrite; reduce_levels_match_rewrite);
   autorewrite with reduce_level_irrelevant.
 
 (* Case split on the order of the level parameters. *)
@@ -1848,13 +1898,13 @@ Definition transpose_pushes_left {N f1 f2}
   | weak_op, cycle_in_op l => weak_op
   | weak_op, close_op n => weak_op
   | cycle_in_op l, weak_op => cycle_in_op l
-  | cycle_in_op l1, cycle_in_op l2 =>
-    cycle_in_op (unshift_level l2 (level_succ_pred l1))
+  | cycle_in_op l2, cycle_in_op l1 =>
+    cycle_in_op (unshift_level l1 l2)
   | cycle_in_op l, close_op n => cycle_in_op l
   | close_op n, weak_op => close_op n
   | close_op n, cycle_in_op l => close_op n
-  | close_op n1, close_op n2 =>
-    close_op (unshift_name n2 n1)
+  | close_op n2, close_op n1 =>
+    close_op (unshift_name n1 n2)
   end.
 
 Definition transpose_pushes_right {N f1 f2}
@@ -1867,20 +1917,20 @@ Definition transpose_pushes_right {N f1 f2}
   | weak_op, cycle_in_op l => cycle_in_op l
   | weak_op, close_op n => close_op n
   | cycle_in_op l, weak_op => weak_op
-  | cycle_in_op l1, cycle_in_op l2 =>
-    cycle_in_op (shift_level l1 l2)
+  | cycle_in_op l2, cycle_in_op l1 =>
+    cycle_in_op (shift_level l2 l1)
   | cycle_in_op l, close_op n => close_op n
   | close_op n, weak_op => weak_op
   | close_op n, cycle_in_op l => cycle_in_op l
-  | close_op n1, close_op n2 =>
-    close_op (shift_name n1 n2)
+  | close_op n2, close_op n1 =>
+    close_op (shift_name n2 n1)
   end.
 
-Definition transpose_pushes_indices {N f1 f2}
-  (op1 : push_op (f2 N) f1) (op2 : push_op N f2)
-  : morph var (f2 (f1 N)) var (f1 (f2 N)) :=
+Definition transpose_pushes_indices {N M O f1 f2}
+  (op1 : push_op N f1) (op2 : push_op M f2)
+  : morph var (f2 (f1 O)) var (f1 (f2 O)) :=
     match op2 in push_op _ f2, op1 in push_op _ f1
-        return morph var (f2 (f1 N)) var (f1 (f2 N))
+        return morph var (f2 (f1 O)) var (f1 (f2 O))
     with
     | weak_op, weak_op => 1
     | weak_op, cycle_in_op l => 1
@@ -2012,7 +2062,7 @@ Tactic Notation
  *)
 
 Lemma transpose_cycle_ins_squared_left {N} (l1 : level N) l2 :
-  (unshift_level (unshift_level l1 l2) (shift_level l2 l1))
+  unshift_level (@unshift_level (S N) l1 l2) (shift_level l2 l1)
   = l1.
 Proof.
   case_levels l1 l2; easy.
@@ -2084,9 +2134,9 @@ Definition transpose_pushes_indices_op {N M O f1 f2 f3}
     end.
 
 Lemma transpose_cycle_ins_reverse_left {N} (l1 : level N) l2 l3 :
-  unshift_level (unshift_level l1 l2)
-    (unshift_level (shift_level l2 l1) l3)
-  = unshift_level l1 (unshift_level l2 l3).
+  unshift_level (@unshift_level (S N) l1 l2)
+    (@unshift_level (S (S N)) (shift_level l2 l1) l3)
+  = @unshift_level (S N) l1 (@unshift_level (S (S N)) l2 l3).
 Proof.
   case_levels l1 l2;
     case_levels l2 l3; try easy.
@@ -2130,13 +2180,13 @@ Proof.
 Qed.
 
 Lemma transpose_cycle_ins_reverse_middle {N}
-      l1 (l2 : level (S N)) l3 :
+      (l1 : level N) (l2 : level (S N)) (l3 : level (S (S N))) :
   unshift_level
-       (shift_level (unshift_level l2 l3) l1)
+       (shift_level (@unshift_level (S (S N)) l2 l3) l1)
        (shift_level l3 l2) =
   shift_level
-    (unshift_level (shift_level l2 l1) l3)
-    (unshift_level l1 l2).
+    (@unshift_level (S (S N)) (shift_level l2 l1) l3)
+    (@unshift_level (S N) l1 l2).
 Proof.
   case_levels l1 l2.
   - case_levels l2 l3;
@@ -2181,12 +2231,12 @@ Proof.
   destruct op1 as [|l1|n1], op2 as [|l2|n2], op3 as [|l3|n3];
     cbn in *; try easy.
   - inversion_level l3; inversion_level l2; inversion_level l1.
-    rewrite transpose_cycle_ins_reverse_middle; easy.
+    rewrite @transpose_cycle_ins_reverse_middle; easy.
   - rewrite transpose_closes_reverse_middle; easy.
 Qed.
 
 Lemma transpose_cycle_ins_reverse_right {N}
-      l1 l2 (l3 : level (S (S N))) :
+      l1 l2 (l3 : level (S N)) :
   shift_level (shift_level l3 l2)
               (shift_level (unshift_level l2 l3) l1)
   = shift_level l3 (shift_level l2 l1).
@@ -2232,6 +2282,426 @@ Proof.
     rewrite @transpose_cycle_ins_reverse_right; easy.
   - rewrite transpose_closes_reverse_right; easy.
 Qed.
+
+(* Permutations of "pop" operations. As with the push
+   operations, we want to reason about permutations of the
+   "pop" operations (i.e. open and cycle_out). As with
+   pushes, we define arbitrary transpositions and then the
+   equations on those transpositions required to define the
+   full group of permutations. *)
+
+Inductive pop_op (N : nat) : (nat -> nat) -> Type :=
+| cycle_out_op : level N -> pop_op N pred
+| open_op : name -> pop_op N (fun x => x).
+Arguments cycle_out_op {N}.
+Arguments open_op {N}.
+
+Definition apply_pop_op_var {N f} (op : pop_op N f)
+  : morph var (S (f N)) var N :=
+  match op in pop_op _ f return morph var (S (f N)) _ _ with
+  | cycle_out_op l =>
+    @cycle_out_var _ l
+    @ morph_id_from_succ_pred l
+  | open_op n => morph_extend_by N (@open_var n)
+  end.
+
+Definition transpose_pops_left {N f1 f2}
+           (op1 : pop_op N f1) (op2 : pop_op (f1 N) f2) :
+  pop_op N f2 :=
+  match op1 in pop_op _ f1, op2 in pop_op _ f2
+        return pop_op N f2
+  with
+  | cycle_out_op l1, cycle_out_op l2 =>
+    cycle_out_op (shift_level l1 l2)
+  | cycle_out_op l, open_op n => open_op n
+  | open_op n, cycle_out_op l => cycle_out_op l
+  | open_op n1, open_op n2 => open_op (shift_name n1 n2)
+  end.
+
+Definition transpose_pops_right {N f1 f2}
+            (op2 : pop_op (f1 N) f2) (op1 : pop_op N f1) :
+  pop_op (f2 N) f1 :=
+  match op1 in pop_op _ f1, op2 in pop_op _ f2
+        return pop_op (f2 N) f1
+  with
+  | cycle_out_op l1, cycle_out_op l2 =>
+    cycle_out_op (unshift_level l2 l1)
+  | cycle_out_op l, open_op n => cycle_out_op l
+  | open_op n, cycle_out_op l => open_op n
+  | open_op n1, open_op n2 => open_op (unshift_name n2 n1)
+  end.
+
+Definition transpose_pops_indices {N M O f1 f2}
+           (op1 : pop_op N f1) (op2 : pop_op M f2)
+  : morph var (f2 (f1 O)) var (f1 (f2 O)) :=
+    match op2 in pop_op _ f2, op1 in pop_op _ f1
+        return morph var (f2 (f1 O)) var (f1 (f2 O))
+    with
+    | cycle_out_op l1, cycle_out_op l2 => 1
+    | cycle_out_op l, open_op n => 1
+    | open_op n, cycle_out_op l => 1
+    | open_op n1, open_op n2 => 1
+    end.
+
+Lemma transpose_pops {N f1 f2}
+      (op1 : pop_op N f1) (op2 : pop_op (f1 N) f2)  :
+  apply_pop_op_var op1
+  @ lift_morph_var (apply_pop_op_var op2)
+  =m= apply_pop_op_var (transpose_pops_left op1 op2)
+      @ lift_morph_var
+          (apply_pop_op_var (transpose_pops_right op2 op1))
+      @ morph_extend_by (f1 (f2 N)) (@swap_var)
+      @ lift_morph_var
+          (lift_morph_var
+            (transpose_pops_indices op1 op2)).
+Proof.
+  intros V v.
+  destruct op1 as [l1|n1], op2 as [l2|n2];
+    simplify_var_morphs; cbn.
+  - inversion_level l1; inversion_level l2.
+    case_var v as n3 l3; try easy.
+    unfold cycle_out_var, cycle_out_level.
+    case_level l3 as [|ln3] lt3.
+    + case_levels l1 l2; try easy.
+      case_level l1; easy.
+    + case_levels l1 l2; easy.
+    + case_levels l2
+        (mklevel ln3 (less_than_pred (less_than_pred lt3))).
+      * case_levels l1 l2; try easy.
+        case_level l1.
+        case_levels
+          (mklevel ln (less_than_pred
+                         (less_than_extend_by V lt)))
+          (mklevel ln3 (less_than_pred (less_than_pred lt3)));
+          easy.
+      * case_levels l1 (l_S l2); easy.
+      * case_levels l1
+          (mklevel ln3 (less_than_pred (less_than_pred lt3)));
+          try easy.
+        case_levels l1 l2; easy.
+  - inversion_level l1.
+    case_var v; try easy.
+    case_level l as [|ln] lt; easy.
+  - inversion_level l2.
+    case_var v; try easy.
+    case_level l as [|ln] lt; easy.
+  - case_var v as n3 l.
+    + case_names n1 n2.
+      * case_names n1 n3; try easy.
+        case_names n2 n3; try congruence;
+          case_name n2; case_name n3; try easy.
+      * case_names n1 n3; easy.
+      * case_names n1 (n_S n3); try easy.
+        case_names n2 n3; easy.
+      * case_names n2 n3; try easy.
+        case_names n1 n3; easy.
+    + case_level l as [|ln] lt; try easy.
+      case_names n1 n2; easy.
+Qed.
+
+Tactic Notation
+  "transpose_pops" open_constr(op1) open_constr(op2) :=
+  let Hrw := fresh "Hrw" in
+    epose (transpose_pops op1 op2) as Hrw;
+      cbn in Hrw;
+      autorewrite with push_lift_morph_var in Hrw;
+      autorewrite with normalize_morph_compose in Hrw;
+      rewrite Hrw; clear Hrw.
+
+Tactic Notation
+  "transpose_pops" open_constr(op1) open_constr(op2)
+    "at" occurrences(occ) :=
+  let Hrw := fresh "Hrw" in
+    epose (transpose_pops op1 op2) as Hrw;
+      cbn in Hrw;
+      autorewrite with push_lift_morph_var in Hrw;
+      autorewrite with normalize_morph_compose in Hrw;
+      rewrite Hrw at occ; clear Hrw.
+
+Lemma transpose_cycle_outs_squared_left {N}
+      (l1 : level (S N)) l2 :
+  shift_level (shift_level l1 l2) (unshift_level l2 l1)
+  = l1.
+Proof.
+  case_levels l1 l2; try easy.
+  case_level l1; easy.
+Qed.
+
+Lemma transpose_opens_squared_left n1 n2 :
+  shift_name (shift_name n1 n2) (unshift_name n2 n1)
+  = n1.
+Proof.
+  case_names n1 n2; easy.
+Qed.
+
+Lemma transpose_pops_squared_left {N f1 f2}
+      (op1 : pop_op N f1) (op2 : pop_op (f1 N) f2)  :
+    transpose_pops_left
+      (transpose_pops_left op1 op2)
+      (transpose_pops_right op2 op1)
+    = op1.
+Proof.
+  destruct op1 as [l1|n1], op2 as [l2|n2]; cbn; try easy.
+  - inversion_level l1; inversion_level l2.
+    rewrite @transpose_cycle_outs_squared_left; easy.
+  - rewrite transpose_opens_squared_left; easy.
+Qed.
+
+Lemma transpose_cycle_outs_squared_right {N}
+      l1 (l2 : level (S N)) :
+  unshift_level (@unshift_level (S (S N)) l2 l1) (shift_level l1 l2)
+  = l2.
+Proof.
+  case_levels l2 l1; easy.
+Qed.
+
+Lemma transpose_opens_squared_right n1 n2 :
+  unshift_name (unshift_name n2 n1) (shift_name n1 n2) = n2.
+Proof.
+  case_names n2 n1; easy.
+Qed.
+
+Lemma transpose_pops_squared_right {N f1 f2}
+      (op1 : pop_op N f1) (op2 : pop_op (f1 N) f2)  :
+    transpose_pops_right
+      (transpose_pops_right op2 op1)
+      (transpose_pops_left op1 op2)
+    = op2.
+Proof.
+  destruct op1 as [l1|n1], op2 as [l2|n2]; cbn; try easy.
+  - inversion_level l1; inversion_level l2.
+    rewrite @transpose_cycle_outs_squared_right; easy.
+  - rewrite transpose_opens_squared_right; easy.
+Qed.
+
+Definition transpose_pops_indices_op {N M O f1 f2 f3}
+           (op1 : pop_op N f1)
+           (op2 : pop_op M f2)
+  : pop_op (f1 (f2 O)) f3 -> pop_op (f2 (f1 O)) f3 :=
+    match op1 in pop_op _ f1, op2 in pop_op _ f2
+        return pop_op (f1 (f2 O)) f3 -> pop_op (f2 (f1 O)) f3
+    with
+    | cycle_out_op l1, cycle_out_op l2 => fun op => op
+    | cycle_out_op l, open_op n => fun op => op
+    | open_op n, cycle_out_op l => fun op => op
+    | open_op n1, open_op n2 => fun op => op
+    end.
+
+Lemma transpose_cycle_outs_reverse_left {N}
+      (l1 : level (S N)) l2 l3 :
+  shift_level (shift_level l1 l2)
+    (shift_level (unshift_level l2 l1) l3)
+  = shift_level l1 (shift_level l2 l3).
+Proof.
+  apply transpose_cycle_ins_reverse_right.
+Qed.
+
+Lemma transpose_opens_reverse_left n1 n2 n3 :
+  shift_name (shift_name n1 n2)
+    (shift_name (unshift_name n2 n1) n3)
+  = shift_name n1 (shift_name n2 n3).
+Proof.
+  apply transpose_closes_reverse_right.
+Qed.
+
+Lemma transpose_pops_reverse_left {N f1 f2 f3}
+      (op1 : pop_op N f1) (op2 : pop_op (f1 N) f2)
+      (op3 : pop_op (f2 (f1 N)) f3) :
+    transpose_pops_left
+      (transpose_pops_left op1 op2)
+      (transpose_pops_left
+        (transpose_pops_right op2 op1)
+        (transpose_pops_indices_op op2 op1 op3))
+    = transpose_pops_left op1
+        (transpose_pops_left op2 op3).
+Proof.
+  destruct op1 as [l1|n1], op2 as [l2|n2], op3 as [l3|n3];
+    cbn in *; try easy.
+  - inversion_level l1; inversion_level l2; inversion_level l3.
+    rewrite @transpose_cycle_outs_reverse_left; easy.
+  - rewrite transpose_opens_reverse_left; easy.
+Qed.
+
+Lemma transpose_cycle_outs_reverse_middle {N}
+      (l1 : level (S (S N))) (l2 : level (S N)) (l3 : level N) :
+    @shift_level (S N)
+       (@unshift_level (S (S N)) (shift_level l2 l3) l1)
+                (@unshift_level (S N) l3 l2)
+    = unshift_level (shift_level
+                       (@unshift_level (S (S N)) l2 l1) l3)
+                    (shift_level l1 l2).
+Proof.
+  symmetry.
+  apply transpose_cycle_ins_reverse_middle.
+Qed.
+
+Lemma transpose_opens_reverse_middle n1 n2 n3 :
+  shift_name (unshift_name (shift_name n2 n3) n1)
+             (unshift_name n3 n2)
+  = unshift_name (shift_name (unshift_name n2 n1) n3)
+                 (shift_name n1 n2).
+Proof.
+  symmetry.
+  apply transpose_closes_reverse_middle.
+Qed.
+
+Lemma transpose_pops_reverse_middle {N f1 f2 f3}
+      (op1 : pop_op N f1) (op2 : pop_op (f1 N) f2)
+      (op3 : pop_op (f2 (f1 N)) f3) :
+  transpose_pops_left
+    (transpose_pops_right
+       (transpose_pops_left op2 op3) op1)
+    (transpose_pops_indices_op op3 op1
+       (transpose_pops_right op3 op2))
+  = transpose_pops_right
+      (transpose_pops_left
+         (transpose_pops_right op2 op1)
+         (transpose_pops_indices_op op2 op1 op3))
+      (transpose_pops_left op1 op2).
+Proof.
+  destruct op1 as [l1|n1], op2 as [l2|n2], op3 as [l3|n3];
+    cbn in *; try easy.
+  - inversion_level l1; inversion_level l2; inversion_level l3.
+    rewrite @transpose_cycle_outs_reverse_middle; easy.
+  - rewrite transpose_opens_reverse_middle; easy.
+Qed.
+
+Lemma transpose_cycle_outs_reverse_right {N}
+      (l1 : level (S (S N)))
+      (l2 : level (S N)) (l3 : level N) :
+  unshift_level (@unshift_level (S N) l3 l2)
+       (@unshift_level (S (S N)) (shift_level l2 l3) l1)
+  = @unshift_level (S N) l3 (@unshift_level (S (S N)) l2 l1).
+Proof.
+  apply transpose_cycle_ins_reverse_left.
+Qed.
+
+Lemma transpose_opens_reverse_right n1 n2 n3 :
+  unshift_name (unshift_name n3 n2)
+    (unshift_name (shift_name n2 n3) n1)
+  = unshift_name n3 (unshift_name n2 n1).
+Proof.
+  apply transpose_closes_reverse_left.
+Qed.
+
+Lemma transpose_pops_reverse_right {N f1 f2 f3}
+      (op1 : pop_op N f1) (op2 : pop_op (f1 N) f2)
+      (op3 : pop_op (f2 (f1 N)) f3) :
+    transpose_pops_right
+      (transpose_pops_indices_op op3 op1
+         (transpose_pops_right op3 op2))
+      (transpose_pops_right
+        (transpose_pops_left op2 op3) op1)
+    = transpose_pops_indices_op op3 op2
+        (transpose_pops_right
+          (transpose_pops_indices_op op2 op1 op3)
+          (transpose_pops_right op2 op1)).
+Proof.
+  destruct op1 as [l1|n1], op2 as [l2|n2], op3 as [l3|n3];
+    cbn in *; try easy.
+  - inversion_level l1; inversion_level l2; inversion_level l3.
+    rewrite @transpose_cycle_outs_reverse_right; easy.
+  - rewrite transpose_opens_reverse_right; easy.
+Qed.
+
+(* Moving pushes in front of pops.
+
+   We also wish to reason about moving pushes in front of
+   pops.  This will not work if the pop and the push reduce
+   to the identity, so we need [irreducible_push_pop_ops] as
+   a precondition on transposition.
+
+   Since we will be ignoring the inverse case of moving pops
+   in front of pushes, we will not have the full group of
+   permutations, but some of the "reverse" equations are
+   still relevant.  *)
+
+Definition irreducible_push_pop_ops {N f1 f2}
+           (op1 : push_op N f1) (op2 : pop_op N f2) :
+  SProp :=
+  match op1, op2 with
+  | weak_op, cycle_out_op l => sUnit
+  | weak_op, open_op n => sUnit
+  | cycle_in_op l1, cycle_out_op l2 => Squash (l1 <> l2)
+  | cycle_in_op l, open_op n => sUnit
+  | close_op n, cycle_out_op l => sUnit
+  | close_op n1, open_op n2 => Squash (n1 <> n2)
+  end.
+
+Definition transpose_push_pop_left {N f1 f2}
+           (op1 : push_op N f1) (op2 : pop_op N f2) :
+  irreducible_push_pop_ops op1 op2 -> pop_op (f1 N) f2 :=
+  match op1 in push_op _ f1, op2 in pop_op _ f2
+        return irreducible_push_pop_ops op1 op2
+               -> pop_op (f1 N) f2
+  with
+  | weak_op, cycle_out_op l =>
+    fun _ => cycle_out_op l
+  | weak_op, open_op n =>
+    fun _ => open_op n
+  | cycle_in_op l1, cycle_out_op l2 =>
+    fun neql => cycle_out_op
+                  (unshift_level_neq l1 l2 neql)
+  | cycle_in_op l, open_op n =>
+    fun _ => open_op n
+  | close_op n, cycle_out_op l =>
+    fun _ => cycle_out_op l
+  | close_op n1, open_op n2 =>
+    fun _ => open_op (unshift_name n1 n2)
+  end.
+
+Definition transpose_push_pop_right {N f1 f2}
+            (op2 : pop_op N f2) (op1 : push_op N f1) :
+  irreducible_push_pop_ops op1 op2 -> push_op (f2 N) f1 :=
+  match op2 in pop_op _ f2, op1 in push_op _ f1
+        return irreducible_push_pop_ops op1 op2 ->
+               push_op (f2 N) f1
+  with
+  | cycle_out_op l, weak_op => fun _ => weak_op
+  | cycle_out_op l2, cycle_in_op l1 =>
+    fun neql =>
+      cycle_in_op (unshift_level_neq l2 l1 (sneq_sym neql))
+  | cycle_out_op l, close_op n => fun _ => close_op n
+  | open_op n, weak_op => fun _ => weak_op
+  | open_op n, cycle_in_op l => fun _ => cycle_in_op l
+  | open_op n2, close_op n1 =>
+    fun _ => close_op (unshift_name n2 n1)
+  end.
+
+Definition transpose_push_pop_indices {N M O f1 f2}
+           (op1 : push_op N f1) (op2 : pop_op M f2)
+  : morph var (f1 (f2 O)) var (f2 (f1 O)) :=
+    match op2 in pop_op _ f2, op1 in push_op _ f1
+        return morph var (f1 (f2 O)) var (f2 (f1 O))
+    with
+    | cycle_out_op l1, weak_op => 1
+    | cycle_out_op l1, cycle_in_op l2 => 1
+    | cycle_out_op l, close_op n => 1
+    | open_op n, weak_op => 1
+    | open_op n, cycle_in_op l => 1
+    | open_op n1, close_op n2 => 1
+    end.
+
+Lemma transpose_push_pop {N f1 f2}
+      (op1 : push_op N f1) (op2 : pop_op N f2) :
+  forall (irr : irreducible_push_pop_ops op1 op2),
+  apply_push_op_var op1
+  @ apply_pop_op_var op2
+  =m= lift_morph_var
+        (apply_pop_op_var (transpose_push_pop_left op1 op2 irr))
+      @ lift_morph_var
+          (lift_morph_var
+            (transpose_push_pop_indices op1 op2))
+      @ morph_extend_by (f1 (f2 N)) (@swap_var)
+      @ lift_morph_var
+          (apply_push_op_var (transpose_push_pop_right op2 op1 irr)).
+Proof.
+  intros V v.
+  destruct op1 as [l1|n1], op2 as [l2|n2];
+    simplify_var_morphs; cbn.
+
+
+(* Properties of composition *)
 
 Definition apply_closing_rhs_var {N M} (r : closing_rhs N M)
   : morph var M var (S N) :=
