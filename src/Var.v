@@ -226,12 +226,12 @@ Definition less_than_le {N M O} :
     apply Hlt2.
 Defined.
 
-Definition less_than_le_neq {N M O} :
+Definition less_than_le_sneq {N M O} :
   N <= M ->
-  M <> N ->
+  Squash (M <> N) ->
   less_than M O ->
   less_than N (pred O).
-  intros Hle Hneq.
+  intros Hle [Hneq].
   assert (N < M) as Hle2.
   { inversion Hle.
     - subst; easy.
@@ -324,6 +324,15 @@ Definition l_nat_injective {N} {l1 l2 : level N} :
   fun Hneq Heq =>
     Hneq (lift_level_eq Heq).
 
+Definition l_nat_sinjective {N} {l1 l2 : level N} :
+  Squash (l1 <> l2) ->
+  Squash (l_nat l1 <> l_nat l2) :=
+  fun Hsneq =>
+    match Hsneq with
+    | squash Hneq =>
+      squash (l_nat_injective Hneq)
+    end.
+
 Notation l_0 := (mklevel 0 lt_0).
 Notation l_S l :=
   (mklevel (S (l_nat l)) (lt_S (l_less_than l))).
@@ -406,12 +415,9 @@ Definition unshift_level_neq {N}
   | left le =>
     fun sneql =>
       mklevel (l_nat l2)
-              (match sneql with
-               | squash neql =>
-                 less_than_le_neq le
-                   (l_nat_injective neql)
-                   (l_less_than l1)
-               end)
+              (less_than_le_sneq le
+                 (l_nat_sinjective sneql)
+                 (l_less_than l1))
   | right le =>
     fun sneql =>
       mklevel (pred (l_nat l2))
@@ -1102,11 +1108,12 @@ Ltac inversion_level l :=
   remember l as l' eqn:Heql;
   match type of l' with
   | level ?N =>
-    destruct N;
-      [exfalso; apply (level_zero_empty l')|];
-      rewrite Heql; clear Heql; try clear l'; cbn in *;
-      eta_reduce_levels
-  end.
+    let N' := eval cbn in N in
+    destruct N';
+      [exfalso; apply (level_zero_empty l')|]
+  end;
+  first [rewrite Heql|destruct (eq_sym Heql)]; clear Heql;
+  try clear l'; cbn in *; eta_reduce_levels.
 
 (* Reasoning about shifts and unshifts of names *)
 
@@ -1382,10 +1389,10 @@ Proof.
 Qed.
 
 Lemma reduce_unshift_level_neq_gt {N}
-      (l1 : level (S N)) l2 (neq : l1 <> l2) :
+      (l1 : level (S N)) l2 (sneq : Squash (l1 <> l2)) :
   S (l_nat l1) <= l_nat l2 ->
   forall (le : S (l_nat l1) <= l_nat l2),
-  unshift_level_neq l1 l2 (squash neq)
+  unshift_level_neq l1 l2 sneq
   = mklevel (pred (l_nat l2))
             (less_than_pred_le le (l_less_than l2)).
 Proof.
@@ -1395,12 +1402,12 @@ Proof.
 Qed.
 
 Lemma reduce_unshift_level_neq_le {N}
-      (l1 : level (S N)) l2 (neq : l1 <> l2) :
+      (l1 : level (S N)) l2 (sneq : Squash (l1 <> l2)) :
   l_nat l2 <= l_nat l1 ->
   forall (le : l_nat l2 <= l_nat l1),
-  unshift_level_neq l1 l2 (squash neq) =
+  unshift_level_neq l1 l2 sneq =
     mklevel (l_nat l2)
-      (less_than_le_neq le (l_nat_injective neq)
+      (less_than_le_sneq le (l_nat_sinjective sneq)
          (l_less_than l1)).
 Proof.
   intros; unfold unshift_level_neq.
@@ -2696,10 +2703,20 @@ Lemma transpose_push_pop {N f1 f2}
       @ lift_morph_var
           (apply_push_op_var (transpose_push_pop_right op2 op1 irr)).
 Proof.
-  intros V v.
-  destruct op1 as [l1|n1], op2 as [l2|n2];
-    simplify_var_morphs; cbn.
-
+  intros Hirr V v.
+  destruct op1 as [|l1|n1] eqn:Heqop1, op2 as [l2|n2] eqn:Heqop2;
+    simplify_var_morphs; cbn; case_var v as n l; try easy.
+  - case_level l; easy.
+  - case_level l; easy.
+  - inversion_level l2.
+    inversion_level (unshift_level_neq l2 l1 (sneq_sym Hirr)).
+    easy.
+  - inversion_level l2.
+    inversion_level (unshift_level_neq l1 l2 Hirr).
+    case_level l.
+    + case_levels l1 l2; try easy.
+      * case_level l2; easy.
+      * exfalso.
 
 (* Properties of composition *)
 
