@@ -1389,7 +1389,7 @@ Proof.
 Qed.
 
 Lemma reduce_unshift_level_neq_gt {N}
-      (l1 : level (S N)) l2 (sneq : Squash (l1 <> l2)) :
+      (l1 : level N) l2 (sneq : Squash (l1 <> l2)) :
   S (l_nat l1) <= l_nat l2 ->
   forall (le : S (l_nat l1) <= l_nat l2),
   unshift_level_neq l1 l2 sneq
@@ -1402,7 +1402,7 @@ Proof.
 Qed.
 
 Lemma reduce_unshift_level_neq_le {N}
-      (l1 : level (S N)) l2 (sneq : Squash (l1 <> l2)) :
+      (l1 : level N) l2 (sneq : Squash (l1 <> l2)) :
   l_nat l2 <= l_nat l1 ->
   forall (le : l_nat l2 <= l_nat l1),
   unshift_level_neq l1 l2 sneq =
@@ -1590,7 +1590,7 @@ Ltac reduce_levels :=
   try repeat
       (cbn in *; reduce_levels_rewrite_strat;
        reduce_levels_rewrite; reduce_levels_match_rewrite);
-  autorewrite with reduce_level_irrelevant.
+  autorewrite with reduce_level_irrelevant in *.
 
 (* Case split on the order of the level parameters. *)
 Ltac case_levels l1 l2 :=
@@ -2713,10 +2713,481 @@ Proof.
     easy.
   - inversion_level l2.
     inversion_level (unshift_level_neq l1 l2 Hirr).
+    unfold cycle_out_var, cycle_out_level.
     case_level l.
     + case_levels l1 l2; try easy.
       * case_level l2; easy.
-      * exfalso.
+      * apply l_nat_sinjective in Hirr as Hneq.
+        apply sEmpty_rec; destruct Hneq; contradiction.
+    + case_levels l1 l2.
+      * { case_levels l2 (mklevel ln (less_than_pred lt)).
+          - destruct ln; try lia; cbn.
+            case_levels l2 (mklevel (S ln) (less_than_pred lt));
+              easy.
+          - case_level l2; easy.
+          - case_levels l1
+              (mklevel ln (less_than_pred lt)); try easy.
+            destruct ln; try lia; cbn.
+            case_levels l2 (mklevel (S ln) (less_than_pred lt));
+              easy. }
+      * apply l_nat_sinjective in Hirr as Hneq.
+        apply sEmpty_rec; destruct Hneq; contradiction.
+      * { case_levels l1 (mklevel (S ln) lt); try easy.
+          - destruct ln; try lia; cbn.
+            case_levels l2
+              (mklevel ln (less_than_pred (less_than_pred lt)));
+              easy.
+          - case_levels l2
+              (mklevel ln (less_than_pred lt)); easy. }
+  - inversion_level l1; easy.
+  - inversion_level l1.
+    case_level l; try easy.
+    case_levels l1 (mklevel ln (less_than_pred lt)); try easy.
+    destruct ln; try lia; easy.
+  - inversion_level l2.
+    case_names n1 n; easy.
+  - inversion_level l2.
+    unfold cycle_out_var, cycle_out_level.
+    case_level l; easy.
+  - case_names n2 n1.
+    + case_names n2 n; try easy.
+      * case_names n1 (n_S n); try congruence; try easy.
+        case_name n; easy.
+      * case_names n1 (n_S n2); try congruence; easy.
+    + apply sEmpty_rec; apply sneq_sym in Hirr; destruct Hirr.
+      autorewrite with red_name_neq in *.
+      contradiction.
+    + case_names n2 n; try easy.
+      * case_name n2; easy.
+      * case_names n1 n; easy.
+    + case_names n2 n; try easy.
+      case_names n1 n; easy.
+  - case_level l; try easy.
+    case_names n1 n2; try easy.
+    apply sEmpty_rec; destruct Hirr.
+    autorewrite with red_name_neq in *.
+    contradiction.
+Qed.
+
+Tactic Notation
+  "transpose_push_pop" open_constr(op1) open_constr(op2) :=
+  let Hrw := fresh "Hrw" in
+    epose (transpose_push_pop op1 op2) as Hrw;
+      cbn in Hrw;
+      repeat setoid_rewrite lift_morph_var_id in Hrw;
+      autorewrite with normalize_morph_compose in Hrw;
+      rewrite Hrw by easy; clear Hrw.
+
+Tactic Notation
+  "transpose_push_pop" open_constr(op1) open_constr(op2)
+    "at" occurrences(occ) :=
+  let Hrw := fresh "Hrw" in
+    epose (transpose_push_pop op1 op2) as Hrw;
+      cbn in Hrw;
+      repeat setoid_rewrite lift_morph_var_id in Hrw;
+      autorewrite with normalize_morph_compose in Hrw;
+      rewrite Hrw at occ by easy; clear Hrw.
+
+Lemma transpose_cycle_in_cycle_in_cycle_out_reverse_left
+      {N} (l1 : level N) l2 l3 :
+  forall
+    (irr1 : Squash (@shift_level (S N) l2 l1 <> l3))
+    (irr2 : Squash
+              (@unshift_level (S N) l1 l2 <>
+               unshift_level_neq
+                 (shift_level l2 l1) l3 irr1))
+    (irr3 : Squash (l2 <> l3))
+    (irr4 : Squash (l1 <> unshift_level_neq l2 l3 irr3)),
+    @unshift_level_neq N (@unshift_level (S N) l1 l2)
+      (@unshift_level_neq (S N) (shift_level l2 l1) l3 irr1) irr2
+    = @unshift_level_neq N
+        l1 (unshift_level_neq l2 l3 irr3) irr4.
+Proof.
+  intros.
+  remember (unshift_level_neq l2 l3 irr3) as lu23 eqn:Heq;
+    generalize dependent Heq.
+  remember (unshift_level_neq (shift_level l2 l1) l3 irr1)
+    as lu213 eqn:Heq;
+    generalize dependent Heq.
+  remember (@unshift_level (S N) l1 l2) as lu12 eqn:Heq;
+    generalize dependent Heq.
+  remember (shift_level l2 l1) as ls21 eqn:Heq;
+    generalize dependent Heq.
+  case_levels l2 l1.
+  - case_levels ls21 l3.
+    + case_levels l2 l3.
+      * intros; subst; reduce_levels; easy.
+      * apply l_nat_sinjective in irr3 as Hneq.
+        apply sEmpty_rec; destruct Hneq; contradiction.
+      * intros; subst; reduce_levels; lia.
+    + case_levels l2 l3.
+      * intros; subst; reduce_levels; easy.
+      * apply l_nat_sinjective in irr3 as Hneq.
+        apply sEmpty_rec; destruct Hneq; contradiction.
+      * intros; subst; reduce_levels; lia.
+    + case_levels l2 l3.
+      * intros; subst; reduce_levels; easy.
+      * apply l_nat_sinjective in irr3 as Hneq.
+        apply sEmpty_rec; destruct Hneq; contradiction.
+      * intros; subst; reduce_levels; easy.
+  - case_levels ls21 l3.
+    + case_levels l2 l3.
+      * intros; subst; reduce_levels; easy.
+      * apply l_nat_sinjective in irr3 as Hneq.
+        apply sEmpty_rec; destruct Hneq; contradiction.
+      * intros; subst; reduce_levels; lia.
+    + case_levels l2 l3.
+      * intros; subst; reduce_levels; easy.
+      * apply l_nat_sinjective in irr3 as Hneq.
+        apply sEmpty_rec; destruct Hneq; contradiction.
+      * intros; subst; reduce_levels; lia.
+    + case_levels l2 l3.
+      * intros; subst; reduce_levels; lia.
+      * apply l_nat_sinjective in irr3 as Hneq.
+        apply sEmpty_rec; destruct Hneq; contradiction.
+      * intros; subst; reduce_levels; easy.
+  - case_levels ls21 l3.
+    + case_levels l2 l3.
+      * intros; subst; reduce_levels; easy.
+      * apply l_nat_sinjective in irr3 as Hneq.
+        apply sEmpty_rec; destruct Hneq; contradiction.
+      * intros; subst; reduce_levels; easy.
+    + case_levels l2 l3.
+      * intros; subst; reduce_levels; lia.
+      * apply l_nat_sinjective in irr3 as Hneq.
+        apply sEmpty_rec; destruct Hneq; contradiction.
+      * intros; subst; reduce_levels; easy.
+    + case_levels l2 l3.
+      * intros; subst; reduce_levels; lia.
+      * apply l_nat_sinjective in irr3 as Hneq.
+        apply sEmpty_rec; destruct Hneq; contradiction.
+      * intros; subst; reduce_levels; easy.
+Qed.
+
+Lemma transpose_close_close_open_reverse_left n1 n2 n3 :
+  unshift_name (unshift_name n1 n2)
+    (unshift_name (shift_name n2 n1) n3)
+  = unshift_name n1 (unshift_name n2 n3).
+Proof.
+  apply transpose_closes_reverse_left.
+Qed.
+
+Definition transpose_push_push_pop_indices_op
+           {N M O f1 f2 f3}
+           (op1 : push_op N f1)
+           (op2 : push_op M f2)
+  : pop_op (f1 (f2 O)) f3 -> pop_op (f2 (f1 O)) f3 :=
+    match op1 in push_op _ f1, op2 in push_op _ f2
+        return pop_op (f1 (f2 O)) f3 -> pop_op (f2 (f1 O)) f3
+    with
+    | weak_op, weak_op => fun op => op
+    | weak_op, cycle_in_op l => fun op => op
+    | weak_op, close_op n => fun op => op
+    | cycle_in_op l, weak_op => fun op => op
+    | cycle_in_op l1, cycle_in_op l2 => fun op => op
+    | cycle_in_op l, close_op n => fun op => op
+    | close_op n, weak_op => fun op => op
+    | close_op n, cycle_in_op l => fun op => op
+    | close_op n1, close_op n2 => fun op => op
+    end.
+
+Lemma transpose_push_push_pop_reverse_left {N f1 f2 f3}
+      (op1 : push_op (f2 N) f1) (op2 : push_op N f2)
+      (op3 : pop_op N f3) :
+    forall
+      (irr1 : irreducible_push_pop_ops
+                (transpose_pushes_right op2 op1) op3)
+      (irr2 : irreducible_push_pop_ops
+                (transpose_pushes_left op1 op2)
+                (transpose_push_pop_left
+                   (transpose_pushes_right op2 op1) op3
+                   irr1))
+      (irr3 : irreducible_push_pop_ops op2 op3)
+      (irr4 : irreducible_push_pop_ops op1
+                (transpose_push_pop_left op2 op3 irr3)),
+    transpose_push_pop_left
+      (transpose_pushes_left op1 op2)
+      (transpose_push_pop_left
+        (transpose_pushes_right op2 op1) op3 irr1)
+      irr2
+    = transpose_push_push_pop_indices_op op1 op2
+        (transpose_push_pop_left op1
+          (transpose_push_pop_left op2 op3 irr3) irr4).
+Proof.
+  destruct op1 as [|l1|n1], op2 as [|l2|n2], op3 as [l3|n3];
+    cbn in *; try easy; intros.
+  - inversion_level l2; inversion_level l1.
+    erewrite
+      @transpose_cycle_in_cycle_in_cycle_out_reverse_left;
+      easy.
+  - rewrite transpose_close_close_open_reverse_left; easy.
+Qed.
+
+(*
+Lemma transpose_cycle_ins_reverse_middle {N}
+      (l1 : level N) (l2 : level (S N)) (l3 : level (S (S N))) :
+  unshift_level
+       (shift_level (@unshift_level (S (S N)) l2 l3) l1)
+       (shift_level l3 l2) =
+  shift_level
+    (@unshift_level (S (S N)) (shift_level l2 l1) l3)
+    (@unshift_level (S N) l1 l2).
+Proof.
+  case_levels l1 l2.
+  - case_levels l2 l3;
+      case_levels l3 l1; try easy;
+        case_level l2; easy.
+  - case_levels (l_S l1) l3; easy.
+  - case_levels l2 l3; try easy.
+    case_levels (l_S l1) l3; easy.
+Qed.
+
+Lemma transpose_closes_reverse_middle n1 n2 n3 :
+  unshift_name (shift_name (unshift_name n2 n3) n1)
+               (shift_name n3 n2)
+  = shift_name (unshift_name (shift_name n2 n1) n3)
+               (unshift_name n1 n2).
+Proof.
+  case_names n1 n2.
+  - case_names n2 n3;
+      case_names n3 n1; try congruence; try easy;
+        case_name n2; easy.
+  - case_names (n_S n1) n3; easy.
+  - case_names n2 n3; try easy.
+    case_names (n_S n1) n3; try congruence; easy.
+  - case_names n2 n3; try easy.
+    case_names n1 n3; easy.
+Qed.
+*)
+
+Lemma transpose_push_push_pop_reverse_middle {N f1 f2 f3}
+      (op1 : push_op (f2 (f3 N)) f1)
+      (op2 : push_op (f3 N) f2) (op3 : pop_op N f3) :
+  transpose_pushes_left
+    (transpose_pushes_right
+       (transpose_pushes_left op2 op3)
+       (transpose_pushes_indices_op op2 op3 op1))
+    (transpose_pushes_right op3 op2)
+  = transpose_pushes_right
+      (transpose_pushes_left
+         (transpose_pushes_right op2 op1) op3)
+      (transpose_pushes_indices_op op1 op3
+        (transpose_pushes_left op1 op2)).
+Proof.
+  destruct op1 as [|l1|n1], op2 as [|l2|n2], op3 as [|l3|n3];
+    cbn in *; try easy.
+  - inversion_level l3; inversion_level l2; inversion_level l1.
+    rewrite @transpose_cycle_ins_reverse_middle; easy.
+  - rewrite transpose_closes_reverse_middle; easy.
+Qed.
+
+(*
+Lemma transpose_cycle_ins_reverse_right {N}
+      l1 l2 (l3 : level (S N)) :
+  shift_level (shift_level l3 l2)
+              (shift_level (unshift_level l2 l3) l1)
+  = shift_level l3 (shift_level l2 l1).
+Proof.
+  case_levels l2 l3.
+  - case_levels (l_S l1) l3; try easy.
+    case_levels l1 l2; easy.
+  - case_levels l1 l2; easy.
+  - case_levels l1 l3; try easy.
+    case_levels l1 l2; easy.
+Qed.
+
+Lemma transpose_closes_reverse_right n1 n2 n3 :
+  shift_name (shift_name n3 n2)
+              (shift_name (unshift_name n2 n3) n1)
+  = shift_name n3 (shift_name n2 n1).
+Proof.
+  case_names n2 n3.
+  - case_names (n_S n1) n3; try easy.
+    case_names n1 n2; easy.
+  - case_names n1 n2; easy.
+  - case_names n1 n3; try easy.
+    case_names n1 n2; try congruence;
+      case_name n1; try easy.
+  - case_names n1 n2; try easy.
+    case_names n1 n3; easy.
+Qed.
+*)
+
+Lemma transpose_push_push_pop_reverse_right  {N f1 f2 f3}
+      (op1 : push_op (f2 (f3 N)) f1)
+      (op2 : push_op (f3 N) f2) (op3 : pop_op N f3) :
+    transpose_pushes_right
+      (transpose_pushes_right op3 op2)
+      (transpose_pushes_right
+        (transpose_pushes_left op2 op3)
+        (transpose_pushes_indices_op op2 op3 op1))
+    = transpose_pushes_right op3
+        (transpose_pushes_right op2 op1).
+Proof.
+  destruct op1 as [|l1|n1], op2 as [|l2|n2], op3 as [|l3|n3];
+    cbn in *; try easy.
+  - inversion_level l3; inversion_level l2; inversion_level l1.
+    rewrite @transpose_cycle_ins_reverse_right; easy.
+  - rewrite transpose_closes_reverse_right; easy.
+Qed.
+
+(*
+Lemma transpose_cycle_ins_reverse_left {N} (l1 : level N) l2 l3 :
+  unshift_level (@unshift_level (S N) l1 l2)
+    (@unshift_level (S (S N)) (shift_level l2 l1) l3)
+  = @unshift_level (S N) l1 (@unshift_level (S (S N)) l2 l3).
+Proof.
+  case_levels l1 l2;
+    case_levels l2 l3; try easy.
+  - case_levels l1 l3; easy.
+  - case_levels (l_S l1) l3; easy.
+  - case_levels (l_S l1) l3; easy.
+Qed.
+
+Lemma transpose_closes_reverse_left n1 n2 n3 :
+  unshift_name (unshift_name n1 n2)
+    (unshift_name (shift_name n2 n1) n3)
+  = unshift_name n1 (unshift_name n2 n3).
+Proof.
+  case_names n1 n2;
+    case_names n2 n3; try easy.
+  - case_names n1 n3; try easy.
+    congruence.
+  - case_names (n_S n1) n3; easy.
+  - case_names (n_S n1) n3; easy.
+  - case_names n1 n3; easy.
+Qed.
+*)
+
+Lemma transpose_push_pop_pop_reverse_left {N f1 f2 f3}
+      (op1 : push_op (f2 (f3 N)) f1)
+      (op2 : pop_op (f3 N) f2) (op3 : pop_op N f3) :
+    transpose_pushes_left
+      (transpose_pushes_indices_op op1 op3
+        (transpose_pushes_left op1 op2))
+      (transpose_pushes_left
+        (transpose_pushes_right op2 op1) op3)
+    = transpose_pushes_indices_op op1 op2
+        (transpose_pushes_left
+          (transpose_pushes_indices_op op2 op3 op1)
+          (transpose_pushes_left op2 op3)).
+Proof.
+  destruct op1 as [|l1|n1], op2 as [|l2|n2], op3 as [|l3|n3];
+    cbn in *; try easy.
+  - inversion_level l3; inversion_level l2; inversion_level l1.
+    rewrite transpose_cycle_ins_reverse_left; easy.
+  - rewrite transpose_closes_reverse_left; easy.
+Qed.
+
+(*
+Lemma transpose_cycle_ins_reverse_middle {N}
+      (l1 : level N) (l2 : level (S N)) (l3 : level (S (S N))) :
+  unshift_level
+       (shift_level (@unshift_level (S (S N)) l2 l3) l1)
+       (shift_level l3 l2) =
+  shift_level
+    (@unshift_level (S (S N)) (shift_level l2 l1) l3)
+    (@unshift_level (S N) l1 l2).
+Proof.
+  case_levels l1 l2.
+  - case_levels l2 l3;
+      case_levels l3 l1; try easy;
+        case_level l2; easy.
+  - case_levels (l_S l1) l3; easy.
+  - case_levels l2 l3; try easy.
+    case_levels (l_S l1) l3; easy.
+Qed.
+
+Lemma transpose_closes_reverse_middle n1 n2 n3 :
+  unshift_name (shift_name (unshift_name n2 n3) n1)
+               (shift_name n3 n2)
+  = shift_name (unshift_name (shift_name n2 n1) n3)
+               (unshift_name n1 n2).
+Proof.
+  case_names n1 n2.
+  - case_names n2 n3;
+      case_names n3 n1; try congruence; try easy;
+        case_name n2; easy.
+  - case_names (n_S n1) n3; easy.
+  - case_names n2 n3; try easy.
+    case_names (n_S n1) n3; try congruence; easy.
+  - case_names n2 n3; try easy.
+    case_names n1 n3; easy.
+Qed.
+*)
+
+Lemma transpose_push_pop_pop_reverse_middle {N f1 f2 f3}
+      (op1 : push_op (f2 (f3 N)) f1)
+      (op2 : pop_op (f3 N) f2) (op3 : pop_op N f3) :
+  transpose_pushes_left
+    (transpose_pushes_right
+       (transpose_pushes_left op2 op3)
+       (transpose_pushes_indices_op op2 op3 op1))
+    (transpose_pushes_right op3 op2)
+  = transpose_pushes_right
+      (transpose_pushes_left
+         (transpose_pushes_right op2 op1) op3)
+      (transpose_pushes_indices_op op1 op3
+        (transpose_pushes_left op1 op2)).
+Proof.
+  destruct op1 as [|l1|n1], op2 as [|l2|n2], op3 as [|l3|n3];
+    cbn in *; try easy.
+  - inversion_level l3; inversion_level l2; inversion_level l1.
+    rewrite @transpose_cycle_ins_reverse_middle; easy.
+  - rewrite transpose_closes_reverse_middle; easy.
+Qed.
+
+(*
+Lemma transpose_cycle_ins_reverse_right {N}
+      l1 l2 (l3 : level (S N)) :
+  shift_level (shift_level l3 l2)
+              (shift_level (unshift_level l2 l3) l1)
+  = shift_level l3 (shift_level l2 l1).
+Proof.
+  case_levels l2 l3.
+  - case_levels (l_S l1) l3; try easy.
+    case_levels l1 l2; easy.
+  - case_levels l1 l2; easy.
+  - case_levels l1 l3; try easy.
+    case_levels l1 l2; easy.
+Qed.
+
+Lemma transpose_closes_reverse_right n1 n2 n3 :
+  shift_name (shift_name n3 n2)
+              (shift_name (unshift_name n2 n3) n1)
+  = shift_name n3 (shift_name n2 n1).
+Proof.
+  case_names n2 n3.
+  - case_names (n_S n1) n3; try easy.
+    case_names n1 n2; easy.
+  - case_names n1 n2; easy.
+  - case_names n1 n3; try easy.
+    case_names n1 n2; try congruence;
+      case_name n1; try easy.
+  - case_names n1 n2; try easy.
+    case_names n1 n3; easy.
+Qed.
+*)
+
+Lemma transpose_push_pop_pop_reverse_right  {N f1 f2 f3}
+      (op1 : push_op (f2 (f3 N)) f1)
+      (op2 : pop_op (f3 N) f2) (op3 : pop_op N f3) :
+    transpose_pushes_right
+      (transpose_pushes_right op3 op2)
+      (transpose_pushes_right
+        (transpose_pushes_left op2 op3)
+        (transpose_pushes_indices_op op2 op3 op1))
+    = transpose_pushes_right op3
+        (transpose_pushes_right op2 op1).
+Proof.
+  destruct op1 as [|l1|n1], op2 as [|l2|n2], op3 as [|l3|n3];
+    cbn in *; try easy.
+  - inversion_level l3; inversion_level l2; inversion_level l1.
+    rewrite @transpose_cycle_ins_reverse_right; easy.
+  - rewrite transpose_closes_reverse_right; easy.
+Qed.
+
+
 
 (* Properties of composition *)
 
