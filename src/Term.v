@@ -1,6 +1,20 @@
 Require Import String Omega Setoid Morphisms.
-Require Import Morph Var.
+Require Import Morph Var VarEquations Renaming RenamingEquations.
 Set Loose Hint Behavior "Strict".
+
+Inductive substitution (term : nset) (N : nat) : nat -> Set :=
+| substitution_renaming : forall M,
+    renaming N M -> substitution term N M
+| substitution_bind : forall M,
+    term N -> substitution term N M -> level (S M) ->
+    substitution term N (S M)
+| substitution_subst : forall M,
+    term N -> substitution term N M ->
+    name -> substitution term N M.
+
+Arguments substitution_renaming {term} {N} {M} r.
+Arguments substitution_bind {term} {N} {M} t r l.
+Arguments substitution_subst {term} {N} {M} t r n.
 
 Module Type Relative_monad.
 
