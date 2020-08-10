@@ -22,5 +22,5 @@ RenamingEquations.vok RenamingEquations.vos: Morph.vos Var.vos VarEquations.vos 
 
 Context.vok Context.vos: Morph.vos Var.vos
 
-Term.vok Term.vos: Morph.vos Var.vos Renaming,vos VarEquations.vos RenamingEquations.vos
+Term.vok Term.vos: Morph.vos Var.vos Renaming.vos VarEquations.vos RenamingEquations.vos
 

@@ -4,21 +4,160 @@ Require Import Morph Var.
 (* Algebra of operations on [var] *)
 
 Inductive closing : nat -> nat -> Set :=
-| closing_id : closing 0 0
-| closing_weak : forall N M,
-    level (S N) -> closing N M -> closing (S N) M
-| closing_exchange : forall N M,
-    level (S N) -> closing N M -> level (S M) -> closing (S N) (S M)
-| closing_close : forall N M,
-    level (S N) -> closing N M -> name -> closing (S N) M.
+| closing_nil : closing 0 0
+| closing_zero_weak : forall N M,
+  closing N M -> closing (S N) M
+| closing_zero_exchange : forall N M,
+    closing N M -> level (S M) -> closing (S N) (S M)
+| closing_zero_close : forall N M,
+    closing N M -> name -> closing (S N) M.
 
-Arguments closing_weak {N} {M} l r.
-Arguments closing_exchange {N} {M} l1 r l2.
-Arguments closing_close {N} {M} l r n.
+Arguments closing_zero_weak {N} {M} r.
+Arguments closing_zero_exchange {N} {M} r l.
+Arguments closing_zero_close {N} {M} r n.
+
+Definition succ_not_zero {N M} {lt : less_than (S N) (S M)} :
+  Squash (mklevel 0 lt_0 <> mklevel (S N) lt).
+  apply squash; discriminate.
+Defined.
+
+Fixpoint closing_weak' {N M}
+  : level N -> closing (pred N) M -> closing N M :=
+  match N
+    return level N -> closing (pred N) _ -> closing N _
+  with
+  | 0 => fun l => False_rect _ (level_zero_empty l)
+  | S N' =>
+    fun l =>
+      match level_sdec l_0 l with
+      | sleft _ => closing_zero_weak
+      | sright neq =>
+        fun r =>
+          (match r in closing N' M
+             return
+             (forall M',
+                 level N' ->
+                 closing (pred N') M' -> closing N' M')
+             -> level N' -> closing (S N') M
+           with
+           | closing_nil =>
+             fun _ l => False_rect _ (level_zero_empty l)
+           | @closing_zero_weak N'' M r =>
+             fun recurse l =>
+               closing_zero_weak (recurse M l r)
+           | @closing_zero_exchange N'' M r l2 =>
+             fun recurse l1 =>
+               closing_zero_exchange (recurse M l1 r) l2
+           | @closing_zero_close N'' M r n =>
+             fun recurse l =>
+               closing_zero_close (recurse M l r) n
+           end)
+            (@closing_weak' N')
+            (unshift_level_neq l_0 l neq)
+      end
+  end.
+
+Definition closing_weak {N M}
+  : level (S N) -> closing N M -> closing (S N) M :=
+  @closing_weak' (S N) M.
+
+Fixpoint closing_exchange' {N M}
+  : level N -> closing (pred N) (pred M) -> level M
+    -> closing N M :=
+  match N, M
+    return level N -> closing (pred N) (pred M) -> level M
+           -> closing N M
+  with
+  | 0, _ => fun l => False_rect _ (level_zero_empty l)
+  | _, 0 => fun _ _ l => False_rect _ (level_zero_empty l)
+  | S N', S M' =>
+    fun l =>
+      match level_sdec l_0 l with
+      | sleft _ => closing_zero_exchange
+      | sright neq =>
+        fun r =>
+          (match r in closing N' M'
+             return
+             (forall M'',
+                 level N'
+                 -> closing (pred N') (pred M'')
+                 -> level M'' -> closing N' M'')
+             -> level N' -> level (S M')
+             -> closing (S N') (S M')
+           with
+           | closing_nil =>
+             fun _ l => False_rect _ (level_zero_empty l)
+           | @closing_zero_weak N'' M r =>
+             fun recurse l1 l2 =>
+               closing_zero_weak (recurse (S M) l1 r l2)
+           | @closing_zero_exchange N'' M r l3 =>
+             fun recurse l1 l2 =>
+               closing_zero_exchange
+                 (recurse (S M) l1 r
+                    (@unshift_level (S (S M)) l3 l2))
+                 (shift_level l2 l3)
+           | @closing_zero_close N'' M r n =>
+             fun recurse l1 l2 =>
+               closing_zero_close
+                 (recurse (S M) l1 r l2) n
+           end)
+            (@closing_exchange' N')
+            (unshift_level_neq l_0 l neq)
+      end
+  end.
+
+Definition closing_exchange {N M}
+  : level (S N) -> closing N M -> level (S M)
+    -> closing (S N) (S M) :=
+  @closing_exchange' (S N) (S M).
+
+Fixpoint closing_close' {N M}
+  : level N -> closing (pred N) M -> name -> closing N M :=
+  match N
+    return level N
+           -> closing (pred N) _ -> name -> closing N _
+  with
+  | 0 => fun l => False_rect _ (level_zero_empty l)
+  | S N' =>
+    fun l =>
+      match level_sdec l_0 l with
+      | sleft _ => closing_zero_close
+      | sright neq =>
+        fun r =>
+          (match r in closing N' M
+             return
+             (forall M',
+                 level N'
+                 -> closing (pred N') M' -> name
+                 -> closing N' M')
+             -> level N' -> name -> closing (S N') M
+           with
+           | closing_nil =>
+             fun _ l => False_rect _ (level_zero_empty l)
+           | @closing_zero_weak N'' M r =>
+             fun recurse l n =>
+               closing_zero_weak (recurse M l r n)
+           | @closing_zero_exchange N'' M r l2 =>
+             fun recurse l1 n =>
+               closing_zero_exchange (recurse M l1 r n) l2
+           | @closing_zero_close N'' M r n2 =>
+             fun recurse l n1 =>
+               closing_zero_close
+                 (recurse M l r (unshift_name n2 n1))
+                 (shift_name n1 n2)
+           end)
+            (@closing_close' N')
+            (unshift_level_neq l_0 l neq)
+      end
+  end.
+
+Definition closing_close {N M}
+  : level (S N) -> closing N M -> name -> closing (S N) M :=
+  @closing_close' (S N) M.
 
 Fixpoint closing_weak_n {N} : closing N 0 :=
   match N return closing N _ with
-  | 0 => closing_id
+  | 0 => closing_nil
   | S N => closing_weak l_0 closing_weak_n
   end.
 
@@ -28,10 +167,10 @@ Fixpoint closing_weakening {N M} : closing (N + M) N :=
   | S N => closing_exchange l_0 closing_weakening l_0
   end.
 
-Fixpoint closing_id_n {N} : closing N N :=
+Fixpoint closing_id {N} : closing N N :=
   match N return closing N N with
-  | 0 => closing_id
-  | S N => closing_exchange l_0 closing_id_n l_0
+  | 0 => closing_nil
+  | S N => closing_zero_exchange closing_id l_0
   end.
 
 Inductive renaming (N : nat) : nat -> Set :=
@@ -49,11 +188,26 @@ Arguments renaming_shift {N} {M} n r.
 Arguments renaming_open {N} {M} n r l.
 Arguments renaming_rename {N} {M} n1 r n2.
 
-Definition renaming_id :=
+Definition renaming_nil :=
+  renaming_closing closing_nil.
+
+Definition renaming_id {N} : renaming N N :=
   renaming_closing closing_id.
 
-Definition renaming_id_n {N} : renaming N N :=
-  renaming_closing closing_id_n.
+Fixpoint renaming_zero_weak {N M} (r : renaming N M) :
+  renaming (S N) M :=
+  match r in renaming _ M
+        return renaming _ M
+  with
+  | renaming_closing r =>
+    renaming_closing (closing_zero_weak r)
+  | renaming_shift n r =>
+    renaming_shift n (renaming_zero_weak r)
+  | @renaming_open _ M n r l =>
+    renaming_open n (renaming_zero_weak r) l
+  | renaming_rename n1 r n2 =>
+    renaming_rename n1 (renaming_zero_weak r) n2
+  end.
 
 Fixpoint renaming_weak {N M}
          (l : level (S N)) (r : renaming N M) :
@@ -69,6 +223,27 @@ Fixpoint renaming_weak {N M}
     renaming_open n (renaming_weak l r) l'
   | renaming_rename n1 r n2 =>
     renaming_rename n1 (renaming_weak l r) n2
+  end.
+
+Fixpoint renaming_zero_exchange {N M}
+         (r : renaming N M) :
+  level (S M) -> renaming (S N) (S M) :=
+  match r in renaming _ M
+        return level (S M) -> renaming _ (S M)
+  with
+  | renaming_closing r =>
+    fun l2 => renaming_closing (closing_zero_exchange r l2)
+  | renaming_shift n r =>
+    fun l2 => renaming_shift n (renaming_zero_exchange r l2)
+  | @renaming_open _ M n r l =>
+    fun l2 =>
+      renaming_open
+        n (renaming_zero_exchange r
+             (@unshift_level (S (S M)) l l2))
+        (shift_level l2 l)
+  | renaming_rename n1 r n2 =>
+    fun l2 =>
+      renaming_rename n1 (renaming_zero_exchange r l2) n2
   end.
 
 Fixpoint renaming_exchange {N M}
@@ -92,6 +267,24 @@ Fixpoint renaming_exchange {N M}
       renaming_rename n1 (renaming_exchange l1 r l2) n2
   end.
 
+Fixpoint renaming_zero_close {N M}
+         (r : renaming N M) (n : name) :
+  renaming (S N) M :=
+  match r in renaming _ M
+        return renaming _ M
+  with
+  | renaming_closing r =>
+    renaming_closing (closing_zero_close r n)
+  | renaming_shift n' r =>
+    renaming_shift n' (renaming_zero_close r n)
+  | @renaming_open _ M n' r l' =>
+    renaming_open n' (renaming_zero_close r n) l'
+  | renaming_rename n1 r n2 =>
+    renaming_rename
+      n1 (renaming_zero_close r (unshift_name n2 n))
+      (shift_name n n2)
+  end.
+
 Fixpoint renaming_close {N M}
          (l : level (S N)) (r : renaming N M) (n : name) :
   renaming (S N) M :=
@@ -113,18 +306,15 @@ Fixpoint renaming_close {N M}
 Fixpoint apply_closing_var {N M} (r : closing N M)
   : morph var M var N :=
   match r in closing N M return morph _ M _ N with
-  | closing_id => morph_id
-  | @closing_weak N M l r =>
-      (@cycle_out_var (S N) l)
-      @ lift_morph_var (apply_closing_var r)
+  | closing_nil => morph_id
+  | @closing_zero_weak N M r =>
+      lift_morph_var (apply_closing_var r)
       @ morph_extend_by M (@weak_var)
-  | @closing_exchange N M l1 r l2 =>
-        (@cycle_out_var (S N) l1)
-      @ lift_morph_var (apply_closing_var r)
-      @ @cycle_in_var (S M) l2
-  | @closing_close N M l r n =>
-        (@cycle_out_var (S N) l)
-      @ lift_morph_var (apply_closing_var r)
+  | @closing_zero_exchange N M r l =>
+      lift_morph_var (apply_closing_var r)
+      @ @cycle_in_var (S M) l
+  | @closing_zero_close N M r n =>
+      lift_morph_var (apply_closing_var r)
       @ morph_extend_by M (@close_var n)
   end.
 
@@ -160,75 +350,53 @@ Arguments closing_rhs_weak_rhs {N} {M} r.
 Arguments closing_rhs_exchange_rhs {N} {M} r l.
 Arguments closing_rhs_close_rhs {N} {M} r n.
 
-Definition closing_rhs_weak {N M}
-  : level N -> closing_rhs (pred N) M -> closing_rhs N M :=
-  match N
-        return level N -> closing_rhs (pred N) _ -> closing_rhs N _
-  with
-  | 0 => fun l1 => False_rec _ (level_zero_empty l1)
-  | S N' =>
-    fun l1 r =>
-      match r in closing_rhs _ M
-            return closing_rhs (S N') M with
-      | closing_rhs_weak_rhs r =>
-        closing_rhs_weak_rhs (closing_weak l1 r)
-      | closing_rhs_exchange_rhs r l =>
-        closing_rhs_exchange_rhs (closing_weak l1 r) l
-      | closing_rhs_close_rhs r n =>
-        closing_rhs_close_rhs (closing_weak l1 r) n
-      end
+Definition closing_rhs_zero_weak {N M} (r : closing_rhs N M)
+  : closing_rhs (S N) M :=
+  match r in closing_rhs _ M
+        return closing_rhs (S N) M with
+  | closing_rhs_weak_rhs r =>
+    closing_rhs_weak_rhs (closing_zero_weak r)
+  | closing_rhs_exchange_rhs r l =>
+    closing_rhs_exchange_rhs (closing_zero_weak r) l
+  | closing_rhs_close_rhs r n =>
+    closing_rhs_close_rhs (closing_zero_weak r) n
   end.
-Arguments closing_rhs_weak {N M} l r : simpl nomatch.
+Arguments closing_rhs_zero_weak {N M} r : simpl nomatch.
 
-Definition closing_rhs_exchange {N M}
-  : level N -> closing_rhs (pred N) M
-    -> level (S M) -> closing_rhs N (S M) :=
-  match N
-        return level N -> closing_rhs (pred N) _ ->
-               _ -> closing_rhs N _
+Definition closing_rhs_zero_exchange {N M} (r : closing_rhs N M)
+  : level (S M) -> closing_rhs (S N) (S M) :=
+  match r in closing_rhs _ M
+        return level (S M) -> closing_rhs (S N) (S M)
   with
-  | 0 => fun l1 => False_rec _ (level_zero_empty l1)
-  | S N' =>
-    fun l1 r =>
-      match r in closing_rhs _ M
-            return level (S M) -> closing_rhs (S N') (S M) with
-      | closing_rhs_weak_rhs r =>
-        fun l2 => closing_rhs_weak_rhs (closing_exchange l1 r l2)
-      | @closing_rhs_exchange_rhs _ M' r l =>
-        fun l2 =>
-          closing_rhs_exchange_rhs
-            (closing_exchange l1 r
-               (@unshift_level (S (S M')) l l2))
-            (shift_level l2 l)
-      | closing_rhs_close_rhs r n =>
-        fun l2 => closing_rhs_close_rhs (closing_exchange l1 r l2) n
-      end
+  | closing_rhs_weak_rhs r =>
+    fun l2 => closing_rhs_weak_rhs
+                (closing_zero_exchange r l2)
+  | @closing_rhs_exchange_rhs _ M' r l =>
+    fun l2 =>
+      closing_rhs_exchange_rhs
+        (closing_zero_exchange r
+           (@unshift_level (S (S M')) l l2))
+        (shift_level l2 l)
+  | closing_rhs_close_rhs r n =>
+    fun l2 => closing_rhs_close_rhs
+                (closing_zero_exchange r l2) n
   end.
-Arguments closing_rhs_exchange {N M} l1 r l2 : simpl nomatch.
+Arguments closing_rhs_zero_exchange {N M} r l : simpl nomatch.
 
-Definition closing_rhs_close {N M}
-  : level N -> closing_rhs (pred N) M
-    -> name -> closing_rhs N M :=
-  match N
-        return level N -> closing_rhs (pred N) _ ->
-               _ -> closing_rhs N _
-  with
-  | 0 => fun l1 => False_rec _ (level_zero_empty l1)
-  | S N' =>
-    fun l1 r =>
-      match r in closing_rhs _ M
-            return _ -> closing_rhs _ M with
-      | closing_rhs_weak_rhs r =>
-        fun n1 => closing_rhs_weak_rhs (closing_close l1 r n1)
-      | closing_rhs_exchange_rhs r l =>
-        fun n1 => closing_rhs_exchange_rhs (closing_close l1 r n1) l
-      | closing_rhs_close_rhs r n =>
-        fun n1 =>
-          closing_rhs_close_rhs (closing_close l1 r (unshift_name n n1))
-                           (shift_name n1 n)
-      end
+Definition closing_rhs_zero_close {N M} (r : closing_rhs N M) n
+  : closing_rhs (S N) M :=
+  match r in closing_rhs _ M
+        return closing_rhs _ M with
+  | closing_rhs_weak_rhs r =>
+    closing_rhs_weak_rhs (closing_zero_close r n)
+  | closing_rhs_exchange_rhs r l =>
+    closing_rhs_exchange_rhs (closing_zero_close r n) l
+  | closing_rhs_close_rhs r n2 =>
+    closing_rhs_close_rhs
+      (closing_zero_close r (unshift_name n2 n))
+      (shift_name n n2)
   end.
-Arguments closing_rhs_close {N M} l r n : simpl nomatch.
+Arguments closing_rhs_zero_close {N M} r n : simpl nomatch.
 
 Fixpoint transpose_level_closing {N M}
          (r : closing N M)
@@ -236,59 +404,70 @@ Fixpoint transpose_level_closing {N M}
   match r in closing N M
         return level N -> closing_rhs (pred N) M
   with
-  | closing_id => fun l => False_rec _ (level_zero_empty l)
-  | @closing_weak N' M' l1 r =>
+  | closing_nil => fun l => False_rec _ (level_zero_empty l)
+  | @closing_zero_weak N' M' r =>
     fun l =>
-      match level_sdec l l1 with
+      match level_sdec l_0 l with
       | sleft _ => closing_rhs_weak_rhs r
       | sright neq =>
-        closing_rhs_weak
-          (unshift_level_neq l l1 neq)
-          (transpose_level_closing
-             r (unshift_level_neq l1 l (sneq_sym neq)))
+        (match N'
+           return level N' -> closing N' M'
+                  -> closing_rhs N' M'
+         with
+        | 0 => fun l' => False_rect _ (level_zero_empty l')
+        | S N'' =>
+          fun l' r =>
+            closing_rhs_zero_weak
+              (transpose_level_closing r l')
+        end) (unshift_level_neq l_0 l neq) r
       end
-  | closing_exchange l1 r l2 =>
+  | @closing_zero_exchange N' M' r l2 =>
     fun l =>
-      match level_sdec l l1 with
+      match level_sdec l_0 l with
       | sleft _ => closing_rhs_exchange_rhs r l2
       | sright neq =>
-        closing_rhs_exchange
-          (unshift_level_neq l l1 neq)
-          (transpose_level_closing
-             r (unshift_level_neq l1 l (sneq_sym neq)))
-          l2
+        (match N'
+           return level N' -> closing N' M'
+                  -> closing_rhs N' (S M')
+         with
+        | 0 => fun l' => False_rect _ (level_zero_empty l')
+        | S N'' =>
+          fun l' r =>
+            closing_rhs_zero_exchange
+              (transpose_level_closing r l') l2
+        end) (unshift_level_neq l_0 l neq) r
       end
-  | closing_close l1 r n =>
+  | @closing_zero_close N' M' r n =>
     fun l =>
-      match level_sdec l l1 with
+      match level_sdec l_0 l with
       | sleft _ => closing_rhs_close_rhs r n
       | sright neq =>
-        closing_rhs_close
-          (unshift_level_neq l l1 neq)
-          (transpose_level_closing
-             r (unshift_level_neq l1 l (sneq_sym neq)))
-          n
+        (match N'
+           return level N' -> closing N' M'
+                  -> closing_rhs N' M'
+         with
+        | 0 => fun l' => False_rect _ (level_zero_empty l')
+        | S N'' =>
+          fun l' r =>
+            closing_rhs_zero_close
+              (transpose_level_closing r l') n
+        end) (unshift_level_neq l_0 l neq) r
       end
   end.
-
-Definition transpose_level_closing' {N M}
-         (r : closing (S N) M) l
-  : closing_rhs N M :=
-  transpose_level_closing r l.
 
 Fixpoint transpose_name_closing {N M}
          (r : closing N M) n : closing_rhs N M :=
   match r in closing N M return closing_rhs N M with
-  | closing_id => closing_rhs_close_rhs closing_id n
-  | closing_weak l1 r =>
-      closing_rhs_weak
-        l1 (transpose_name_closing r n)
-  | closing_exchange l1 r l2 =>
-      closing_rhs_exchange
-        l1 (transpose_name_closing r n) l2
-  | closing_close l1 r n2 =>
-      closing_rhs_close
-        l1 (transpose_name_closing r n) n2
+  | closing_nil => closing_rhs_close_rhs closing_nil n
+  | closing_zero_weak r =>
+      closing_rhs_zero_weak
+        (transpose_name_closing r n)
+  | closing_zero_exchange r l =>
+      closing_rhs_zero_exchange
+        (transpose_name_closing r n) l
+  | closing_zero_close r n2 =>
+      closing_rhs_zero_close
+        (transpose_name_closing r n) n2
   end.
 
 Fixpoint compose_closing {N M O}
@@ -297,32 +476,32 @@ Fixpoint compose_closing {N M O}
   match r1 in closing O' N'
         return closing N' _ -> closing O' _
   with
-  | closing_id => fun r2 => r2
-  | closing_weak l r1 =>
-    fun r2 => closing_weak l (compose_closing r1 r2)
-  | closing_exchange l1 r1 l2 =>
+  | closing_nil => fun r2 => r2
+  | closing_zero_weak r1 =>
+    fun r2 => closing_zero_weak (compose_closing r1 r2)
+  | closing_zero_exchange r1 l2 =>
     fun r2 =>
       match transpose_level_closing r2 l2 in closing_rhs _ M
             return closing _ M
        with
       | closing_rhs_weak_rhs r2 =>
-          closing_weak l1 (compose_closing r1 r2)
+          closing_zero_weak (compose_closing r1 r2)
       | closing_rhs_exchange_rhs r2 l2 =>
-          closing_exchange l1 (compose_closing r1 r2) l2
+          closing_zero_exchange (compose_closing r1 r2) l2
       | closing_rhs_close_rhs r2 n =>
-          closing_close l1 (compose_closing r1 r2) n
+          closing_zero_close (compose_closing r1 r2) n
       end
-  | @closing_close O'' N'' l r1 n =>
+  | @closing_zero_close O'' N'' r1 n =>
     fun (r2 : closing N'' M) =>
       match transpose_name_closing r2 n
             in closing_rhs _ M return closing _ M
       with
       | closing_rhs_weak_rhs r2 =>
-          closing_weak l (compose_closing r1 r2)
+          closing_zero_weak (compose_closing r1 r2)
       | closing_rhs_exchange_rhs r2 l2 =>
-          closing_exchange l (compose_closing r1 r2) l2
+          closing_zero_exchange (compose_closing r1 r2) l2
       | closing_rhs_close_rhs r2 n =>
-          closing_close l (compose_closing r1 r2) n
+          closing_zero_close (compose_closing r1 r2) n
       end
   end.
 
@@ -478,42 +657,42 @@ Fixpoint compose_closing_renaming {N M O}
   match r1 in closing O' N'
         return renaming N' _ -> renaming O' _
   with
-  | closing_id => fun r2 => r2
-  | closing_weak l r1 =>
+  | closing_nil => fun r2 => r2
+  | closing_zero_weak r1 =>
     fun r2 =>
-      renaming_weak l
+      renaming_zero_weak
         (compose_closing_renaming r1 r2)
-  | closing_exchange l1 r1 l2 =>
+  | closing_zero_exchange r1 l2 =>
     fun r2 =>
       match transpose_level_renaming l2 r2
              in renaming_rhs _ M
              return renaming _ M
       with
       | renaming_rhs_shift_rhs r2 =>
-          renaming_weak
-            l1 (compose_closing_renaming r1 r2)
+          renaming_zero_weak
+            (compose_closing_renaming r1 r2)
       | renaming_rhs_open_rhs r2 l2 =>
-          renaming_exchange
-            l1 (compose_closing_renaming r1 r2) l2
+          renaming_zero_exchange
+            (compose_closing_renaming r1 r2) l2
       | renaming_rhs_rename_rhs r2 n =>
-          renaming_close
-            l1 (compose_closing_renaming r1 r2) n
+          renaming_zero_close
+            (compose_closing_renaming r1 r2) n
       end
-  | closing_close l r1 n =>
+  | closing_zero_close r1 n =>
     fun r2 =>
       match transpose_name_renaming n r2
             in renaming_rhs _ M
             return renaming _ M
        with
       | renaming_rhs_shift_rhs r2 =>
-          renaming_weak
-            l (compose_closing_renaming r1 r2)
+          renaming_zero_weak
+            (compose_closing_renaming r1 r2)
       | renaming_rhs_open_rhs r2 l2 =>
-          renaming_exchange
-            l (compose_closing_renaming r1 r2) l2
+          renaming_zero_exchange
+            (compose_closing_renaming r1 r2) l2
       | renaming_rhs_rename_rhs r2 n =>
-          renaming_close
-            l (compose_closing_renaming r1 r2) n
+          renaming_zero_close
+            (compose_closing_renaming r1 r2) n
       end
   end.
 

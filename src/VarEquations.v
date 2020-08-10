@@ -570,6 +570,24 @@ Tactic Notation "case_var"
 
 (* Identities *)
 
+Lemma cycle_in_zero_identity {N} :
+  @cycle_in_var (S N) l_0 =m= 1.
+Proof.
+  intros V v.
+  case_var v as ? l2; try easy.
+  unfold cycle_in_level.
+  case_level l2 as ln2 lt2; easy.
+Qed.
+
+Lemma cycle_out_zero_identity {N} :
+  @cycle_out_var (S N) l_0 =m= 1.
+Proof.
+  intros V v.
+  case_var v as ? l2; try easy.
+  unfold cycle_out_level.
+  case_level l2 as ln2 lt2; easy.
+Qed.
+
 Lemma open_close_identity {N} (n : name) :
   morph_extend_by N (@open_var n)
   @ morph_extend_by N (@close_var n) =m= 1.
@@ -673,6 +691,27 @@ Proof.
   rewrite swap_swap_identity.
   rewrite morph_left_identity.
   easy.
+Qed.
+
+Lemma unshift_level_neq_shift_level_identity
+      {N} (l1 : level N) (l2 : level (pred N)) irr :
+  @unshift_level_neq N l1 (shift_level l1 l2) irr = l2.
+Proof.
+  remember (shift_level l1 l2) as ls12 eqn:Heq;
+    generalize dependent Heq.
+  case_levels l1 l2;
+    intro; subst; reduce_levels; easy.
+Qed.
+
+Lemma shift_level_unshift_level_neq_identity
+      {N} (l1 : level N) (l2 : level N) irr :
+  shift_level l1 (unshift_level_neq l1 l2 irr) = l2.
+Proof.
+  apply sneq_neq in irr as Hneq.
+  inversion_level l1.
+  case_levels l1 l2; try easy.
+  - case_level l2; easy.
+  - apply l_nat_injective in Hneq; contradiction.
 Qed.
 
 (* [lift_morph_var] distributes over composition and identity *)
@@ -1677,25 +1716,27 @@ Qed.
 Tactic Notation
   "transpose_push_pop" open_constr(op1) open_constr(op2) :=
   let irr := fresh "irr" in
-  assert (irreducible_push_pop_ops op1 op2) as irr by easy;
+  assert (irreducible_push_pop_ops op1 op2) as irr
+    by (try easy; try solve [apply squash; congruence]);
   cbn in irr;
   let Hrw := fresh "Hrw" in
   epose (transpose_push_pop op1 op2 irr) as Hrw; cbn in Hrw;
   autorewrite with push_lift_morph_var in Hrw;
   autorewrite with normalize_morph_compose in Hrw;
-  rewrite Hrw; clear Hrw.
+  setoid_rewrite Hrw; clear Hrw.
 
 Tactic Notation
   "transpose_push_pop" open_constr(op1) open_constr(op2)
     "at" occurrences(occ) :=
   let irr := fresh "irr" in
-  assert (irreducible_push_pop_ops op1 op2) as irr by easy;
+  assert (irreducible_push_pop_ops op1 op2) as irr
+    by (try easy; try solve [apply squash; congruence]);
   cbn in irr;
   let Hrw := fresh "Hrw" in
   epose (transpose_push_pop op1 op2 irr) as Hrw; cbn in Hrw;
   autorewrite with push_lift_morph_var in Hrw;
   autorewrite with normalize_morph_compose in Hrw;
-  rewrite Hrw at occ; clear Hrw.
+  setoid_rewrite Hrw at occ; clear Hrw.
 
 Definition transpose_push_push_pop_indices_op
            {N M O f1 f2 f3}
@@ -2169,4 +2210,3 @@ Proof.
       easy.
   - rewrite transpose_close_open_open_reverse_right; easy.
 Qed.
-
