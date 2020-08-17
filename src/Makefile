@@ -12,15 +12,17 @@ all: ${MODULES}
 %.vok: %.v
 	${COQC} -vok ${COQPARAMS} $<
 
-Var.vok Var.vos: Morph.vos
+VarEquations.vok VarEquations.vos: Var.vos
 
-VarEquations.vok VarEquations.vos: Morph.vos Var.vos
+Closing.vok Closing.vos: Var.vos
 
-Renaming.vok Renaming.vos: Morph.vos Var.vos
+ClosingEquations.vok ClosingEquations.vos: Var.vos VarEquations.vos Closing.vos
 
-RenamingEquations.vok RenamingEquations.vos: Morph.vos Var.vos VarEquations.vos Renaming.vos
+Renaming.vok Renaming.vos: Var.vos Closing.vos
 
-Context.vok Context.vos: Morph.vos Var.vos
+RenamingEquations.vok RenamingEquations.vos: Var.vos Closing.vos VarEquations.vos ClosingEquations Renaming.vos
+
+Context.vok Context.vos: Var.vos
 
 Term.vok Term.vos: Morph.vos Var.vos Renaming.vos VarEquations.vos RenamingEquations.vos
 
