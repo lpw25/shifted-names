@@ -548,80 +548,24 @@ Qed.
 
 (* Transposing push operations
 
-   We wish to reason about transposing "push" operations
-   (i.e. [weak], [cycle_in] and [close]).
-   These operations are not commutative, however they can be
-   transposed by applying transformations to them.
+   We wish to reason about transposing "push" operations (i.e. [weak],
+   [cycle_in] and [close]).  These operations are not commutative,
+   however they can be transposed by applying [shift] and [unshift]
+   transformations to them.
 
    This situation is very close to that studied by the "operational
    transforms" literature in the context of collaborative text
    editors. However, rather than define the "ET" and "IT"
-   transformations for our operations as they do, we will use a
-   slightly different formulation.
-
-   We define two transformations on operations:
-
-     transpose_pushes_left(op1, op2)
-
-     transpose_pushes_right(op2, op1)
-
-   such that:
-
-     lift_var_op op1
-     @ op2
-     = swap_var
-       @ lift_var_op (transpose_pushes_left(op1, op2))
-       @ (transpose_pushes_right(op2, op1)) *)
-
-Inductive push_op : Type :=
-| weak_op : push_op
-| cycle_in_op : level -> push_op
-| close_op : name -> push_op.
-
-Definition apply_push_op_var op : var_op :=
-  match op with
-  | weak_op => weak_var
-  | cycle_in_op l => cycle_in_var l
-  | close_op n => close_var n
-  end.
-
-Definition transpose_pushes_left op1 op2 :=
-  match op1, op2 with
-  | weak_op, weak_op => weak_op
-  | weak_op, cycle_in_op l => cycle_in_op l
-  | weak_op, close_op n => close_op n
-  | cycle_in_op l, weak_op => weak_op
-  | cycle_in_op l1, cycle_in_op l2 =>
-    cycle_in_op (unshift_level l1 l2)
-  | cycle_in_op l, close_op n => close_op n
-  | close_op n, weak_op => weak_op
-  | close_op n, cycle_in_op l => cycle_in_op l
-  | close_op n1, close_op n2 =>
-    close_op (unshift_name n1 n2)
-  end.
-
-Definition transpose_pushes_right op2 op1 :=
-  match op2, op1 with
-  | weak_op, weak_op => weak_op
-  | weak_op, cycle_in_op l => cycle_in_op l
-  | weak_op, close_op n => close_op n
-  | cycle_in_op l, weak_op => weak_op
-  | cycle_in_op l2, cycle_in_op l1 =>
-    cycle_in_op (shift_level l2 l1)
-  | cycle_in_op l, close_op n => close_op n
-  | close_op n, weak_op => weak_op
-  | close_op n, cycle_in_op l => cycle_in_op l
-  | close_op n2, close_op n1 =>
-    close_op (shift_name n2 n1)
-  end.
+   transformations for our operations as they do, we will use a slightly
+   different formulation.
+ *)
 
 Lemma transpose_pushes op1 op2 :
   lift_var_op (apply_push_op_var op1)
   @ apply_push_op_var op2
   =v= swap_var
-      @ lift_var_op
-          (apply_push_op_var (transpose_pushes_left op1 op2))
-      @ apply_push_op_var (transpose_pushes_right op2 op1).
+      @ lift_var_op (apply_push_op_var (unshift_push op1 op2))
+      @ apply_push_op_var (shift_push op2 op1).
 Proof.
   intros v.
   destruct op1 as [|l1|n1], op2 as [|l2|n2];
@@ -665,25 +609,6 @@ Proof.
       case_names n1 n3; easy.
 Qed.
 
-Tactic Notation
-  "transpose_pushes" open_constr(op1) open_constr(op2) :=
-  let Hrw := fresh "Hrw" in
-    epose (transpose_pushes op1 op2) as Hrw;
-      cbn in Hrw;
-      autorewrite with push_lift_var_op in Hrw;
-      autorewrite with normalize_morph_compose in Hrw;
-      rewrite Hrw; clear Hrw.
-
-Tactic Notation
-  "transpose_pushes" open_constr(op1) open_constr(op2)
-    "at" occurrences(occ) :=
-  let Hrw := fresh "Hrw" in
-    epose (transpose_pushes op1 op2) as Hrw;
-      cbn in Hrw;
-      autorewrite with push_lift_var_op in Hrw;
-      autorewrite with normalize_morph_compose in Hrw;
-      rewrite Hrw at occ; clear Hrw.
-
 (* Permutations of push operations
 
    Beyond transposing pairs of push operations, we wish to reason
@@ -715,50 +640,21 @@ Tactic Notation
    the third equation.
  *)
 
-Lemma transpose_cycle_ins_squared_left l1 l2 :
-  unshift_level (unshift_level l1 l2) (shift_level l2 l1) = l1.
-Proof.
-  case_levels l1 l2; easy.
-Qed.
-
-Lemma transpose_closes_squared_left n1 n2 :
-  unshift_name (unshift_name n1 n2) (shift_name n2 n1) = n1.
-Proof.
-  case_names n1 n2; easy.
-Qed.
-
 Lemma transpose_pushes_squared_left op1 op2 :
-  transpose_pushes_left
-    (transpose_pushes_left op1 op2)
-    (transpose_pushes_right op2 op1)
-  = op1.
+  unshift_push (unshift_push op1 op2) (shift_push op2 op1) = op1.
 Proof.
   destruct op1 as [|l1|n1], op2 as [|l2|n2]; cbn; try easy.
-  - rewrite transpose_cycle_ins_squared_left; easy.
-  - rewrite transpose_closes_squared_left; easy.
-Qed.
-
-Lemma transpose_cycle_ins_squared_right l1 l2 :
-  shift_level (shift_level l2 l1) (unshift_level l1 l2) = l2.
-Proof.
-  case_levels l2 l1; easy.
-Qed.
-
-Lemma transpose_closes_squared_right n1 n2 :
-  shift_name (shift_name n2 n1) (unshift_name n1 n2) = n2.
-Proof.
-  case_names n2 n1; easy.
+  - case_levels l1 l2; easy.
+  - case_names n1 n2; easy.
 Qed.
 
 Lemma transpose_pushes_squared_right op1 op2 :
-  transpose_pushes_right
-    (transpose_pushes_right op2 op1)
-    (transpose_pushes_left op1 op2)
-  = op2.
+  shift_push (shift_push op2 op1) (unshift_push op1 op2) = op2.
 Proof.
   destruct op1 as [|l1|n1], op2 as [|l2|n2]; cbn; try easy.
-  - rewrite transpose_cycle_ins_squared_right; easy.
-  - rewrite transpose_closes_squared_right; easy.
+  - case_levels l1 l2; try easy.
+    case_level l2; easy.
+  - case_names n1 n2; easy.
 Qed.
 
 Lemma transpose_cycle_ins_reverse_left l1 l2 l3 :
@@ -788,12 +684,9 @@ Proof.
 Qed.
 
 Lemma transpose_pushes_reverse_left op1 op2 op3 :
-  transpose_pushes_left
-    (transpose_pushes_left op1 op2)
-    (transpose_pushes_left
-      (transpose_pushes_right op2 op1) op3)
-  = transpose_pushes_left op1
-      (transpose_pushes_left op2 op3).
+  unshift_push (unshift_push op1 op2)
+    (unshift_push (shift_push op2 op1) op3)
+  = unshift_push op1 (unshift_push op2 op3).
 Proof.
   destruct op1 as [|l1|n1], op2 as [|l2|n2], op3 as [|l3|n3];
     cbn in *; try easy.
@@ -803,11 +696,11 @@ Qed.
 
 Lemma transpose_cycle_ins_reverse_middle l1 l2 l3 :
   unshift_level
-       (shift_level (unshift_level l2 l3) l1)
-       (shift_level l3 l2) =
-  shift_level
-    (unshift_level (shift_level l2 l1) l3)
-    (unshift_level l1 l2).
+    (shift_level (unshift_level l2 l3) l1)
+    (shift_level l3 l2)
+  = shift_level
+      (unshift_level (shift_level l2 l1) l3)
+      (unshift_level l1 l2).
 Proof.
   case_levels l1 l2.
   - case_levels l2 l3;
@@ -819,10 +712,12 @@ Proof.
 Qed.
 
 Lemma transpose_closes_reverse_middle n1 n2 n3 :
-  unshift_name (shift_name (unshift_name n2 n3) n1)
-               (shift_name n3 n2)
-  = shift_name (unshift_name (shift_name n2 n1) n3)
-               (unshift_name n1 n2).
+  unshift_name
+    (shift_name (unshift_name n2 n3) n1)
+    (shift_name n3 n2)
+  = shift_name
+      (unshift_name (shift_name n2 n1) n3)
+      (unshift_name n1 n2).
 Proof.
   case_names n1 n2.
   - case_names n2 n3;
@@ -836,14 +731,12 @@ Proof.
 Qed.
 
 Lemma transpose_pushes_reverse_middle op1 op2 op3 :
-  transpose_pushes_left
-    (transpose_pushes_right
-       (transpose_pushes_left op2 op3) op1)
-    (transpose_pushes_right op3 op2)
-  = transpose_pushes_right
-      (transpose_pushes_left
-         (transpose_pushes_right op2 op1) op3)
-      (transpose_pushes_left op1 op2).
+  unshift_push
+    (shift_push (unshift_push op2 op3) op1)
+    (shift_push op3 op2)
+  = shift_push
+      (unshift_push (shift_push op2 op1) op3)
+      (unshift_push op1 op2).
 Proof.
   destruct op1 as [|l1|n1], op2 as [|l2|n2], op3 as [|l3|n3];
     cbn in *; try easy.
@@ -852,8 +745,9 @@ Proof.
 Qed.
 
 Lemma transpose_cycle_ins_reverse_right l1 l2 l3 :
-  shift_level (shift_level l3 l2)
-              (shift_level (unshift_level l2 l3) l1)
+  shift_level
+    (shift_level l3 l2)
+    (shift_level (unshift_level l2 l3) l1)
   = shift_level l3 (shift_level l2 l1).
 Proof.
   case_levels l2 l3.
@@ -865,8 +759,9 @@ Proof.
 Qed.
 
 Lemma transpose_closes_reverse_right n1 n2 n3 :
-  shift_name (shift_name n3 n2)
-              (shift_name (unshift_name n2 n3) n1)
+  shift_name
+    (shift_name n3 n2)
+    (shift_name (unshift_name n2 n3) n1)
   = shift_name n3 (shift_name n2 n1).
 Proof.
   case_names n2 n3.
@@ -881,12 +776,10 @@ Proof.
 Qed.
 
 Lemma transpose_pushes_reverse_right op1 op2 op3 :
-  transpose_pushes_right
-    (transpose_pushes_right op3 op2)
-    (transpose_pushes_right
-      (transpose_pushes_left op2 op3) op1)
-  = transpose_pushes_right op3
-      (transpose_pushes_right op2 op1).
+  shift_push
+    (shift_push op3 op2)
+    (shift_push (unshift_push op2 op3) op1)
+  = shift_push op3 (shift_push op2 op1).
 Proof.
   destruct op1 as [|l1|n1], op2 as [|l2|n2], op3 as [|l3|n3];
     cbn in *; try easy.
@@ -901,40 +794,11 @@ Qed.
    equations on those transpositions required to define the
    full group of permutations. *)
 
-Inductive pop_op : Type :=
-| cycle_out_op : level -> pop_op
-| open_op : name -> pop_op.
-
-Definition apply_pop_op_var op : var_op :=
-  match op with
-  | cycle_out_op l => cycle_out_var l
-  | open_op n => open_var n
-  end.
-
-Definition transpose_pops_left op1 op2 :=
-  match op1, op2 with
-  | cycle_out_op l1, cycle_out_op l2 =>
-    cycle_out_op (shift_level l1 l2)
-  | cycle_out_op l, open_op n => open_op n
-  | open_op n, cycle_out_op l => cycle_out_op l
-  | open_op n1, open_op n2 => open_op (shift_name n1 n2)
-  end.
-
-Definition transpose_pops_right op2 op1 :=
-  match op1, op2 with
-  | cycle_out_op l1, cycle_out_op l2 =>
-    cycle_out_op (unshift_level l2 l1)
-  | cycle_out_op l, open_op n => cycle_out_op l
-  | open_op n, cycle_out_op l => open_op n
-  | open_op n1, open_op n2 => open_op (unshift_name n2 n1)
-  end.
-
 Lemma transpose_pops op1 op2:
   apply_pop_op_var op1
   @ lift_var_op (apply_pop_op_var op2)
-  =v= apply_pop_op_var (transpose_pops_left op1 op2)
-      @ lift_var_op
-          (apply_pop_op_var (transpose_pops_right op2 op1))
+  =v= apply_pop_op_var (shift_pop op1 op2)
+      @ lift_var_op (apply_pop_op_var (unshift_pop op2 op1))
       @ swap_var.
 Proof.
   intros v.
@@ -972,69 +836,21 @@ Proof.
       * case_level l; easy.
 Qed.
 
-Tactic Notation
-  "transpose_pops" open_constr(op1) open_constr(op2) :=
-  let Hrw := fresh "Hrw" in
-    epose (transpose_pops op1 op2) as Hrw;
-      cbn in Hrw;
-      autorewrite with push_lift_var_op in Hrw;
-      autorewrite with normalize_morph_compose in Hrw;
-      rewrite Hrw; clear Hrw.
-
-Tactic Notation
-  "transpose_pops" open_constr(op1) open_constr(op2)
-    "at" occurrences(occ) :=
-  let Hrw := fresh "Hrw" in
-    epose (transpose_pops op1 op2) as Hrw;
-      cbn in Hrw;
-      autorewrite with push_lift_var_op in Hrw;
-      autorewrite with normalize_morph_compose in Hrw;
-      rewrite Hrw at occ; clear Hrw.
-
-Lemma transpose_cycle_outs_squared_left l1 l2 :
-  shift_level (shift_level l1 l2) (unshift_level l2 l1) = l1.
-Proof.
-  case_levels l1 l2; try easy.
-Qed.
-
-Lemma transpose_opens_squared_left n1 n2 :
-  shift_name (shift_name n1 n2) (unshift_name n2 n1) = n1.
-Proof.
-  case_names n1 n2; easy.
-Qed.
-
 Lemma transpose_pops_squared_left op1 op2 :
-  transpose_pops_left
-    (transpose_pops_left op1 op2)
-    (transpose_pops_right op2 op1)
-  = op1.
+  shift_pop (shift_pop op1 op2) (unshift_pop op2 op1) = op1.
 Proof.
   destruct op1 as [l1|n1], op2 as [l2|n2]; cbn; try easy.
-  - rewrite transpose_cycle_outs_squared_left; easy.
-  - rewrite transpose_opens_squared_left; easy.
-Qed.
-
-Lemma transpose_cycle_outs_squared_right l1 l2 :
-  unshift_level (unshift_level l2 l1) (shift_level l1 l2) = l2.
-Proof.
-  case_levels l2 l1; easy.
-Qed.
-
-Lemma transpose_opens_squared_right n1 n2 :
-  unshift_name (unshift_name n2 n1) (shift_name n1 n2) = n2.
-Proof.
-  case_names n2 n1; easy.
+  - case_levels l1 l2; try easy.
+    case_level l1; easy.
+  - case_names n1 n2; easy.
 Qed.
 
 Lemma transpose_pops_squared_right op1 op2 :
-  transpose_pops_right
-    (transpose_pops_right op2 op1)
-    (transpose_pops_left op1 op2)
-  = op2.
+  unshift_pop (unshift_pop op2 op1) (shift_pop op1 op2) = op2.
 Proof.
   destruct op1 as [l1|n1], op2 as [l2|n2]; cbn; try easy.
-  - rewrite transpose_cycle_outs_squared_right; easy.
-  - rewrite transpose_opens_squared_right; easy.
+  - case_levels l2 l1; easy.
+  - case_names n1 n2; easy.
 Qed.
 
 Lemma transpose_cycle_outs_reverse_left l1 l2 l3 :
@@ -1054,12 +870,11 @@ Proof.
 Qed.
 
 Lemma transpose_pops_reverse_left op1 op2 op3 :
-  transpose_pops_left
-    (transpose_pops_left op1 op2)
-    (transpose_pops_left
-      (transpose_pops_right op2 op1) op3)
-  = transpose_pops_left op1
-      (transpose_pops_left op2 op3).
+  shift_pop
+    (shift_pop op1 op2)
+    (shift_pop (unshift_pop op2 op1) op3)
+  = shift_pop op1
+      (shift_pop op2 op3).
 Proof.
   destruct op1 as [l1|n1], op2 as [l2|n2], op3 as [l3|n3];
     cbn in *; try easy.
@@ -1088,14 +903,12 @@ Proof.
 Qed.
 
 Lemma transpose_pops_reverse_middle op1 op2 op3 :
-  transpose_pops_left
-    (transpose_pops_right
-       (transpose_pops_left op2 op3) op1)
-    (transpose_pops_right op3 op2)
-  = transpose_pops_right
-      (transpose_pops_left
-         (transpose_pops_right op2 op1) op3)
-      (transpose_pops_left op1 op2).
+  shift_pop
+    (unshift_pop (shift_pop op2 op3) op1)
+    (unshift_pop op3 op2)
+  = unshift_pop
+      (shift_pop (unshift_pop op2 op1) op3)
+      (shift_pop op1 op2).
 Proof.
   destruct op1 as [l1|n1], op2 as [l2|n2], op3 as [l3|n3];
     cbn in *; try easy.
@@ -1120,12 +933,11 @@ Proof.
 Qed.
 
 Lemma transpose_pops_reverse_right op1 op2 op3 :
-  transpose_pops_right
-    (transpose_pops_right op3 op2)
-    (transpose_pops_right
-       (transpose_pops_left op2 op3) op1)
-  = transpose_pops_right op3
-      (transpose_pops_right op2 op1).
+  unshift_pop
+    (unshift_pop op3 op2)
+    (unshift_pop (shift_pop op2 op3) op1)
+  = unshift_pop op3
+      (unshift_pop op2 op1).
 Proof.
   destruct op1 as [l1|n1], op2 as [l2|n2], op3 as [l3|n3];
     cbn in *; try easy.
@@ -1145,47 +957,12 @@ Qed.
    permutations, but some of the "reverse" equations are
    still relevant.  *)
 
-Definition irreducible_push_pop_ops op1 op2 : Prop :=
-  match op1, op2 with
-  | weak_op, cycle_out_op l => True
-  | weak_op, open_op n => True
-  | cycle_in_op l1, cycle_out_op l2 => (l1 <> l2)
-  | cycle_in_op l, open_op n => True
-  | close_op n, cycle_out_op l => True
-  | close_op n1, open_op n2 => (n1 <> n2)
-  end.
-
-Definition transpose_push_pop_left op1 op2 :=
-  match op1, op2 with
-  | weak_op, cycle_out_op l => cycle_out_op l
-  | weak_op, open_op n => open_op n
-  | cycle_in_op l1, cycle_out_op l2 =>
-      cycle_out_op (unshift_level l1 l2)
-  | cycle_in_op l, open_op n => open_op n
-  | close_op n, cycle_out_op l => cycle_out_op l
-  | close_op n1, open_op n2 => open_op (unshift_name n1 n2)
-  end.
-
-Definition transpose_push_pop_right op2 op1 :=
-  match op2, op1 with
-  | cycle_out_op l, weak_op => weak_op
-  | cycle_out_op l2, cycle_in_op l1 =>
-    cycle_in_op (unshift_level l2 l1)
-  | cycle_out_op l, close_op n => close_op n
-  | open_op n, weak_op => weak_op
-  | open_op n, cycle_in_op l => cycle_in_op l
-  | open_op n2, close_op n1 =>
-    close_op (unshift_name n2 n1)
-  end.
-
 Lemma transpose_push_pop op1 op2 :
-  irreducible_push_pop_ops op1 op2 ->
+  irreducible_push_pop op1 op2 ->
   apply_push_op_var op1 @ apply_pop_op_var op2
-  =v= lift_var_op
-        (apply_pop_op_var (transpose_push_pop_left op1 op2))
+  =v= lift_var_op (apply_pop_op_var (unshift_push_pop op1 op2))
       @ swap_var
-      @ lift_var_op
-          (apply_push_op_var (transpose_push_pop_right op2 op1)).
+      @ lift_var_op (apply_push_op_var (unshift_pop_push op2 op1)).
 Proof.
   intros Hirr v.
   destruct op1 as [|l1|n1], op2 as [l2|n2];
@@ -1225,31 +1002,6 @@ Proof.
     case_names n1 n2; easy.
 Qed.
 
-Tactic Notation
-  "transpose_push_pop" open_constr(op1) open_constr(op2) :=
-  let irr := fresh "irr" in
-  assert (irreducible_push_pop_ops op1 op2) as irr
-    by (try easy; try congruence);
-  cbn in irr;
-  let Hrw := fresh "Hrw" in
-  epose (transpose_push_pop op1 op2 irr) as Hrw; cbn in Hrw;
-  autorewrite with push_lift_var_op in Hrw;
-  autorewrite with normalize_morph_compose in Hrw;
-  setoid_rewrite Hrw; clear Hrw.
-
-Tactic Notation
-  "transpose_push_pop" open_constr(op1) open_constr(op2)
-    "at" occurrences(occ) :=
-  let irr := fresh "irr" in
-  assert (irreducible_push_pop_ops op1 op2) as irr
-    by (try easy; try congruence);
-  cbn in irr;
-  let Hrw := fresh "Hrw" in
-  epose (transpose_push_pop op1 op2 irr) as Hrw; cbn in Hrw;
-  autorewrite with push_lift_var_op in Hrw;
-  autorewrite with normalize_morph_compose in Hrw;
-  setoid_rewrite Hrw at occ; clear Hrw.
-
 Lemma transpose_cycle_in_cycle_in_cycle_out_reverse_left l1 l2 l3 :
   unshift_level (unshift_level l1 l2)
     (unshift_level (shift_level l2 l1) l3)
@@ -1267,12 +1019,10 @@ Proof.
 Qed.
 
 Lemma transpose_push_push_pop_reverse_left op1 op2 op3 :
-  transpose_push_pop_left
-    (transpose_pushes_left op1 op2)
-    (transpose_push_pop_left
-      (transpose_pushes_right op2 op1) op3)
-  = transpose_push_pop_left op1
-      (transpose_push_pop_left op2 op3).
+  unshift_push_pop
+    (unshift_push op1 op2)
+    (unshift_push_pop (shift_push op2 op1) op3)
+  = unshift_push_pop op1 (unshift_push_pop op2 op3).
 Proof.
   destruct op1 as [|l1|n1], op2 as [|l2|n2], op3 as [l3|n3];
     cbn in *; try easy; intros.
@@ -1314,14 +1064,13 @@ Proof.
 Qed.
 
 Lemma transpose_push_push_pop_reverse_middle op1 op2 op3 :
-  transpose_pushes_left
-    (transpose_push_pop_right
-       (transpose_push_pop_left op2 op3) op1)
-    (transpose_push_pop_right op3 op2)
-  = transpose_push_pop_right
-      (transpose_push_pop_left
-         (transpose_pushes_right op2 op1) op3)
-      (transpose_pushes_left op1 op2).
+  unshift_push
+    (unshift_pop_push
+       (unshift_push_pop op2 op3) op1)
+    (unshift_pop_push op3 op2)
+  = unshift_pop_push
+      (unshift_push_pop (shift_push op2 op1) op3)
+      (unshift_push op1 op2).
 Proof.
   destruct op1 as [|l1|n1], op2 as [|l2|n2], op3 as [l3|n3];
     cbn in *; try easy; intros.
@@ -1329,7 +1078,6 @@ Proof.
       easy.
   - rewrite transpose_close_close_open_reverse_middle; easy.
 Qed.
-
 
 Lemma transpose_cycle_in_cycle_in_cycle_out_reverse_right l1 l2 l3 :
   l1 <> unshift_level l2 l3 ->
@@ -1364,14 +1112,11 @@ Proof.
 Qed.
 
 Lemma transpose_push_push_pop_reverse_right op1 op2 op3 :
-  irreducible_push_pop_ops op1
-    (transpose_push_pop_left op2 op3) ->
-  transpose_pushes_right
-    (transpose_push_pop_right op3 op2)
-      (transpose_push_pop_right
-        (transpose_push_pop_left op2 op3) op1)
-  = transpose_push_pop_right op3
-      (transpose_pushes_right op2 op1).
+  irreducible_push_pop op1 (unshift_push_pop op2 op3) ->
+  shift_push
+    (unshift_pop_push op3 op2)
+      (unshift_pop_push (unshift_push_pop op2 op3) op1)
+  = unshift_pop_push op3 (shift_push op2 op1).
 Proof.
   destruct op1 as [|l1|n1], op2 as [|l2|n2], op3 as [l3|n3];
     cbn in *; try easy; intros.
@@ -1403,14 +1148,11 @@ Proof.
 Qed.
 
 Lemma transpose_push_pop_pop_reverse_left op1 op2 op3 :
-  irreducible_push_pop_ops
-    (transpose_push_pop_right op2 op1) op3 ->
-  transpose_pops_left
-    (transpose_push_pop_left op1 op2)
-    (transpose_push_pop_left
-       (transpose_push_pop_right op2 op1) op3)
-  = transpose_push_pop_left op1
-      (transpose_pops_left op2 op3).
+  irreducible_push_pop (unshift_pop_push op2 op1) op3 ->
+  shift_pop
+    (unshift_push_pop op1 op2)
+    (unshift_push_pop (unshift_pop_push op2 op1) op3)
+  = unshift_push_pop op1 (shift_pop op2 op3).
 Proof.
   destruct op1 as [|l1|n1], op2 as [l2|n2], op3 as [l3|n3];
     cbn in *; try easy; intros.
@@ -1444,14 +1186,12 @@ Proof.
 Qed.
 
 Lemma transpose_push_pop_pop_reverse_middle op1 op2 op3 :
-  transpose_push_pop_left
-    (transpose_push_pop_right
-       (transpose_pops_left op2 op3) op1)
-    (transpose_pops_right op3 op2)
-  = transpose_pops_right
-      (transpose_push_pop_left
-         (transpose_push_pop_right op2 op1) op3)
-      (transpose_push_pop_left op1 op2).
+  unshift_push_pop
+    (unshift_pop_push (shift_pop op2 op3) op1)
+    (unshift_pop op3 op2)
+  = unshift_pop
+      (unshift_push_pop (unshift_pop_push op2 op1) op3)
+      (unshift_push_pop op1 op2).
 Proof.
   destruct op1 as [|l1|n1], op2 as [l2|n2], op3 as [l3|n3];
     cbn in *; try easy; intros.
@@ -1479,12 +1219,10 @@ Proof.
 Qed.
 
 Lemma transpose_push_pop_pop_reverse_right op1 op2 op3 :
-  transpose_push_pop_right
-    (transpose_pops_right op3 op2)
-    (transpose_push_pop_right
-      (transpose_pops_left op2 op3) op1)
-  = transpose_push_pop_right op3
-      (transpose_push_pop_right op2 op1).
+  unshift_pop_push
+    (unshift_pop op3 op2)
+    (unshift_pop_push (shift_pop op2 op3) op1)
+  = unshift_pop_push op3 (unshift_pop_push op2 op1).
 Proof.
   destruct op1 as [|l1|n1], op2 as [l2|n2], op3 as [l3|n3];
     cbn in *; try easy; intros.

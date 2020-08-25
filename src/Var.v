@@ -289,3 +289,118 @@ Add Parametric Morphism : lift_var_op
   intros * Heq v; unfold lift_var_op.
   destruct v as [n|[|l]]; try rewrite Heq; easy.
 Qed.
+
+(* The core operations can be split into "pushes" that
+   move things onto the "stack" of bound variables and
+   "pops" that move things off of the stack of bound
+   variables.
+
+   It is useful to have types to represent these operations. *)
+
+Inductive push_op : Type :=
+| weak_op : push_op
+| cycle_in_op : level -> push_op
+| close_op : name -> push_op.
+
+Definition zero_push_op := cycle_in_op 0.
+
+Definition is_zero_push_op op :=
+  match op with
+  | cycle_in_op 0 => true
+  | _ => false
+  end.
+
+Definition apply_push_op_var op : var_op :=
+  match op with
+  | weak_op => weak_var
+  | cycle_in_op l => cycle_in_var l
+  | close_op n => close_var n
+  end.
+
+Definition shift_push op1 op2 :=
+  match op1, op2 with
+  | weak_op, op2 => op2
+  | cycle_in_op l, weak_op => weak_op
+  | cycle_in_op l1, cycle_in_op l2 => cycle_in_op (shift_level l1 l2)
+  | cycle_in_op l, close_op n => close_op n
+  | close_op n, weak_op => weak_op
+  | close_op n, cycle_in_op l => cycle_in_op l
+  | close_op n1, close_op n2 => close_op (shift_name n1 n2)
+  end.
+Arguments shift_push !op1 !op2.
+
+Definition unshift_push op1 op2 :=
+  match op1, op2 with
+  | weak_op, op2 => op2
+  | cycle_in_op l, weak_op => weak_op
+  | cycle_in_op l1, cycle_in_op l2 => cycle_in_op (unshift_level l1 l2)
+  | cycle_in_op l, close_op n => close_op n
+  | close_op n, weak_op => weak_op
+  | close_op n, cycle_in_op l => cycle_in_op l
+  | close_op n1, close_op n2 => close_op (unshift_name n1 n2)
+  end.
+Arguments unshift_push !op1 !op2.
+
+Inductive pop_op : Type :=
+| cycle_out_op : level -> pop_op
+| open_op : name -> pop_op.
+
+Definition apply_pop_op_var op : var_op :=
+  match op with
+  | cycle_out_op l => cycle_out_var l
+  | open_op n => open_var n
+  end.
+
+Definition shift_pop op1 op2 :=
+  match op1, op2 with
+  | cycle_out_op l1, cycle_out_op l2 =>
+    cycle_out_op (shift_level l1 l2)
+  | cycle_out_op l, open_op n => open_op n
+  | open_op n, cycle_out_op l => cycle_out_op l
+  | open_op n1, open_op n2 => open_op (shift_name n1 n2)
+  end.
+Arguments shift_pop !op1 !op2.
+
+Definition unshift_pop op1 op2 :=
+  match op1, op2 with
+  | cycle_out_op l1, cycle_out_op l2 =>
+    cycle_out_op (unshift_level l1 l2)
+  | open_op n, cycle_out_op l => cycle_out_op l
+  | cycle_out_op l, open_op n => open_op n
+  | open_op n1, open_op n2 => open_op (unshift_name n1 n2)
+  end.
+Arguments unshift_pop !op1 !op2.
+
+Definition irreducible_push_pop op1 op2 : Prop :=
+  match op1, op2 with
+  | weak_op, cycle_out_op l => True
+  | weak_op, open_op n => True
+  | cycle_in_op l1, cycle_out_op l2 => (l1 <> l2)
+  | cycle_in_op l, open_op n => True
+  | close_op n, cycle_out_op l => True
+  | close_op n1, open_op n2 => (n1 <> n2)
+  end.
+
+Definition unshift_push_pop op1 op2 :=
+  match op1, op2 with
+  | weak_op, cycle_out_op l => cycle_out_op l
+  | weak_op, open_op n => open_op n
+  | cycle_in_op l1, cycle_out_op l2 =>
+      cycle_out_op (unshift_level l1 l2)
+  | cycle_in_op l, open_op n => open_op n
+  | close_op n, cycle_out_op l => cycle_out_op l
+  | close_op n1, open_op n2 => open_op (unshift_name n1 n2)
+  end.
+Arguments unshift_push_pop !op1 !op2.
+
+Definition unshift_pop_push op1 op2 :=
+  match op1, op2 with
+  | cycle_out_op l, weak_op => weak_op
+  | cycle_out_op l1, cycle_in_op l2 =>
+    cycle_in_op (unshift_level l1 l2)
+  | cycle_out_op l, close_op n => close_op n
+  | open_op n, weak_op => weak_op
+  | open_op n, cycle_in_op l => cycle_in_op l
+  | open_op n1, close_op n2 => close_op (unshift_name n1 n2)
+  end.
+Arguments unshift_pop_push !op1 !op2.

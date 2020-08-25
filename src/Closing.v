@@ -1,160 +1,89 @@
 Require Import String PeanoNat Compare_dec StrictProp.
 Require Import Morph Var.
 
-Inductive raw_closing : Set :=
-| raw_closing_id : raw_closing
-| raw_closing_zero_weak :
-    raw_closing -> raw_closing
-| raw_closing_zero_exchange :
-    raw_closing -> level -> raw_closing
-| raw_closing_zero_close :
-    raw_closing -> name -> raw_closing.
+Definition raw_closing := list push_op.
 
-Fixpoint normalized_raw_closing id r :=
+Definition is_raw_closing_nil (r : raw_closing) :=
   match r with
-  | raw_closing_id => id
-  | raw_closing_zero_weak r => normalized_raw_closing sUnit r
-  | raw_closing_zero_exchange r l =>
-    normalized_raw_closing
-      (match l with
-       | 0 => sEmpty
-       | S _ => sUnit
-       end) r
-  | raw_closing_zero_close r n => normalized_raw_closing sUnit r
+  | nil => true
+  | _ => false
   end.
 
-Definition normalized_raw_closing_weaken {r} :
-  normalized_raw_closing sEmpty r ->
-  normalized_raw_closing sUnit r.
-Proof.
-  destruct r; easy.
-Qed.
+Fixpoint normalized_raw_closing r :=
+  match r with
+  | nil => sUnit
+  | cons op r =>
+    if andb (is_zero_push_op op) (is_raw_closing_nil r) then
+      sEmpty
+    else
+      normalized_raw_closing r
+  end.
 
-Definition normalized_raw_closing_from_exchange {id r l} :
-  normalized_raw_closing id (raw_closing_zero_exchange r l) ->
-  normalized_raw_closing sUnit r.
-Proof.
-  cbn; destruct l; try easy.
-  apply normalized_raw_closing_weaken.
-Qed.
+Definition normalized_raw_closing_from_cons {r op} :
+  normalized_raw_closing (cons op r) ->
+  normalized_raw_closing r.
+Proof. destruct op as [|[]|], r; easy. Qed.
 
 Set Primitive Projections.
 Record closing :=
   mkclosing {
       c_raw : raw_closing;
-      c_normalized : normalized_raw_closing sUnit c_raw
+      c_normalized : normalized_raw_closing c_raw
     }.
 Add Printing Constructor closing.
 Unset Primitive Projections.
 
 Definition closing_id : closing :=
-  mkclosing raw_closing_id stt.
+  mkclosing nil stt.
 
-Definition closing_zero_weak r : closing :=
-  mkclosing (raw_closing_zero_weak (c_raw r))
-            (c_normalized r).
+Definition normalized_raw_closing_push0 r op :=
+  if andb (is_zero_push_op op) (is_raw_closing_nil r) then nil
+  else cons op r.
 
-Definition normalized_raw_closing_zero_exchange r l :=
-  match l with
-  | 0 =>
-    match r with
-    | raw_closing_id => raw_closing_id
-    | _ => raw_closing_zero_exchange r l
-    end
-  | S _ => raw_closing_zero_exchange r l
-  end.
+Definition normalized_raw_closing_push0_normalized
+           {r op} :
+  normalized_raw_closing r ->
+  normalized_raw_closing (normalized_raw_closing_push0 r op).
+Proof. intros; destruct op as [|[]|], r; easy. Defined.
 
-Definition normalized_raw_closing_zero_exchange_normalized
-           {r l} :
-  normalized_raw_closing sUnit r ->
-  normalized_raw_closing sUnit
-    (normalized_raw_closing_zero_exchange r l).
-Proof.
-  intros; destruct l, r; easy.
-Qed.
-
-Definition closing_zero_exchange r l :=
+Definition closing_push0 r op :=
   mkclosing
-    (normalized_raw_closing_zero_exchange (c_raw r) l)
-    (normalized_raw_closing_zero_exchange_normalized
+    (normalized_raw_closing_push0 (c_raw r) op)
+    (normalized_raw_closing_push0_normalized
        (c_normalized r)).
 
-Definition closing_zero_close r n : closing :=
-  mkclosing (raw_closing_zero_close (c_raw r) n)
-            (c_normalized r).
+Definition closing_weak0 r := closing_push0 r weak_op.
 
-Fixpoint closing_weak l r :=
+Definition closing_exchange0 r l :=
+  closing_push0 r (cycle_in_op l).
+
+Definition closing_close0 r n := closing_push0 r (close_op n).
+
+Fixpoint closing_push l r op :=
   match l with
-  | 0 => closing_zero_weak r
+  | 0 => closing_push0 r op
   | S l =>
     match r with
-    | mkclosing (raw_closing_id) norm =>
-      closing_zero_exchange (closing_weak l r) 0
-    | mkclosing (raw_closing_zero_weak r) norm =>
-      closing_zero_weak
-        (closing_weak l (mkclosing r norm))
-    | mkclosing (raw_closing_zero_exchange r l2) norm =>
-      closing_zero_exchange
-        (closing_weak l
-           (mkclosing r
-              (normalized_raw_closing_from_exchange norm)))
-        l2
-    | mkclosing (raw_closing_zero_close r n) norm =>
-      closing_zero_close
-        (closing_weak l (mkclosing r norm))
-        n
+    | mkclosing nil norm =>
+      closing_push0
+        (closing_push l r (unshift_push zero_push_op op))
+        (shift_push op zero_push_op)
+    | mkclosing (cons op' r) norm =>
+      closing_push0
+        (closing_push l
+           (mkclosing r (normalized_raw_closing_from_cons norm))
+           (unshift_push op' op))
+        (shift_push op op')
     end
   end.
 
-Fixpoint closing_exchange l1 r l2 :=
-  match l1 with
-  | 0 => closing_zero_exchange r l2
-  | S l1 =>
-    match r with
-    | mkclosing (raw_closing_id) norm =>
-      closing_zero_exchange
-        (closing_exchange l1 r (unshift_level 0 l2))
-        (shift_level l2 0)
-    | mkclosing (raw_closing_zero_weak r) norm =>
-      closing_zero_weak
-        (closing_exchange l1 (mkclosing r norm) l2)
-    | mkclosing (raw_closing_zero_exchange r l3) norm =>
-      closing_zero_exchange
-        (closing_exchange l1
-           (mkclosing r
-              (normalized_raw_closing_from_exchange norm))
-           (unshift_level l3 l2))
-        (shift_level l2 l3)
-    | mkclosing (raw_closing_zero_close r n) norm =>
-      closing_zero_close
-        (closing_exchange l1 (mkclosing r norm) l2)
-        n
-    end
-  end.
+Definition closing_weak l r := closing_push l r weak_op.
 
-Fixpoint closing_close l r n :=
-  match l with
-  | 0 => closing_zero_close r n
-  | S l =>
-    match r with
-    | mkclosing (raw_closing_id) norm =>
-      closing_zero_exchange (closing_close l r n) 0
-    | mkclosing (raw_closing_zero_weak r) norm =>
-      closing_zero_weak
-        (closing_close l (mkclosing r norm) n)
-    | mkclosing (raw_closing_zero_exchange r l2) norm =>
-      closing_zero_exchange
-        (closing_close l
-           (mkclosing r
-              (normalized_raw_closing_from_exchange norm)) n)
-        l2
-    | mkclosing (raw_closing_zero_close r n2) norm =>
-      closing_zero_close
-        (closing_close
-           l (mkclosing r norm) (unshift_name n2 n))
-        (shift_name n n2)
-    end
-  end.
+Definition closing_exchange l1 r l2 :=
+  closing_push l1 r (cycle_in_op l2).
+
+Definition closing_close l r n :=
+  closing_push l r (close_op n).
 
 Fixpoint closing_weak_n N : closing :=
   match N with
@@ -170,232 +99,97 @@ Fixpoint closing_weakening N M : closing :=
 
 Fixpoint apply_raw_closing_var r : var_op :=
   match r with
-  | raw_closing_id => var_op_id
-  | raw_closing_zero_weak r =>
-      lift_var_op (apply_raw_closing_var r) @ weak_var
-  | raw_closing_zero_exchange r l =>
-      lift_var_op (apply_raw_closing_var r) @ cycle_in_var l
-  | raw_closing_zero_close r n =>
-      lift_var_op (apply_raw_closing_var r) @ close_var n
+  | nil => var_op_id
+  | cons op r =>
+    lift_var_op (apply_raw_closing_var r) @ apply_push_op_var op
   end.
 
 Definition apply_closing_var r :=
   apply_raw_closing_var (c_raw r).
 
-Inductive raw_closing_rhs : Set :=
-| raw_closing_rhs_weak_rhs : raw_closing -> raw_closing_rhs
-| raw_closing_rhs_exchange_rhs :
-    raw_closing -> level -> raw_closing_rhs
-| raw_closing_rhs_close_rhs :
-    raw_closing -> name -> raw_closing_rhs.
+Set Primitive Projections.
+Record closing_rhs :=
+  mk_closing_rhs {
+      rhs_raw_closing : raw_closing;
+      rhs_push : push_op
+    }.
+Add Printing Constructor closing_rhs.
+Unset Primitive Projections.
 
-Definition normalized_raw_closing_rhs r :=
-  match r with
-  | raw_closing_rhs_weak_rhs r =>
-    normalized_raw_closing sUnit r
-  | raw_closing_rhs_exchange_rhs r l =>
-    normalized_raw_closing sUnit r
-  | raw_closing_rhs_close_rhs r n =>
-    normalized_raw_closing sUnit r
-  end.
+Definition normalized_closing_rhs r :=
+  normalized_raw_closing (rhs_raw_closing r).
 
-Definition raw_closing_rhs_zero_weak r :=
-  match r with
-  | raw_closing_rhs_weak_rhs r =>
-    raw_closing_rhs_weak_rhs (raw_closing_zero_weak r)
-  | raw_closing_rhs_exchange_rhs r l =>
-    raw_closing_rhs_exchange_rhs (raw_closing_zero_weak r) l
-  | raw_closing_rhs_close_rhs r n =>
-    raw_closing_rhs_close_rhs (raw_closing_zero_weak r) n
-  end.
-Arguments raw_closing_rhs_zero_weak r : simpl nomatch.
+Definition closing_rhs_push0 r op :=
+  mk_closing_rhs
+    (normalized_raw_closing_push0 (rhs_raw_closing r)
+       (unshift_push (rhs_push r) op))
+    (shift_push op (rhs_push r)).
 
-Definition raw_closing_rhs_zero_exchange r l :=
-  match r with
-  | raw_closing_rhs_weak_rhs r =>
-    raw_closing_rhs_weak_rhs
-      (normalized_raw_closing_zero_exchange r l)
-  | raw_closing_rhs_exchange_rhs r l2 =>
-    raw_closing_rhs_exchange_rhs
-      (normalized_raw_closing_zero_exchange
-         r (unshift_level l2 l))
-      (shift_level l l2)
-  | raw_closing_rhs_close_rhs r n =>
-    raw_closing_rhs_close_rhs
-      (normalized_raw_closing_zero_exchange r l) n
-  end.
-Arguments raw_closing_rhs_zero_exchange r l : simpl nomatch.
+Definition closing_rhs_weak0 r :=
+  closing_rhs_push0 r weak_op.
 
-Definition raw_closing_rhs_zero_close r n :=
-  match r with
-  | raw_closing_rhs_weak_rhs r =>
-    raw_closing_rhs_weak_rhs (raw_closing_zero_close r n)
-  | raw_closing_rhs_exchange_rhs r l =>
-    raw_closing_rhs_exchange_rhs
-      (raw_closing_zero_close r n) l
-  | raw_closing_rhs_close_rhs r n2 =>
-    raw_closing_rhs_close_rhs
-      (raw_closing_zero_close r (unshift_name n2 n))
-      (shift_name n n2)
-  end.
-Arguments raw_closing_rhs_zero_close r n : simpl nomatch.
+Definition closing_rhs_exchange0 r l :=
+  closing_rhs_push0 r (cycle_in_op l).
 
-Definition raw_closing_rhs_zero_weak_normalized {r} :
-  normalized_raw_closing_rhs r ->
-  normalized_raw_closing_rhs
-    (raw_closing_rhs_zero_weak r).
-Proof. destruct r; easy. Defined.
+Definition closing_rhs_close0 r n :=
+  closing_rhs_push0 r (close_op n).
 
-Definition raw_closing_rhs_zero_exchange_normalized {r l} :
-  normalized_raw_closing_rhs r ->
-  normalized_raw_closing_rhs
-    (raw_closing_rhs_zero_exchange r l).
+Definition closing_rhs_push0_normalized {r op} :
+  normalized_closing_rhs r ->
+  normalized_closing_rhs
+    (closing_rhs_push0 r op).
 Proof.
-  destruct r; cbn; intros;
-    apply normalized_raw_closing_zero_exchange_normalized;
+  destruct r as [? []]; cbn;
+    apply normalized_raw_closing_push0_normalized;
     easy.
 Defined.
 
-Definition raw_closing_rhs_zero_close_normalized {r n} :
-  normalized_raw_closing_rhs r ->
-  normalized_raw_closing_rhs
-    (raw_closing_rhs_zero_close r n).
-Proof. destruct r; easy. Defined.
-
-Fixpoint transpose_level_raw_closing l r {struct r} :=
+Fixpoint transpose_push_raw_closing op r {struct r} :=
   match r with
-  | raw_closing_id =>
-    raw_closing_rhs_exchange_rhs raw_closing_id l
-  | raw_closing_zero_weak r =>
-    match l with
-    | 0 => raw_closing_rhs_weak_rhs r
-    | S l' =>
-      raw_closing_rhs_zero_weak
-        (transpose_level_raw_closing l' r)
-    end
-  | raw_closing_zero_exchange r l2 =>
-    match l with
-    | 0 => raw_closing_rhs_exchange_rhs r l2
-    | S l' =>
-      raw_closing_rhs_zero_exchange
-        (transpose_level_raw_closing l' r) l2
-    end
-  | raw_closing_zero_close r n =>
-    match l with
-    | 0 => raw_closing_rhs_close_rhs r n
-    | S l' =>
-      raw_closing_rhs_zero_close
-        (transpose_level_raw_closing l' r) n
-    end
+  | nil => mk_closing_rhs nil op
+  | cons op' r =>
+    if is_zero_push_op op then mk_closing_rhs r op'
+    else closing_rhs_push0
+           (transpose_push_raw_closing
+              (unshift_push zero_push_op op) r)
+           op'
   end.
 
-Definition transpose_level_raw_closing_normalized {l r} :
-  normalized_raw_closing sUnit r ->
-  normalized_raw_closing_rhs
-    (transpose_level_raw_closing l r).
+Definition transpose_push_raw_closing_normalized {op r} :
+  normalized_raw_closing r ->
+  normalized_closing_rhs
+    (transpose_push_raw_closing op r).
 Proof.
-  generalize dependent l.
-  induction r; intro l'; destruct l'; cbn; intros; try easy.
-  - apply raw_closing_rhs_zero_weak_normalized.
-    apply IHr; easy.
-  - destruct l; try easy.
-    apply normalized_raw_closing_weaken; easy.
-  - apply raw_closing_rhs_zero_exchange_normalized.
-    apply IHr.
-    destruct l; try easy.
-    apply normalized_raw_closing_weaken; easy.
-  - apply raw_closing_rhs_zero_close_normalized.
-    apply IHr; easy.
-Qed.
-
-Fixpoint transpose_name_raw_closing n r :=
-  match r with
-  | raw_closing_id =>
-    raw_closing_rhs_close_rhs raw_closing_id n
-  | raw_closing_zero_weak r =>
-      raw_closing_rhs_zero_weak
-        (transpose_name_raw_closing n r)
-  | raw_closing_zero_exchange r l =>
-      raw_closing_rhs_zero_exchange
-        (transpose_name_raw_closing n r) l
-  | raw_closing_zero_close r n2 =>
-      raw_closing_rhs_zero_close
-        (transpose_name_raw_closing n r) n2
-  end.
-
-Definition transpose_name_raw_closing_normalized {n r} :
-  normalized_raw_closing sUnit r ->
-  normalized_raw_closing_rhs
-    (transpose_name_raw_closing n r).
-Proof.
-  induction r; cbn; intros; try easy.
-  - apply raw_closing_rhs_zero_weak_normalized.
-    apply IHr; easy.
-  - apply raw_closing_rhs_zero_exchange_normalized.
-    apply IHr.
-    destruct l; try easy.
-    apply normalized_raw_closing_weaken; easy.
-  - apply raw_closing_rhs_zero_close_normalized.
-    apply IHr; easy.
+  generalize dependent op.
+  induction r as [|op' r]; intros op norm; try easy; cbn.
+  apply normalized_raw_closing_from_cons in norm.
+  destruct (is_zero_push_op op); try easy.
+  apply closing_rhs_push0_normalized.
+  apply IHr; easy.
 Qed.
 
 Fixpoint compose_raw_closing r1 r2 :=
   match r1 with
-  | raw_closing_id => r2
-  | raw_closing_zero_weak r1 =>
-    raw_closing_zero_weak (compose_raw_closing r1 r2)
-  | raw_closing_zero_exchange r1 l2 =>
-    match transpose_level_raw_closing l2 r2 with
-    | raw_closing_rhs_weak_rhs r2 =>
-        raw_closing_zero_weak (compose_raw_closing r1 r2)
-    | raw_closing_rhs_exchange_rhs r2 l2 =>
-      normalized_raw_closing_zero_exchange
-        (compose_raw_closing r1 r2) l2
-    | raw_closing_rhs_close_rhs r2 n =>
-      raw_closing_zero_close (compose_raw_closing r1 r2) n
-    end
-  | raw_closing_zero_close r1 n =>
-    match transpose_name_raw_closing n r2 with
-    | raw_closing_rhs_weak_rhs r2 =>
-      raw_closing_zero_weak (compose_raw_closing r1 r2)
-    | raw_closing_rhs_exchange_rhs r2 l2 =>
-      normalized_raw_closing_zero_exchange
-        (compose_raw_closing r1 r2) l2
-    | raw_closing_rhs_close_rhs r2 n =>
-      raw_closing_zero_close (compose_raw_closing r1 r2) n
-    end
+  | nil => r2
+  | cons op r1 =>
+    let rhs := transpose_push_raw_closing op r2 in
+    normalized_raw_closing_push0
+      (compose_raw_closing r1 (rhs_raw_closing rhs))
+      (rhs_push rhs)
   end.
 
 Definition compose_raw_closing_normalized {r1 r2} :
-  normalized_raw_closing sUnit r1 ->
-  normalized_raw_closing sUnit r2 ->
-  normalized_raw_closing sUnit (compose_raw_closing r1 r2).
+  normalized_raw_closing r1 ->
+  normalized_raw_closing r2 ->
+  normalized_raw_closing (compose_raw_closing r1 r2).
 Proof.
   generalize dependent r2.
-  induction r1; intros; cbn in *; try easy.
-  - apply IHr1; easy.
-  - assert (normalized_raw_closing_rhs
-              (transpose_level_raw_closing l r2))
-      by (apply transpose_level_raw_closing_normalized;
-          easy).
-    assert (normalized_raw_closing sUnit r1)
-      by (destruct l; try easy;
-          apply normalized_raw_closing_weaken; easy).
-    destruct (transpose_level_raw_closing l r2); cbn in *.
-    + apply IHr1; easy.
-    + apply normalized_raw_closing_zero_exchange_normalized.
-      apply IHr1; easy.
-    + apply IHr1; easy.
-  - assert (normalized_raw_closing_rhs
-              (transpose_name_raw_closing n r2))
-      by (apply transpose_name_raw_closing_normalized;
-          easy).
-    destruct (transpose_name_raw_closing n r2); cbn in *.
-    + apply IHr1; easy.
-    + apply normalized_raw_closing_zero_exchange_normalized.
-      apply IHr1; easy.
-    + apply IHr1; easy.
-Defined.
+  induction r1 as [|op]; intros r2 norm1 norm2; try easy.
+  apply normalized_raw_closing_from_cons in norm1; cbn.
+  apply normalized_raw_closing_push0_normalized.
+  apply IHr1; try easy.
+  apply transpose_push_raw_closing_normalized; easy.
+Qed.
 
 Definition compose_closing r1 r2 :=
   mkclosing
