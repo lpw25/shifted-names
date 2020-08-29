@@ -70,26 +70,11 @@ Definition n_S n :=
   (mkname (n_string n) (S (n_index n))).
 Arguments n_S n /.
 
-Definition name_dec n1 n2 : {n1 = n2} + {n1 <> n2} :=
-  match string_dec (n_string n1) (n_string n2) with
-  | left s_eql =>
-    match index_dec (n_index n1) (n_index n2) with
-    | left i_eql =>
-      left
-        (eq_trans (f_equal (fun s => mkname s (n_index n1)) s_eql)
-             (f_equal (fun i => mkname (n_string n2) i) i_eql))
-    | right i_neql =>
-      right (fun eql =>
-             i_neql (eq_ind_r
-                       (fun n => n_index n = n_index n2)
-                       eq_refl eql))
-    end
-  | right s_neql =>
-      right (fun eql =>
-             s_neql (eq_ind_r
-                       (fun n => n_string n = n_string n2)
-                       eq_refl eql))
-  end.
+Definition name_dec (n1 n2 : name) : {n1 = n2} + {n1 <> n2}.
+  decide equality.
+  - apply index_dec.
+  - apply string_dec.
+Defined.
 
 Definition name_eqb n1 n2 : bool :=
   match name_dec n1 n2 with
@@ -160,6 +145,34 @@ Arguments swap_level l : simpl nomatch.
 Inductive var :=
 | free (n : name)
 | bound (l : level).
+
+Definition var_dec (v1 v2 : var) : {v1 = v2} + {v1 <> v2}.
+  decide equality.
+  - apply name_dec.
+  - apply level_dec.
+Defined.
+
+Definition var_eqb v1 v2 : bool :=
+  match var_dec v1 v2 with
+  | left _ => true
+  | right _ => false
+  end.
+
+Definition var_opt_dec (v1 v2 : option var)
+  : {v1 = v2} + {v1 <> v2}.
+  decide equality.
+  apply var_dec.
+Defined.
+
+Definition var_opt_eqb v1 v2 : bool :=
+  match var_opt_dec v1 v2 with
+  | left _ => true
+  | right _ => false
+  end.
+
+Definition zero_var := bound 0.
+
+Definition zero_var_opt := Some (bound 0).
 
 Definition open_var n v :=
   match v with
@@ -293,114 +306,66 @@ Qed.
 (* The core operations can be split into "pushes" that
    move things onto the "stack" of bound variables and
    "pops" that move things off of the stack of bound
-   variables.
+   variables. *)
 
-   It is useful to have types to represent these operations. *)
-
-Inductive push_op : Type :=
-| weak_op : push_op
-| cycle_in_op : level -> push_op
-| close_op : name -> push_op.
-
-Definition zero_push_op := cycle_in_op 0.
-
-Definition is_zero_push_op op :=
-  match op with
-  | cycle_in_op 0 => true
-  | _ => false
+Definition pop_var v : var_op :=
+  match v with
+  | bound l => cycle_out_var l
+  | free n => open_var n
   end.
 
-Definition apply_push_op_var op : var_op :=
-  match op with
-  | weak_op => weak_var
-  | cycle_in_op l => cycle_in_var l
-  | close_op n => close_var n
+Definition push_var vo : var_op :=
+  match vo with
+  | None => weak_var
+  | Some (bound l) => cycle_in_var l
+  | Some (free n) => close_var n
   end.
 
-Definition shift_push op1 op2 :=
-  match op1, op2 with
-  | weak_op, op2 => op2
-  | cycle_in_op l, weak_op => weak_op
-  | cycle_in_op l1, cycle_in_op l2 => cycle_in_op (shift_level l1 l2)
-  | cycle_in_op l, close_op n => close_op n
-  | close_op n, weak_op => weak_op
-  | close_op n, cycle_in_op l => cycle_in_op l
-  | close_op n1, close_op n2 => close_op (shift_name n1 n2)
+Definition shift_var v1 v2 :=
+  match v1, v2 with
+  | bound l1, bound l2 => bound (shift_level l1 l2)
+  | bound l, free n => free n
+  | free n, bound l => bound l
+  | free n1, free n2 => free (shift_name n1 n2)
   end.
-Arguments shift_push !op1 !op2.
+Arguments shift_var !v1 !v2.
 
-Definition unshift_push op1 op2 :=
-  match op1, op2 with
-  | weak_op, op2 => op2
-  | cycle_in_op l, weak_op => weak_op
-  | cycle_in_op l1, cycle_in_op l2 => cycle_in_op (unshift_level l1 l2)
-  | cycle_in_op l, close_op n => close_op n
-  | close_op n, weak_op => weak_op
-  | close_op n, cycle_in_op l => cycle_in_op l
-  | close_op n1, close_op n2 => close_op (unshift_name n1 n2)
+Definition unshift_var v1 v2 :=
+  match v1, v2 with
+  | bound l1, bound l2 => bound (unshift_level l1 l2)
+  | free n, bound l => bound l
+  | bound l, free n => free n
+  | free n1, free n2 => free (unshift_name n1 n2)
   end.
-Arguments unshift_push !op1 !op2.
+Arguments unshift_var !v1 !v2.
 
-Inductive pop_op : Type :=
-| cycle_out_op : level -> pop_op
-| open_op : name -> pop_op.
-
-Definition apply_pop_op_var op : var_op :=
-  match op with
-  | cycle_out_op l => cycle_out_var l
-  | open_op n => open_var n
+Definition shift_var_opt vo1 vo2 :=
+  match vo1, vo2 with
+  | None, vo2 => vo2
+  | vo1, None => vo2
+  | Some v1, Some v2 => Some (shift_var v1 v2)
   end.
+Arguments shift_var_opt !vo1 !vo2.
 
-Definition shift_pop op1 op2 :=
-  match op1, op2 with
-  | cycle_out_op l1, cycle_out_op l2 =>
-    cycle_out_op (shift_level l1 l2)
-  | cycle_out_op l, open_op n => open_op n
-  | open_op n, cycle_out_op l => cycle_out_op l
-  | open_op n1, open_op n2 => open_op (shift_name n1 n2)
+Definition unshift_var_opt vo1 vo2 :=
+  match vo1, vo2 with
+  | None, vo2 => vo2
+  | vo1, None => vo2
+  | Some v1, Some v2 => Some (unshift_var v1 v2)
   end.
-Arguments shift_pop !op1 !op2.
+Arguments unshift_var_opt !vo1 !vo2.
 
-Definition unshift_pop op1 op2 :=
-  match op1, op2 with
-  | cycle_out_op l1, cycle_out_op l2 =>
-    cycle_out_op (unshift_level l1 l2)
-  | open_op n, cycle_out_op l => cycle_out_op l
-  | cycle_out_op l, open_op n => open_op n
-  | open_op n1, open_op n2 => open_op (unshift_name n1 n2)
+Definition unshift_var_opt_var vo1 v2 :=
+  match vo1 with
+  | None => v2
+  | Some v1 => unshift_var v1 v2
   end.
-Arguments unshift_pop !op1 !op2.
+Arguments unshift_var_opt_var !vo1 v2.
 
-Definition irreducible_push_pop op1 op2 : Prop :=
-  match op1, op2 with
-  | weak_op, cycle_out_op l => True
-  | weak_op, open_op n => True
-  | cycle_in_op l1, cycle_out_op l2 => (l1 <> l2)
-  | cycle_in_op l, open_op n => True
-  | close_op n, cycle_out_op l => True
-  | close_op n1, open_op n2 => (n1 <> n2)
+Definition unshift_var_var_opt v1 vo2 :=
+  match vo2 with
+  | None => None
+  | Some v2 => Some (unshift_var v1 v2)
   end.
+Arguments unshift_var_var_opt v1 !vo2.
 
-Definition unshift_push_pop op1 op2 :=
-  match op1, op2 with
-  | weak_op, cycle_out_op l => cycle_out_op l
-  | weak_op, open_op n => open_op n
-  | cycle_in_op l1, cycle_out_op l2 =>
-      cycle_out_op (unshift_level l1 l2)
-  | cycle_in_op l, open_op n => open_op n
-  | close_op n, cycle_out_op l => cycle_out_op l
-  | close_op n1, open_op n2 => open_op (unshift_name n1 n2)
-  end.
-Arguments unshift_push_pop !op1 !op2.
-
-Definition unshift_pop_push op1 op2 :=
-  match op1, op2 with
-  | cycle_out_op l, weak_op => weak_op
-  | cycle_out_op l1, cycle_in_op l2 =>
-    cycle_in_op (unshift_level l1 l2)
-  | cycle_out_op l, close_op n => close_op n
-  | open_op n, weak_op => weak_op
-  | open_op n, cycle_in_op l => cycle_in_op l
-  | open_op n1, close_op n2 => close_op (unshift_name n1 n2)
-  end.
-Arguments unshift_pop_push !op1 !op2.
