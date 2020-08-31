@@ -71,49 +71,24 @@ Ltac reduce_var_zero :=
   try repeat
       (autorewrite with reduce_var_zero; cbn in *);
   try repeat
-    ((rewrite_strat (bottomup (hints reduce_var_zero))); cbn in *).
+    ((rewrite_strat (bottomup (hints reduce_var_zero)));
+     cbn in *).
 
 Ltac case_var_zero vo :=
   destruct (var_opt_dec vo zero_var_opt);
     [replace vo with zero_var_opt by easy|];
     reduce_var_zero.
 
-Lemma apply_normalized_raw_closing_push0 r vo :
-  apply_raw_closing_var
-    (normalized_raw_closing_push0 r vo)
+(* Applying [closing_push] and friends *)
+
+Lemma apply_normalized_pushes_cons vo r :
+  apply_raw_closing_var (normalized_pushes_cons vo r)
   =v= apply_raw_closing_var (cons vo r).
 Proof.
-  unfold normalized_raw_closing_push0; cbn.
+  unfold normalized_pushes_cons; cbn.
   case_var_zero vo; destruct r; cbn; try easy.
   simplify_var_ops.
   rewrite push_zero_identity; easy.
-Qed.
-
-Lemma normalized_raw_closing_push0_identity r vo :
-  normalized_raw_closing (cons vo r) ->
-  cons vo r = normalized_raw_closing_push0 r vo.
-Proof.
-  unfold normalized_raw_closing_push0.
-  case_var_zero vo; destruct r; easy.
-Qed.
-
-Definition apply_closing_rhs_var r : var_op :=
-  lift_var_op (apply_raw_closing_var (rhs_raw_closing r))
-  @ push_var (rhs_push r).
-
-Lemma apply_closing_rhs_push0 r vo :
-  apply_closing_rhs_var (closing_rhs_push0 r vo)
-  =v= swap_var
-      @ lift_var_op (apply_closing_rhs_var r)
-      @ push_var vo.
-Proof.
-  unfold apply_closing_rhs_var; cbn.
-  rewrite apply_normalized_raw_closing_push0;
-    cbn; simplify_var_ops.
-  rewrite transpose_swap_lifted'.
-  rewrite transpose_pushes with (vo1 := rhs_push r).
-  rewrite swap_swap_identity'.
-  easy.
 Qed.
 
 Lemma apply_raw_closing_var_add_cycle_out r :
@@ -121,6 +96,102 @@ Lemma apply_raw_closing_var_add_cycle_out r :
   =v= pop_var zero_var @ apply_raw_closing_var r.
 Proof.
   rewrite pop_zero_identity; simplify_var_ops; easy.
+Qed.
+
+Lemma apply_raw_closing_hd_tl r :
+  apply_raw_closing_var r
+  =v= lift_var_op (apply_raw_closing_var (raw_closing_tl r))
+      @ push_var (raw_closing_hd r).
+Proof.
+  induction r; cbn; try easy.
+  simplify_var_ops.
+  rewrite push_zero_identity; easy.
+Qed.
+
+Lemma apply_raw_closing_cons l vo r :
+  apply_raw_closing_var (raw_closing_cons l vo r)
+  =v= pop_var (bound l)
+      @ lift_var_op (apply_raw_closing_var r)
+      @ push_var vo.
+Proof.
+  rewrite apply_raw_closing_var_add_cycle_out
+    with (r := r); simplify_var_ops.
+  generalize dependent vo.
+  generalize dependent r.
+  induction l; intros r vo; cbn.
+  - rewrite apply_normalized_pushes_cons; cbn.
+    rewrite pop_zero_identity; simplify_var_ops.
+    easy.
+  - rewrite apply_normalized_pushes_cons; cbn.
+    rewrite apply_raw_closing_hd_tl with (r := r).
+    rewrite IHl; simplify_var_ops.
+    rewrite transpose_pushes with (vo2 := vo).
+    rewrite <- transpose_swap_lifted'.
+    fold (pop_var (bound 0)).
+    rewrite (transpose_pops' (bound (S l))).
+    rewrite swap_swap_identity'; cbn.
+    rewrite pop_zero_identity; simplify_var_ops.
+    easy.
+Qed.
+
+Lemma apply_closing_cons l vo r :
+  apply_closing_var (closing_cons l vo r)
+  =v= pop_var (bound l)
+      @ lift_var_op (apply_closing_var r)
+      @ push_var vo.
+Proof.
+  destruct r; cbn.
+  apply apply_raw_closing_cons.
+Qed.
+
+Lemma apply_closing_weak l r :
+  apply_closing_var (closing_weak l r)
+  =v= cycle_out_var l
+      @ lift_var_op (apply_closing_var r)
+      @ weak_var.
+Proof. apply apply_closing_cons. Qed.
+
+Lemma apply_closing_exchange l1 l2 r :
+  apply_closing_var (closing_exchange l1 l2 r)
+  =v= cycle_out_var l1
+      @ lift_var_op (apply_closing_var r)
+      @ cycle_in_var l2.
+Proof. apply apply_closing_cons. Qed.
+
+Lemma apply_closing_close l n r :
+  apply_closing_var (closing_close l n r)
+  =v= cycle_out_var l
+      @ lift_var_op (apply_closing_var r)
+      @ close_var n.
+Proof. apply apply_closing_cons. Qed.
+
+(* Properties of composition *)
+
+Lemma normalized_raw_closing_push0_identity vo r :
+  normalized_pushes (cons vo r) ->
+  cons vo r = normalized_pushes_cons vo r.
+Proof.
+  unfold normalized_pushes_cons.
+  case_var_zero vo; destruct r; easy.
+Qed.
+
+Definition apply_closing_rhs_var r : var_op :=
+  lift_var_op (apply_raw_closing_var (rhs_raw_closing r))
+  @ push_var (rhs_push r).
+
+Lemma apply_closing_rhs_push0 vo r :
+  apply_closing_rhs_var (closing_rhs_cons0 vo r)
+  =v= swap_var
+      @ lift_var_op (apply_closing_rhs_var r)
+      @ push_var vo.
+Proof.
+  unfold apply_closing_rhs_var; cbn.
+  rewrite apply_normalized_pushes_cons;
+    cbn; simplify_var_ops.
+  rewrite transpose_swap_lifted'.
+  rewrite transpose_pushes with (vo1 := rhs_push r).
+  rewrite swap_swap_identity'.
+  easy.
 Qed.
 
 Lemma apply_transpose_push_raw_closing vo r :
@@ -136,9 +207,8 @@ Proof.
     rewrite pop_zero_identity; easy.
   - case_var_zero vo'.
     + rewrite push_pop_identity' with (v := zero_var); easy.
-    + rewrite var_op_associative.
-      fold (pop_var (bound 0)).
-      rewrite transpose_push_pop by easy.
+    + fold (pop_var (bound 0)).
+      rewrite transpose_push_pop' by easy.
       rewrite apply_closing_rhs_push0; cbn.
       rewrite <- IHr; cbn.
       rewrite transpose_push_pop_zero_left.
@@ -153,7 +223,7 @@ Proof.
   generalize dependent r2.
   induction r1 as [|vo r1]; intro r2; cbn; try easy.
   simplify_var_ops.
-  rewrite apply_normalized_raw_closing_push0; cbn.
+  rewrite apply_normalized_pushes_cons; cbn.
   rewrite apply_transpose_push_raw_closing, IHr1.
   simplify_var_ops; easy.
 Qed.
@@ -174,15 +244,15 @@ Lemma closing_left_identity r :
 Proof. easy. Qed.
 
 Lemma raw_closing_right_identity r :
-  normalized_raw_closing r ->
+  normalized_pushes r ->
   compose_raw_closing r nil = r.
 Proof.
   induction r as [|vo r]; intros Hnorm; cbn; try easy.
   rewrite normalized_raw_closing_push0_identity
     by easy.
   rewrite IHr; cbn in *; try easy.
-  generalize Hnorm.
-  case_var_zero vo; destruct r; easy.
+  apply normalized_pushes_from_cons in Hnorm.
+  easy.
 Qed.
 
 Lemma closing_right_identity r :
@@ -220,13 +290,13 @@ Fixpoint transpose_push_raw_closing_raw_closing
   | cons vo' r =>
     if var_opt_eqb vo zero_var_opt then r
     else
-      normalized_raw_closing_push0
-        (transpose_push_raw_closing_raw_closing
-           (unshift_var_var_opt zero_var vo) r)
+      normalized_pushes_cons
         (unshift_var_opt
            (transpose_push_raw_closing_push
               (unshift_var_var_opt zero_var vo) r)
            vo')
+        (transpose_push_raw_closing_raw_closing
+           (unshift_var_var_opt zero_var vo) r)
   end.
 
 Lemma rhs_raw_closing_transpose_push_raw_closing vo r :
@@ -257,49 +327,48 @@ Proof.
 Qed.
 
 Lemma transpose_push_raw_closing_raw_closing_normalized vo r :
-  normalized_raw_closing r ->
-  normalized_raw_closing
+  normalized_pushes r ->
+  normalized_pushes
     (transpose_push_raw_closing_raw_closing vo r).
 Proof.
   rewrite <- rhs_raw_closing_transpose_push_raw_closing.
   apply transpose_push_raw_closing_normalized; easy.
 Qed.
 
-Lemma transpose_push_normalized_raw_closing_push0_push
+Lemma transpose_push_normalized_pushes_cons_push
       vo1 r vo2 :
   transpose_push_raw_closing_push vo1
-    (normalized_raw_closing_push0 r vo2)
+    (normalized_pushes_cons vo2 r)
   = transpose_push_raw_closing_push vo1 (cons vo2 r).
 Proof.
-  unfold normalized_raw_closing_push0.
+  unfold normalized_pushes_cons.
   case_var_zero vo2; destruct r; cbn;
     case_var_zero vo1; try easy.
   rewrite transpose_push_reducing_pop_push; try easy.
   unfold zero_var_opt, zero_var in *; congruence.
 Qed.
 
-Lemma transpose_push_normalized_raw_closing_push0_raw_closing
+Lemma transpose_push_normalized_pushes_cons_raw_closing
       vo1 r vo2 :
   transpose_push_raw_closing_raw_closing vo1
-    (normalized_raw_closing_push0 r vo2)
+    (normalized_pushes_cons vo2 r)
   = transpose_push_raw_closing_raw_closing vo1 (cons vo2 r).
 Proof.
-  unfold normalized_raw_closing_push0.
+  unfold normalized_pushes_cons.
   case_var_zero vo2; destruct r; cbn;
     case_var_zero vo1; try easy.
   rewrite transpose_push_push_zero_left; easy.
 Qed.
 
-Lemma compose_normalized_raw_closing_push0 r1 vo r2 :
-  normalized_raw_closing r2 ->
-  compose_raw_closing
-    (normalized_raw_closing_push0 r1 vo) r2
+Lemma compose_normalized_pushes_cons r1 vo r2 :
+  normalized_pushes r2 ->
+  compose_raw_closing (normalized_pushes_cons vo r1) r2
   = compose_raw_closing (cons vo r1) r2.
 Proof.
-  unfold normalized_raw_closing_push0.
+  unfold normalized_pushes_cons.
   case_var_zero vo; destruct r1; cbn; try easy.
   induction r2 as [|vo' r2]; cbn in *; try easy.
-  unfold normalized_raw_closing_push0.
+  unfold normalized_pushes_cons.
   case_var_zero vo'; destruct r2; cbn; easy.
 Qed.
 
@@ -314,7 +383,7 @@ Proof.
   induction r as [|vo3 r]; intros vo2 vo1; cbn; try easy.
   case_var_zero vo1.
   - rewrite transpose_push_reducing_push_pop; easy.
-  - rewrite transpose_push_normalized_raw_closing_push0_push; cbn.
+  - rewrite transpose_push_normalized_pushes_cons_push; cbn.
     case_var_zero vo2.
     + apply transpose_pushes_squared_right.
     + rewrite transpose_pushes_reverse_right.
@@ -338,14 +407,14 @@ Proof.
   generalize dependent vo2.
   induction r as [|vo3 r]; intros vo2 vo1; cbn; try easy.
   case_var_zero vo2.
-  - rewrite transpose_push_normalized_raw_closing_push0_push; cbn.
+  - rewrite transpose_push_normalized_pushes_cons_push; cbn.
     rewrite transpose_push_push_zero_left; cbn.
     rewrite transpose_push_reducing_push_pop; easy.
-  - rewrite transpose_push_normalized_raw_closing_push0_push; cbn.
+  - rewrite transpose_push_normalized_pushes_cons_push; cbn.
     case_var_zero vo1.
     + rewrite transpose_pushes_squared_left.
       destruct vo2; easy.
-    + rewrite transpose_push_normalized_raw_closing_push0_push;
+    + rewrite transpose_push_normalized_pushes_cons_push;
         cbn; reduce_var_zero.
       rewrite transpose_pushes_reverse_middle.
       rewrite IHr.
@@ -369,17 +438,15 @@ Proof.
   induction r as [|vo3 r]; intros vo2 vo1; cbn; try easy.
   case_var_zero vo2.
   - rewrite
-      transpose_push_normalized_raw_closing_push0_raw_closing;
-      cbn.
+      transpose_push_normalized_pushes_cons_raw_closing; cbn.
     rewrite transpose_push_push_zero_left; cbn.
     rewrite transpose_push_reducing_push_pop; easy.
   - rewrite
-      transpose_push_normalized_raw_closing_push0_raw_closing;
-      cbn.
+      transpose_push_normalized_pushes_cons_raw_closing; cbn.
     case_var_zero vo1.
     + destruct vo2; easy.
     + rewrite
-        transpose_push_normalized_raw_closing_push0_raw_closing;
+        transpose_push_normalized_pushes_cons_raw_closing;
         cbn; reduce_var_zero.
       rewrite <- transpose_pushes_reverse_left.
       rewrite transpose_push_raw_closing_reverse_right.
@@ -402,14 +469,14 @@ Proof.
   induction r1 as [|vo' r1]; intros r2 vo; cbn; try easy.
   rewrite rhs_push_transpose_push_raw_closing,
     rhs_raw_closing_transpose_push_raw_closing.
-  rewrite transpose_push_normalized_raw_closing_push0_push; cbn.
+  rewrite transpose_push_normalized_pushes_cons_push; cbn.
   case_var_zero vo; try easy.
   rewrite IHr1.
   apply transpose_push_raw_closing_reverse_right.
 Qed.
 
 Lemma transpose_push_compose_raw_closing_raw_closing r1 r2 vo :
-  normalized_raw_closing r2 ->
+  normalized_pushes r2 ->
   transpose_push_raw_closing_raw_closing
     vo (compose_raw_closing r1 r2)
   = compose_raw_closing
@@ -423,8 +490,7 @@ Proof.
   rewrite rhs_push_transpose_push_raw_closing,
     rhs_raw_closing_transpose_push_raw_closing.
   rewrite
-    transpose_push_normalized_raw_closing_push0_raw_closing;
-    cbn.
+    transpose_push_normalized_pushes_cons_raw_closing; cbn.
   case_var_zero vo; try easy.
   rewrite IHr1;
     try (apply transpose_push_raw_closing_raw_closing_normalized;
@@ -432,7 +498,7 @@ Proof.
   rewrite transpose_push_raw_closing_reverse_left.
   rewrite transpose_push_compose_raw_closing_push.
   rewrite transpose_push_raw_closing_reverse_middle.
-  rewrite compose_normalized_raw_closing_push0;
+  rewrite compose_normalized_pushes_cons;
     try (apply transpose_push_raw_closing_raw_closing_normalized;
          easy); cbn.
   rewrite rhs_push_transpose_push_raw_closing,
@@ -441,14 +507,14 @@ Proof.
 Qed.
 
 Lemma raw_closing_associative r1 r2 r3 :
-  normalized_raw_closing r3 ->
+  normalized_pushes r3 ->
   compose_raw_closing r1 (compose_raw_closing r2 r3)
   = compose_raw_closing (compose_raw_closing r1 r2) r3.
 Proof.
   generalize dependent r2.
   generalize dependent r3.
   induction r1; cbn; intros r3 r2 Hnorm; try easy.
-  rewrite compose_normalized_raw_closing_push0 by easy; cbn.
+  rewrite compose_normalized_pushes_cons by easy; cbn.
   rewrite !rhs_push_transpose_push_raw_closing,
     !rhs_raw_closing_transpose_push_raw_closing.
   rewrite transpose_push_compose_raw_closing_raw_closing

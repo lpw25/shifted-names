@@ -1,6 +1,5 @@
-Require Import String PeanoNat Compare_dec
+Require Import Label String PeanoNat Compare_dec
         StrictProp Setoid Morphisms.
-Arguments string_dec !s1 !s2.
 
 (* Name indices are [nat]s *)
 
@@ -11,11 +10,11 @@ Definition index_dec := Nat.eq_dec.
 (* Free names are a pair of a string and an index *)
 
 Set Primitive Projections.
-Record name := mkname { n_string : string; n_index : index }.
+Record name := mkname { n_label : label; n_index : index }.
 Add Printing Constructor name.
 Unset Primitive Projections.
 
-Definition name_of_string s := mkname s 0.
+Definition name_of_string (s : string) := mkname s 0.
 Coercion name_of_string : string >-> name.
 
 Declare Scope name_scope.
@@ -54,26 +53,26 @@ Notation "s ₍₉₎" :=
   : name_scope.
 
 Ltac eta_reduce_name n :=
-  change (mkname (n_string n) (n_index n)) with n.
+  change (mkname (n_label n) (n_index n)) with n.
 
 Ltac eta_reduce_names :=
   try repeat
       match goal with
-      | |- context [mkname (n_string ?n) (n_index ?n)] =>
+      | |- context [mkname (n_label ?n) (n_index ?n)] =>
         eta_reduce_name n
       end.
 
 Ltac eta_expand_name n :=
-  change n with (mkname (n_string n) (n_index n)).
+  change n with (mkname (n_label n) (n_index n)).
 
 Definition n_S n :=
-  (mkname (n_string n) (S (n_index n))).
+  (mkname (n_label n) (S (n_index n))).
 Arguments n_S n /.
 
 Definition name_dec (n1 n2 : name) : {n1 = n2} + {n1 <> n2}.
   decide equality.
   - apply index_dec.
-  - apply string_dec.
+  - apply label_dec.
 Defined.
 
 Definition name_eqb n1 n2 : bool :=
@@ -83,16 +82,16 @@ Definition name_eqb n1 n2 : bool :=
   end.
 
 Definition shift_name n1 n2 :=
-  if string_dec (n_string n1) (n_string n2) then
+  if label_dec (n_label n1) (n_label n2) then
     if le_gt_dec (n_index n1) (n_index n2) then n_S n2
     else n2
   else n2.
 Arguments shift_name n1 n2 : simpl nomatch.
 
 Definition unshift_name n1 n2 :=
-  if string_dec (n_string n1) (n_string n2) then
+  if label_dec (n_label n1) (n_label n2) then
     if Compare_dec.le_gt_dec (n_index n2) (n_index n1) then n2
-    else mkname (n_string n2) (pred (n_index n2))
+    else mkname (n_label n2) (pred (n_index n2))
   else n2.
 Arguments unshift_name n1 n2 : simpl nomatch.
 
@@ -368,4 +367,3 @@ Definition unshift_var_var_opt v1 vo2 :=
   | Some v2 => Some (unshift_var v1 v2)
   end.
 Arguments unshift_var_var_opt v1 !vo2.
-

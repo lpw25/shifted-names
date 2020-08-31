@@ -1,77 +1,77 @@
-Require Import String PeanoNat Compare_dec
+Require Import Label PeanoNat Compare_dec
         Psatz Setoid Morphisms.
 Require Import Var.
 
 (* Reasoning about shifts and unshifts of names *)
 
 Lemma reduce_shift_name_distinct n1 n2 :
-  n_string n1 <> n_string n2 ->
+  n_label n1 <> n_label n2 ->
   shift_name n1 n2 = n2.
 Proof.
   intros; unfold shift_name.
-  destruct (string_dec (n_string n1) (n_string n2)); subst;
+  destruct (label_dec (n_label n1) (n_label n2)); subst;
     try contradiction; easy.
 Qed.
 
 Lemma reduce_shift_name_ge n1 n2 :
-  n_string n1 = n_string n2 ->
+  n_label n1 = n_label n2 ->
   n_index n1 <= n_index n2 ->
   shift_name n1 n2 = n_S n2.
 Proof.
   intros; unfold shift_name.
-  destruct (string_dec (n_string n1) (n_string n2));
+  destruct (label_dec (n_label n1) (n_label n2));
     try contradiction.
   destruct (le_gt_dec (n_index n1) (n_index n2));
     try easy; lia.
 Qed.
 
 Lemma reduce_shift_name_lt n1 n2 :
-  n_string n1 = n_string n2 ->
+  n_label n1 = n_label n2 ->
   S (n_index n2) <= n_index n1 ->
   shift_name n1 n2 = n2.
 Proof.
   intros; unfold shift_name.
-  destruct (string_dec (n_string n1) (n_string n2));
+  destruct (label_dec (n_label n1) (n_label n2));
     try contradiction.
   destruct (le_gt_dec (n_index n1) (n_index n2));
     try easy; lia.
 Qed.
 
 Lemma reduce_unshift_name_distinct n1 n2 :
-  n_string n1 <> n_string n2 ->
+  n_label n1 <> n_label n2 ->
   unshift_name n1 n2 = n2.
 Proof.
   intros; unfold unshift_name.
-  destruct (string_dec (n_string n1) (n_string n2)); subst;
+  destruct (label_dec (n_label n1) (n_label n2)); subst;
     try contradiction; easy.
 Qed.
 
 Lemma reduce_unshift_name_gt n1 n2 :
-  n_string n1 = n_string n2 ->
+  n_label n1 = n_label n2 ->
   S (n_index n1) <= n_index n2 ->
-  unshift_name n1 n2 = mkname (n_string n2) (pred (n_index n2)).
+  unshift_name n1 n2 = mkname (n_label n2) (pred (n_index n2)).
 Proof.
   intros; unfold unshift_name.
-  destruct (string_dec (n_string n1) (n_string n2));
+  destruct (label_dec (n_label n1) (n_label n2));
     try contradiction.
   destruct (le_gt_dec (n_index n2) (n_index n1));
     try easy; lia.
 Qed.
 
 Lemma reduce_unshift_name_le n1 n2 :
-  n_string n1 = n_string n2 ->
+  n_label n1 = n_label n2 ->
   n_index n2 <= n_index n1 ->
   unshift_name n1 n2 = n2.
 Proof.
   intros; unfold unshift_name.
-  destruct (string_dec (n_string n1) (n_string n2));
+  destruct (label_dec (n_label n1) (n_label n2));
     try contradiction.
   destruct (le_gt_dec (n_index n2) (n_index n1));
     try easy; lia.
 Qed.
 
 Lemma reduce_name_eqb_distinct n1 n2 :
-  n_string n1 <> n_string n2 ->
+  n_label n1 <> n_label n2 ->
   name_eqb n1 n2 = false.
 Proof.
   intros; unfold name_eqb.
@@ -81,7 +81,7 @@ Proof.
 Qed.
 
 Lemma reduce_name_eqb_eq n1 n2 :
-  n_string n1 = n_string n2 ->
+  n_label n1 = n_label n2 ->
   n_index n1 = n_index n2 ->
   name_eqb n1 n2 = true.
 Proof.
@@ -102,7 +102,7 @@ Proof.
 Qed.
 
 Lemma reduce_close_var_distinct n1 n2 :
-  n_string n1 <> n_string n2 ->
+  n_label n1 <> n_label n2 ->
   close_var n1 (free n2) = free n2.
 Proof.
   intros; unfold close_var.
@@ -112,7 +112,7 @@ Proof.
 Qed.
 
 Lemma reduce_close_var_lt n1 n2 :
-  n_string n1 = n_string n2 ->
+  n_label n1 = n_label n2 ->
   n_index n2 < n_index n1 ->
   close_var n1 (free n2) = free n2.
 Proof.
@@ -123,7 +123,7 @@ Proof.
 Qed.
 
 Lemma reduce_close_var_eq n1 n2 :
-  n_string n1 = n_string n2 ->
+  n_label n1 = n_label n2 ->
   n_index n1 = n_index n2 ->
   close_var n1 (free n2) = bound 0.
 Proof.
@@ -133,10 +133,10 @@ Proof.
 Qed.
 
 Lemma reduce_close_var_gt n1 n2 :
-  n_string n1 = n_string n2 ->
+  n_label n1 = n_label n2 ->
   n_index n1 < n_index n2 ->
   close_var n1 (free n2)
-  = free (mkname (n_string n2) (pred (n_index n2))).
+  = free (mkname (n_label n2) (pred (n_index n2))).
 Proof.
   intros; unfold close_var.
   rewrite reduce_name_eqb_neq by lia.
@@ -165,14 +165,14 @@ Ltac reduce_names :=
 
 Lemma reduce_non_zero_name {i} n :
   i < n_index n ->
-  mkname (n_string n) (S (pred (n_index n))) = n.
+  mkname (n_label n) (S (pred (n_index n))) = n.
 Proof.
   intros; destruct n as [s i2], i2; cbn in *; easy.
 Qed.
 
 (* Useful lemma *)
 Lemma red_name_neq n1 n2 :
-  n_string n1 = n_string n2 ->
+  n_label n1 = n_label n2 ->
   n1 <> n2 <-> n_index n1 <> n_index n2.
 Proof.
   intro Heq1; split.
@@ -187,35 +187,35 @@ Hint Rewrite red_name_neq using (cbn; congruence) : red_name_neq.
 
 (* Case split on the order of the name parameters. *)
 Ltac case_names n1 n2 :=
-  destruct (string_dec (n_string n1) (n_string n2));
-    [replace (n_string n2) with (n_string n1) by easy;
+  destruct (label_dec (n_label n1) (n_label n2));
+    [replace (n_label n2) with (n_label n1) by easy;
      autorewrite with red_name_neq in *;
      destruct (Compare_dec.lt_eq_lt_dec (n_index n1) (n_index n2))
         as [[|]|];
      [replace n2
-        with (mkname (n_string n2) (S (pred (n_index n2))))
+        with (mkname (n_label n2) (S (pred (n_index n2))))
        by (apply (@reduce_non_zero_name (n_index n1)); easy);
       reduce_names;
-      replace (mkname (n_string n2) (S (pred (n_index n2))))
+      replace (mkname (n_label n2) (S (pred (n_index n2))))
         with n2
        by (symmetry;
            apply (@reduce_non_zero_name (n_index n1)); easy)
      |replace n2 with n1
-        by (change n1 with (mkname (n_string n1) (n_index n1));
-            change n2 with (mkname (n_string n2) (n_index n2));
+        by (change n1 with (mkname (n_label n1) (n_index n1));
+            change n2 with (mkname (n_label n2) (n_index n2));
             congruence);
       reduce_names
      |replace n1
-        with (mkname (n_string n1) (S (pred (n_index n1))))
+        with (mkname (n_label n1) (S (pred (n_index n1))))
        by (apply (@reduce_non_zero_name (n_index n2)); easy);
       reduce_names;
-      replace (mkname (n_string n1) (S (pred (n_index n1))))
+      replace (mkname (n_label n1) (S (pred (n_index n1))))
         with n1
        by (symmetry;
            apply (@reduce_non_zero_name (n_index n2)); easy)]
     |reduce_names];
-    change (mkname (n_string n1) (n_index n1)) with n1;
-    change (mkname (n_string n2) (n_index n2)) with n2;
+    change (mkname (n_label n1) (n_index n1)) with n1;
+    change (mkname (n_label n2) (n_index n2)) with n2;
     try contradiction; try lia.
 
 Tactic Notation "case_name" constr(n)
@@ -518,7 +518,7 @@ Qed.
    slightly different formulation.
  *)
 
-Lemma transpose_pops v1 v2:
+Lemma transpose_pops v1 v2 :
   pop_var v1 @ lift_var_op (pop_var v2)
   =v= pop_var (shift_var v1 v2)
       @ lift_var_op (pop_var (unshift_var v2 v1))
@@ -557,6 +557,18 @@ Proof.
       * case_levels l1 l3; easy.
       * case_levels (S l3) l1; try easy.
       * case_levels (S l2) l1; easy.
+Qed.
+
+Lemma transpose_pops' v1 v2 op :
+  pop_var v1 @ lift_var_op (pop_var v2) @ op
+  =v= pop_var (shift_var v1 v2)
+      @ lift_var_op (pop_var (unshift_var v2 v1))
+      @ swap_var @ op.
+Proof.
+  rewrite var_op_associative.
+  rewrite transpose_pops.
+  rewrite <- var_op_associative.
+  easy.
 Qed.
 
 (* Permutations of pop operations
@@ -693,8 +705,7 @@ Qed.
    full group of permutations. *)
 
 Lemma transpose_pushes vo1 vo2 :
-  lift_var_op (push_var vo1)
-  @ push_var vo2
+  lift_var_op (push_var vo1) @ push_var vo2
   =v= swap_var
       @ lift_var_op (push_var (unshift_var_opt vo1 vo2))
       @ push_var (shift_var_opt vo2 vo1).
@@ -740,6 +751,20 @@ Proof.
   - case_levels l2 l3; try easy.
     case_level l3; easy.
 Qed.
+
+Lemma transpose_pushes' vo1 vo2 op :
+  lift_var_op (push_var vo1) @ push_var vo2 @ op
+  =v= swap_var
+      @ lift_var_op (push_var (unshift_var_opt vo1 vo2))
+      @ push_var (shift_var_opt vo2 vo1)
+      @ op.
+Proof.
+  rewrite var_op_associative.
+  rewrite transpose_pushes.
+  rewrite <- var_op_associative.
+  easy.
+Qed.
+
 
 Lemma transpose_pushes_squared_left vo1 vo2 :
   unshift_var_opt
@@ -851,6 +876,21 @@ Proof.
   - case_level l; easy.
   - unfold cycle_out_var, cycle_out_level.
     case_level l; easy.
+Qed.
+
+Lemma transpose_push_pop' vo1 v2 op :
+  vo1 <> Some v2 ->
+  push_var vo1 @ pop_var v2 @ op
+  =v= lift_var_op (pop_var (unshift_var_opt_var vo1 v2))
+      @ swap_var
+      @ lift_var_op (push_var (unshift_var_var_opt v2 vo1))
+      @ op.
+Proof.
+  intros Hneq.
+  rewrite var_op_associative.
+  rewrite transpose_push_pop by easy.
+  rewrite <- var_op_associative.
+  easy.
 Qed.
 
 Lemma transpose_push_push_pop_reverse_left vo1 vo2 v3 :

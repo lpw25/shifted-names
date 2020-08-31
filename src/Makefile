@@ -1,8 +1,8 @@
 COQC=coqc
 COQPARAMS=-R . SNames
 
-MODULES=Morph.vok Var.vok VarEquations.vok Closing.vok ClosingEquations.vok \
-	Renaming.vok RenamingEquations.vok Context.vok Term.vok
+MODULES=Label.vok Var.vok VarEquations.vok Closing.vok ClosingEquations.vok \
+	Renaming.vok RenamingEquations.vok Context.vok Term.vok Morph.vok
 
 all: ${MODULES}
 
@@ -12,15 +12,17 @@ all: ${MODULES}
 %.vok: %.v
 	${COQC} -vok ${COQPARAMS} $<
 
-VarEquations.vok VarEquations.vos: Var.vos
+Var.vok: Label.vos
 
-Closing.vok Closing.vos: Var.vos
+VarEquations.vok VarEquations.vos: Label.vos Var.vos
 
-ClosingEquations.vok ClosingEquations.vos: Var.vos VarEquations.vos Closing.vos
+Closing.vok Closing.vos: Label.vos Var.vos
 
-Renaming.vok Renaming.vos: Var.vos Closing.vos
+ClosingEquations.vok ClosingEquations.vos: Label.vos Var.vos VarEquations.vos Closing.vos
 
-RenamingEquations.vok RenamingEquations.vos: Var.vos Closing.vos VarEquations.vos ClosingEquations Renaming.vos
+Renaming.vok Renaming.vos: Label.vos Var.vos Closing.vos
+
+RenamingEquations.vok RenamingEquations.vos: Label.vos Var.vos Closing.vos VarEquations.vos ClosingEquations Renaming.vos
 
 Context.vok Context.vos: Var.vos
 
