@@ -169,9 +169,27 @@ Definition var_opt_eqb v1 v2 : bool :=
   | right _ => false
   end.
 
-Definition zero_var := bound 0.
+Definition v_label_opt vo :=
+  match vo with
+  | bound _ => None
+  | free n => Some (n_label n)
+  end.
 
-Definition zero_var_opt := Some (bound 0).
+Definition v_nat vo :=
+  match vo with
+  | bound l => l
+  | free n => n_index n
+  end.
+
+Definition mk_var so n :=
+  match so with
+  | None => bound n
+  | Some s => free (mkname s n)
+  end.
+
+Definition zero_var so := mk_var so 0.
+
+Definition zero_var_opt so := Some (zero_var so).
 
 Definition open_var n v :=
   match v with

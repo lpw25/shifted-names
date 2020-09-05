@@ -374,7 +374,7 @@ Tactic Notation "case_var"
 (* Identities *)
 
 Lemma pop_zero_identity :
-  pop_var zero_var =v= 1.
+  pop_var (zero_var None) =v= 1.
 Proof.
   intros v.
   case_var v as ? l; try easy.
@@ -382,7 +382,7 @@ Proof.
 Qed.
 
 Lemma push_zero_identity :
-  push_var zero_var_opt =v= 1.
+  push_var (zero_var_opt None) =v= 1.
 Proof.
   intros v.
   case_var v as ? l; try easy.
@@ -1113,35 +1113,35 @@ Qed.
    forms of these equations.*)
 
 (* Transposing pop zero backwards over a pop *)
-Lemma transpose_pop_pop_zero_left v :
-  unshift_var v zero_var = zero_var.
+Lemma transpose_pop_pop_zero_left v so :
+  unshift_var v (zero_var so) = zero_var so.
 Proof. case_var v; easy. Qed.
 
 (* Transposing pop zero backwards over a push *)
-Lemma transpose_push_pop_zero_left vo :
-  unshift_var_opt_var vo zero_var = zero_var.
+Lemma transpose_push_pop_zero_left vo so :
+  unshift_var_opt_var vo (zero_var so) = zero_var so.
 Proof.
   destruct vo as [v|]; cbn; try easy.
   apply transpose_pop_pop_zero_left.
 Qed.
 
 (* Transposing push zero backwards over a pop *)
-Lemma transpose_pop_push_zero_left v :
-  unshift_var_var_opt v zero_var_opt = zero_var_opt.
+Lemma transpose_pop_push_zero_left v so :
+  unshift_var_var_opt v (zero_var_opt so) = zero_var_opt so.
 Proof. cbn; rewrite transpose_pop_pop_zero_left; easy. Qed.
 
 (* Transposing push zero backwards over a push *)
-Lemma transpose_push_push_zero_left vo :
-  unshift_var_opt vo zero_var_opt = zero_var_opt.
+Lemma transpose_push_push_zero_left vo so :
+  unshift_var_opt vo (zero_var_opt so) = zero_var_opt so.
 Proof.
   destruct vo as [v|]; cbn; try easy.
   rewrite transpose_pop_pop_zero_left; easy.
 Qed.
 
-Lemma transpose_push_push_pop_zero_reverse_middle vo1 vo2 :
-  unshift_var_opt (unshift_var_var_opt zero_var vo1)
-    (unshift_var_var_opt zero_var vo2)
-  = unshift_var_var_opt zero_var (unshift_var_opt vo1 vo2).
+Lemma transpose_push_push_pop_zero_reverse_middle vo1 vo2 so :
+  unshift_var_opt (unshift_var_var_opt (zero_var so) vo1)
+    (unshift_var_var_opt (zero_var so) vo2)
+  = unshift_var_var_opt (zero_var so) (unshift_var_opt vo1 vo2).
 Proof.
   pose
     (transpose_push_push_pop_reverse_middle vo1 vo2 zero_var)
@@ -1151,12 +1151,12 @@ Proof.
   apply Hrw.
 Qed.
 
-Lemma transpose_push_push_pop_zero_reverse_right vo1 vo2 :
-  vo1 <> zero_var_opt ->
+Lemma transpose_push_push_pop_zero_reverse_right vo1 vo2 so :
+  vo1 <> zero_var_opt so ->
   shift_var_opt
-    (unshift_var_var_opt zero_var vo2)
-      (unshift_var_var_opt zero_var vo1)
-  = unshift_var_var_opt zero_var (shift_var_opt vo2 vo1).
+    (unshift_var_var_opt (zero_var so) vo2)
+      (unshift_var_var_opt (zero_var so) vo1)
+  = unshift_var_var_opt (zero_var so) (shift_var_opt vo2 vo1).
 Proof.
   intros.
   rewrite <- transpose_push_push_pop_reverse_right;

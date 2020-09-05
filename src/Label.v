@@ -64,3 +64,15 @@ Fixpoint is_less_than_label s1 s2 :=
 
 Definition less_than_label s1 s2 :=
   if is_less_than_label s1 s2 then sUnit else sEmpty.
+
+Definition label_opt_dec (s1 s2 : option label)
+  : {s1 = s2} + {s1 <> s2}.
+  decide equality.
+  apply label_dec.
+Defined.
+
+Definition label_opt_eqb s1 s2 : bool :=
+  match label_opt_dec s1 s2 with
+  | left _ => true
+  | right _ => false
+  end.
