@@ -52,23 +52,6 @@ Notation "s ₍₉₎" :=
   (mkname s 9) (at level 9, format "s '₍₉₎'")
   : name_scope.
 
-Ltac eta_reduce_name n :=
-  change (mkname (n_label n) (n_index n)) with n.
-
-Ltac eta_reduce_names :=
-  try repeat
-      match goal with
-      | |- context [mkname (n_label ?n) (n_index ?n)] =>
-        eta_reduce_name n
-      end.
-
-Ltac eta_expand_name n :=
-  change n with (mkname (n_label n) (n_index n)).
-
-Definition n_S n :=
-  (mkname (n_label n) (S (n_index n))).
-Arguments n_S n /.
-
 Definition name_dec (n1 n2 : name) : {n1 = n2} + {n1 <> n2}.
   decide equality.
   - apply index_dec.
@@ -83,7 +66,8 @@ Definition name_eqb n1 n2 : bool :=
 
 Definition shift_name n1 n2 :=
   if label_dec (n_label n1) (n_label n2) then
-    if le_gt_dec (n_index n1) (n_index n2) then n_S n2
+    if le_gt_dec (n_index n1) (n_index n2) then
+      (mkname (n_label n2) (S (n_index n2)))
     else n2
   else n2.
 Arguments shift_name n1 n2 : simpl nomatch.
@@ -119,26 +103,6 @@ Definition unshift_level (l1 l2 : level) : level :=
   end.
 Arguments unshift_level l1 l2 : simpl nomatch.
 
-Definition cycle_out_level (l1 l2 : level) : level :=
-  match l2 with
-  | 0 => l1
-  | S l2' => shift_level l1 l2'
-  end.
-Arguments cycle_out_level l1 l2 : simpl nomatch.
-
-Definition cycle_in_level (l1 l2 : level) : level :=
-  if level_eqb l1 l2 then 0
-  else unshift_level l1 (S l2).
-Arguments cycle_in_level l1 l2 : simpl nomatch.
-
-Definition swap_level (l : level) : level :=
-  match l with
-  | 0 => 1
-  | 1 => 0
-  | l => l
-  end.
-Arguments swap_level l : simpl nomatch.
-
 (* Variables are either free names or bound levels *)
 
 Inductive var :=
@@ -157,14 +121,26 @@ Definition var_eqb v1 v2 : bool :=
   | right _ => false
   end.
 
-Definition var_opt_dec (v1 v2 : option var)
-  : {v1 = v2} + {v1 <> v2}.
+Definition var_opt_dec (vo1 vo2 : option var)
+  : {vo1 = vo2} + {vo1 <> vo2}.
   decide equality.
   apply var_dec.
 Defined.
 
-Definition var_opt_eqb v1 v2 : bool :=
-  match var_opt_dec v1 v2 with
+Definition var_opt_eqb vo1 vo2 : bool :=
+  match var_opt_dec vo1 vo2 with
+  | left _ => true
+  | right _ => false
+  end.
+
+Definition var_opt_var_dec (vo1 : option var) (v2 : var)
+  : {vo1 = Some v2} + {vo1 <> Some v2}.
+  decide equality.
+  apply var_dec.
+Defined.
+
+Definition var_opt_var_eqb vo1 v2 : bool :=
+  match var_opt_var_dec vo1 v2 with
   | left _ => true
   | right _ => false
   end.
@@ -175,8 +151,8 @@ Definition v_label_opt vo :=
   | free n => Some (n_label n)
   end.
 
-Definition v_nat vo :=
-  match vo with
+Definition v_nat v :=
+  match v with
   | bound l => l
   | free n => n_index n
   end.
@@ -187,54 +163,83 @@ Definition mk_var so n :=
   | Some s => free (mkname s n)
   end.
 
-Definition zero_var so := mk_var so 0.
+Definition succ_var v :=
+  (mk_var (v_label_opt v) (S (v_nat v))).
+Arguments succ_var v /.
+Arguments succ_var v : simpl never.
 
-Definition zero_var_opt so := Some (zero_var so).
+Definition pred_var v :=
+  (mk_var (v_label_opt v) (pred (v_nat v))).
+Arguments pred_var v /.
+Arguments pred_var v : simpl never.
 
-Definition open_var n v :=
-  match v with
-  | free n2 => free (shift_name n n2)
-  | bound 0 => free n
-  | bound (S l') => bound l'
+Definition zero_var := mk_var None 0.
+
+Definition one_var := succ_var zero_var.
+
+Definition shift_var v1 v2 :=
+  match v1, v2 with
+  | bound l1, bound l2 => bound (shift_level l1 l2)
+  | bound l, free n => free n
+  | free n, bound l => bound l
+  | free n1, free n2 => free (shift_name n1 n2)
   end.
-Arguments open_var n v : simpl nomatch.
+Arguments shift_var !v1 !v2.
 
-Definition close_var n v :=
-  match v with
-  | free n2 =>
-    if name_eqb n n2 then bound 0
-    else free (unshift_name n n2)
-  | bound l => bound (S l)
+Definition unshift_var v1 v2 :=
+  match v1, v2 with
+  | bound l1, bound l2 => bound (unshift_level l1 l2)
+  | free n, bound l => bound l
+  | bound l, free n => free n
+  | free n1, free n2 => free (unshift_name n1 n2)
   end.
-Arguments close_var n v : simpl nomatch.
+Arguments unshift_var !v1 !v2.
 
-Definition weak_var v :=
-  match v with
-  | free n => free n
-  | bound l => bound (S l)
+Definition unshift_var_opt_var vo1 v2 :=
+  match vo1 with
+  | None => v2
+  | Some v1 => unshift_var v1 v2
   end.
-Arguments weak_var v : simpl nomatch.
+Arguments unshift_var_opt_var !vo1 v2.
 
-Definition cycle_out_var l v :=
-  match v with
-  | free n => free n
-  | bound l2 => bound (cycle_out_level l l2)
-  end.
-Arguments cycle_out_var l v : simpl nomatch.
+Definition pop_var v1 v2 :=
+  if var_eqb zero_var v2 then v1
+  else shift_var v1 (unshift_var zero_var v2).
+Arguments pop_var v1 v2 : simpl never.
 
-Definition cycle_in_var l v :=
-  match v with
-  | free n => free n
-  | bound l2 => bound (cycle_in_level l l2)
-  end.
-Arguments cycle_in_var l v : simpl nomatch.
+Definition push_var vo1 v2 :=
+  if var_opt_var_eqb vo1 v2 then zero_var
+  else unshift_var_opt_var vo1 (shift_var zero_var v2).
+Arguments push_var vo1 v2 : simpl never.
 
 Definition swap_var v :=
-  match v with
-  | free n => free n
-  | bound l => bound (swap_level l)
-  end.
+  if var_eqb zero_var v then one_var
+  else if var_eqb one_var v then zero_var
+  else v.
 Arguments swap_var v : simpl nomatch.
+
+Definition shift_var_opt vo1 vo2 :=
+  match vo1, vo2 with
+  | None, vo2 => vo2
+  | vo1, None => vo2
+  | Some v1, Some v2 => Some (shift_var v1 v2)
+  end.
+Arguments shift_var_opt !vo1 !vo2.
+
+Definition unshift_var_opt vo1 vo2 :=
+  match vo1, vo2 with
+  | None, vo2 => vo2
+  | vo1, None => vo2
+  | Some v1, Some v2 => Some (unshift_var v1 v2)
+  end.
+Arguments unshift_var_opt !vo1 !vo2.
+
+Definition unshift_var_var_opt v1 vo2 :=
+  match vo2 with
+  | None => None
+  | Some v2 => Some (unshift_var v1 v2)
+  end.
+Arguments unshift_var_var_opt v1 !vo2.
 
 (* Utilities for manipulating [var -> var]*)
 
@@ -299,19 +304,8 @@ Qed.
 
 Definition lift_var_op (op : var_op) : var_op :=
   fun v =>
-    match v with
-    | free n =>
-      match op (free n) with
-      | free n => free n
-      | bound l => bound (S l)
-      end
-    | bound 0 => bound 0
-    | bound (S l) =>
-      match op (bound l) with
-      | free n => free n
-      | bound l => bound (S l)
-      end
-    end.
+    if var_eqb zero_var v then v
+    else shift_var zero_var (op (unshift_var zero_var v)).
 
 Add Parametric Morphism : lift_var_op
     with signature (eq_var_op ==> eq_var_op)
@@ -319,69 +313,3 @@ Add Parametric Morphism : lift_var_op
   intros * Heq v; unfold lift_var_op.
   destruct v as [n|[|l]]; try rewrite Heq; easy.
 Qed.
-
-(* The core operations can be split into "pushes" that
-   move things onto the "stack" of bound variables and
-   "pops" that move things off of the stack of bound
-   variables. *)
-
-Definition pop_var v : var_op :=
-  match v with
-  | bound l => cycle_out_var l
-  | free n => open_var n
-  end.
-
-Definition push_var vo : var_op :=
-  match vo with
-  | None => weak_var
-  | Some (bound l) => cycle_in_var l
-  | Some (free n) => close_var n
-  end.
-
-Definition shift_var v1 v2 :=
-  match v1, v2 with
-  | bound l1, bound l2 => bound (shift_level l1 l2)
-  | bound l, free n => free n
-  | free n, bound l => bound l
-  | free n1, free n2 => free (shift_name n1 n2)
-  end.
-Arguments shift_var !v1 !v2.
-
-Definition unshift_var v1 v2 :=
-  match v1, v2 with
-  | bound l1, bound l2 => bound (unshift_level l1 l2)
-  | free n, bound l => bound l
-  | bound l, free n => free n
-  | free n1, free n2 => free (unshift_name n1 n2)
-  end.
-Arguments unshift_var !v1 !v2.
-
-Definition shift_var_opt vo1 vo2 :=
-  match vo1, vo2 with
-  | None, vo2 => vo2
-  | vo1, None => vo2
-  | Some v1, Some v2 => Some (shift_var v1 v2)
-  end.
-Arguments shift_var_opt !vo1 !vo2.
-
-Definition unshift_var_opt vo1 vo2 :=
-  match vo1, vo2 with
-  | None, vo2 => vo2
-  | vo1, None => vo2
-  | Some v1, Some v2 => Some (unshift_var v1 v2)
-  end.
-Arguments unshift_var_opt !vo1 !vo2.
-
-Definition unshift_var_opt_var vo1 v2 :=
-  match vo1 with
-  | None => v2
-  | Some v1 => unshift_var v1 v2
-  end.
-Arguments unshift_var_opt_var !vo1 v2.
-
-Definition unshift_var_var_opt v1 vo2 :=
-  match vo2 with
-  | None => None
-  | Some v2 => Some (unshift_var v1 v2)
-  end.
-Arguments unshift_var_var_opt v1 !vo2.

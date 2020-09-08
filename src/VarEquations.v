@@ -2,401 +2,354 @@ Require Import Label PeanoNat Compare_dec
         Psatz Setoid Morphisms.
 Require Import Var.
 
-(* Reasoning about shifts and unshifts of names *)
+(* Eta expansion for the record view of variables *)
 
-Lemma reduce_shift_name_distinct n1 n2 :
-  n_label n1 <> n_label n2 ->
-  shift_name n1 n2 = n2.
-Proof.
-  intros; unfold shift_name.
-  destruct (label_dec (n_label n1) (n_label n2)); subst;
-    try contradiction; easy.
-Qed.
+Lemma eta_expand_var v :
+  v = mk_var (v_label_opt v) (v_nat v).
+Proof. destruct v; easy. Qed.
 
-Lemma reduce_shift_name_ge n1 n2 :
-  n_label n1 = n_label n2 ->
-  n_index n1 <= n_index n2 ->
-  shift_name n1 n2 = n_S n2.
-Proof.
-  intros; unfold shift_name.
-  destruct (label_dec (n_label n1) (n_label n2));
-    try contradiction.
-  destruct (le_gt_dec (n_index n1) (n_index n2));
-    try easy; lia.
-Qed.
+Lemma eta_reduce_var v :
+  mk_var (v_label_opt v) (v_nat v) = v.
+Proof. destruct v; easy. Qed.
 
-Lemma reduce_shift_name_lt n1 n2 :
-  n_label n1 = n_label n2 ->
-  S (n_index n2) <= n_index n1 ->
-  shift_name n1 n2 = n2.
+Lemma lift_var_eq {v1 v2} :
+  v_label_opt v1 = v_label_opt v2 ->
+  v_nat v1 = v_nat v2 ->
+  v1 = v2.
 Proof.
-  intros; unfold shift_name.
-  destruct (label_dec (n_label n1) (n_label n2));
-    try contradiction.
-  destruct (le_gt_dec (n_index n1) (n_index n2));
-    try easy; lia.
-Qed.
-
-Lemma reduce_unshift_name_distinct n1 n2 :
-  n_label n1 <> n_label n2 ->
-  unshift_name n1 n2 = n2.
-Proof.
-  intros; unfold unshift_name.
-  destruct (label_dec (n_label n1) (n_label n2)); subst;
-    try contradiction; easy.
-Qed.
-
-Lemma reduce_unshift_name_gt n1 n2 :
-  n_label n1 = n_label n2 ->
-  S (n_index n1) <= n_index n2 ->
-  unshift_name n1 n2 = mkname (n_label n2) (pred (n_index n2)).
-Proof.
-  intros; unfold unshift_name.
-  destruct (label_dec (n_label n1) (n_label n2));
-    try contradiction.
-  destruct (le_gt_dec (n_index n2) (n_index n1));
-    try easy; lia.
-Qed.
-
-Lemma reduce_unshift_name_le n1 n2 :
-  n_label n1 = n_label n2 ->
-  n_index n2 <= n_index n1 ->
-  unshift_name n1 n2 = n2.
-Proof.
-  intros; unfold unshift_name.
-  destruct (label_dec (n_label n1) (n_label n2));
-    try contradiction.
-  destruct (le_gt_dec (n_index n2) (n_index n1));
-    try easy; lia.
-Qed.
-
-Lemma reduce_name_eqb_distinct n1 n2 :
-  n_label n1 <> n_label n2 ->
-  name_eqb n1 n2 = false.
-Proof.
-  intros; unfold name_eqb.
-  destruct (name_dec n1 n2); try easy.
-  destruct n1, n2; cbn in *; subst.
-  congruence.
-Qed.
-
-Lemma reduce_name_eqb_eq n1 n2 :
-  n_label n1 = n_label n2 ->
-  n_index n1 = n_index n2 ->
-  name_eqb n1 n2 = true.
-Proof.
-  intros; unfold name_eqb.
-  destruct (name_dec n1 n2); try easy.
-  destruct n1, n2; cbn in *; subst.
-  contradiction.
-Qed.
-
-Lemma reduce_name_eqb_neq n1 n2 :
-  n_index n1 <> n_index n2 ->
-  name_eqb n1 n2 = false.
-Proof.
-  intros; unfold name_eqb.
-  destruct (name_dec n1 n2); try easy.
-  destruct n1, n2; cbn in *; subst.
-  congruence.
-Qed.
-
-Lemma reduce_close_var_distinct n1 n2 :
-  n_label n1 <> n_label n2 ->
-  close_var n1 (free n2) = free n2.
-Proof.
-  intros; unfold close_var.
-  rewrite reduce_name_eqb_distinct by easy.
-  rewrite reduce_unshift_name_distinct by easy.
+  intros Heq1 Heq2.
+  rewrite (eta_expand_var v1), Heq1, Heq2, (eta_reduce_var v2).
   easy.
 Qed.
 
-Lemma reduce_close_var_lt n1 n2 :
-  n_label n1 = n_label n2 ->
-  n_index n2 < n_index n1 ->
-  close_var n1 (free n2) = free n2.
+(* Beta reduction for the record view of variables *)
+
+Lemma reduce_v_label_opt_beta so n :
+  v_label_opt (mk_var so n) = so.
+Proof. destruct so; easy. Qed.
+
+Lemma reduce_v_nat_beta so n :
+  v_nat (mk_var so n) = n.
+Proof. destruct so; easy. Qed.
+
+Lemma reduce_v_label_opt_succ_beta v :
+  v_label_opt (succ_var v) = v_label_opt v.
+Proof. apply reduce_v_label_opt_beta. Qed.
+
+Lemma reduce_v_nat_succ_beta v :
+  v_nat (succ_var v) = S (v_nat v).
+Proof. apply reduce_v_nat_beta. Qed.
+
+Lemma reduce_v_label_opt_pred_beta v :
+  v_label_opt (pred_var v) = v_label_opt v.
+Proof. apply reduce_v_label_opt_beta. Qed.
+
+Lemma reduce_v_nat_pred_beta v :
+  v_nat (pred_var v) = pred (v_nat v).
+Proof. apply reduce_v_nat_beta. Qed.
+
+Lemma reduce_v_label_opt_shift_beta v1 v2 :
+  v_label_opt (shift_var v1 v2) = v_label_opt v2.
 Proof.
-  intros; unfold close_var.
-  rewrite reduce_name_eqb_neq by lia.
-  rewrite reduce_unshift_name_le by (try congruence; lia).
-  easy.
+  destruct v1 as [n1|], v2 as [n2|]; cbn; try easy.
+  unfold shift_name.
+  destruct (label_dec (n_label n1) (n_label n2)); try easy.
+  destruct (le_gt_dec (n_index n1) (n_index n2)); easy.
 Qed.
 
-Lemma reduce_close_var_eq n1 n2 :
-  n_label n1 = n_label n2 ->
-  n_index n1 = n_index n2 ->
-  close_var n1 (free n2) = bound 0.
+Lemma reduce_v_label_opt_unshift_beta v1 v2 :
+  v_label_opt (unshift_var v1 v2) = v_label_opt v2.
 Proof.
-  intros; unfold close_var.
-  rewrite reduce_name_eqb_eq by congruence.
-  easy.
+  destruct v1 as [n1|], v2 as [n2|]; cbn; try easy.
+  unfold unshift_name.
+  destruct (label_dec (n_label n1) (n_label n2)); try easy.
+  destruct (le_gt_dec (n_index n2) (n_index n1)); easy.
 Qed.
 
-Lemma reduce_close_var_gt n1 n2 :
-  n_label n1 = n_label n2 ->
-  n_index n1 < n_index n2 ->
-  close_var n1 (free n2)
-  = free (mkname (n_label n2) (pred (n_index n2))).
+Hint Rewrite reduce_v_label_opt_beta reduce_v_nat_beta
+     reduce_v_label_opt_succ_beta reduce_v_nat_succ_beta
+     reduce_v_label_opt_pred_beta reduce_v_nat_pred_beta
+     reduce_v_label_opt_shift_beta reduce_v_label_opt_unshift_beta
+  : reduce_vars_beta.
+
+Ltac reduce_vars_beta :=
+  try repeat (autorewrite with reduce_vars_beta; cbn).
+
+Tactic Notation "reduce_vars_beta" "in" hyp(H) :=
+  try repeat (autorewrite with reduce_vars_beta in H; cbn in H).
+
+(* Reducing operations on variables based on their
+   "record" fields. *)
+
+Lemma reduce_shift_var_distinct v1 v2 :
+  v_label_opt v1 <> v_label_opt v2 ->
+  shift_var v1 v2 = v2.
 Proof.
-  intros; unfold close_var.
-  rewrite reduce_name_eqb_neq by lia.
-  rewrite reduce_unshift_name_gt by (try congruence; lia).
-  easy.
+  unfold shift_var, shift_name, shift_level.
+  destruct v1 as [n1|], v2 as [n2|]; try easy.
+  destruct (label_dec (n_label n1) (n_label n2));
+    cbn; congruence.
 Qed.
 
-Hint Rewrite reduce_shift_name_distinct
-     reduce_unshift_name_distinct
-     reduce_name_eqb_distinct
-     @reduce_close_var_distinct
-     using (cbn; congruence) : reduce_names.
+Lemma reduce_shift_var_ge v1 v2 :
+  v_label_opt v1 = v_label_opt v2 ->
+  v_nat v1 <= v_nat v2 ->
+  shift_var v1 v2 = succ_var v2.
+Proof.
+  unfold shift_var, shift_name, shift_level.
+  destruct v1 as [n1|l1], v2 as [n2|l2]; try easy.
+  - destruct (label_dec (n_label n1) (n_label n2)); cbn;
+      try congruence.
+    destruct (le_gt_dec (n_index n1) (n_index n2));
+      try easy; lia.
+  - destruct (le_gt_dec l1 l2); cbn; try easy; lia.
+Qed.
 
-Hint Rewrite reduce_shift_name_ge reduce_shift_name_lt
-     reduce_unshift_name_le reduce_unshift_name_gt
-     reduce_name_eqb_eq reduce_name_eqb_neq
-     @reduce_close_var_lt @reduce_close_var_eq
-     @reduce_close_var_gt
-     using (cbn; try congruence; lia) : reduce_names.
+Lemma reduce_shift_var_lt v1 v2 :
+  v_label_opt v1 = v_label_opt v2 ->
+  S (v_nat v2) <= v_nat v1 ->
+  shift_var v1 v2 = v2.
+Proof.
+  unfold shift_var, shift_name, shift_level.
+  destruct v1 as [n1|l1], v2 as [n2|l2]; try easy.
+  - destruct (label_dec (n_label n1) (n_label n2)); cbn;
+      try congruence.
+    destruct (le_gt_dec (n_index n1) (n_index n2));
+      try easy; lia.
+  - destruct (le_gt_dec l1 l2); cbn; try easy; lia.
+Qed.
 
-Ltac reduce_names :=
+Lemma reduce_unshift_var_distinct v1 v2 :
+  v_label_opt v1 <> v_label_opt v2 ->
+  unshift_var v1 v2 = v2.
+Proof.
+  unfold unshift_var, unshift_name, unshift_level.
+  destruct v1 as [n1|l1], v2 as [n2|l2]; try easy.
+  destruct (label_dec (n_label n1) (n_label n2)); cbn;
+    congruence.
+Qed.
+
+Lemma reduce_unshift_var_gt v1 v2 :
+  v_label_opt v1 = v_label_opt v2 ->
+  S (v_nat v1) <= v_nat v2 ->
+  unshift_var v1 v2 = pred_var v2.
+Proof.
+  unfold unshift_var, unshift_name, unshift_level.
+  destruct v1 as [n1|l1], v2 as [n2|l2]; try easy.
+  - destruct (label_dec (n_label n1) (n_label n2)); cbn;
+      try congruence.
+    destruct (le_gt_dec (n_index n2) (n_index n1));
+      try easy; lia.
+  - destruct (le_gt_dec l2 l1); cbn; try easy; lia.
+Qed.
+
+Lemma reduce_unshift_var_le v1 v2 :
+  v_label_opt v1 = v_label_opt v2 ->
+  v_nat v2 <= v_nat v1 ->
+  unshift_var v1 v2 = v2.
+Proof.
+  unfold unshift_var, unshift_name, unshift_level.
+  destruct v1 as [n1|l1], v2 as [n2|l2]; try easy.
+  - destruct (label_dec (n_label n1) (n_label n2));
+      try congruence.
+    destruct (le_gt_dec (n_index n2) (n_index n1)); cbn;
+      try easy; lia.
+  - destruct (le_gt_dec l2 l1); cbn; try easy; lia.
+Qed.
+
+Lemma reduce_pop_var_bound_zero v1 v2 :
+  v_label_opt v2 = None ->
+  v_nat v2 = 0 ->
+  pop_var v1 v2 = v1.
+Proof. destruct v1 as [n1|l1], v2 as [n2|[|l2]]; easy. Qed.
+
+Lemma reduce_pop_var_free v1 v2 :
+  v_label_opt v2 <> None ->
+  pop_var v1 v2 = shift_var v1 v2.
+Proof. destruct v1 as [n1|l1], v2 as [n2|l2]; easy. Qed.
+
+Lemma reduce_pop_var_bound_nonzero v1 v2 :
+  v_label_opt v2 = None ->
+  v_nat v2 <> 0 ->
+  pop_var v1 v2 = shift_var v1 (pred_var v2).
+Proof.
+  destruct v1 as [n1|l1], v2 as [n2|[|l2]]; easy.
+Qed.
+
+Lemma reduce_push_var_none v :
+  push_var None v = shift_var zero_var v.
+Proof. destruct v as [n|l]; easy. Qed.
+
+Lemma reduce_push_var_some_eq v1 v2 :
+  v_label_opt v1 = v_label_opt v2 ->
+  v_nat v1 = v_nat v2 ->
+  push_var (Some v1) v2 = zero_var.
+Proof.
+  intros Heq1 Heq2; rewrite (lift_var_eq Heq1 Heq2).
+  unfold push_var, var_opt_var_eqb.
+  destruct (var_opt_var_dec (Some v2) v2); easy.
+Qed.
+
+Lemma reduce_push_var_some_distinct v1 v2 :
+  v_label_opt v1 <> v_label_opt v2 ->
+  push_var (Some v1) v2 = shift_var zero_var v2.
+Proof.
+  intros.
+  rewrite <- reduce_unshift_var_distinct
+    with (v1 := v1) (v2 := shift_var zero_var v2)
+    by (reduce_vars_beta; easy).
+  unfold push_var, var_opt_var_eqb.
+  destruct (var_opt_var_dec (Some v1) v2);
+    try congruence; easy.
+Qed.
+
+Lemma reduce_push_var_some_neq v1 v2 :
+  v_label_opt v1 = v_label_opt v2 ->
+  v_nat v1 <> v_nat v2 ->
+  push_var (Some v1) v2
+  = unshift_var v1 (shift_var zero_var v2).
+Proof.
+  intros; unfold push_var, var_opt_var_eqb.
+  destruct (var_opt_var_dec (Some v1) v2);
+    try congruence; easy.
+Qed.
+
+Lemma reduce_swap_var_free v :
+  v_label_opt v <> None ->
+  swap_var v = v.
+Proof. destruct v as [n|l]; easy. Qed.
+
+Lemma reduce_swap_var_bound_zero v :
+  v_label_opt v = None ->
+  v_nat v = 0 ->
+  swap_var v = succ_var zero_var.
+Proof. destruct v as [n|[|l]]; easy. Qed.
+
+Lemma reduce_swap_var_bound_one v :
+  v_label_opt v = None ->
+  v_nat v = 1 ->
+  swap_var v = zero_var.
+Proof. destruct v as [n|[|[|l]]]; easy. Qed.
+
+Lemma reduce_swap_var_bound_gt_one v :
+  v_label_opt v = None ->
+  v_nat v > 1 ->
+  swap_var v = v.
+Proof. destruct v as [n|[|[|l]]]; cbn; try easy; lia. Qed.
+
+Lemma reduce_pred_var_succ_var v :
+  pred_var (succ_var v) = v.
+Proof.
+  unfold pred_var, succ_var.
+  apply lift_var_eq; reduce_vars_beta; easy.
+Qed.
+
+Lemma reduce_succ_var_pred_var v :
+  0 < v_nat v ->
+  succ_var (pred_var v) = v.
+Proof.
+  intros; unfold pred_var, succ_var.
+  apply lift_var_eq; reduce_vars_beta; try easy; lia.
+Qed.
+
+Ltac solve_v_label_opt_equation :=
+  reduce_vars_beta; congruence.
+
+Ltac solve_v_label_opt_and_v_nat_equation :=
+  reduce_vars_beta; try congruence; lia.
+
+Hint Rewrite reduce_v_label_opt_beta reduce_v_nat_beta
+     reduce_v_label_opt_succ_beta reduce_v_nat_succ_beta
+     reduce_v_label_opt_pred_beta reduce_v_nat_pred_beta
+     reduce_v_label_opt_shift_beta reduce_v_label_opt_unshift_beta
+     reduce_push_var_none reduce_pred_var_succ_var
+  : reduce_vars.
+
+Hint Rewrite reduce_shift_var_distinct
+     reduce_unshift_var_distinct reduce_pop_var_free
+     reduce_push_var_some_distinct reduce_swap_var_free
+     using solve_v_label_opt_equation : reduce_vars.
+
+Hint Rewrite reduce_shift_var_ge reduce_shift_var_lt
+     reduce_unshift_var_le reduce_unshift_var_gt
+     reduce_pop_var_bound_zero reduce_pop_var_bound_nonzero
+     reduce_push_var_some_eq reduce_push_var_some_neq
+     reduce_swap_var_bound_zero reduce_swap_var_bound_one
+     reduce_swap_var_bound_gt_one reduce_succ_var_pred_var
+     using solve_v_label_opt_and_v_nat_equation : reduce_vars.
+
+Ltac reduce_vars :=
   try repeat
-      (autorewrite with reduce_names; cbn in *);
+      (autorewrite with reduce_vars; cbn);
   try repeat
-    ((rewrite_strat (bottomup (hints reduce_names))); cbn in *).
-
-Lemma reduce_non_zero_name {i} n :
-  i < n_index n ->
-  mkname (n_label n) (S (pred (n_index n))) = n.
-Proof.
-  intros; destruct n as [s i2], i2; cbn in *; easy.
-Qed.
+    ((rewrite_strat (bottomup (hints reduce_vars))); cbn).
 
 (* Useful lemma *)
-Lemma red_name_neq n1 n2 :
-  n_label n1 = n_label n2 ->
-  n1 <> n2 <-> n_index n1 <> n_index n2.
+Lemma red_var_neq v1 v2 :
+  v_label_opt v1 = v_label_opt v2 ->
+  v1 <> v2 <-> v_nat v1 <> v_nat v2.
 Proof.
   intro Heq1; split.
   - intros Hneq Heq2; apply Hneq.
-    eta_expand_name n1.
+    rewrite (eta_expand_var v1).
+    rewrite (eta_expand_var v2).
     rewrite Heq1, Heq2; easy.
   - intros Hneq Heq2; apply Hneq.
     rewrite Heq2; easy.
 Qed.
 
-Hint Rewrite red_name_neq using (cbn; congruence) : red_name_neq.
+Hint Rewrite red_var_neq using (cbn; congruence) : red_var_neq.
 
-(* Case split on the order of the name parameters. *)
-Ltac case_names n1 n2 :=
-  destruct (label_dec (n_label n1) (n_label n2));
-    [replace (n_label n2) with (n_label n1) by easy;
-     autorewrite with red_name_neq in *;
-     destruct (Compare_dec.lt_eq_lt_dec (n_index n1) (n_index n2))
-        as [[|]|];
-     [replace n2
-        with (mkname (n_label n2) (S (pred (n_index n2))))
-       by (apply (@reduce_non_zero_name (n_index n1)); easy);
-      reduce_names;
-      replace (mkname (n_label n2) (S (pred (n_index n2))))
-        with n2
-       by (symmetry;
-           apply (@reduce_non_zero_name (n_index n1)); easy)
-     |replace n2 with n1
-        by (change n1 with (mkname (n_label n1) (n_index n1));
-            change n2 with (mkname (n_label n2) (n_index n2));
-            congruence);
-      reduce_names
-     |replace n1
-        with (mkname (n_label n1) (S (pred (n_index n1))))
-       by (apply (@reduce_non_zero_name (n_index n2)); easy);
-      reduce_names;
-      replace (mkname (n_label n1) (S (pred (n_index n1))))
-        with n1
-       by (symmetry;
-           apply (@reduce_non_zero_name (n_index n2)); easy)]
-    |reduce_names];
-    change (mkname (n_label n1) (n_index n1)) with n1;
-    change (mkname (n_label n2) (n_index n2)) with n2;
+(* Case split on the order of the var parameters. *)
+Ltac case_vars v1 v2 :=
+  let Heql := fresh "Heql" in
+  let Hneql := fresh "Hneql" in
+  destruct (label_opt_dec (v_label_opt v1) (v_label_opt v2))
+    as [Heql|Hneql];
+    [replace (v_label_opt v2) with (v_label_opt v1) by apply Heql;
+     autorewrite with red_var_neq in *;
+     cbn in Heql;
+     let Hltn := fresh "Hltn" in
+     let Heqn := fresh "Heqn" in
+     let Hgtn := fresh "Hgtn" in
+     destruct (Compare_dec.lt_eq_lt_dec (v_nat v1) (v_nat v2))
+        as [[Hltn|Heqn]|Hgtn];
+     [reduce_vars_beta in Hltn
+     |replace v2 with v1
+       by apply (@lift_var_eq v1 v2 Heql Heqn);
+      reduce_vars_beta in Heqn|
+      reduce_vars_beta in Hgtn]
+    |cbn in Hneql];
+    reduce_vars;
+    try rewrite (eta_reduce_var v1);
+    try rewrite (eta_reduce_var v2);
     try contradiction; try lia.
 
-Tactic Notation "case_name" constr(n)
-       "as" simple_intropattern(ns) simple_intropattern(ni) :=
-  let n' := fresh "n" in
-  let Heqn := fresh "Heqn" in
-  remember n as n' eqn:Heqn;
-  symmetry in Heqn;
-  destruct n' as [ns [|ni]]; cbn in *;
-    reduce_names; try lia.
-
-Tactic Notation "case_name" constr(n) :=
-  let ns := fresh "ns" in
-  let ni := fresh "ni" in
-  case_name n as ns ni.
-
-(* Reasoning about shifts and unshifts of levels *)
-
-Lemma reduce_shift_level_ge l1 l2 :
-  l1 <= l2 ->
-  shift_level l1 l2 = S l2.
-Proof.
-  intros; unfold shift_level.
-  destruct (le_gt_dec l1 l2); try easy; lia.
-Qed.
-
-Lemma reduce_shift_level_lt l1 l2 :
-  S l2 <= l1 ->
-  shift_level l1 l2 = l2.
-Proof.
-  intros; unfold shift_level.
-  destruct (le_gt_dec l1 l2); try easy; lia.
-Qed.
-
-Lemma reduce_unshift_level_gt l1 l2 :
-  S l1 <= l2 ->
-  unshift_level l1 l2 = pred l2.
-Proof.
-  intros; unfold unshift_level.
-  destruct (le_gt_dec l2 l1); try easy; lia.
-Qed.
-
-Lemma reduce_unshift_level_le l1 l2 :
-  l2 <= l1 ->
-  unshift_level l1 l2 = l2.
-Proof.
-  intros; unfold unshift_level.
-  destruct (le_gt_dec l2 l1); try easy; lia.
-Qed.
-
-Lemma reduce_level_eqb_eq l1 l2 :
-  l1 = l2 ->
-  level_eqb l1 l2 = true.
-Proof.
-  intros; unfold level_eqb, level_dec.
-  destruct (Nat.eq_dec l1 l2); easy.
-Qed.
-
-Lemma reduce_level_eqb_neq l1 l2 :
-  l1 <> l2 ->
-  level_eqb l1 l2 = false.
-Proof.
-  intros; unfold level_eqb, level_dec.
-  destruct (Nat.eq_dec l1 l2); easy.
-Qed.
-
-Lemma reduce_cycle_in_level_lt l1 l2 :
-  l2 < l1 ->
-  cycle_in_level l1 l2 = S l2.
-Proof.
-  intros; unfold cycle_in_level.
-  rewrite reduce_level_eqb_neq by lia.
-  rewrite reduce_unshift_level_le by lia.
-   easy.
-Qed.
-
-Lemma reduce_cycle_in_level_eq l1 l2 :
-  l1 = l2 ->
-  cycle_in_level l1 l2 = 0.
-Proof.
-  intros; unfold cycle_in_level.
-  rewrite reduce_level_eqb_eq by lia.
-  easy.
-Qed.
-
-Lemma reduce_cycle_in_level_gt l1 l2 :
-  l1 < l2 ->
-  cycle_in_level l1 l2 = l2.
-Proof.
-  intros; unfold cycle_in_level.
-  rewrite reduce_level_eqb_neq by lia.
-  rewrite reduce_unshift_level_gt by lia.
-  easy.
-Qed.
-
-Hint Rewrite reduce_shift_level_ge reduce_shift_level_lt
-     reduce_unshift_level_le reduce_unshift_level_gt
-     reduce_level_eqb_eq reduce_level_eqb_neq
-     @reduce_cycle_in_level_lt @reduce_cycle_in_level_eq
-     @reduce_cycle_in_level_gt
-     using (cbn; lia) : reduce_levels.
-
-Ltac reduce_levels :=
-  try repeat
-      (autorewrite with reduce_levels; cbn in *);
-  try repeat
-    ((rewrite_strat (bottomup (hints reduce_levels))); cbn in *).
-
-(* Case split on the order of the level parameters. *)
-Ltac case_levels l1 l2 :=
-  let Heq := fresh "Heq" in
-  destruct (Compare_dec.lt_eq_lt_dec l1 l2)
-    as [[|Heq]|];
-  [|replace l2 with l1 by easy|];
-  reduce_levels; try lia.
-
-(* Case split on a level *)
-Tactic Notation "case_level" constr(l)
-       "as" simple_intropattern(l') :=
-  destruct l as [|l']; cbn in *;
-    reduce_levels; try lia.
-
-Tactic Notation "case_level" constr(l) :=
-  let l' := fresh "l" in
-  case_level l as l'.
-
-(* Case split on a variable *)
-Tactic Notation "case_var" constr(v)
-       "as" simple_intropattern(n) simple_intropattern(l) :=
-  destruct v as [n|l]; cbn in *.
-
-Tactic Notation "case_var" constr(v) :=
-  let n := fresh "n" in
-  let l := fresh "l" in
-  case_var v as n l.
-
-Tactic Notation "case_var" :=
-  match goal with
-  | |- context
-         [match ?v with
-          | free _ => _
-          | bound _ => _
-          end] => case_var v
-  end.
-
-Tactic Notation "case_var"
-       "as" simple_intropattern(n) simple_intropattern(l) :=
-  match goal with
-  | |- context
-         [match ?v with
-          | free _ => _
-          | bound _ => _
-          end] => case_var v as n l
-  end.
+Ltac case_var_zero v :=
+  case_vars zero_var v.
 
 (* Identities *)
 
 Lemma pop_zero_identity :
-  pop_var (zero_var None) =v= 1.
+  pop_var zero_var =v= 1.
 Proof.
   intros v.
-  case_var v as ? l; try easy.
-  case_level l; easy.
+  case_var_zero v; easy.
 Qed.
 
 Lemma push_zero_identity :
-  push_var (zero_var_opt None) =v= 1.
+  push_var (Some zero_var) =v= 1.
 Proof.
   intros v.
-  case_var v as ? l; try easy.
-  case_level l; easy.
+  case_var_zero v; easy.
 Qed.
 
 Lemma pop_push_identity v :
   pop_var v @ push_var (Some v) =v= 1.
 Proof.
   intros v'.
-  case_var v; case_var v' as n' l'; try easy.
-  - case_names n n'; easy.
-  - case_levels l l'; try easy.
-    case_level l'; easy.
+  case_vars v v'; try easy;
+    case_var_zero v'; easy.
 Qed.
 
 Lemma pop_push_identity' v op :
@@ -411,12 +364,8 @@ Lemma push_pop_identity v :
   push_var (Some v) @ pop_var v =v= 1.
 Proof.
   intros v'.
-  case_var v; case_var v' as n' l'; try easy.
-  - case_names n n'; easy.
-  - case_level l'; try easy.
-    case_names n n; easy.
-  - case_level l' as l''; try easy.
-    case_levels l l''; easy.
+  case_var_zero v'; try easy;
+    case_vars v v'; easy.
 Qed.
 
 Lemma push_pop_identity' v op :
@@ -431,10 +380,8 @@ Lemma swap_swap_identity :
   swap_var @ swap_var =v= 1.
 Proof.
   intros v.
-  case_var v as ? l; try easy.
-  unfold swap_level.
-  case_level l as l'; try easy.
-  case_level l'; easy.
+  case_var_zero v; try easy.
+  case_vars (succ_var zero_var) v; easy.
 Qed.
 
 Lemma swap_swap_identity' op :
