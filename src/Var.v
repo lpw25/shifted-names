@@ -175,8 +175,6 @@ Arguments pred_var v : simpl never.
 
 Definition zero_var := mk_var None 0.
 
-Definition one_var := succ_var zero_var.
-
 Definition shift_var v1 v2 :=
   match v1, v2 with
   | bound l1, bound l2 => bound (shift_level l1 l2)
@@ -213,8 +211,8 @@ Definition push_var vo1 v2 :=
 Arguments push_var vo1 v2 : simpl never.
 
 Definition swap_var v :=
-  if var_eqb zero_var v then one_var
-  else if var_eqb one_var v then zero_var
+  if var_eqb zero_var v then succ_var zero_var
+  else if var_eqb (succ_var zero_var) v then zero_var
   else v.
 Arguments swap_var v : simpl nomatch.
 
