@@ -1,42 +1,44 @@
-
-Require Import Label PeanoNat Compare_dec StrictProp.
+Require Import Label PeanoNat Psatz Compare_dec StrictProp.
 Require Import Var.
 
 Inductive raw_renaming :=
-  | raw_renaming_nil : raw_renaming
-  | raw_renaming_cons :
-      option label -> option var
-      -> raw_renaming -> raw_renaming.
+  | raw_renaming_id : raw_renaming
+  | raw_renaming_extend :
+      var -> raw_renaming -> option var -> raw_renaming.
 
-Fixpoint is_normalized_raw_renaming_entry so vo r :=
+Fixpoint is_interesting_raw_renaming_extension v r vo :=
   match r with
-  | raw_renaming_nil =>
-      negb (var_opt_eqb vo (zero_var_opt so))
-  | raw_renaming_cons so' vo' r =>
-    if label_opt_eqb so so' then true
-    else is_normalized_raw_renaming_entry
-           so (unshift_var_opt vo' vo) r
+  | raw_renaming_id => negb (var_opt_var_eqb vo v)
+  | raw_renaming_extend v' r vo' =>
+    is_interesting_raw_renaming_extension
+      (unshift_var v' v) r (unshift_var_opt vo' vo)
+  end.
+
+Definition is_ordered_raw_renaming_var r v :=
+  match r with
+  | raw_renaming_id => true
+  | raw_renaming_extend v' _ _ => is_less_equal_vars v' v
   end.
 
 Fixpoint is_normalized_raw_renaming r :=
   match r with
-  | raw_renaming_nil => true
-  | raw_renaming_cons so vo r =>
-    andb (is_normalized_raw_renaming_entry so vo r)
-         (is_normalized_raw_renaming r)
+  | raw_renaming_id => true
+  | raw_renaming_extend v r vo =>
+    andb (is_ordered_raw_renaming_var r v)
+         (andb (is_interesting_raw_renaming_extension v r vo)
+               (is_normalized_raw_renaming r))
   end.
 
 Definition normalized_raw_renaming r :=
-  if is_normalized_raw_renaming r then sUnit
-  else sEmpty.
+  if is_normalized_raw_renaming r then sUnit else sEmpty.
 
-Definition normalized_raw_renaming_from_cons {so vo r} :
-  normalized_raw_renaming (raw_renaming_cons so vo r) ->
+Definition normalized_raw_renaming_from_extend {v r vo} :
+  normalized_raw_renaming (raw_renaming_extend v r vo) ->
   normalized_raw_renaming r.
 Proof.
   unfold normalized_raw_renaming; cbn.
   destruct (is_normalized_raw_renaming r); try easy.
-  rewrite Bool.andb_false_r; easy.
+  rewrite !Bool.andb_false_r; easy.
 Qed.
 
 Set Primitive Projections.
@@ -49,28 +51,199 @@ Add Printing Constructor renaming.
 Unset Primitive Projections.
 
 Definition renaming_id : renaming :=
-  mk_renaming raw_renaming_nil stt.
+  mk_renaming raw_renaming_id stt.
 
-Fixpoint raw_renaming_cons_null_entry so vo r :=
+Fixpoint raw_renaming_extend_boring v r vo :=
   match r with
-  | raw_renaming_nil =>
-      if (var_opt_eqb vo zero_var_opt) then Some r
+  | raw_renaming_id =>
+      if (var_opt_var_eqb vo v) then Some r
       else None
-  | raw_renaming_cons so' vo' r =>
-    if label_opt_eqb so so' then None
-    else
-      match raw_renaming_cons_null_entry
-              so (unshift_var_opt vo' vo) r with
-      | None => None
-      | Some r =>
-        Some (raw_renaming_cons so' (shift_var_opt vo vo') r)
-      end
+  | raw_renaming_extend v' r vo' =>
+    match raw_renaming_extend_boring
+              (unshift_var v' v) r (unshift_var_opt vo' vo)
+    with
+    | None => None
+    | Some r =>
+      Some (raw_renaming_extend
+              (shift_var v v') r (shift_var_opt vo vo'))
+    end
   end.
 
-Definition normalized_raw_renaming_cons so vo r :=
-  match raw_renaming_cons_null_entry so vo r with
-  | Some r => r
-  | None => raw_renaming_cons so vo r
+Definition is_interesting_raw_renaming_extend_boring_none v r vo :
+  raw_renaming_extend_boring v r vo = None ->
+  is_interesting_raw_renaming_extension v r vo = true.
+Proof.
+  generalize dependent v.
+  generalize dependent vo.
+  induction r as [|v' r IHr vo']; cbn; intros vo v Heq.
+  - destruct (var_opt_var_eqb vo v); easy.
+  - apply IHr.
+    destruct (raw_renaming_extend_boring
+                (unshift_var v' v) r (unshift_var_opt vo' vo));
+      easy.
+Defined.
+
+Definition v_label_opt_shift v1 v2 :
+  v_label_opt (shift_var v1 v2) = v_label_opt v2.
+Proof.
+  destruct v1 as [n1|], v2 as [n2|]; cbn; try easy.
+  unfold shift_name.
+  destruct (label_dec (n_label n1) (n_label n2)); try easy.
+  destruct (le_gt_dec (n_index n1) (n_index n2)); easy.
+Defined.
+(*
+Definition is_ordered_vars_shift v1 v2 v3 :
+  is_ordered_vars v3 v1 = true ->
+  is_ordered_vars
+    (shift_var (unshift_var v1 v2) v3) (shift_var v2 v1) = true.
+Proof.
+  unfold is_ordered_vars.
+  rewrite !v_label_opt_shift.
+  destruct
+    (is_less_than_label_opt (v_label_opt v3) (v_label_opt v1));
+    try easy.
+  unfold label_opt_eqb.
+  destruct (label_opt_dec (v_label_opt v3) (v_label_opt v1));
+    try easy.
+  rewrite !Bool.orb_false_l, !Bool.andb_true_l; intros Heq2.
+  destruct v1 as [n1|l1], v2 as [n2|l2], v3 as [n3|l3]; cbn in *;
+    try easy.
+  - apply leb_correct; apply leb_complete in Heq2.
+    assert (n_label n3 = n_label n1) by congruence.
+    unfold shift_name, unshift_name.
+    destruct (label_dec (n_label n1) (n_label n2));
+      destruct (label_dec (n_label n2) (n_label n1)); cbn;
+        try congruence.
+    destruct (le_gt_dec (n_index n2) (n_index n1)).
+    + destruct (label_dec (n_label n2) (n_label n3));
+        destruct (le_gt_dec (n_index n2) (n_index n3)); cbn; lia.
+    + destruct label_dec; try easy.
+      destruct le_gt_dec; try easy.
+      cbn in *.
+      destruct (n_index n2); cbn in *; try lia.
+      assert (i < S (n_index n3)) by lia.
+      destruct n1, n2, n3; cbn in *; subst.
+      destruct n_index1.
+      * admit.
+      * 
+*)
+(*
+Definition is_ordered_raw_renaming_extend_boring_shift
+           r1 r2 v1 v2 vo1 vo2 :
+  is_ordered_raw_renaming_var r1 v1 = true ->
+  raw_renaming_extend_boring
+    (unshift_var v1 v2) r1 (unshift_var_opt vo1 vo2)
+  = Some r2 ->
+  is_ordered_raw_renaming_var r2 (shift_var v2 v1) = true.
+Proof.
+  generalize dependent v1.
+  generalize dependent v2.
+  generalize dependent vo1.
+  generalize dependent vo2.
+  generalize dependent r2.
+  induction r1 as [|v3 r3 IHr vo3]; cbn;
+    intros r2 vo2 vo1 v2 v1 Heq1 Heq2.
+  - destruct var_opt_var_eqb; try easy.
+    replace r2 with raw_renaming_id by congruence; easy.
+  - destruct
+      (raw_renaming_extend_boring
+         (unshift_var v3 (unshift_var v1 v2)) r3
+         (unshift_var_opt vo3 (unshift_var_opt vo1 vo2)));
+      try easy.
+    replace r2
+      with (raw_renaming_extend
+              (shift_var (unshift_var v1 v2) v3) r
+              (shift_var_opt (unshift_var_opt vo1 vo2) vo3))
+      by congruence; cbn.
+    
+
+Defined
+*)
+
+Definition is_ordered_raw_renaming_transitive r v1 v2 :
+  is_ordered_raw_renaming_var r v1 = true ->
+  is_less_equal_vars v1 v2 = true ->
+  is_ordered_raw_renaming_var r v2 = true.
+Proof.
+  intros Heq1 Heq2.
+  destruct r; cbn in *; try easy.
+  apply is_less_equal_vars_transitive with (v2 := v1); easy.
+Qed.
+
+Definition is_ordered_unshift r v1 v2 :
+  is_ordered_raw_renaming_var r v1 = true ->
+  is_ordered_vars v1 v2 = true ->
+  is_ordered_raw_renaming_var r (unshift_var v1 v2) = true.
+Proof.
+  intros Heq1 Heq2.
+  destruct v1 as [n1|l1], v2 as [n2|l2]; cbn; try easy.
+  - unfold unshift_name.
+    destruct label_dec.
+    + admit.
+    + 
+
+Definition is_normalized_raw_renaming_extend_boring_some
+           v r vo r' :
+  is_normalized_raw_renaming r = true ->
+  is_ordered_raw_renaming_var r v = true ->
+  raw_renaming_extend_boring v r vo = Some r' ->
+  is_normalized_raw_renaming r' = true.
+Proof.
+  generalize dependent v.
+  generalize dependent vo.
+  generalize dependent r'.
+  induction r as [|v' r IHr vo']; cbn;
+    intros r' vo v Heq1 Heq2 Heq3.
+  - destruct (var_opt_var_eqb vo v); try easy.
+    replace r' with (raw_renaming_id) by congruence.
+    easy.
+  - destruct (is_ordered_raw_renaming_var r v')
+      eqn:Heq4; try easy.
+    destruct (is_interesting_raw_renaming_extension v' r vo')
+      eqn:Heq5; try easy.
+    destruct (is_normalized_raw_renaming r)
+      eqn:Heq6; try easy.
+    destruct (raw_renaming_extend_boring
+                (unshift_var v' v) r (unshift_var_opt vo' vo))
+      as [r''|] eqn:Heq7; try easy.
+    replace r'
+      with (raw_renaming_extend (shift_var v v')
+              r'' (shift_var_opt vo vo'))
+      by congruence; cbn.
+    replace (is_normalized_raw_renaming r'') with true.
+    admit.
+symmetry. apply IHr with (v := unshift_var v' v)
+           (vo := unshift_var_opt vo' vo). 
+easy.
+
+
+      by (symmetry; apply IHr with (v := unshift_var v' v)
+           (vo := unshift_var_opt vo' vo); easy).
+    
+
+    + eapply IHr.
+
+    apply IHr in Heq2.
+
+Defined.
+
+
+
+Fixpoint normalized_raw_renaming_extend v r vo :=
+  match r with
+  | raw_renaming_id => raw_renaming_extend v r vo
+  | raw_renaming_extend v' r' vo' =>
+    if is_ordered_vars v' v then
+      match raw_renaming_extend_boring v r vo with
+      | Some r => r
+      | None => raw_renaming_extend v r vo
+      end
+    else
+      raw_renaming_extend
+        (shift_var v v')
+        (normalized_raw_renaming_extend
+           (unshift_var v' v) r' (unshift_var_opt vo' vo))
+        (shift_var_opt vo vo')
   end.
 
 Definition var_opt_geb vo1 vo2 :=

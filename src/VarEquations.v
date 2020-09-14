@@ -2,26 +2,6 @@ Require Import Label PeanoNat Compare_dec
         Psatz Setoid Morphisms.
 Require Import Var.
 
-(* Eta expansion for the record view of variables *)
-
-Lemma eta_expand_var v :
-  v = mk_var (v_label_opt v) (v_nat v).
-Proof. destruct v; easy. Qed.
-
-Lemma eta_reduce_var v :
-  mk_var (v_label_opt v) (v_nat v) = v.
-Proof. destruct v; easy. Qed.
-
-Lemma lift_var_eq {v1 v2} :
-  v_label_opt v1 = v_label_opt v2 ->
-  v_nat v1 = v_nat v2 ->
-  v1 = v2.
-Proof.
-  intros Heq1 Heq2.
-  rewrite (eta_expand_var v1), Heq1, Heq2, (eta_reduce_var v2).
-  easy.
-Qed.
-
 (* Beta reduction for the record view of variables *)
 
 Lemma reduce_v_label_opt_beta so n :

@@ -12,7 +12,7 @@ all: ${MODULES}
 %.vok: %.v
 	${COQC} -vok ${COQPARAMS} $<
 
-Var.vok: Label.vos
+Var.vok Var.vos: Label.vos
 
 VarEquations.vok VarEquations.vos: Label.vos Var.vos
 
@@ -20,9 +20,9 @@ VarEquations.vok VarEquations.vos: Label.vos Var.vos
 #
 #ClosingEquations.vok ClosingEquations.vos: Label.vos Var.vos VarEquations.vos Closing.vos
 
-Renaming.vok Renaming.vos: Label.vos Var.vos Closing.vos
+Renaming.vok Renaming.vos: Label.vos Var.vos
 
-RenamingEquations.vok RenamingEquations.vos: Label.vos Var.vos Closing.vos VarEquations.vos ClosingEquations Renaming.vos
+RenamingEquations.vok RenamingEquations.vos: Label.vos Var.vos Closing.vos VarEquations.vos Renaming.vos
 
 Context.vok Context.vos: Var.vos
 
