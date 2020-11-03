@@ -20,7 +20,7 @@ VarEquations.vok VarEquations.vos: Label.vos Var.vos
 #
 #ClosingEquations.vok ClosingEquations.vos: Label.vos Var.vos VarEquations.vos Closing.vos
 
-Renaming.vok Renaming.vos: Label.vos Var.vos
+Renaming.vok Renaming.vos: Label.vos Var.vos VarEquations.vos
 
 RenamingEquations.vok RenamingEquations.vos: Label.vos Var.vos Closing.vos VarEquations.vos Renaming.vos
 
