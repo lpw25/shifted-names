@@ -101,11 +101,11 @@ Notation "Γ =[ r ]=> Δ" :=
 Lemma ctx_shift {trm A : Set} :
   forall Γ Δ x (a : A) (r : @renaming trm),
     Γ =[r]=> Δ ->
-    Γ =[r, ^x]=> (Δ & x ~ a).
+    Γ =[r,, ^x]=> (Δ & x ~ a).
 Proof.
   intros * H.
   destruct H as [? ? r rn H].
-  apply relates_intro with (s := (r, ^x)%ren) (total := rn).
+  apply relates_intro with (s := (r,, ^x)%ren) (total := rn).
   apply (forall_has_map H); intros y b. 
   cbn; autorewrite with rw_vars rw_names.
   auto.
@@ -114,12 +114,12 @@ Qed.
 Lemma ctx_rename {trm A : Set} :
   forall Γ Δ x y (a : A) (r : @renaming trm),
     Γ =[r]=> Δ ->
-    (Γ & x ~ a) =[r, y <- x]=> (Δ & y ~ a).
+    (Γ & x ~ a) =[r,, y <- x]=> (Δ & y ~ a).
 Proof.
   intros * H.
   destruct H as [? ? r rn H].
   apply relates_intro
-    with (s := (r, y <- x)%ren) (total := rn); cbn.
+    with (s := (r,, y <- x)%ren) (total := rn); cbn.
   apply forall_has_cons;
     autorewrite with rw_vars rw_names; cbn; auto.
   apply (forall_has_map H); intros z c. 

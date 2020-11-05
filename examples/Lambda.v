@@ -122,7 +122,7 @@ Qed.
 Lemma ctx_extend_substitution {Γ Δ x} {A : type} {r} :
   forall_has Γ (fun v B => Δ ⊢ [r] (vv v) ~ B) ->
   forall_has (Γ & x ~ A)
-    (fun v B => Δ & x ~ A ⊢ [r,x] (vv v) ~ B).
+    (fun v B => Δ & x ~ A ⊢ [r,,x] (vv v) ~ B).
 Proof.
   intros H.
   apply forall_has_cons; names.
