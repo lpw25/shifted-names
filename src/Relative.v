@@ -389,12 +389,12 @@ Module Renamings (T : Term).
 
   (* FIXME: maybe this should just be "names"? *)
   Lemma rw_close_shift a r {V} (t : @term V) :
-    close a ([r, ^a] t) = wk ([r] t).
+    close a ([r,, ^a] t) = wk ([r] t).
   Proof.
     simpl_term_eq; autorewrite with rw_renaming; simpl_term_eq.
   Qed.
   Lemma rw_subst_open u r b {V} (t : @term (S V)) :
-    [r, u // b] (open b t) = bind u ([r] t).
+    [r,, u // b] (open b t) = bind u ([r] t).
   Proof. simpl_term_eq. Qed.
   Lemma rw_rename_open a b {V} (t : @term (S V)) :
     [a <- b] (open b t) = open a t.
@@ -418,7 +418,7 @@ Module Renamings (T : Term).
   (* Shifts go the other way.
      This is confluent/terminating because shift doesn't simplify to apply (?) *)
   Lemma rw_push_bind_shift u r s a {V} (t : @term (S V)) :
-    bind ([r, ^a] u) ([s, ^ a] t) =
+    bind ([r,, ^a] u) ([s,, ^ a] t) =
     [^a] (bind ([r]u) ([s]t)).
   Proof.
     rewrite comm_bind_apply.
@@ -615,10 +615,10 @@ Module Renamings (T : Term).
   (* Commuting open and close with apply *)
   
   Lemma rw_push_open a r {V} (t : @term (S V)) :
-    open a ([r] t) = [r, a] (open a t).
+    open a ([r] t) = [r,, a] (open a t).
   Proof. simpl_term_eq. Qed.
   Lemma rw_push_close a r {V} (t : @term V) :
-    [r] (close a t) = close a ([r, a] t).
+    [r] (close a t) = close a ([r,, a] t).
   Proof.  simpl_term_eq. Qed.
   Hint Rewrite @rw_push_open @rw_push_close : rw_renaming.
 
