@@ -173,7 +173,90 @@ Definition pred_var v :=
 Arguments pred_var v /.
 Arguments pred_var v : simpl never.
 
-Definition zero_var := mk_var None 0.
+(* Utilities for manipulating
+   [option^n var -> option^m var] *)
+
+Fixpoint options N A :=
+  match N with
+  | 0 => A
+  | S N => option (options N A)
+  end.
+
+Definition var_op N M := options N var -> options M var.
+
+Declare Scope var_op_scope.
+Delimit Scope var_op_scope with var_op.
+Bind Scope var_op_scope with var_op.
+
+Definition var_op_id {N} : var_op N N :=
+  (fun v => v).
+Arguments var_op_id {N} v /.
+
+Notation " 1 " := var_op_id : var_op_scope.
+
+Definition var_op_compose {N M O} :
+  var_op M O -> var_op N M -> var_op N O :=
+  fun op1 op2 => fun v => op1 (op2 v).
+Arguments var_op_compose {N M O} op1 op2 v /.
+
+Notation "op1 @ op2" := (var_op_compose op1 op2)
+    (at level 60, right associativity)
+  : var_op_scope.
+
+Lemma var_op_left_identity {N M} :
+  forall (op : var_op N M),
+    (1 @ op = op)%var_op.
+Proof. reflexivity. Qed.
+
+Lemma var_op_right_identity {N M} :
+  forall (op : var_op N M),
+    (op @ 1 = op)%var_op.
+Proof. reflexivity. Qed.
+
+Lemma var_op_associative {N M O P} :
+  forall (op1 : var_op O P)
+         (op2 : var_op M O)
+         (op3 : var_op N M),
+    (op1 @ (op2 @ op3) = (op1 @ op2) @ op3)%var_op.
+Proof. reflexivity. Qed.
+
+Definition lift_var_op {N M} :
+  var_op N M -> var_op (S N) (S M) :=
+  fun op vo =>
+      match vo with
+      | None => None
+      | Some v => Some (op v)
+      end.
+
+Definition eq_var_op {N M} : relation (var_op N M) :=
+  @pointwise_relation (options N var) (options M var) eq.
+
+Notation "f =v= g" :=
+  (eq_var_op (f)%var_op (g)%var_op) (at level 70).
+
+Instance eq_var_op_equiv {N M} :
+  Equivalence (@eq_var_op N M).
+Proof.
+  apply @Build_Equivalence; try easy.
+  intros op1 op2 op3 Heq1 Heq2 v.
+  rewrite Heq1, Heq2; easy.
+Qed.
+
+Add Parametric Morphism {N M O} : (@var_op_compose N M O)
+    with signature eq_var_op ==> eq_var_op ==> eq_var_op
+      as var_op_compose_mor.
+  intros * Heq1 * Heq2 v; unfold var_op_compose.
+  rewrite Heq1, Heq2; easy.
+Qed.
+
+Add Parametric Morphism {N M} : (@lift_var_op N M)
+    with signature eq_var_op ==> eq_var_op
+      as lift_var_op_mor.
+  intros * Heq1 [v|]; unfold lift_var_op;
+    try rewrite Heq1; easy.
+Qed.
+
+(* Core operations on vars *)
 
 Definition shift_var v1 v2 :=
   match v1, v2 with
@@ -193,124 +276,28 @@ Definition unshift_var v1 v2 :=
   end.
 Arguments unshift_var !v1 !v2.
 
-Definition unshift_var_opt_var vo1 v2 :=
-  match vo1 with
-  | None => v2
-  | Some v1 => unshift_var v1 v2
-  end.
-Arguments unshift_var_opt_var !vo1 v2.
+Definition pop_var v1 : var_op 1 0 :=
+  fun vo2 =>
+    match vo2 with
+    | None => v1
+    | Some v2 => shift_var v1 v2
+    end.
+Arguments pop_var v1 vo2 : simpl never.
 
-Definition pop_var v1 v2 :=
-  if var_eqb zero_var v2 then v1
-  else shift_var v1 (unshift_var zero_var v2).
-Arguments pop_var v1 v2 : simpl never.
+Definition push_var v1 : var_op 0 1 :=
+  fun v2 =>
+    if var_eqb v1 v2 then None
+    else Some (unshift_var v1 v2).
+Arguments push_var v1 v2 : simpl never.
 
-Definition push_var vo1 v2 :=
-  if var_opt_var_eqb vo1 v2 then zero_var
-  else unshift_var_opt_var vo1 (shift_var zero_var v2).
-Arguments push_var vo1 v2 : simpl never.
-
-Definition swap_var v :=
-  if var_eqb zero_var v then succ_var zero_var
-  else if var_eqb (succ_var zero_var) v then zero_var
-  else v.
-Arguments swap_var v : simpl nomatch.
-
-Definition shift_var_opt vo1 vo2 :=
-  match vo1, vo2 with
-  | None, vo2 => vo2
-  | vo1, None => vo2
-  | Some v1, Some v2 => Some (shift_var v1 v2)
-  end.
-Arguments shift_var_opt !vo1 !vo2.
-
-Definition unshift_var_opt vo1 vo2 :=
-  match vo1, vo2 with
-  | None, vo2 => vo2
-  | vo1, None => vo2
-  | Some v1, Some v2 => Some (unshift_var v1 v2)
-  end.
-Arguments unshift_var_opt !vo1 !vo2.
-
-Definition unshift_var_var_opt v1 vo2 :=
-  match vo2 with
-  | None => None
-  | Some v2 => Some (unshift_var v1 v2)
-  end.
-Arguments unshift_var_var_opt v1 !vo2.
-
-(* Utilities for manipulating [var -> var]*)
-
-Definition var_op := var -> var.
-
-Declare Scope var_op_scope.
-Delimit Scope var_op_scope with var_op.
-Bind Scope var_op_scope with var_op.
-
-Definition var_op_id : var_op :=
-  (fun v => v).
-Arguments var_op_id v /.
-
-Notation " 1 " := var_op_id : var_op_scope.
-
-Definition var_op_compose :
-  var_op -> var_op -> var_op :=
-  fun op1 op2 => fun v => op1 (op2 v).
-Arguments var_op_compose op1 op2 v /.
-
-Notation "op1 @ op2" := (var_op_compose op1 op2)
-    (at level 60, right associativity)
-  : var_op_scope.
-
-Lemma var_op_left_identity :
-  forall (op : var_op),
-    (1 @ op = op)%var_op.
-Proof. reflexivity. Qed.
-
-Lemma var_op_right_identity :
-  forall (op : var_op),
-    (op @ 1 = op)%var_op.
-Proof. reflexivity. Qed.
-
-Lemma var_op_associative :
-  forall (op1 op2 op3 : var_op),
-    (op1 @ (op2 @ op3) = (op1 @ op2) @ op3)%var_op.
-Proof. reflexivity. Qed.
-
-Definition eq_var_op : relation var_op :=
-  @pointwise_relation var var eq.
-
-Notation "f =v= g" :=
-  (eq_var_op (f)%var_op (g)%var_op) (at level 70).
-
-Instance eq_var_op_equiv :
-  Equivalence eq_var_op.
-Proof.
-  apply @Build_Equivalence; try easy.
-  intros op1 op2 op3 Heq1 Heq2 v.
-  rewrite Heq1, Heq2; easy.
-Qed.
-
-Add Parametric Morphism : var_op_compose
-    with signature eq_var_op ==> eq_var_op ==> eq_var_op
-      as var_op_compose_mor.
-  intros * Heq1 * Heq2 v; unfold var_op_compose.
-  rewrite Heq1, Heq2; easy.
-Qed.
-
-(* Lift [var -> var] function to avoid [bound 0] *)
-
-Definition lift_var_op (op : var_op) : var_op :=
-  fun v =>
-    if var_eqb zero_var v then v
-    else shift_var zero_var (op (unshift_var zero_var v)).
-
-Add Parametric Morphism : lift_var_op
-    with signature (eq_var_op ==> eq_var_op)
-      as lift_var_op_mor.
-  intros * Heq v; unfold lift_var_op.
-  destruct v as [n|[|l]]; try rewrite Heq; easy.
-Qed.
+Definition swap_var : var_op 2 2 :=
+  fun voo =>
+    match voo with
+    | None => Some None
+    | Some None => None
+    | Some (Some v) => Some (Some v)
+    end.
+Arguments swap_var voo : simpl nomatch.
 
 (* Total ordering on vars *)
 
