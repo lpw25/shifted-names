@@ -1,4 +1,4 @@
-Require Import Label PeanoNat Psatz Compare_dec StrictProp.
+Require Import Label PeanoNat Psatz Ring Compare_dec StrictProp.
 Require Import Var VarEquations.
 
 Inductive raw_renaming :=
@@ -169,7 +169,7 @@ Definition interesting_raw_renaming_extend vl r vr :=
   | None => raw_renaming_extend vl r vr
   end.
 
-Lemma is_all_interesing_raw_renaming_extend vl r vr :
+Lemma is_all_interesting_raw_renaming_extend vl r vr :
   is_all_interesting_raw_renaming r = true ->
   is_all_interesting_raw_renaming
     (interesting_raw_renaming_extend vl r vr) = true.
@@ -180,6 +180,42 @@ Proof.
       in Heq2; easy.
   - rewrite Bool.andb_true_iff; split; try easy.
     apply is_interesting_raw_renaming_extend_boring_none; easy.
+Qed.
+
+Lemma is_interesting_interesting_raw_renaming_extend_ind r1 :
+  forall vl1 vr1 r2 vl2 vr2,
+    raw_renaming_extend_boring vl1 r1 vr1 = Some r2 ->
+    is_interesting_raw_renaming_extension
+           (unshift_var vl1 vl2) r1 (unshift_var vr1 vr2) = true ->
+    is_interesting_raw_renaming_extension vl2 r2 vr2 = true.
+Proof.
+  induction r1 as [|vl3 r1 IHr1 vr3]; cbn; intros * Heq1 Heq2.
+  - destruct (var_eqb vl1 vr1) eqn:Heq3; try easy.
+    injection Heq1 as <-; cbn.
+    rewrite Bool.negb_true_iff, var_eqb_false, var_eqb_true in *.
+    intros Heq4; subst; easy.
+  - destruct raw_renaming_extend_boring eqn:Heq3; try easy.
+    injection Heq1 as <-; cbn.
+    eapply IHr1 with (vl2 := unshift_var (shift_var vl1 vl3) vl2)
+      (vr2 := unshift_var (shift_var vr1 vr3) vr2)
+      in Heq3; try easy.
+    rewrite transpose_pops_reverse_right.
+    rewrite transpose_pushes_reverse_left.
+    easy.
+Qed.
+
+Lemma is_interesting_interesting_raw_renaming_extend
+      vl1 r vr1 vl2 vr2 :
+  is_interesting_raw_renaming_extension
+    vl2 (raw_renaming_extend vl1 r vr1) vr2 = true ->
+  is_interesting_raw_renaming_extension
+    vl2 (interesting_raw_renaming_extend vl1 r vr1) vr2 = true.
+Proof.
+  unfold interesting_raw_renaming_extend.
+  destruct raw_renaming_extend_boring eqn:Heq1;
+    cbn; intros Heq2; try easy.
+  apply is_interesting_interesting_raw_renaming_extend_ind
+    with (r1 := r) (vl1 := vl1) (vr1 := vr1); easy.
 Qed.
 
 Definition is_ordered_raw_renaming_var v r :=
@@ -207,38 +243,22 @@ Proof.
 Qed.
 
 (* TODO : move to var equations *)
-Lemma monotonic_succ_var v1 v2 :
-  is_less_equal_vars v1 v2 = true ->
-  is_less_equal_vars (succ_var v1) (succ_var v2) = true.
+Lemma succ_var_monotonic v1 v2 :
+  is_less_equal_vars (succ_var v1) (succ_var v2)
+  = is_less_equal_vars v1 v2.
 Proof.
   case_vars v1 v2; easy.
 Qed.
 
 (* TODO : move to var equations *)
 Lemma is_less_equal_shift v1 v2 v3 :
-  is_less_equal_vars v1 v2 = true ->
   is_less_equal_vars
-    (shift_var v3 v1) (shift_var (unshift_var v1 v3) v2) = true.
+    (shift_var v3 v1) (shift_var (unshift_var v1 v3) v2)
+  = is_less_equal_vars v1 v2.
 Proof.
   case_vars v1 v3;
     case_vars (unshift_var v1 v3) v2; try easy.
-  apply monotonic_succ_var.
-Qed.
-
-Lemma is_ordered_raw_renaming_extend_boring_some_ind r1 :
-  forall r2 vl1 vl2 vr1 vr2,
-  is_ordered_raw_renaming_var vl1 r1 = true ->
-  raw_renaming_extend_boring
-    (unshift_var vl1 vl2) r1 (unshift_var vr1 vr2) = Some r2 ->
-  is_ordered_raw_renaming_var (shift_var vl2 vl1) r2 = true.
-Proof.
-  induction r1 as [|vl3 r3 IHr vr3]; cbn;
-    intros * Heq1 Heq2.
-  - destruct var_eqb; try easy.
-    injection Heq2 as <-; easy.
-  - destruct raw_renaming_extend_boring; try easy.
-    injection Heq2 as <-; cbn.
-    apply is_less_equal_shift; easy.
+  apply succ_var_monotonic.
 Qed.
 
 Lemma is_ordered_raw_renaming_less_equal_var v1 v2 r :
@@ -250,47 +270,87 @@ Proof.
   apply is_less_equal_vars_transitive with (v2 := v1); easy.
 Qed.
 
+Lemma is_ordered_raw_renaming_extend_boring_some_ind r1 :
+  forall vl1 vr1 r2 vl2,
+    raw_renaming_extend_boring
+      (unshift_var vl1 vl2) r1 vr1 = Some r2 ->
+    is_ordered_raw_renaming_var (shift_var vl2 vl1) r2
+    = is_ordered_raw_renaming_var vl1 r1.
+Proof.
+  destruct r1 as [|vl3 r3 vr3]; cbn; intros * Heq1.
+  - destruct var_eqb; try easy.
+    injection Heq1 as <-; easy.
+  - destruct raw_renaming_extend_boring eqn:Heq2; try easy.
+    injection Heq1 as <-; cbn.
+    apply is_less_equal_shift.
+Qed.
+
 Lemma is_ordered_raw_renaming_extend_boring_some vl r vr r' :
-  is_all_ordered_raw_renaming r = true ->
-  is_ordered_raw_renaming_var vl r = true ->
   raw_renaming_extend_boring vl r vr = Some r' ->
+  is_all_ordered_raw_renaming r = true ->
   is_all_ordered_raw_renaming r' = true.
 Proof.
   generalize dependent vl.
   generalize dependent vr.
   generalize dependent r'.
-  induction r as [|vl' r IHr vr']; cbn;
-    intros r' vr vl Heq1 Heq2 Heq3.
+  induction r as [|vl' r IHr vr'];
+    cbn; intros r' vr vl Heq1 Heq2.
   - destruct var_eqb; try easy.
-    injection Heq3 as <-; easy.
-  - rewrite Bool.andb_true_iff in Heq1;
-      destruct Heq1 as [Heq1 Heq4].
-    destruct raw_renaming_extend_boring eqn:Heq5; try easy.
-    injection Heq3 as <-; cbn.
-    rewrite Bool.andb_true_iff; split.
-    + apply is_ordered_raw_renaming_extend_boring_some_ind
-        with (r1 := r) (vr1 := vr') (vr2 := vr); easy.
-    + apply IHr
-        with (vl := unshift_var vl' vl) (vr := unshift_var vr' vr);
-        try easy.
-      apply is_ordered_raw_renaming_less_equal_var
-        with (v1 := vl'); try easy.
-      apply is_less_equal_vars_transitive with (v2 := vl); try easy.
-      apply is_less_equal_vars_unshift_r.
+    injection Heq1 as <-; easy.
+  - destruct raw_renaming_extend_boring eqn:Heq3; try easy.
+    injection Heq1 as <-; cbn.
+    rewrite Bool.andb_true_iff in Heq2.
+    destruct Heq2 as [Heq2 Heq5].
+    rewrite is_ordered_raw_renaming_extend_boring_some_ind
+      with (r1 := r) (vr1 := unshift_var vr' vr); try easy.
+    rewrite Heq2; cbn.
+    apply IHr
+      with (vl := unshift_var vl' vl) (vr := unshift_var vr' vr);
+      easy.
 Qed.
 
-Lemma is_all_ordered_raw_renaming_extend vl r vr :
-  is_all_ordered_raw_renaming r = true ->
-  is_ordered_raw_renaming_var vl r = true ->
+Lemma is_all_ordered_interesting_raw_renaming_extend vl r vr :
+  is_all_ordered_raw_renaming
+    (raw_renaming_extend vl r vr) = true ->
   is_all_ordered_raw_renaming
     (interesting_raw_renaming_extend vl r vr) = true.
 Proof.
-  intros Heq1 Heq2.
   unfold interesting_raw_renaming_extend.
-  destruct raw_renaming_extend_boring
-    eqn:Heq3; cbn; try rewrite Bool.andb_true_iff; try easy.
-  apply is_ordered_raw_renaming_extend_boring_some
-    with (vl := vl) (r := r) (vr := vr); easy.
+  destruct raw_renaming_extend_boring eqn:Heq2;
+    cbn; intros Heq1; try easy.
+  rewrite Bool.andb_true_iff in Heq1.
+  destruct Heq1 as [Heq1 Heq3].
+  apply is_ordered_raw_renaming_extend_boring_some in Heq2; easy.
+Qed.
+
+Lemma is_ordered_interesting_raw_renaming_extend_ind r1 :
+  forall vl1 vr1 r2 vl2,
+    raw_renaming_extend_boring vl1 r1 vr1 = Some r2 ->
+    is_less_equal_vars vl2 vl1 = true ->
+    is_ordered_raw_renaming_var vl2 r1 = true ->
+    is_ordered_raw_renaming_var vl2 r2 = true.
+Proof.
+  destruct r1 as [|vl3 r vr3]; cbn; intros * Heq1 Heq2 Heq3.
+  - destruct var_eqb; try easy.
+    injection Heq1 as <-; easy.
+  - destruct raw_renaming_extend_boring; try easy.
+    injection Heq1 as <-; cbn.
+    apply is_less_equal_vars_transitive with vl3; try easy.
+    apply is_less_equal_vars_shift_r.
+Qed.
+
+Lemma is_ordered_interesting_raw_renaming_extend
+      vl1 r vr1 vl2 :
+  is_less_equal_vars vl2 vl1 = true ->
+  is_ordered_raw_renaming_var vl2 r = true ->
+  is_ordered_raw_renaming_var
+    vl2 (interesting_raw_renaming_extend vl1 r vr1) = true.
+Proof.
+  unfold interesting_raw_renaming_extend.
+  destruct raw_renaming_extend_boring eqn:Heq1;
+    cbn; intros Heq2 Heq3; try easy.
+  apply is_ordered_interesting_raw_renaming_extend_ind
+    with (r1 := r) (vl1 := vl1) (vr1 := vr1); easy.
 Qed.
 
 Definition is_normalized_raw_renaming r :=
@@ -301,13 +361,24 @@ Definition is_normalized_raw_renaming r :=
 Definition normalized_raw_renaming r :=
   if is_normalized_raw_renaming r then sUnit else sEmpty.
 
+Lemma is_normalized_raw_renaming_extend vl r vr :
+  is_normalized_raw_renaming (raw_renaming_extend vl r vr)
+  = andb
+      (is_normalized_raw_renaming r)
+      (andb
+         (is_interesting_raw_renaming_extension vl r vr)
+         (is_ordered_raw_renaming_var vl r)).
+Proof.
+  unfold is_normalized_raw_renaming; cbn; ring.
+Qed.
+
 Lemma is_normalized_raw_renaming_from_extend {vl r vr} :
   is_normalized_raw_renaming (raw_renaming_extend vl r vr) = true ->
   is_normalized_raw_renaming r = true.
 Proof.
-  cbn.
-  destruct (is_normalized_raw_renaming r); try easy.
-  rewrite !Bool.andb_false_r; easy.
+  rewrite is_normalized_raw_renaming_extend.
+  rewrite! Bool.andb_true_iff.
+  easy.
 Qed.
 
 Lemma normalized_raw_renaming_from_extend {vl r vr} :
@@ -315,69 +386,9 @@ Lemma normalized_raw_renaming_from_extend {vl r vr} :
   normalized_raw_renaming r.
 Proof.
   unfold normalized_raw_renaming; cbn.
-  destruct (is_normalized_raw_renaming r); try easy.
-  rewrite !Bool.andb_false_r; easy.
+  destruct is_normalized_raw_renaming eqn:Heq; try easy.
+  rewrite (is_normalized_raw_renaming_from_extend Heq); easy.
 Qed.
-
-Lemma is_normalized_raw_renaming_extend_boring_none
-      r vl1 vl2 vr1 vr2 :
-  is_normalized_raw_renaming (raw_renaming_extend vl2 r vr2)
-  = true ->
-  raw_renaming_extend_boring
-    vl1 (raw_renaming_extend vl2 r vr2) vr1 = None ->
-  is_less_equal_vars vl1 vl2 = true ->
-  is_normalized_raw_renaming
-    (raw_renaming_extend vl1 (raw_renaming_extend vl2 r vr2) vr1)
-    = true.
-Proof.
-  intros Heq1 Heq2 Heq3; cbn in *.
-  rewrite Heq3, Heq1.
-  rewrite is_interesting_raw_renaming_extend_boring_none; try easy.
-  destruct (raw_renaming_extend_boring (unshift_var vl2 vl1) r
-             (unshift_var vr2 vr1)); easy.
-Qed.
-
-Lemma is_normalized_raw_renaming_extend_boring_some
-           vl r vr r' :
-  is_normalized_raw_renaming r = true ->
-  raw_renaming_extend_boring vl r vr = Some r' ->
-  is_normalized_raw_renaming r' = true.
-Proof.
-  generalize dependent vl.
-  generalize dependent vr.
-  generalize dependent r'.
-  induction r as [|vl' r IHr vr']; cbn;
-    intros r' vr vl Heq1 Heq2.
-  - destruct (var_eqb vl vr); try easy.
-    replace r' with (raw_renaming_id) by congruence.
-    easy.
-  - destruct (is_ordered_raw_renaming_var vl' r)
-      eqn:Heq4; try easy.
-    destruct (is_interesting_raw_renaming_extension vl' r vr')
-      eqn:Heq5; try easy.
-    destruct (is_normalized_raw_renaming r)
-      eqn:Heq6; try easy.
-    destruct (raw_renaming_extend_boring
-                (unshift_var vl' vl) r (unshift_var vr' vr))
-      as [r''|] eqn:Heq7; try easy.
-    replace r'
-      with (raw_renaming_extend (shift_var vl vl')
-              r'' (shift_var vr vr'))
-      by congruence; cbn.
-    replace (is_normalized_raw_renaming r'') with true
-      by (symmetry;
-          apply IHr with (vl := unshift_var vl' vl)
-            (vr := unshift_var vr' vr); easy).
-    rewrite is_ordered_raw_renaming_extend_boring_shift
-      with (r1 := r) (vr1 := vr') (vr2 := vr) by easy.
-    admit.
-Admitted.
-(*
-    rewrite (is_interesting_raw_renaming_extend_boring_shift
-               Heq5 Heq7).
-    easy.
-Qed.
-*)
 
 Lemma is_normalized_interesting_raw_renaming_extend vl r vr :
   is_normalized_raw_renaming r = true ->
@@ -385,13 +396,13 @@ Lemma is_normalized_interesting_raw_renaming_extend vl r vr :
   is_normalized_raw_renaming
     (interesting_raw_renaming_extend vl r vr) = true.
 Proof.
-  intros Heq1 Heq2; unfold interesting_raw_renaming_extend.
-  destruct (raw_renaming_extend_boring vl r vr) as [r'|] eqn:Heq3.
-  - apply is_normalized_raw_renaming_extend_boring_some
-      with (vl := vl) (r := r) (vr := vr); easy.
-  - cbn; rewrite Heq1, Heq2.
-    rewrite is_interesting_raw_renaming_extend_boring_none by easy.
-    easy.
+  unfold is_normalized_raw_renaming.
+  rewrite! Bool.andb_true_iff.
+  intros [Heq1 Heq2] Heq3.
+  split.
+  - apply is_all_interesting_raw_renaming_extend; easy.
+  - apply is_all_ordered_interesting_raw_renaming_extend; cbn.
+    rewrite! Bool.andb_true_iff; easy.
 Qed.
 
 Fixpoint normalized_raw_renaming_extend vl r vr :=
@@ -408,6 +419,121 @@ Fixpoint normalized_raw_renaming_extend vl r vr :=
         (shift_var vr vr')
   end.
 
+Lemma is_interesting_normalized_raw_renaming_extend
+      vl1 r1 vr1 vl2 vr2 :
+  is_interesting_raw_renaming_extension
+    vl2 (raw_renaming_extend vl1 r1 vr1) vr2 = true ->
+  is_interesting_raw_renaming_extension
+    vl2 (normalized_raw_renaming_extend vl1 r1 vr1) vr2 = true.
+Proof.
+  generalize dependent vr2.
+  generalize dependent vl2.
+  generalize dependent vr1.
+  generalize dependent vl1.
+  induction r1 as [|vl3 r2 IHr vr3]; cbn; intros * Heq1.
+  - apply is_interesting_interesting_raw_renaming_extend; easy.
+  - destruct is_less_equal_vars; cbn.
+    + apply is_interesting_interesting_raw_renaming_extend; easy.
+    + rewrite IHr; cbn; try easy.
+      rewrite transpose_pops_reverse_right.
+      rewrite transpose_pushes_reverse_left; easy.
+Qed.
+
+Lemma is_all_interesting_normalized_raw_renaming_extend vl r vr :
+  is_all_interesting_raw_renaming r = true ->
+  is_all_interesting_raw_renaming
+    (normalized_raw_renaming_extend vl r vr) = true.
+Proof.
+  generalize dependent vr.
+  generalize dependent vl.
+  induction r as [|vl' r IHr vr']; cbn; intros vl vr Heq1.
+  - apply is_all_interesting_raw_renaming_extend; easy.
+  - destruct is_less_equal_vars eqn:Heq3; cbn.
+    + apply is_all_interesting_raw_renaming_extend; easy.
+    + rewrite Bool.andb_true_iff in Heq1.
+      destruct Heq1 as [Heq1 Heq2].
+      rewrite! Bool.andb_true_iff; split; auto.
+      apply is_interesting_normalized_raw_renaming_extend; cbn.
+      rewrite transpose_pops_squared_right.
+      rewrite transpose_pushes_squared_left; easy.
+Qed.
+
+Lemma is_ordered_normalized_raw_renaming_extend vl1 r1 vr1 vl2 :
+  is_less_equal_vars vl2 vl1 = true ->
+  is_ordered_raw_renaming_var vl2 r1 = true ->
+  is_ordered_raw_renaming_var
+    vl2 (normalized_raw_renaming_extend vl1 r1 vr1) = true.
+Proof.
+  generalize dependent vl2.
+  generalize dependent vr1.
+  generalize dependent vl1.
+  destruct r1 as [|vl3 r2 vr3]; cbn; intros * Heq1 Heq2.
+  - apply is_ordered_interesting_raw_renaming_extend; easy.
+  - destruct (is_less_equal_vars vl1 vl3); cbn.
+    + apply is_ordered_interesting_raw_renaming_extend; easy.
+    + apply is_less_equal_vars_transitive with vl3; try easy.
+      apply is_less_equal_vars_shift_r.
+Qed.
+
+(* TODO : move to var equations *)
+Lemma shift_less_equal v1 v2 :
+  is_less_equal_vars v1 v2 = false ->
+  shift_var v1 v2 = v2.
+Proof.
+  case_vars v1 v2; easy.
+Qed.
+
+Lemma is_all_ordered_normalized_raw_renaming_extend vl r vr :
+  is_all_ordered_raw_renaming r = true ->
+  is_all_ordered_raw_renaming
+    (normalized_raw_renaming_extend vl r vr) = true.
+Proof.
+  generalize dependent vr.
+  generalize dependent vl.
+  induction r as [|vl' r IHr vr']; cbn; intros vl vr Heq1.
+  - apply is_all_ordered_interesting_raw_renaming_extend; easy.
+  - destruct is_less_equal_vars eqn:Heq3; cbn.
+    + apply is_all_ordered_interesting_raw_renaming_extend; cbn.
+      rewrite Heq3; easy.
+    + rewrite Bool.andb_true_iff in Heq1.
+      destruct Heq1 as [Heq1 Heq2].
+      rewrite! Bool.andb_true_iff; split; auto.
+      apply is_ordered_normalized_raw_renaming_extend;
+        rewrite shift_less_equal by easy; try easy.
+      rewrite is_less_equal_vars_unshift_l.
+      apply is_less_than_vars_total; easy.
+Qed.
+
+Lemma is_normalized_normalized_raw_renaming_extend vl r vr :
+  is_normalized_raw_renaming r = true ->
+  is_normalized_raw_renaming
+    (normalized_raw_renaming_extend vl r vr) = true.
+Proof.
+  unfold is_normalized_raw_renaming; intros Heq.
+  rewrite Bool.andb_true_iff in Heq.
+  destruct Heq as [Heq1 Heq2].
+  rewrite Bool.andb_true_iff; split.
+  - apply is_all_interesting_normalized_raw_renaming_extend; easy.
+  - apply is_all_ordered_normalized_raw_renaming_extend; easy.
+Qed.
+
+Lemma normalized_normalized_raw_renaming_extend vl r vr :
+  normalized_raw_renaming r ->
+  normalized_raw_renaming
+    (normalized_raw_renaming_extend vl r vr).
+Proof.
+  unfold normalized_raw_renaming.
+  destruct (is_normalized_raw_renaming r) eqn:Heq1; try easy.
+  destruct
+    (is_normalized_raw_renaming
+       (normalized_raw_renaming_extend vl r vr)) eqn:Heq2;
+    try easy.
+  apply is_normalized_normalized_raw_renaming_extend
+    with (vl := vl) (vr := vr) in Heq1.
+  rewrite Heq1 in Heq2.
+  discriminate.
+Qed.
+
 Set Primitive Projections.
 Record renaming :=
   mk_renaming {
@@ -420,394 +546,61 @@ Unset Primitive Projections.
 Definition renaming_id : renaming :=
   mk_renaming raw_renaming_id stt.
 
+Definition renaming_extend vl r vr : renaming :=
+  mk_renaming
+    (normalized_raw_renaming_extend vl (r_raw r) vr)
+    (normalized_normalized_raw_renaming_extend
+       vl (r_raw r) vr (r_normalized r)).
 
-Lemma is_interesting_interesting_raw_renaming_extend_shift_ind
-      r1 :
-  forall r2 vl1 vl2 vl3 vl4 vr1 vr2 vr3 vr4,
-  is_interesting_raw_renaming_extension vl1 r1 vr1 = true ->
-  vl3 = unshift_var vl1 vl2 ->
-  vr3 = unshift_var vr1 vr2 ->
-  r2 = interesting_raw_renaming_extend vl3 r1 vr3 ->
-  vl4 = shift_var vl2 vl1 ->
-  vr4 = shift_var vr2 vr1 ->
-  is_interesting_raw_renaming_extension vl4 r2 vr4 = true.
-Proof.
-  intros * Heq1 -> -> -> -> ->.
-  unfold interesting_raw_renaming_extend.
-  destruct
-      (raw_renaming_extend_boring
-         (unshift_var vl1 vl2) r1
-         (unshift_var vr1 vr2))
-      as [r2|] eqn:Heq2; try easy.
-  - apply (@is_interesting_raw_renaming_extend_boring_shift r1); easy.
-  - 
-
-  induction r1 as [|vl5 r1 IHr1 vr5]; cbn;
-    unfold interesting_raw_renaming_extend;
-
-Qed.
-
-Lemma is_interesting_raw_renaming_extend_boring_shift
-      {r1 r2 vl1 vl2 vr1 vr2} :
-  is_interesting_raw_renaming_extension vl1 r1 vr1 = true ->
-  raw_renaming_extend_boring
-    (unshift_var vl1 vl2) r1 (unshift_var vr1 vr2) = Some r2 ->
-  is_interesting_raw_renaming_extension
-    (shift_var vl2 vl1) r2 (shift_var vr2 vr1) = true.
-Proof.
-  intros Heq1 Heq2.
-  apply (is_interesting_raw_renaming_extend_boring_shift_ind
-           r1 r2 vl1 vl2 _ _ vr1 vr2 _ _ Heq1 eq_refl eq_refl Heq2
-           eq_refl eq_refl).
-Qed.
-
-Lemma is_interesting_normalized_raw_renaming_extend_shift_ind
-      r1 :
-  forall vl1 vl2 vl3 vl4 vr1 vr2 vr3 vr4,
-  is_interesting_raw_renaming_extension vl1 r1 vr1 = true ->
-  vl3 = unshift_var vl1 vl2 ->
-  vr3 = unshift_var vr1 vr2 ->
-  vl4 = shift_var vl2 vl1 ->
-  vr4 = shift_var vr2 vr1 ->
-  is_interesting_raw_renaming_extension
-    vl4 (normalized_raw_renaming_extend vl3 r1 vr3) vr4 = true.
-Proof.
-  induction r1 as [|vl5 r1 IHr1 vr5];
-    cbn -[interesting_raw_renaming_extend];
-    intros * Heq1 -> -> -> ->.
-  - destruct
-      (raw_renaming_extend_boring
-        (unshift_var vl1 vl2) raw_renaming_id
-        (unshift_var vr1 vr2)) as [r2|] eqn:Heq2.
-    + apply (@is_interesting_raw_renaming_extend_boring_shift
-               raw_renaming_id); easy.
-    + cbn; rewrite transpose_pushes_squared_left,
-        transpose_pops_squared_right; easy.
-  - destruct (is_less_equal_vars (unshift_var vl1 vl2) vl5) eqn:Heq2.
-    + destruct
-        (raw_renaming_extend_boring
-          (unshift_var vl1 vl2)
-          (raw_renaming_extend vl5 r1 vr5)
-          (unshift_var vr1 vr2)) as [r2|] eqn:Heq3.
-      * apply (@is_interesting_raw_renaming_extend_boring_shift
-                 (raw_renaming_extend vl5 r1 vr5)); easy.
-      * 
-
-destruct
-      (var_eqb (unshift_var vl1 vl2) (unshift_var vr1 vr2))
-      eqn:Heq3; cbn;
-      rewrite Bool.negb_true_iff, var_eqb_false, ?var_eqb_true in *.
-    + apply shift_neq; easy.
-    + 
-  - 
-    + destruct
-        (raw_renaming_extend_boring
-           (unshift_var vl5 (unshift_var vl1 vl2)) r1
-           (unshift_var vr5 (unshift_var vr1 vr2)))
-        as [r2|] eqn:Heq3.
-      * admit.
-      * 
-
-    eapply IHr1
-      with (vl1 := unshift_var vl5 vl1)
-           (vr1 := unshift_var vr5 vr1)
-           (vl2 := unshift_var (shift_var vl1 vl5) vl2)
-           (vr2 := unshift_var (shift_var vr1 vr5) vr2)
-           (vl3 := unshift_var vl5 (unshift_var vl1 vl2))
-           (vr3 := unshift_var vr5 (unshift_var vr1 vr2));
-      try easy.
-    + rewrite transpose_pops_reverse_right; easy.
-    + rewrite transpose_pushes_reverse_left; easy.
-    + rewrite transpose_pops_reverse_middle; easy.
-    + rewrite transpose_pushes_reverse_middle; easy.
-
-  - 
-
-Lemma normalized_raw_renaming_extend_normalized vl r vr :
-  normalized_raw_renaming r ->
-  normalized_raw_renaming
-    (normalized_raw_renaming_extend vl r vr).
-Proof.
-  unfold normalized_raw_renaming.
-  destruct (is_normalized_raw_renaming r) eqn:Heq1;
-    try easy; intros _.
-  generalize dependent vl.
-  generalize dependent vr.
-  induction r as [|vl' r IHr vr']; intros vr vl.
-  - cbn; destruct var_eqb eqn:Heq2; cbn; try easy.
-    rewrite Heq2; easy.
-  - unfold normalized_raw_renaming_extend.
-    fold normalized_raw_renaming_extend.
-    destruct (is_less_equal_vars vl vl') eqn:Heq6.
-    + destruct (raw_renaming_extend_boring
-                  vl (raw_renaming_extend vl' r vr') vr)
-               eqn:Heq7.
-      * rewrite is_normalized_raw_renaming_extend_boring_some
-          with (r := raw_renaming_extend vl' r vr')
-               (vl := vl) (vr := vr); easy.
-      * rewrite is_normalized_raw_renaming_extend_boring_none
-          with (r := r) (vl1 := vl) (vl2 := vl')
-               (vr1 := vr) (vr2 := vr'); try easy.
-    + apply is_normalized_raw_renaming_from_extend in Heq1 as Heq2.
-      specialize
-        (IHr Heq2 (unshift_var vr' vr) (unshift_var vl' vl)).
-      destruct (is_normalized_raw_renaming
-                  (normalized_raw_renaming_extend
-                     (unshift_var vl' vl) r (unshift_var vr' vr)))
-               eqn:Heq7; try easy.
-Qed.
-
-Definition var_opt_geb vo1 vo2 :=
-  match vo1, vo2 with
-  | free n1, free n2 -> name_geb n1 n2
-  | bound l1, bound l1 -> level_geb l1 l2
-  | free _, bound _ -> false
-  | bound _, free _ -> false
-  end.
-
-
-Definition var_nonzero vo :=
-    negb (var_opt_eqb vo zero_var_opt) = true.
-
-Lemma var_nonzero_shift vo1 vo2 :
-  var_nonzero vo2 ->
-  var_nonzero (shift_var_opt vo1 vo2).
-Proof.
-  destruct vo1 as [[n1|[|l1]]|], vo2 as [[n2|[|l2]]|];
-    cbn; try easy.
-  unfold shift_level.
-  destruct (le_gt_dec (S l1) (S l2)); easy.
-Qed.
-
-Lemma var_nonzero_unshift vo1 vo2 vo3 :
-  (var_nonzero vo1 -> var_nonzero vo2) ->
-  var_nonzero (unshift_var_opt vo3 vo1) ->
-  var_nonzero (unshift_var_opt vo3 vo2).
-Proof.
-  destruct vo1 as [[n1|[|l1]]|], vo2 as [[n2|[|l2]]|],
-    vo3 as [[n3|[|l3]]|]; cbn; try easy.
-
-Lemma is_normalized_raw_renaming_entry_greater so vo1 vo2 r :
-  (var_nonzero vo1 -> var_nonzero vo2) ->
-  is_normalized_raw_renaming_entry so vo1 r = true ->
-  is_normalized_raw_renaming_entry so vo2 r = true.
-Proof.
-  generalize dependent vo1.
-  generalize dependent vo2.
-  induction r as [|so2 vo3]; intros vo2 vo1; cbn; try easy.
-  destruct (label_opt_eqb so so2); try easy.
-  intros Himp.
-  apply IHr.
-
-
-Lemma var_nonzero_unshift vo1 vo2 :
-  var_nonzero (unshift_var_opt vo1 vo2) ->
-  var_nonzero vo1 \/ var_nonzero vo2
-Proof.
-  split; intros H.
-  - destruct vo1 as [[n1|[|l1]]|], vo2 as [[n2|[|l2]]|];
-      cbn; try easy; destruct H; try easy.
-
-  split.
-
-Lemma is_normalized_raw_renaming_entry_unshift_shift
-           so vo1 vo2 vo3 r :
-  is_normalized_raw_renaming_entry so
-    (unshift_var_opt vo3 vo1) r = true ->
-  is_normalized_raw_renaming_entry so
-    (unshift_var_opt (shift_var_opt vo2 vo3) vo1) r = true.
-Proof.
-  induction r as [|so2 vo4]; cbn.
-  - admit.
-  - destruct (label_opt_eqb so so2); try easy.
-    
-
-Lemma raw_renaming_cons_null_entry_preserves_entries
-           so1 vo1 r1 r2 so2 vo2 :
-  is_normalized_raw_renaming_entry so1 vo1 r1 = true ->
-  raw_renaming_cons_null_entry so2 vo2 r1 = Some r2 ->
-  is_normalized_raw_renaming_entry so1 vo1 r2 = true.
-Proof.
-  generalize dependent vo1.
-  generalize dependent vo2.
-  generalize dependent r2.
-  induction r1 as [|so3 vo3]; intros r2 vo2 vo1; cbn.
-  - destruct (var_opt_eqb vo2 zero_var_opt); try easy; intros.
-    assert (r2 = raw_renaming_nil) as Hrw by congruence.
-    rewrite Hrw; easy.
-  - destruct (label_opt_eqb so2 so3) eqn:Heq1; try easy.
-    destruct (raw_renaming_cons_null_entry so2
-                (unshift_var_opt vo3 vo2) r1) eqn:Heq2; try easy.
-    intros;
-      assert (r2 = raw_renaming_cons so3 (shift_var_opt vo2 vo3) r)
-      as Hrw by congruence; rewrite Hrw; cbn.
-    destruct (label_opt_eqb so1 so3); try easy.
-    apply IHr1 with (vo2 := unshift_var_opt vo3 vo2); try easy.
-
-Lemma raw_renaming_cons_null_entry_some so vo r r' :
-  normalized_raw_renaming r ->
-  raw_renaming_cons_null_entry so vo r = Some r' ->
-  normalized_raw_renaming r'.
-  generalize dependent so.
-  generalize dependent vo.
-  generalize dependent r'.
-  induction r as [|so' vo' r]; intros r' vo so; cbn.
-  - destruct (var_opt_eqb vo zero_var_opt); try easy.
-    intros; assert (r' = raw_renaming_nil)
-      as Hrw by congruence.
-    rewrite Hrw; easy.
-  - destruct (label_opt_eqb so so'); try easy.
-    destruct (raw_renaming_cons_null_entry so
-                (unshift_var_opt vo' vo) r) eqn:Heq;
-      try easy.
-    apply IHr in Heq.
-    
-Qed.
-
-Lemma raw_renaming_cons_null_entry_none so vo r r' :
-  raw_renaming_cons_null_entry so vo r = None ->
-  is_normalized_raw_renaming_entry so vo r.
-Qed.
-
-Lemma normalized_raw_renaming_cons_normalized
-           {so vo r} :
-  normalized_raw_renaming r ->
-  normalized_raw_renaming
-    (normalized_raw_renaming_cons so vo r).
-Proof. destruct vo as [[|[]]|], r; easy. Qed.
-
-Definition closing_cons0 vo r :=
-  mkclosing
-    (normalized_pushes_cons vo (c_raw r))
-    (normalized_pushes_cons_normalized
-       (c_normalized r)).
-
-Definition closing_weak0 r :=
-  closing_cons0 None r.
-
-Definition closing_exchange0 r l :=
-  closing_cons0 (Some (bound l)) r.
-
-Definition closing_close0 r n :=
-  closing_cons0 (Some (free n)) r.
-
-Definition raw_closing_hd r :=
+Fixpoint apply_raw_renaming_var r : var_op 0 0 :=
   match r with
-  | nil => zero_var_opt
-  | cons vo' _ => vo'
+  | raw_renaming_id => var_op_id
+  | raw_renaming_extend vl r vr =>
+    pop_var vl @ lift_var_op (apply_raw_renaming_var r) @ push_var vr
   end.
 
-Definition raw_closing_tl (r : raw_closing) :=
-  match r with
-  | nil => nil
-  | cons _ r' => r'
-  end.
-
-Fixpoint raw_closing_cons l vo r :=
-  match l with
-  | 0 => normalized_pushes_cons vo r
-  | S l =>
-    normalized_pushes_cons
-      (shift_var_opt vo (raw_closing_hd r))
-      (raw_closing_cons
-         l (unshift_var_opt (raw_closing_hd r) vo)
-         (raw_closing_tl r))
-  end.
-
-Lemma raw_closing_cons_normalized {l vo r} :
-  normalized_pushes r ->
-  normalized_pushes (raw_closing_cons l vo r).
-Proof.
-  generalize dependent vo.
-  generalize dependent r.
-  induction l; cbn; intros r vo Hnorm;
-    apply normalized_pushes_cons_normalized; try easy.
-  apply IHl.
-  destruct r as [|vo' r]; try easy.
-  apply normalized_pushes_from_cons in Hnorm; easy.
-Qed.
-
-Definition closing_cons l vo r :=
-  mkclosing
-    (raw_closing_cons l vo (c_raw r))
-    (raw_closing_cons_normalized (c_normalized r)).
-
-Definition closing_weak l r :=
-  closing_cons l None r.
-
-Definition closing_exchange l1 l2 r :=
-  closing_cons l1 (Some (bound l2)) r.
-
-Definition closing_close l n r :=
-  closing_cons l (Some (free n)) r.
-
-Fixpoint closing_weak_n N : closing :=
-  match N with
-  | 0 => closing_id
-  | S N => closing_weak 0 (closing_weak_n N)
-  end.
-
-Fixpoint closing_weakening N M : closing :=
-  match N with
-  | 0 => closing_weak_n M
-  | S N => closing_exchange 0 0 (closing_weakening N M)
-  end.
-
-Fixpoint apply_raw_closing_var r : var_op :=
-  match r with
-  | nil => var_op_id
-  | cons vo r =>
-    lift_var_op (apply_raw_closing_var r) @ push_var vo
-  end.
-
-Definition apply_closing_var r :=
-  apply_raw_closing_var (c_raw r).
+Definition apply_renaming_var r :=
+  apply_raw_renaming_var (r_raw r).
 
 Set Primitive Projections.
-Record closing_rhs :=
-  mk_closing_rhs {
-      rhs_raw_closing : raw_closing;
-      rhs_push : option var
+Record renaming_rhs :=
+  mk_renaming_rhs {
+      rhs_raw_renaming : raw_renaming;
+      rhs_var : var
     }.
-Add Printing Constructor closing_rhs.
+Add Printing Constructor renaming_rhs.
 Unset Primitive Projections.
 
-Definition normalized_closing_rhs r :=
-  normalized_pushes (rhs_raw_closing r).
+Definition is_normalized_renaming_rhs r :=
+  is_normalized_raw_renaming (rhs_raw_renaming r).
 
-Definition closing_rhs_cons0 vo r :=
-  mk_closing_rhs
-    (normalized_pushes_cons
-       (unshift_var_opt (rhs_push r) vo)
-       (rhs_raw_closing r))
-    (shift_var_opt vo (rhs_push r)).
+Definition is_ordered_renaming_rhs_var v r :=
+  is_ordered_raw_renaming_var v (rhs_raw_renaming r).
 
-Definition closing_rhs_weak0 r :=
-  closing_rhs_cons0 None r.
+Definition renaming_rhs_extend vl r vr :=
+  mk_renaming_rhs
+    (interesting_raw_renaming_extend vl
+        (rhs_raw_renaming r)
+        (unshift_var (rhs_var r) vr))
+    (shift_var vr (rhs_var r)).
 
-Definition closing_rhs_exchange0 l r :=
-  closing_rhs_cons0 (Some (bound l)) r.
-
-Definition closing_rhs_close0 n r :=
-  closing_rhs_cons0 (Some (free n)) r.
-
-Lemma closing_rhs_cons0_normalized {vo r} :
-  normalized_closing_rhs r ->
-  normalized_closing_rhs (closing_rhs_cons0 vo r).
+Lemma is_normalized_renaming_rhs_extend {vl r vr} :
+  is_normalized_renaming_rhs r = true ->
+  is_ordered_renaming_rhs_var vl r = true ->
+  is_normalized_renaming_rhs (renaming_rhs_extend vl r vr) = true.
 Proof.
-  destruct r as [? []]; cbn;
-    apply normalized_pushes_cons_normalized;
-    easy.
+  apply is_normalized_interesting_raw_renaming_extend.
 Qed.
 
-Fixpoint transpose_push_raw_closing vo r {struct r} :=
+Fixpoint transpose_push_raw_renaming v r {struct r} :=
   match r with
-  | nil => mk_closing_rhs nil vo
-  | cons vo' r =>
-    if var_opt_eqb vo zero_var_opt then mk_closing_rhs r vo'
-    else closing_rhs_cons0 vo'
-           (transpose_push_raw_closing
-              (unshift_var_var_opt zero_var vo) r)
+  | raw_renaming_id => mk_renaming_rhs raw_renaming_id v
+  | raw_renaming_extend vl r vr =>
+    if var_eqb v vl then mk_renaming_rhs r vr
+    else renaming_rhs_extend
+           (unshift_var v vl)
+           (transpose_push_raw_renaming (unshift_var vl v) r)
+           vr
   end.
 
 Lemma transpose_push_raw_closing_normalized {vo r} :
