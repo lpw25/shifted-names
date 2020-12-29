@@ -1,11 +1,6 @@
 Require Import Label PeanoNat Psatz Ring Compare_dec StrictProp.
 Require Import Var VarEquations.
 
-Inductive raw_renaming :=
-  | raw_renaming_id : raw_renaming
-  | raw_renaming_extend :
-      var -> raw_renaming -> var -> raw_renaming.
-
 Fixpoint is_interesting_raw_renaming_extension vl r vr :=
   match r with
   | raw_renaming_id => negb (var_eqb vl vr)
@@ -551,13 +546,6 @@ Definition renaming_extend vl r vr : renaming :=
     (normalized_raw_renaming_extend vl (r_raw r) vr)
     (normalized_normalized_raw_renaming_extend
        vl (r_raw r) vr (r_normalized r)).
-
-Fixpoint apply_raw_renaming_var r : var_op 0 0 :=
-  match r with
-  | raw_renaming_id => var_op_id
-  | raw_renaming_extend vl r vr =>
-    pop_var vl @ lift_var_op (apply_raw_renaming_var r) @ push_var vr
-  end.
 
 Definition apply_renaming_var r :=
   apply_raw_renaming_var (r_raw r).
