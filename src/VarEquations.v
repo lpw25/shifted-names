@@ -78,6 +78,41 @@ Ltac reduce_vars_beta :=
 Tactic Notation "reduce_vars_beta" "in" hyp(H) :=
   try repeat (autorewrite with reduce_vars_beta in H; cbn in H).
 
+(* Useful lemmas for variable inequalities *)
+Lemma red_var_neq v1 v2 :
+  v_label_opt v1 = v_label_opt v2 ->
+  v1 <> v2 <-> v_nat v1 <> v_nat v2.
+Proof.
+  intro Heq1; split.
+  - intros Hneq; contradict Hneq.
+    rewrite (eta_expand_var v1).
+    rewrite (eta_expand_var v2).
+    congruence.
+  - congruence.
+Qed.
+
+Lemma v_nat_neq v1 v2 :
+  v_nat v1 <> v_nat v2 ->
+  v1 <> v2.
+Proof. congruence. Qed.
+
+Lemma v_label_opt_neq v1 v2 :
+  v_label_opt v1 <> v_label_opt v2 ->
+  v1 <> v2.
+Proof. congruence. Qed.
+
+(* Useful lemmas for variable equality *)
+
+Lemma var_eqb_true v1 v2 :
+  v1 = v2 ->
+  var_eqb v1 v2 = true.
+Proof. unfold var_eqb; destruct var_dec; easy. Qed.
+
+Lemma var_eqb_false v1 v2 :
+  v1 <> v2 ->
+  var_eqb v1 v2 = false.
+Proof. unfold var_eqb; destruct var_dec; easy. Qed.
+
 (* Reducing operations on variables based on their
    "record" fields. *)
 
@@ -175,24 +210,12 @@ Proof.
   destruct (var_dec v2 v2); easy.
 Qed.
 
-Lemma reduce_push_var_distinct v1 v2 :
-  v_label_opt v1 <> v_label_opt v2 ->
-  push_var v1 v2 = Some v2.
-Proof.
-  intros.
-  unfold push_var, var_eqb.
-  destruct (var_dec v1 v2); try congruence.
-  rewrite reduce_unshift_var_distinct; easy.
-Qed.
-
 Lemma reduce_push_var_neq v1 v2 :
-  v_label_opt v1 = v_label_opt v2 ->
-  v_nat v1 <> v_nat v2 ->
+  v1 <> v2 ->
   push_var v1 v2 = Some (unshift_var v1 v2).
 Proof.
   intros; unfold push_var, var_eqb.
-  destruct (var_dec v1 v2);
-    try congruence; easy.
+  destruct (var_dec v1 v2); try congruence; easy.
 Qed.
 
 Lemma reduce_pred_var_succ_var v :
@@ -245,11 +268,35 @@ Proof.
   apply leb_iff_conv; easy.
 Qed.
 
+Lemma reduce_var_eqb_eq v1 v2 :
+  v_label_opt v1 = v_label_opt v2 ->
+  v_nat v1 = v_nat v2 ->
+  var_eqb v1 v2 = true.
+Proof.
+  unfold var_eqb; intros.
+  destruct var_dec;
+    try rewrite red_var_neq in * by easy; easy.
+Qed.
+
+Lemma reduce_var_eqb_neq v1 v2 :
+  v1 <> v2 ->
+  var_eqb v1 v2 = false.
+Proof.
+  unfold var_eqb; intros.
+  destruct var_dec; congruence.
+Qed.
+
 Ltac solve_v_label_opt_equation :=
-  reduce_vars_beta; congruence.
+  try congruence; reduce_vars_beta; congruence.
 
 Ltac solve_v_label_opt_and_v_nat_equation :=
-  reduce_vars_beta; try congruence; lia.
+  try congruence; reduce_vars_beta; try congruence; lia.
+
+Ltac solve_var_neq :=
+  try congruence;
+  try solve [apply v_nat_neq;
+             solve_v_label_opt_and_v_nat_equation];
+  solve [apply v_label_opt_neq; solve_v_label_opt_equation].
 
 Hint Rewrite reduce_v_label_opt_beta reduce_v_nat_beta
      reduce_v_label_opt_succ_beta reduce_v_nat_succ_beta
@@ -260,16 +307,19 @@ Hint Rewrite reduce_v_label_opt_beta reduce_v_nat_beta
 
 Hint Rewrite reduce_shift_var_distinct
      reduce_unshift_var_distinct
-     reduce_push_var_distinct
      reduce_is_less_equal_var_distinct
      using solve_v_label_opt_equation : reduce_vars.
 
 Hint Rewrite reduce_shift_var_ge reduce_shift_var_lt
      reduce_unshift_var_le reduce_unshift_var_gt
-     reduce_push_var_eq reduce_push_var_neq
+     reduce_push_var_eq
      reduce_succ_var_pred_var
      reduce_is_less_equal_var_ge reduce_is_less_equal_var_lt
+     reduce_var_eqb_eq
      using solve_v_label_opt_and_v_nat_equation : reduce_vars.
+
+Hint Rewrite reduce_push_var_neq reduce_var_eqb_neq
+     using solve_var_neq : reduce_vars.
 
 Ltac reduce_vars :=
   try repeat
@@ -277,21 +327,8 @@ Ltac reduce_vars :=
   try repeat
     ((rewrite_strat (bottomup (hints reduce_vars))); cbn).
 
-(* Useful lemma *)
-Lemma red_var_neq v1 v2 :
-  v_label_opt v1 = v_label_opt v2 ->
-  v1 <> v2 <-> v_nat v1 <> v_nat v2.
-Proof.
-  intro Heq1; split.
-  - intros Hneq Heq2; apply Hneq.
-    rewrite (eta_expand_var v1).
-    rewrite (eta_expand_var v2).
-    rewrite Heq1, Heq2; easy.
-  - intros Hneq Heq2; apply Hneq.
-    rewrite Heq2; easy.
-Qed.
-
-Hint Rewrite red_var_neq using (cbn; congruence) : red_var_neq.
+Hint Rewrite red_var_neq
+     using solve_v_label_opt_equation : red_var_neq.
 
 (* Case split on the order of the var parameters. *)
 Ltac case_vars v1 v2 :=
@@ -318,6 +355,8 @@ Ltac case_vars v1 v2 :=
     try rewrite (eta_reduce_var v2);
     try solve [exfalso; try congruence; try lia].
 
+(* Case split on the order of a var and an optional var *)
+
 Tactic Notation "case_var_var_opt" constr(v1) constr(vo2) "as" simple_intropattern(v2) :=
   destruct vo2 as [v2|];
     [case_vars v1 v2 |reduce_vars].
@@ -325,6 +364,8 @@ Tactic Notation "case_var_var_opt" constr(v1) constr(vo2) "as" simple_intropatte
 Tactic Notation "case_var_var_opt" constr(v1) constr(vo2) :=
   let v2 := fresh "v" in
   case_var_var_opt v1 vo2 as v2.
+
+(* Case split on an optional var *)
 
 Tactic Notation "case_var_opt" constr(vo)
        "as" simple_intropattern(v) :=
@@ -334,12 +375,32 @@ Tactic Notation "case_var_opt" constr(vo) :=
   let v := fresh "v" in
   case_var_opt vo as v.
 
+(* Case split on an optional optional var *)
+
 Tactic Notation "case_var_opt_opt" constr(vo) "as" simple_intropattern(v) :=
   destruct vo as [[v|]|]; reduce_vars.
 
 Tactic Notation "case_var_opt_opt" constr(vo) :=
   let v := fresh "v" in
   case_var_opt_opt vo as v.
+
+(* Case split on the equality of the var parameters. *)
+Tactic Notation "case_vars_eq" constr(v1) constr(v2)
+       "as" simple_intropattern(Heql) simple_intropattern(Hneql) :=
+  destruct (var_dec v1 v2) as [Heql|Hneql];
+    [replace v2 with v1 by apply Heql;
+     autorewrite with red_var_neq in *;
+     reduce_vars_beta in Heql
+    |reduce_vars_beta in Hneql];
+    reduce_vars;
+    try rewrite (eta_reduce_var v1);
+    try rewrite (eta_reduce_var v2);
+    try solve [exfalso; try congruence; try lia].
+
+Tactic Notation "case_vars_eq" constr(v1) constr(v2) :=
+  let Heql := fresh "Heql" in
+  let Hneql := fresh "Hneql" in
+  case_vars_eq v1 v2 as Heql Hneql.
 
 (* Identities *)
 
@@ -397,6 +458,18 @@ Lemma lift_var_op_compose
 Proof.
   intros vo.
   case_var_opt vo; easy.
+Qed.
+
+Lemma lift_var_op_compose'
+      {L N M O} (op1 : var_op N M) (op2 : var_op L N)
+      (op3 : var_op O (S L)) :
+  lift_var_op (op1 @ op2) @ op3
+  =v= lift_var_op op1 @ (lift_var_op op2 @ op3).
+Proof.
+  rewrite var_op_associative.
+  rewrite lift_var_op_compose.
+  rewrite <- var_op_associative.
+  easy.
 Qed.
 
 Lemma lift_var_op_id {N} :
@@ -730,35 +803,97 @@ Qed.
    also need to show that permutations commute with reducing
    operations.
 
-   Given a sequence of n operations opₙ, such that:
+   If, after performing σᵢ we have:
 
      opᵢ₊₁ . opᵢ₊₂ = 1
 
-   then:
+   Then, if we had performed σᵢ₊₁ instead of σᵢ we shoud have:
 
-     σᵢ ∘ σᵢ₊₁ = 1
+     opᵢ . opᵢ₊₁ = 1
 
-   and:
+   In other words, if two operations can reduce to the
+   identity after a permutation makes them adjacent then it
+   doesn't matter which permutation we use to make them
+   adjacent.
 
-     σᵢ₊₂ ∘ σᵢ₊₁ = 1
-
-   In other words, if two operations reduce to the identity
-   then transposing an operation over both of them in
-   either direction is equivalent to doing nothing.
+   Regardless of our choice of operations, this property
+   is equivalent to showing that [shift_var] and [unshift_var]
+   are inverses (when they are both valid).
 *)
 
-(* Moving an operation backwards over a
-   reducing pop and push *)
-Lemma transpose_op_reducing_pop_push v1 v2 :
-  v1 <> v2 ->
-  shift_var v1 (unshift_var v1 v2) = v2.
-Proof. case_vars v1 v2; easy. Qed.
+Lemma reducible_transposed v1 v2 v3 :
+  shift_var v2 v1 = v3 <-> v2 <> v3 /\ unshift_var v2 v3 = v1.
+Proof.
+  split.
+  - intros <-; split.
+    + case_vars v2 v1; try congruence; lia.
+    + case_vars v2 v1; easy.
+  - intros [Hneq <-].
+    case_vars v2 v3; easy.
+Qed.
 
-(* Moving an operation backwards over a
-   reducing push and pop *)
-Lemma transpose_op_reducing_push_pop v1 v2 :
-  unshift_var v1 (shift_var v1 v2) = v2.
-Proof. case_vars v1 v2; easy. Qed.
+(* More convenient forms *)
+Lemma reducible_transposed_1 v1 v2 v3 :
+  shift_var v2 v1 = v3 -> v2 <> v3.
+Proof. rewrite reducible_transposed; easy. Qed.
+
+Lemma reducible_transposed_2 v1 v2 v3 :
+  shift_var v2 v1 = v3 ->
+  unshift_var v2 v3 = v1.
+Proof. rewrite reducible_transposed; easy. Qed.
+
+Lemma reducible_transposed_3 v1 v2 v3 :
+  v2 <> v3 ->
+  unshift_var v2 v3 = v1 ->
+  shift_var v2 v1 = v3.
+Proof. rewrite reducible_transposed; easy. Qed.
+
+Lemma irreducible_transposed_1 v1 v2 :
+  shift_var v2 v1 <> v2.
+Proof. rewrite reducible_transposed; easy. Qed.
+
+Lemma irreducible_transposed_2 v1 v2 v3 :
+  unshift_var v2 v3 <> v1 ->
+  shift_var v2 v1 <> v3.
+Proof. rewrite reducible_transposed; easy. Qed.
+
+Lemma irreducible_transposed_3 v1 v2 v3 :
+  v2 <> v3 ->
+  shift_var v2 v1 <> v3 ->
+  unshift_var v2 v3 <> v1.
+Proof.
+  rewrite reducible_transposed.
+  intros Hneq Hn; contradict Hn; easy.
+Qed.
+
+(* Corollary: moving a reducible pair of push and
+   pop operations over third operation leaves them
+   reducible. *)
+Lemma transpose_reducible_push_pop v1 v2 :
+  unshift_var v1 v2 = unshift_var (shift_var v2 v1) v2.
+Proof.
+  symmetry.
+  apply reducible_transposed_2.
+  apply transpose_pushes_squared_right.
+Qed.
+
+(* Corollary: moving an irreducible pair of push and
+   pop operations over third operation leaves them
+   irreducible. *)
+Lemma transpose_irreducible_push_pop v1 v2 v3 :
+  v2 <> v3 ->
+  shift_var v2 v1 <> v3 ->
+  unshift_var v1 v2 <> unshift_var (shift_var v2 v1) v3.
+Proof.
+  intros Hneq1 Hneq2.
+  rewrite transpose_reducible_push_pop.
+  apply irreducible_transposed_3.
+  - apply irreducible_transposed_1.
+  - rewrite reducible_transposed_3 with (v3 := v3)
+      by congruence.
+    congruence.
+Qed.
+
 
 (* [is_less_equal_var] is a total ordering *)
 

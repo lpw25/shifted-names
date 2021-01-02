@@ -1,5 +1,5 @@
 Require Import Label PeanoNat Psatz Ring Compare_dec StrictProp.
-Require Import Var VarEquations.
+Require Import Var.
 
 Inductive raw_renaming :=
   | raw_renaming_id : raw_renaming
