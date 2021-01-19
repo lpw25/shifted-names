@@ -233,39 +233,79 @@ Proof.
   apply lift_var_eq; reduce_vars_beta; try easy; lia.
 Qed.
 
-Lemma reduce_is_less_equal_var_distinct v1 v2 :
+Lemma reduce_is_shifting_var_distinct v1 v2 :
   v_label_opt v1 <> v_label_opt v2 ->
-  is_less_equal_vars v1 v2
-  = is_less_than_label_opt (v_label_opt v1) (v_label_opt v2).
+  is_shifting_var v1 v2 = false.
 Proof.
-  unfold is_less_equal_vars, label_opt_eqb.
+  unfold is_shifting_var, label_opt_eqb.
   destruct (label_opt_dec (v_label_opt v1) (v_label_opt v2));
-    try easy.
-  rewrite Bool.andb_false_l, Bool.orb_false_r; easy.
+    easy.
 Qed.
 
-Lemma reduce_is_less_equal_var_ge v1 v2 :
+Lemma reduce_is_shifting_var_ge v1 v2 :
   v_label_opt v1 = v_label_opt v2 ->
   v_nat v1 <= v_nat v2 ->
-  is_less_equal_vars v1 v2 = true.
+  is_shifting_var v1 v2 = true.
 Proof.
-  unfold is_less_equal_vars; intros Heq Hge.
-  rewrite Heq, is_less_than_label_opt_irreflexive,
-    label_opt_eqb_reflexive,
-    Bool.andb_true_l, Bool.orb_false_l.
+  unfold is_shifting_var; intros Heq Hge.
+  rewrite Heq, label_opt_eqb_reflexive, Bool.andb_true_l.
   apply leb_correct; easy.
 Qed.
 
-Lemma reduce_is_less_equal_var_lt v1 v2 :
+Lemma reduce_is_shifting_var_lt v1 v2 :
   v_label_opt v1 = v_label_opt v2 ->
   S (v_nat v2) <= v_nat v1 ->
-  is_less_equal_vars v1 v2 = false.
+  is_shifting_var v1 v2 = false.
 Proof.
-  unfold is_less_equal_vars; intros Heq Hlt.
-  rewrite Heq, is_less_than_label_opt_irreflexive,
-    label_opt_eqb_reflexive,
-    Bool.andb_true_l, Bool.orb_false_l.
+  unfold is_shifting_var; intros Heq Hlt.
+  rewrite Heq, label_opt_eqb_reflexive, Bool.andb_true_l.
   apply leb_iff_conv; easy.
+Qed.
+
+Lemma reduce_is_less_equal_var_distinct v1 v2 :
+  v_label_opt v1 <> v_label_opt v2 ->
+  is_less_equal_var v1 v2
+  = is_less_than_label_opt (v_label_opt v1) (v_label_opt v2).
+Proof.
+  unfold is_less_equal_var, label_opt_eqb; intros Hneq.
+  rewrite reduce_is_shifting_var_distinct by easy.
+  rewrite Bool.orb_false_r; easy.
+Qed.
+
+Lemma reduce_is_less_equal_var_indistinct v1 v2 :
+  v_label_opt v1 = v_label_opt v2 ->
+  is_less_equal_var v1 v2 = is_shifting_var v1 v2.
+Proof.
+  unfold is_less_equal_var; intros Heq.
+  rewrite Heq, is_less_than_label_opt_irreflexive.
+  rewrite Bool.orb_false_l; easy.
+Qed.
+
+Lemma reduce_is_less_than_var_distinct v1 v2 :
+  v_label_opt v1 <> v_label_opt v2 ->
+  is_less_than_var v1 v2
+  = is_less_than_label_opt (v_label_opt v1) (v_label_opt v2).
+Proof.
+  unfold is_less_than_var, is_less_equal_var,
+    label_opt_eqb; intros Hneq.
+  rewrite reduce_is_shifting_var_distinct by congruence.
+  rewrite Bool.orb_false_r.
+  destruct is_less_than_label_opt eqn:Heq1.
+  - apply is_less_than_label_opt_asymmetric in Heq1 as ->.
+    easy.
+  - destruct (is_less_than_label_opt (v_label_opt v1) _)
+      eqn:Heq2; try easy.
+    apply (is_less_than_label_opt_total _ _ Heq1) in Heq2.
+    congruence.
+Qed.
+
+Lemma reduce_is_less_than_var_indistinct v1 v2 :
+  v_label_opt v1 = v_label_opt v2 ->
+  is_less_than_var v1 v2 = negb (is_shifting_var v2 v1).
+Proof.
+  unfold is_less_than_var, is_less_equal_var; intros Heq.
+  rewrite Heq, is_less_than_label_opt_irreflexive.
+  rewrite Bool.orb_false_l; easy.
 Qed.
 
 Lemma reduce_var_eqb_eq v1 v2 :
@@ -307,14 +347,18 @@ Hint Rewrite reduce_v_label_opt_beta reduce_v_nat_beta
 
 Hint Rewrite reduce_shift_var_distinct
      reduce_unshift_var_distinct
+     reduce_is_shifting_var_distinct
      reduce_is_less_equal_var_distinct
+     reduce_is_less_equal_var_indistinct
+     reduce_is_less_than_var_distinct
+     reduce_is_less_than_var_indistinct
      using solve_v_label_opt_equation : reduce_vars.
 
 Hint Rewrite reduce_shift_var_ge reduce_shift_var_lt
      reduce_unshift_var_le reduce_unshift_var_gt
      reduce_push_var_eq
      reduce_succ_var_pred_var
-     reduce_is_less_equal_var_ge reduce_is_less_equal_var_lt
+     reduce_is_shifting_var_ge reduce_is_shifting_var_lt
      reduce_var_eqb_eq
      using solve_v_label_opt_and_v_nat_equation : reduce_vars.
 
@@ -803,23 +847,45 @@ Qed.
    also need to show that permutations commute with reducing
    operations.
 
-   If, after performing σᵢ we have:
+   Given a sequence of n operations opₙ:
 
-     opᵢ₊₁ . opᵢ₊₂ = 1
+     ... . opᵢ . opᵢ₊₁ . opᵢ₊₂ . ...
 
-   Then, if we had performed σᵢ₊₁ instead of σᵢ we shoud have:
+   after performing σᵢ we have:
 
-     opᵢ . opᵢ₊₁ = 1
+     ... . op'ᵢ₊₁ . op'ᵢ . opᵢ₊₂ . ...
+
+   If:
+
+     op'ᵢ . opᵢ₊₂ = 1
+
+   Then, we could have instead performed σᵢ₊₁ to get:
+
+     ... . opᵢ . op"ᵢ₊₂ . op"ᵢ₊₁ . ...
+
+   such that:
+
+     opᵢ . op"ᵢ₊₂ = 1
+
+   and:
+
+     op'ᵢ₊₁ = op"ᵢ₊₁
 
    In other words, if two operations can reduce to the
    identity after a permutation makes them adjacent then it
    doesn't matter which permutation we use to make them
    adjacent.
 
-   Regardless of our choice of operations, this property
-   is equivalent to showing that [shift_var] and [unshift_var]
+   Regardless of our choice of operations, this property is
+   equivalent to showing that [shift_var] and [unshift_var]
    are inverses (when they are both valid).
-*)
+
+   This property seems like it should be in some sense
+   complete, but due to the possiblity that transpositions
+   might be invalid there are some manipulations of
+   permutations and reductions that can not be proved from
+   this property alone without ending up with stronger
+   pre-conditions than necessary.  *)
 
 Lemma reducible_transposed v1 v2 v3 :
   shift_var v2 v1 = v3 <-> v2 <> v3 /\ unshift_var v2 v3 = v1.
@@ -894,12 +960,94 @@ Proof.
     congruence.
 Qed.
 
+(* Given an irreducible pair of pop and push operations
+   nested within a reducible pair of pop and push
+   operations, reversing the nesting and reducing the
+   reducible pair leaves an irreducible pair.
+
+   This is not a corollary of the above property. Proving it
+   from that property would require the stronger
+   pre-condition [v1 = shift_var v2 (unshift_var v3 v4)]. *)
+Lemma transpose_irreducible_pop_push_nested v1 v2 v3 v4:
+  v2 <> v3 ->
+  unshift_var v2 v1 = unshift_var v3 v4 ->
+  shift_var v1 v2 <> shift_var v4 v3.
+Proof.
+  intros Hneq Heq.
+  destruct (label_opt_dec (v_label_opt v2) (v_label_opt v3)).
+  - case_vars v2 v1; case_vars v3 v4; subst;
+      autorewrite with reduce_vars_beta in *;
+      try easy; try congruence; lia.
+  - apply v_label_opt_neq; reduce_vars_beta; easy.
+Qed.
+
+(* [is_shifting] is a partial ordering *)
+
+Definition is_shifting_var_reflexive v :
+  is_shifting_var v v = true.
+Proof.
+  reduce_vars; easy.
+Qed.
+
+Definition is_shifting_var_antisymmetric v1 v2 :
+  is_shifting_var v1 v2 = true ->
+  is_shifting_var v2 v1 = true ->
+  v1 = v2.
+Proof.
+  case_vars v1 v2; easy.
+Qed.
+
+Definition is_shifting_var_transitive v1 v2 v3 :
+  is_shifting_var v1 v2 = true ->
+  is_shifting_var v2 v3 = true ->
+  is_shifting_var v1 v3 = true.
+Proof.
+  case_vars v1 v2; try easy.
+  case_vars v2 v3; easy.
+Qed.
+
+(* [is_shifting_var] determines the behaviour of [shift_var]. *)
+
+Definition is_shifting_true_shift v1 v2 :
+  is_shifting_var v1 v2 = true ->
+  shift_var v1 v2 = succ_var v2.
+Proof.
+  case_vars v1 v2; easy.
+Qed.
+
+Definition is_shifting_false_shift v1 v2 :
+  is_shifting_var v1 v2 = false ->
+  shift_var v1 v2 = v2.
+Proof.
+  case_vars v1 v2; easy.
+Qed.
+
+(* [is_shifting_var] is not affected by transposing
+   the variables over an operation *)
+
+(* If [is_shifting_var] holds for two operations after a
+   permutation makes them adjacent then it doesn't matter
+   which permutation we use to make them adjacent. *)
+Definition transposed_is_shifting_var v1 v2 v3 :
+  is_shifting_var (unshift_var v3 v1) v2
+  = is_shifting_var v1 (shift_var v3 v2).
+Proof.
+  case_vars v1 v3;
+    case_vars v2 v3; try easy;
+      case_vars v1 (shift_var v3 v2); easy.
+Qed.
 
 (* [is_less_equal_var] is a total ordering *)
 
-Definition is_less_equal_vars_antisymmetric v1 v2 :
-  is_less_equal_vars v1 v2 = true ->
-  is_less_equal_vars v2 v1 = true ->
+Definition is_less_equal_var_reflexive v :
+  is_less_equal_var v v = true.
+Proof.
+  reduce_vars; easy.
+Qed.
+
+Definition is_less_equal_var_antisymmetric v1 v2 :
+  is_less_equal_var v1 v2 = true ->
+  is_less_equal_var v2 v1 = true ->
   v1 = v2.
 Proof.
   case_vars v1 v2; try easy.
@@ -908,26 +1056,25 @@ Proof.
   congruence.
 Qed.
 
-Definition is_less_than_vars_total v1 v2 :
-  is_less_equal_vars v1 v2 = false ->
-  is_less_equal_vars v2 v1 = true.
+Definition is_less_equal_var_total v1 v2 :
+  is_less_equal_var v1 v2 = false ->
+  is_less_equal_var v2 v1 = true.
 Proof.
   case_vars v1 v2; try easy.
   intros Heq1.
-  destruct
-    (is_less_than_label_opt
-       (v_label_opt v2) (v_label_opt v1))
+  destruct (is_less_than_label_opt
+              (v_label_opt v2) (v_label_opt v1))
     eqn:Heq2; try easy.
   apply is_less_than_label_opt_total in Heq2; easy.
 Qed.
 
-Definition is_less_equal_vars_transitive v1 v2 v3 :
-  is_less_equal_vars v1 v2 = true ->
-  is_less_equal_vars v2 v3 = true ->
-  is_less_equal_vars v1 v3 = true.
+Definition is_less_equal_var_transitive v1 v2 v3 :
+  is_less_equal_var v1 v2 = true ->
+  is_less_equal_var v2 v3 = true ->
+  is_less_equal_var v1 v3 = true.
 Proof.
   case_vars v1 v2; try easy;
-    case_vars v2 v3; try rewrite Heql; try easy.
+    case_vars v2 v3; try easy; try congruence.
   case_vars v1 v3; try easy.
   - intros Heq1 Heq2.
     apply is_less_than_label_opt_asymmetric in Heq2.
@@ -935,22 +1082,113 @@ Proof.
   - apply is_less_than_label_opt_transitive.
 Qed.
 
+(* [is_less_than_var] implies [is_less_equal_var] *)
+
+Lemma is_less_than_var_is_less_equal_var v1 v2 :
+  is_less_than_var v1 v2 = true ->
+  is_less_equal_var v1 v2 = true.
+Proof.
+  unfold is_less_than_var.
+  rewrite Bool.negb_true_iff.
+  apply is_less_equal_var_total.
+Qed.
+
+(* [is_less_than_var] is a strict total ordering *)
+
+Lemma is_less_than_var_asymmetric v1 v2 :
+  is_less_than_var v1 v2 = true ->
+  is_less_than_var v2 v1 = false.
+Proof.
+  unfold is_less_than_var.
+  rewrite Bool.negb_true_iff, Bool.negb_false_iff.
+  apply is_less_equal_var_total.
+Qed.
+
+Lemma is_less_than_var_total v1 v2 :
+  is_less_than_var v1 v2 = false ->
+  is_less_than_var v2 v1 = false ->
+  v1 = v2.
+Proof.
+  unfold is_less_than_var.
+  rewrite !Bool.negb_false_iff.
+  intros; apply is_less_equal_var_antisymmetric; easy.
+Qed.
+
+Lemma is_less_than_less_equal_var_transitive v1 v2 v3 :
+  is_less_than_var v1 v2 = true ->
+  is_less_equal_var v2 v3 = true ->
+  is_less_than_var v1 v3 = true.
+Proof.
+  unfold is_less_than_var.
+  rewrite !Bool.negb_true_iff.
+  intros Heq1 Heq2.
+  destruct (is_less_equal_var v3 v1) eqn:Heq3; try easy.
+  apply (is_less_equal_var_transitive _ _ _ Heq2) in Heq3.
+  congruence.
+Qed.
+
+Lemma is_less_than_var_transitive v1 v2 v3 :
+  is_less_than_var v1 v2 = true ->
+  is_less_than_var v2 v3 = true ->
+  is_less_than_var v1 v3 = true.
+Proof.
+  intros.
+  apply is_less_than_less_equal_var_transitive with v2;
+    try easy.
+  apply is_less_than_var_is_less_equal_var; easy.
+Qed.
+
+Lemma is_less_than_var_irreflexive v :
+  is_less_than_var v v = false.
+Proof.
+  destruct (is_less_than_var v v) eqn:Heq1; try easy.
+  apply is_less_than_var_asymmetric in Heq1 as Heq2.
+  rewrite Heq2 in Heq1; easy.
+Qed.
+
 (* Orderings on shift and unshift *)
 
-Lemma is_less_equal_vars_shift_r v1 v2 :
-  is_less_equal_vars v2 (shift_var v1 v2) = true.
+Lemma is_less_equal_var_shift_r v1 v2 :
+  is_less_equal_var v2 (shift_var v1 v2) = true.
 Proof. case_vars v1 v2; easy. Qed.
 
-Lemma is_less_equal_vars_shift_l v1 v2 :
-  is_less_equal_vars v1 (shift_var v1 v2)
-  = is_less_equal_vars v1 v2.
+Lemma is_less_equal_var_shift_l v1 v2 :
+  is_less_equal_var v1 (shift_var v1 v2)
+  = is_less_equal_var v1 v2.
 Proof. case_vars v1 v2; easy. Qed.
 
-Lemma is_less_equal_vars_unshift_r v1 v2 :
-  is_less_equal_vars (unshift_var v1 v2) v2 = true.
+Lemma is_less_equal_var_unshift_r v1 v2 :
+  is_less_equal_var (unshift_var v1 v2) v2 = true.
 Proof. case_vars v1 v2; easy. Qed.
 
-Lemma is_less_equal_vars_unshift_l v1 v2 :
-  is_less_equal_vars v1 (unshift_var v1 v2)
-  = is_less_equal_vars v1 v2.
+Lemma is_less_equal_var_unshift_l v1 v2 :
+  is_less_equal_var v1 (unshift_var v1 v2)
+  = is_less_equal_var v1 v2.
+Proof. case_vars v1 v2; easy. Qed.
+
+(* Successor applied to shift and unshift *)
+
+Lemma succ_var_shift_var v1 v2 :
+  succ_var (shift_var v1 v2)
+  = shift_var (succ_var v1) (succ_var v2).
+Proof. case_vars v1 v2; easy. Qed.
+
+Lemma succ_var_unshift_var v1 v2 :
+  succ_var (unshift_var v1 v2)
+  = unshift_var (succ_var v1) (succ_var v2).
+Proof. case_vars v1 v2; easy. Qed.
+
+Lemma succ_var_shift_var_neq v1 v2 :
+  v1 <> succ_var v2 ->
+  succ_var (shift_var v1 v2)
+  = shift_var v1 (succ_var v2).
+Proof.
+  case_vars v1 v2; try easy.
+  case_vars v1 (succ_var v2); congruence.
+Qed.
+
+Lemma succ_var_unshift_var_neq v1 v2 :
+  v1 <> v2 ->
+  succ_var (unshift_var v1 v2)
+  = unshift_var v1 (succ_var v2).
 Proof. case_vars v1 v2; easy. Qed.
