@@ -22,7 +22,7 @@ RawRenaming.vok RawRenaming.vos: Label.vos Var.vos
 
 RawRenamingEquations.vok RawRenamingEquations.vos: Label.vos Var.vos VarEquations.vos RawRenaming.vos
 
-Renaming.vok Renaming.vos: Label.vos Var.vos VarEquations.vos RawRenaming.vos
+Renaming.vok Renaming.vos: Label.vos Var.vos VarEquations.vos RawRenaming.vos RawRenamingEquations.vos
 
 RenamingEquations.vok RenamingEquations.vos: Label.vos Var.vos Closing.vos VarEquations.vos RawRenaming.vos RawRenamingEquations.vos Renaming.vos
 

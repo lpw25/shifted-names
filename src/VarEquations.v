@@ -1006,21 +1006,34 @@ Proof.
   case_vars v2 v3; easy.
 Qed.
 
+(* [is_shifting_var] is total on indistinct vars. *)
+
+Definition is_shifting_var_total_indistinct v1 v2 :
+  v_label_opt v1 = v_label_opt v2 ->
+  is_shifting_var v1 v2 = false ->
+  is_shifting_var v2 v1 = true.
+Proof. case_vars v1 v2; easy. Qed.
+
 (* [is_shifting_var] determines the behaviour of [shift_var]. *)
 
-Definition is_shifting_true_shift v1 v2 :
+Lemma is_shifting_true_shift v1 v2 :
   is_shifting_var v1 v2 = true ->
   shift_var v1 v2 = succ_var v2.
 Proof.
   case_vars v1 v2; easy.
 Qed.
 
-Definition is_shifting_false_shift v1 v2 :
+Lemma is_shifting_false_shift v1 v2 :
   is_shifting_var v1 v2 = false ->
   shift_var v1 v2 = v2.
 Proof.
   case_vars v1 v2; easy.
 Qed.
+
+(* A variable shifts its successor *)
+Lemma is_shifting_succ_var v :
+  is_shifting_var v (succ_var v) = true.
+Proof. reduce_vars; easy. Qed.
 
 (* [is_shifting_var] is not affected by transposing
    the variables over an operation *)
@@ -1028,13 +1041,34 @@ Qed.
 (* If [is_shifting_var] holds for two operations after a
    permutation makes them adjacent then it doesn't matter
    which permutation we use to make them adjacent. *)
-Definition transposed_is_shifting_var v1 v2 v3 :
+Lemma transposed_is_shifting_var v1 v2 v3 :
   is_shifting_var (unshift_var v3 v1) v2
   = is_shifting_var v1 (shift_var v3 v2).
 Proof.
   case_vars v1 v3;
     case_vars v2 v3; try easy;
       case_vars v1 (shift_var v3 v2); easy.
+Qed.
+
+(* [is_shifting_var] applied to [shift_var] and [unshift_var] *)
+
+Lemma is_shifting_var_shift_var v1 v2 v3 :
+  is_shifting_var (shift_var v3 v1) (shift_var v3 v2)
+  = is_shifting_var v1 v2.
+Proof.
+  rewrite <- transposed_is_shifting_var.
+  rewrite reducible_transposed_2 with (v1 := v1) by easy.
+  easy.
+Qed.
+
+Lemma is_shifting_var_unshift_var v1 v2 v3 :
+  is_shifting_var v1 v2 = true ->
+  is_shifting_var
+    (unshift_var v3 v1) (unshift_var v3 v2) = true.
+Proof.
+  case_vars v1 v2; try easy;
+    case_vars v3 v1; try easy;
+      case_vars v3 v2; try easy.
 Qed.
 
 (* [is_less_equal_var] is a total ordering *)

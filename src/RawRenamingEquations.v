@@ -299,6 +299,11 @@ Proof.
   easy.
 Qed.
 
+Lemma apply_compose_raw_renaming_v r1 r2 v :
+  apply_raw_renaming_var (compose_raw_renaming r1 r2) v
+  = apply_raw_renaming_var r1 (apply_raw_renaming_var r2 v).
+Proof. apply apply_compose_raw_renaming. Qed.
+
 Lemma apply_inverse_raw_renaming_left r :
   apply_raw_renaming_var (inverse_raw_renaming r)
   @ apply_raw_renaming_var r
@@ -323,6 +328,11 @@ Proof.
   easy.
 Qed.
 
+Lemma apply_inverse_raw_renaming_left_v r v :
+  apply_raw_renaming_var (inverse_raw_renaming r)
+    (apply_raw_renaming_var r v) = v.
+Proof. apply apply_inverse_raw_renaming_left. Qed.
+
 Lemma apply_inverse_raw_renaming_right r :
   apply_raw_renaming_var r
   @ apply_raw_renaming_var (inverse_raw_renaming r)
@@ -346,6 +356,24 @@ Proof.
     var_op_left_identity.
   easy.
 Qed.
+
+Lemma apply_inverse_raw_renaming_right_v r v :
+  apply_raw_renaming_var r
+    (apply_raw_renaming_var (inverse_raw_renaming r) v)
+  = v.
+Proof. apply apply_inverse_raw_renaming_right. Qed.
+
+Lemma apply_raw_renaming_var_injective r v1 v2 :
+  apply_raw_renaming_var r v1
+  = apply_raw_renaming_var r v2 ->
+  v1 = v2.
+Proof.
+  intros Heq.
+  rewrite <- (apply_inverse_raw_renaming_left_v r v1).
+  rewrite Heq.
+  apply apply_inverse_raw_renaming_left_v.
+Qed.
+
 
 (* Define equivalence of [raw_renaming] in terms of
    [apply_raw_renaming] *)

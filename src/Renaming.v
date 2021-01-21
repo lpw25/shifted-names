@@ -1,5 +1,5 @@
 Require Import Label PeanoNat Psatz Ring Compare_dec StrictProp.
-Require Import Var VarEquations RawRenaming.
+Require Import Var VarEquations RawRenaming RawRenamingEquations.
 
 Fixpoint apply_raw_renaming_unmatched_var r v {struct r} :=
   match r with
@@ -51,7 +51,6 @@ Lemma is_normalized_raw_renaming_extend vl r vr :
          (is_less_equal_raw_renaming_var vr r)).
 Proof.
   unfold is_normalized_raw_renaming; cbn; ring.
-  (* TODO: maybe btauto insteead of ring? *)
 Qed.
 
 Lemma is_normalized_raw_renaming_from_extend vl r vr :
@@ -89,11 +88,209 @@ Proof.
       * rewrite Heq3.
         rewrite succ_var_unshift_var_neq by congruence.
         easy.
-      * rewrite <- transposed_is_shifting_var.
-        rewrite reducible_transposed_2
-          with (v1 := apply_raw_renaming_var
-                        r (unshift_var vr v)) by easy.
+      * rewrite is_shifting_var_shift_var.
         easy.
+Qed.
+
+Fixpoint raw_renaming_matched_limit r lo :=
+  match r with
+  | raw_renaming_id => 0
+  | raw_renaming_extend _ r vr =>
+    if label_opt_eqb (v_label_opt vr) lo then
+      S (max (raw_renaming_matched_limit r lo) (v_nat vr))
+    else
+      raw_renaming_matched_limit r lo
+  end.
+
+Lemma unmatched_raw_renaming_matched_limit r v :
+  v_nat v >= raw_renaming_matched_limit r (v_label_opt v) ->
+  apply_raw_renaming_var r v
+  = apply_raw_renaming_unmatched_var r v.
+Proof.
+  rewrite eta_expand_var with v.
+  generalize dependent (v_nat v).
+  induction r as [|vl r IHr vr]; cbn; intros n; try easy.
+  case_vars_eq (mk_var (v_label_opt v) n) vr; intros Hlt.
+  - rewrite label_opt_eqb_reflexive in Hlt; lia.
+  - unfold label_opt_eqb in Hlt; destruct label_opt_dec;
+      reduce_vars.
+    + rewrite eta_expand_var
+        with (v := pred_var (mk_var (v_label_opt v) n));
+        reduce_vars_beta.
+      rewrite IHr; try easy; reduce_vars_beta; lia.
+    + rewrite IHr; reduce_vars_beta; easy.
+Qed.
+
+Lemma normal_raw_renaming_ind r v1 :
+  forall (P : var -> Prop),
+    is_all_normal_raw_renaming r = true ->
+    (forall v2,
+        (apply_raw_renaming_unmatched_var r v2
+         = apply_raw_renaming_var r v2) -> P v2) ->
+    (forall v3,
+        (apply_raw_renaming_unmatched_var r v3
+         = apply_raw_renaming_unmatched_var r (succ_var v3)) ->
+        (is_shifting_var
+           (apply_raw_renaming_var r v3)
+           (apply_raw_renaming_unmatched_var r v3)
+         = false) ->
+        P (succ_var v3) ->
+        P v3) ->
+    P v1.
+Proof.
+  intros P Heq1 Hb Hi.
+  remember
+    (Nat.sub (raw_renaming_matched_limit r (v_label_opt v1))
+             (v_nat v1)) as m eqn:Heq2.
+  generalize dependent v1.
+  induction m; intros v1 Heq2.
+  - apply Hb; symmetry.
+    apply unmatched_raw_renaming_matched_limit; lia.
+  - destruct (apply_normal_raw_renaming_unmatched_var r v1)
+      as [Heq3|[Heq3 Heq4]]; try easy.
+    + apply Hb.
+      apply Heq3.
+    + apply Hi; try easy.
+      apply IHm; reduce_vars; lia.
+Qed.
+
+Lemma shifting_apply_raw_renaming_unmatched_var r v1 v2 :
+  is_shifting_var v1 v2 = true ->
+  is_shifting_var
+    (apply_raw_renaming_unmatched_var r v1)
+    (apply_raw_renaming_unmatched_var r v2) = true.
+Proof.
+  generalize dependent v1.
+  generalize dependent v2.
+  induction r as [|vl r IHr vr];
+    cbn; intros v2 v1 Heq; try easy.
+  rewrite is_shifting_var_shift_var.
+  apply IHr.
+  apply is_shifting_var_unshift_var; easy.
+Qed.
+
+Lemma shifting_unmatched_var r v1 v2 :
+  is_all_normal_raw_renaming r = true ->
+  apply_raw_renaming_unmatched_var r v1
+  = apply_raw_renaming_var r v1 ->
+  is_shifting_var v1 v2 = true ->
+  (apply_raw_renaming_var r v1
+   = apply_raw_renaming_var r v2)
+  \/ (is_shifting_var
+       (apply_raw_renaming_var r v2)
+       (apply_raw_renaming_var r v1) = false).
+Proof.
+  intros Heq1 Heq2 Heq3.
+  apply (shifting_apply_raw_renaming_unmatched_var r) in Heq3.
+  destruct (apply_normal_raw_renaming_unmatched_var r v2)
+    as [Heq4|[Heq4 Heq5]]; try easy.
+  - rewrite <- Heq2, <- Heq4.
+    destruct (is_shifting_var
+                (apply_raw_renaming_unmatched_var r v2)
+                (apply_raw_renaming_unmatched_var r v1)) eqn:Heq5.
+    + left; apply is_shifting_var_antisymmetric; easy.
+    + right; easy.
+  - right; rewrite <- Heq2.
+    destruct (is_shifting_var
+                (apply_raw_renaming_var r v2)
+                (apply_raw_renaming_unmatched_var r v1)) eqn:Heq6;
+      try easy.
+    apply is_shifting_var_transitive
+      with (v1 := apply_raw_renaming_var r v2) in Heq3; try easy.
+    congruence.
+Qed.
+
+Lemma shifting_inv_matched_var r v1 v2 :
+  is_all_normal_raw_renaming r = true ->
+  apply_raw_renaming_unmatched_var r v1
+  = apply_raw_renaming_var r v2 ->
+  is_shifting_var v1 v2 = true.
+Proof.
+  intros Heq1.
+  apply (normal_raw_renaming_ind r v1); try easy.
+  - intros v3 Heq2 Heq3.
+    rewrite Heq2 in Heq3.
+    apply apply_raw_renaming_var_injective in Heq3 as <-.
+    apply is_shifting_var_reflexive.
+  - intros v3 Heq2 Heq3 Heq4 Heq5.
+    rewrite Heq2 in Heq5.
+    specialize (Heq4 Heq5).
+    apply is_shifting_var_transitive with (succ_var v3); try easy.
+    apply is_shifting_succ_var.
+Qed.
+
+Lemma indistinct_apply_raw_renaming_unmatched_var r v :
+  v_label_opt (apply_raw_renaming_unmatched_var r v)
+  = v_label_opt v.
+Proof.
+  generalize dependent v.
+  induction r as [|vl r IHr vr]; intros v;
+    cbn; try easy; reduce_vars_beta.
+  rewrite IHr; reduce_vars_beta.
+  easy.
+Qed.
+
+Lemma equivalent_matched_raw_renaming r1 r2 v :
+  is_all_normal_raw_renaming r1 = true ->
+  is_all_normal_raw_renaming r2 = true ->
+  (r1 =rr= r2) ->
+  (apply_raw_renaming_unmatched_var r1 v
+   = apply_raw_renaming_var r1 v) ->
+  (apply_raw_renaming_unmatched_var r2 v
+   = apply_raw_renaming_var r2 v).
+Proof.
+  intros Heq1 Heq2 Heq3 Heq4.
+  destruct (apply_normal_raw_renaming_unmatched_var r2 v)
+    as [Heq5|[Heq5 Heq6]]; try easy.
+  assert (is_shifting_var v
+            (apply_raw_renaming_var (inverse_raw_renaming r2)
+               (apply_raw_renaming_unmatched_var r2 v)) = true)
+    as Heq7
+    by (apply shifting_inv_matched_var with r2;
+          try rewrite apply_inverse_raw_renaming_right_v; easy).
+  apply shifting_unmatched_var with (r := r1) in Heq7; try easy.
+  destruct Heq7 as [Heq7|Heq7].
+  - rewrite (Heq3 (apply_raw_renaming_var _ _)) in Heq7.
+    rewrite apply_inverse_raw_renaming_right_v in Heq7.
+    congruence.
+  - rewrite (Heq3 (apply_raw_renaming_var _ _)) in Heq7.
+    rewrite apply_inverse_raw_renaming_right_v in Heq7.
+    apply is_shifting_var_total_indistinct in Heq7;
+      try congruence.
+    rewrite <- Heq4.
+    rewrite! indistinct_apply_raw_renaming_unmatched_var.
+    easy.
+Qed.
+
+Lemma equivalent_apply_raw_renaming_unmatched_var r1 r2 :
+  is_all_normal_raw_renaming r1 = true ->
+  is_all_normal_raw_renaming r2 = true ->
+  (r1 =rr= r2) ->
+  forall v,
+    apply_raw_renaming_unmatched_var r1 v
+    = apply_raw_renaming_unmatched_var r2 v.
+Proof.
+  intros Heq1 Heq2 Heq3 v.
+  apply (normal_raw_renaming_ind r1 v); try easy.
+  - intros v2 Heq4.
+    destruct (apply_normal_raw_renaming_unmatched_var r2 v2)
+      as [Heq5|[Heq5 Heq6]]; try easy.
+    + rewrite Heq4, Heq5, Heq3; easy.
+    + apply equivalent_matched_raw_renaming
+        with (r2 := r2) in Heq4; try easy.
+      rewrite Heq4 in Heq6.
+      pose is_shifting_var_reflexive.
+      congruence.
+  - intros v2 Heq4 Heq5 Heq6.
+    destruct (apply_normal_raw_renaming_unmatched_var r2 v2)
+      as [Heq7|[Heq7 Heq8]]; try easy.
+    + apply equivalent_matched_raw_renaming
+        with (r2 := r1) in Heq7; try easy.
+      rewrite Heq7 in Heq5.
+      pose is_shifting_var_reflexive.
+      congruence.
+    + rewrite Heq4, Heq7.
+      apply Heq6.
 Qed.
 
 Definition is_less_than_raw_renaming_var v r :=
