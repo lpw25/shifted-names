@@ -42,6 +42,22 @@ Definition is_normalized_raw_renaming r :=
     (is_all_normal_raw_renaming r)
     (is_all_ordered_raw_renaming r).
 
+Lemma is_all_normal_normalized r :
+  is_normalized_raw_renaming r = true ->
+  is_all_normal_raw_renaming r = true.
+Proof.
+  unfold is_normalized_raw_renaming.
+  rewrite Bool.andb_true_iff; easy.
+Qed.
+
+Lemma is_all_ordered_normalized r :
+  is_normalized_raw_renaming r = true ->
+  is_all_ordered_raw_renaming r = true.
+Proof.
+  unfold is_normalized_raw_renaming.
+  rewrite Bool.andb_true_iff; easy.
+Qed.
+
 Lemma is_normalized_raw_renaming_extend vl r vr :
   is_normalized_raw_renaming (raw_renaming_extend vl r vr)
   = andb
@@ -61,6 +77,12 @@ Proof.
   rewrite! Bool.andb_true_iff.
   easy.
 Qed.
+
+Lemma is_all_normal_raw_renaming_normal_extension vl r vr :
+  is_all_normal_raw_renaming
+    (raw_renaming_extend vl r vr) = true ->
+  is_normal_raw_renaming_extension vl r vr = true.
+Proof. cbn; rewrite Bool.andb_true_iff; easy. Qed.
 
 Lemma apply_normal_raw_renaming_unmatched_var r v :
   is_all_normal_raw_renaming r = true ->
@@ -323,31 +345,103 @@ Proof.
       reduce_vars; easy.
 Qed.
 
-Lemma is_normalized_equivalence r1 r2 :
+Lemma equivalence_from_extend vl vr r1 r2 :
+  raw_renaming_extend vl r1 vr
+  =rr= raw_renaming_extend vl r2 vr ->
+  r1 =rr= r2.
+Proof.
+  intros Heq1 v.
+  specialize (Heq1 (shift_var vr v)).
+  assert (shift_var vr v <> vr)
+    by apply irreducible_transposed_1.
+  reduce_vars.
+  rewrite reducible_transposed_2 with (v1 := v) in Heq1
+    by easy.
+  apply reducible_transposed_2 in Heq1.
+  rewrite reducible_transposed_2
+    with (v1 := apply_raw_renaming_var r2 v) in Heq1
+    by easy.
+  congruence.
+Qed.
+
+Lemma is_all_normal_different_not_eqivalent vl r vr :
+  is_all_normal_raw_renaming
+    (raw_renaming_extend vl r vr) = true ->
+  not (raw_renaming_extend vl r vr =rr= raw_renaming_id).
+Proof.
+  intros Heq1 Heq2.
+  apply equivalent_apply_raw_renaming_unmatched_var
+    with (v := vr) in Heq2 as Heq3; try easy.
+  specialize (Heq2 vr); reduce_vars.
+  apply reducible_transposed_1 in Heq3.
+  contradiction.
+Qed.
+
+Lemma is_normalized_less_than_not_equivalent
+      vl1 r1 vr1 r2 :
+  is_normalized_raw_renaming
+    (raw_renaming_extend vl1 r1 vr1) = true ->
+  is_normalized_raw_renaming r2 = true ->
+  is_less_than_raw_renaming_var vr1 r2 = true ->
+  not (raw_renaming_extend vl1 r1 vr1 =rr= r2).
+Proof.
+  intros Heq1 Heq2 Heq3 Heq4.
+  apply is_all_ordered_normalized in Heq1 as Heq5.
+  apply is_all_ordered_normalized in Heq2 as Heq6.
+  apply is_all_normal_normalized in Heq1 as Heq7.
+  apply is_all_normal_normalized in Heq2 as Heq8.
+  specialize (Heq4 vr1) as Heq9.
+  rewrite apply_normalized_raw_renaming_unmatched_var
+    with (r := r2) in Heq9 by easy.
+  apply equivalent_apply_raw_renaming_unmatched_var
+    with (v := succ_var vr1) in Heq4; try easy.
+  apply is_all_normal_raw_renaming_normal_extension
+    in Heq7 as Heq10.
+  unfold is_normal_raw_renaming_extension in Heq10;
+    rewrite Bool.negb_true_iff in Heq10.
+  reduce_vars.
+  rewrite is_shifting_false_shift in Heq4 by easy.
+  rewrite Heq9 in Heq10.
+  rewrite Heq4 in Heq10.
+  contradict Heq10.
+  rewrite Bool.not_false_iff_true.
+  apply shifting_apply_raw_renaming_unmatched_var.
+  apply is_shifting_succ_var.
+Qed.
+
+Lemma is_normalized_equivalence_equal r1 r2 :
   is_normalized_raw_renaming r1 = true ->
   is_normalized_raw_renaming r2 = true ->
-  apply_raw_renaming_var r1
-  =v= apply_raw_renaming_var r2 ->
+  r1 =rr= r2 ->
   r1 = r2.
 Proof.
   generalize dependent r2.
   induction r1 as [|vl1 r1 IHr vr1]; intros r2 Heq1 Heq2 Heq3;
     destruct r2 as [|vl2 r2 vr2]; try easy.
-  - specialize (Heq3 (succ_var vr2)) as Heq4.
-    rewrite apply_normalized_raw_renaming_unmatched_var
-      with (r := raw_renaming_extend _ _ _) in Heq4.
-    + admit.
-    + unfold is_normalized_raw_renaming in Heq2;
-        rewrite Bool.andb_true_iff in Heq2; destruct Heq2; easy.
-    + cbn. reduce_vars.
-
-specialize (Heq3 vr2) as Heq4;
-      reduce_vars; rewrite Heq4 in *.
-    
-    admit.
-  - specialize (Heq3 vr1) as Heq4;
-      reduce_vars; rewrite Heq4 in *.
-    
+  - absurd (raw_renaming_extend vl2 r2 vr2 =rr= raw_renaming_id);
+      try easy.
+    apply is_all_normal_different_not_eqivalent.
+    apply is_all_normal_normalized; easy.
+  - absurd (raw_renaming_extend vl1 r1 vr1 =rr= raw_renaming_id);
+      try easy.
+    apply is_all_normal_different_not_eqivalent.
+    apply is_all_normal_normalized; easy.
+  - destruct (is_less_than_var vr1 vr2) eqn:Heq4.
+    + absurd (raw_renaming_extend vl1 r1 vr1
+              =rr= raw_renaming_extend vl2 r2 vr2); try easy.
+      apply is_normalized_less_than_not_equivalent; try easy.
+    + destruct (is_less_than_var vr2 vr1) eqn:Heq5.
+      * absurd (raw_renaming_extend vl2 r2 vr2
+              =rr= raw_renaming_extend vl1 r1 vr1); try easy.
+        apply is_normalized_less_than_not_equivalent; try easy.
+      * apply (is_less_than_var_total _ _ Heq4) in Heq5 as <-.
+        specialize (Heq3 vr1) as Heq6; reduce_vars; subst.
+        apply is_normalized_raw_renaming_from_extend in Heq1.
+        apply is_normalized_raw_renaming_from_extend in Heq2.
+        rewrite IHr with (r2 := r2); try easy.
+        apply equivalence_from_extend with (vl := vl2) (vr := vr1).
+        easy.
+Qed.
 
 Fixpoint is_interesting_raw_renaming_extension vl r vr :=
   match r with
@@ -705,6 +799,7 @@ Lemma is_normalized_interesting_raw_renaming_extend vl r vr :
   is_normalized_raw_renaming
     (interesting_raw_renaming_extend vl r vr) = true.
 Proof.
+  (* TODO: use is_all_normal_normalized? *)
   unfold is_normalized_raw_renaming.
   rewrite! Bool.andb_true_iff.
   intros [Heq1 Heq2] Heq3.
@@ -822,6 +917,7 @@ Lemma is_normalized_normalized_raw_renaming_extend vl r vr :
   is_normalized_raw_renaming
     (normalized_raw_renaming_extend vl r vr) = true.
 Proof.
+  (* TODO: use is_all_normal_normalized? *)
   unfold is_normalized_raw_renaming; intros Heq.
   rewrite Bool.andb_true_iff in Heq.
   destruct Heq as [Heq1 Heq2].
