@@ -310,6 +310,17 @@ Definition shifts_var v1 v2 :=
   if is_shifting_var v1 v2 then sUnit
   else sEmpty.
 
+(* [v1] is "unshifting" [v2] another if [unshift_var v1 v2 <> v2] *)
+
+Definition is_unshifting_var v1 v2 :=
+  andb
+    (label_opt_eqb (v_label_opt v1) (v_label_opt v2))
+    (Nat.ltb (v_nat v1) (v_nat v2)).
+
+Definition unshifts_var v1 v2 :=
+  if is_unshifting_var v1 v2 then sUnit
+  else sEmpty.
+
 (* Total ordering on vars *)
 
 Definition is_less_equal_var v1 v2 :=
@@ -321,8 +332,10 @@ Definition less_equal_var v1 v2 :=
   if is_less_equal_var v1 v2 then sUnit
   else sEmpty.
 
-Definition is_less_than_var v v' :=
-  negb (is_less_equal_var v' v).
+Definition is_less_than_var v1 v2 :=
+  orb
+    (is_less_than_label_opt (v_label_opt v1) (v_label_opt v2))
+    (is_unshifting_var v1 v2).
 
 Definition less_than_var v1 v2 :=
   if is_less_than_var v1 v2 then sUnit
