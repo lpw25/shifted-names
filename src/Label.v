@@ -262,3 +262,24 @@ Proof.
   apply is_less_than_label_opt_asymmetric in Heq1 as Heq2.
   rewrite Heq2 in Heq1; easy.
 Qed.
+
+Lemma label_opt_eqb_not_less_than so1 so2 :
+  label_opt_eqb so1 so2 = true ->
+  is_less_than_label_opt so1 so2 = false.
+Proof.
+  unfold label_opt_eqb.
+  destruct (label_opt_dec so1 so2) as [Heq|Hneq]; intro; try easy.
+  rewrite Heq.
+  apply is_less_than_label_opt_irreflexive.
+Qed.
+
+Lemma is_less_than_label_opt_not_equal so1 so2 :
+  is_less_than_label_opt so1 so2 = true ->
+  label_opt_eqb so1 so2 = false.
+Proof.
+  intro Hlt.
+  destruct (label_opt_eqb so1 so2) eqn:Heq; try easy.
+  apply label_opt_eqb_not_less_than in Heq.
+  rewrite Heq in Hlt; easy.
+Qed.
+
