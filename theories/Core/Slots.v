@@ -359,4 +359,149 @@ Proof.
   - reflexivity.
 Qed.
 
+(** ** Slot references, characterised without normality *)
+
+Lemma In_refs_gen a v h' n :
+  In (v, h', n) (refs a)
+  <-> exists key e, get key a = Some e /\ v_label v = e_label e
+                    /\ nth_error (e_targets e) (v_index v) = Some (Slot h' n).
+Proof.
+  unfold refs; rewrite in_flat_map; split.
+  - intros [[key e] [Hin Hr]]; apply In_elements in Hin; cbn [snd] in Hr.
+    unfold refs_of_entry in Hr; apply go_refs in Hr as [Hl [_ Hn]].
+    rewrite Nat.sub_0_r in Hn; exists key, e; auto.
+  - intros [key [e [He [Hl Hn]]]].
+    exists (key, e); split; [apply In_elements, He|].
+    cbn [snd]; unfold refs_of_entry; apply go_refs.
+    rewrite Nat.sub_0_r; repeat split; [exact Hl|lia|exact Hn].
+Qed.
+
+(** ** Identity *)
+
+Definition identity : raw P := Empty.
+
+Lemma normal_identity : normal identity = true.
+Proof. reflexivity. Qed.
+
+Lemma apply_identity v : apply identity v = inl v.
+Proof.
+  unfold apply, identity, find, count; cbn [get fst snd length].
+  rewrite nth_error_nil; destruct v; cbn; do 2 f_equal; lia.
+Qed.
+
+(** ** Adding an output slot: O(log n), no reference changes *)
+
+Definition push_outer h a : raw P :=
+  update (label_key h)
+    (fun o => Some (match o with
+                    | Some e => mk_entry h (e_targets e) (S (e_out e))
+                    | None => mk_entry h [] 1
+                    end)) a.
+
+Lemma find_push_outer h a h' :
+  normal a = true ->
+  find (push_outer h a) h'
+  = if label_eqb h' h then (fst (find a h), S (count a h)) else find a h'.
+Proof.
+  intros Ha; unfold find at 1, push_outer; rewrite get_update, label_key_eqb.
+  unfold count, find; destruct (label_eqb_spec h' h) as [->|]; [|reflexivity].
+  destruct (get (label_key h) a); reflexivity.
+Qed.
+
+Lemma count_push_outer h a h' :
+  normal a = true ->
+  count (push_outer h a) h' = if label_eqb h' h then S (count a h) else count a h'.
+Proof.
+  intros Ha; unfold count at 1; rewrite find_push_outer by exact Ha.
+  destruct (label_eqb h' h); reflexivity.
+Qed.
+
+Theorem apply_push_outer h a v :
+  normal a = true ->
+  apply (push_outer h a) v
+  = match apply a v with
+    | inl w => inl (shift_var (mk_var h 0) w)
+    | inr p => inr p
+    end.
+Proof.
+  intros Ha; unfold apply.
+  rewrite !find_push_outer, !count_push_outer by exact Ha.
+  destruct v as [hv i]; cbn [v_label v_index].
+  assert (Hslot : forall hv i h' n,
+             nth_error (fst (find a hv)) i = Some (Slot h' n) ->
+             resolve (push_outer h a) (Slot h' n)
+             = match resolve a (Slot h' n) with
+               | inl w => inl (shift_var (mk_var h 0) w)
+               | inr p => inr p
+               end).
+  { intros hv' i' h' n Et; cbn [resolve]; rewrite count_push_outer by exact Ha.
+    pose proof (slot_bound a (mk_var hv' i') h' n Ha Et) as Hb.
+    unfold shift_var; cbn [v_label v_index]; rewrite (label_eqb_sym h h').
+    destruct (label_eqb_spec h' h) as [->|]; cbn [andb Nat.leb]; [do 2 f_equal; lia|reflexivity]. }
+  destruct (label_eqb_spec hv h) as [->|Hne]; cbn [fst snd].
+  - destruct (nth_error (fst (find a h)) i) as [[h' n|p]|] eqn:Et.
+    + apply (Hslot h i h' n Et).
+    + reflexivity.
+    + unfold shift_var; cbn [v_label v_index]; rewrite label_eqb_refl; cbn [andb Nat.leb].
+      apply nth_error_None in Et; do 2 f_equal; lia.
+  - destruct (nth_error (fst (find a hv)) i) as [[h' n|p]|] eqn:Et.
+    + apply (Hslot hv i h' n Et).
+    + reflexivity.
+    + unfold shift_var; cbn [v_label v_index].
+      rewrite (proj2 (label_eqb_neq h hv)) by congruence; reflexivity.
+Qed.
+
+Lemma existsb_same_members {A} (f : A -> bool) (l1 l2 : list A) :
+  (forall x, In x l1 <-> In x l2) -> existsb f l1 = existsb f l2.
+Proof.
+  intros H; apply Bool.eq_iff_eq_true; rewrite !existsb_exists.
+  split; intros [x [Hx Hf]]; exists x; split; auto; apply H; auto.
+Qed.
+
+Lemma refs_push_outer h a r :
+  normal a = true -> In r (refs (push_outer h a)) <-> In r (refs a).
+Proof.
+  intros Ha; destruct r as [[v h'] n]; rewrite !In_refs_gen.
+  unfold push_outer; split.
+  - intros [key [e [He [Hl Hn]]]]; rewrite get_update in He.
+    destruct (Pos.eqb_spec key (label_key h)) as [->|].
+    + destruct (get (label_key h) a) as [e0|] eqn:E0; injection He as <-;
+        cbn [e_label e_targets] in *; [|rewrite nth_error_nil in Hn; discriminate].
+      exists (label_key h), e0; repeat split; [exact E0| |exact Hn].
+      rewrite Hl; symmetry; apply (find_label a h e0 Ha E0).
+    + exists key, e; auto.
+  - intros [key [e [He [Hl Hn]]]].
+    exists key; rewrite get_update.
+    destruct (Pos.eqb_spec key (label_key h)) as [->|].
+    + rewrite He; eexists; repeat split; [cbn [e_label]| exact Hn].
+      rewrite Hl; apply (find_label a h e Ha He).
+    + exists e; auto.
+Qed.
+
+Theorem normal_push_outer h a : normal a = true -> normal (push_outer h a) = true.
+Proof.
+  intros Ha; unfold normal; apply andb_true_iff; split.
+  - apply forallb_spec; intros key e He.
+    unfold push_outer in He; rewrite get_update in He.
+    unfold entry_ok, strip_ok.
+    rewrite (existsb_same_members _ (refs (push_outer h a)) (refs a))
+      by (intro; apply refs_push_outer, Ha).
+    destruct (Pos.eqb_spec key (label_key h)) as [->|].
+    + destruct (get (label_key h) a) as [e0|] eqn:E0; injection He as <-;
+        cbn [e_label e_targets e_out nontrivial]; rewrite Pos.eqb_refl; cbn [andb];
+        [|reflexivity].
+      pose proof (normal_entries a Ha) as Hn; rewrite forallb_spec in Hn.
+      specialize (Hn _ _ E0); unfold entry_ok, strip_ok in Hn.
+      rewrite !andb_true_iff in Hn; destruct Hn as [_ Hs].
+      rewrite (find_label a h e0 Ha E0) in Hs.
+      destruct (e_targets e0); exact Hs.
+    + pose proof (normal_entries a Ha) as Hn; rewrite forallb_spec in Hn.
+      apply (Hn _ _ He).
+  - apply List.forallb_forall; intros [[v h'] n] Hin.
+    apply refs_push_outer in Hin; [|exact Ha].
+    pose proof (normal_refs a Ha) as Hr; rewrite List.forallb_forall in Hr.
+    specialize (Hr _ Hin); cbn [slot_wf] in *; rewrite Nat.ltb_lt in *.
+    rewrite count_push_outer by exact Ha; destruct (label_eqb_spec h' h) as [->|]; lia.
+Qed.
+
 End Slots.
