@@ -647,4 +647,48 @@ Qed.
 
 End Lift.
 
+(** ** The rewrite view: offsets reduce to lifts *)
+
+Theorem kleisli_apply_under {N M K L} (a : adj P N M) (e : ext N M K L) (t : term (S K)) :
+  kleisli (apply a) (ext_under e) t = kleisli (apply (lift a)) (ext_shift e) t.
+Proof.
+  rewrite <- (ext_app_shift e), kleisli_rebase.
+  apply kleisli_ext; intros K' L' e' v; apply apply_lift_rebase.
+Qed.
+
+Theorem kleisli_apply_here {N M} (a : adj P N M) (t : term N) :
+  kleisli (apply a) ext_here t = subst a t.
+Proof. reflexivity. Qed.
+
+(** ** Identity *)
+
+Lemma up_down d rv : (v_label rv = None -> d <= v_index rv) -> up d (down d rv) = rv.
+Proof.
+  destruct rv as [[y|] i]; unfold up, down; cbn; [reflexivity|].
+  intros H; specialize (H eq_refl); f_equal; lia.
+Qed.
+
+Lemma apply_identity {N K L} (e : ext N N K L) v : apply identity K L e v = unit_m K L e v.
+Proof.
+  unfold unit_m.
+  destruct (v_label (var_raw v)) as [y|] eqn:El;
+    [|destruct (lt_dec (v_index (var_raw v)) (ext_depth e)) as [Hi|Hi]].
+  2: { rewrite (apply_inner identity e v (W_tinner e _ El Hi) El Hi).
+       f_equal; apply var_eq; reflexivity. }
+  all: assert (Hr : v_label (var_raw v) = None -> ext_depth e <= v_index (var_raw v))
+         by (intros; try lia; congruence).
+  all: assert (Hn : napply (radj_n (adj_raw (@identity P N))) (down (ext_depth e) (var_raw v))
+                    = inl (down (ext_depth e) (var_raw v))) by apply napply_identity.
+  all: assert (H : Is_true_s (wf_var L (up (ext_depth e) (down (ext_depth e) (var_raw v)))))
+         by (rewrite (up_down _ _ Hr); apply (var_ok (ext_var e v))).
+  all: rewrite (apply_var identity e v _ H Hr Hn); f_equal; apply var_eq; cbn.
+  all: apply up_down, Hr.
+Qed.
+
+Theorem subst_identity {N} (t : term N) : subst identity t = t.
+Proof.
+  unfold subst; rewrite (kleisli_ext _ _ _ unit_m (fun K L e v => apply_identity e v)).
+  apply kleisli_unit.
+Qed.
+
 End Subst.
