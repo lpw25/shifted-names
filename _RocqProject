@@ -7,4 +7,5 @@ theories/Core/Slots.v
 theories/Core/Nested.v
 theories/Core/Adjustment.v
 theories/Core/Laws.v
+theories/Examples/LambdaCore.v
 theories/Tests/CoreTests.v

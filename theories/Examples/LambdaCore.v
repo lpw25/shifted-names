@@ -1,15 +1,17 @@
 (** * A concrete λ-calculus over shifted names (unindexed)
 
     Variables are shifted names; [tlam] binds the anonymous label (bound
-    variables are [None₍ᵢ₎]).  Renaming and substitution act through
-    adjustments, and the laws of the substitution calculus hold with
-    Leibniz equality, by induction on terms plus the adjustment laws.
+    variables are [None₍ᵢ₎]).  Substitution acts through adjustments whose
+    payloads are closed terms (no bound variables) with a lazily applied
+    payload adjustment.  The laws of the substitution calculus hold with
+    Leibniz equality, by induction on terms and on payload nesting depth,
+    plus the adjustment laws.
 
-    This is the internal, unindexed layer; the user-facing layer will be
-    scoped (see docs/implementation-plan.md, D6). *)
+    This file is an example client: the library knows nothing about these
+    terms. *)
 
-From Stdlib Require Import Arith List Lia Bool.
-From ShiftedNames.Core Require Import Label Var RawAdjustment Adjustment Laws.
+From Stdlib Require Import Arith List Lia Bool StrictProp.
+From ShiftedNames.Core Require Import Label Var Nested Adjustment Laws.
 
 Inductive term : Type :=
 | tvar (v : var)
@@ -17,190 +19,193 @@ Inductive term : Type :=
 | tapp (t1 t2 : term)
 | tlam (b : term).
 
-(** ** Renaming *)
+(** ** Scoping *)
 
-Definition renaming := adjustment Empty_set.
-
-Fixpoint rename (r : renaming) (t : term) : term :=
-  match t with
-  | tvar v =>
-      match apply r v with
-      | inl w => tvar w
-      | inr e => match e with end
-      end
-  | tconst n => tconst n
-  | tapp t1 t2 => tapp (rename r t1) (rename r t2)
-  | tlam b => tlam (rename (lift no_payload None r) b)
+Definition wf_var (N : nat) (v : var) : bool :=
+  match v_label v with
+  | None => Nat.ltb (v_index v) N
+  | Some _ => true
   end.
 
-Definition rcompose (r1 r2 : renaming) : renaming := compose no_payload r1 r2.
-
-Theorem rename_identity t : rename identity t = t.
-Proof.
-  induction t as [v|n|t1 IH1 t2 IH2|b IH]; cbn [rename].
-  - rewrite apply_identity; reflexivity.
-  - reflexivity.
-  - rewrite IH1, IH2; reflexivity.
-  - rewrite lift_identity, IH; reflexivity.
-Qed.
-
-Theorem rename_rename r1 r2 t :
-  rename r1 (rename r2 t) = rename (rcompose r1 r2) t.
-Proof.
-  revert r1 r2; induction t as [v|n|t1 IH1 t2 IH2|b IH]; intros r1 r2;
-    cbn [rename].
-  - unfold rcompose; rewrite apply_compose.
-    destruct (apply r2 v) as [w|[]]; reflexivity.
-  - reflexivity.
-  - rewrite IH1, IH2; reflexivity.
-  - rewrite IH; unfold rcompose.
-    rewrite (lift_compose no_payload) by (intros []); reflexivity.
-Qed.
-
-(** Lifting a renaming commutes with weakening by the binder. *)
-Lemma lift_shift (r : renaming) :
-  rcompose (lift no_payload None r) (shift None) = rcompose (shift None) r.
-Proof.
-  apply extensionality; intro v; unfold rcompose.
-  rewrite !apply_compose, apply_shift, apply_lift.
-  destruct (var_eqb_spec (shift_var (mk_var None 0) v) (mk_var None 0)) as [Heq|Hne].
-  - exfalso; destruct v as [h i]; unfold shift_var in Heq; revert Heq; case_vars.
-  - rewrite unshift_shift_var.
-    destruct (apply r v) as [w|[]]; rewrite apply_shift; reflexivity.
-Qed.
-
-(** ** Substitution *)
-
-Definition shift_term (t : term) : term := rename (shift None) t.
-
-Fixpoint subst (s : adjustment term) (t : term) : term :=
+Fixpoint wf_term (N : nat) (t : term) : bool :=
   match t with
-  | tvar v =>
-      match apply s v with
-      | inl w => tvar w
-      | inr u => u
-      end
-  | tconst n => tconst n
-  | tapp t1 t2 => tapp (subst s t1) (subst s t2)
-  | tlam b => tlam (subst (lift shift_term None s) b)
+  | tvar v => wf_var N v
+  | tconst _ => true
+  | tapp t1 t2 => wf_term N t1 && wf_term N t2
+  | tlam b => wf_term (S N) b
   end.
 
-Definition of_renaming (r : renaming) : adjustment term :=
-  map_payload (fun e : Empty_set => match e with end) r.
+(** Payload terms: terms with no bound variables. *)
+Record cterm : Type := mk_ct { ct : term; ct_wf : Is_true_s (wf_term 0 ct) }.
 
-Lemma apply_of_renaming r v :
-  apply (of_renaming r) v = match apply r v with inl w => inl w | inr e => match e with end end.
+Lemma cterm_eq (u1 u2 : cterm) : ct u1 = ct u2 -> u1 = u2.
+Proof. destruct u1, u2; cbn; intros ->; reflexivity. Qed.
+
+Definition sub := adjustment cterm.
+
+(** ** Substitution
+
+    At a payload [(u, ρ)] substitution continues with [ρ] on [u]; [ρ] is
+    nested strictly less deeply, so the fuel is the nesting depth. *)
+
+Fixpoint subst_f (n : nat) : sub -> term -> term :=
+  fix go (s : sub) (t : term) : term :=
+    match t with
+    | tvar v =>
+        match apply s v with
+        | inl w => tvar w
+        | inr p =>
+            match n with
+            | 0 => ct (fst p)
+            | S n' => subst_f n' (padj_adj (snd p)) (ct (fst p))
+            end
+        end
+    | tconst k => tconst k
+    | tapp t1 t2 => tapp (go s t1) (go s t2)
+    | tlam b => tlam (go (lift None s) b)
+    end.
+
+Definition subst (s : sub) (t : term) : term := subst_f (depth s) s t.
+
+Lemma subst_f_fuel n :
+  forall m s t, depth s <= n -> depth s <= m -> subst_f n s t = subst_f m s t.
 Proof.
-  unfold of_renaming; rewrite apply_map_payload.
-  destruct (apply r v) as [w|[]]; reflexivity.
-Qed.
-
-Lemma lift_of_renaming r :
-  lift shift_term None (of_renaming r) = of_renaming (lift no_payload None r).
-Proof. symmetry; apply map_payload_lift; intros []. Qed.
-
-Theorem subst_of_renaming r t : subst (of_renaming r) t = rename r t.
-Proof.
-  revert r; induction t as [v|n|t1 IH1 t2 IH2|b IH]; intro r; cbn [subst rename].
-  - rewrite apply_of_renaming; destruct (apply r v) as [w|[]]; reflexivity.
+  induction n as [|n IHn]; intros m s t Hn Hm;
+    [pose proof (ndepth_pos (adj_n s)); unfold depth in *; lia|].
+  destruct m as [|m]; [pose proof (ndepth_pos (adj_n s)); unfold depth in *; lia|].
+  revert s Hn Hm; induction t as [v|k|t1 IH1 t2 IH2|b IH]; intros s Hn Hm; cbn.
+  - destruct (apply s v) as [w|[u ρ]] eqn:E; [reflexivity|].
+    pose proof (depth_payload s v u ρ E).
+    apply IHn; cbn [snd]; rewrite depth_padj; lia.
   - reflexivity.
-  - rewrite IH1, IH2; reflexivity.
-  - rewrite lift_of_renaming, IH; reflexivity.
+  - rewrite IH1, IH2 by assumption; reflexivity.
+  - pose proof (depth_lift None s); rewrite IH by lia; reflexivity.
 Qed.
+
+(** The defining equations of [subst]. *)
+
+Lemma subst_var s v :
+  subst s (tvar v)
+  = match apply s v with
+    | inl w => tvar w
+    | inr p => subst (padj_adj (snd p)) (ct (fst p))
+    end.
+Proof.
+  unfold subst; destruct (depth s) as [|d] eqn:Ed;
+    [pose proof (ndepth_pos (adj_n s)); unfold depth in *; lia|].
+  cbn; destruct (apply s v) as [w|[u ρ]] eqn:E; [reflexivity|].
+  pose proof (depth_payload s v u ρ E).
+  cbn [fst snd]; unfold subst; apply subst_f_fuel; rewrite ?depth_padj; lia.
+Qed.
+
+Lemma depth_S (s : sub) : exists d, depth s = S d.
+Proof.
+  pose proof (ndepth_pos (adj_n s)); unfold depth.
+  destruct (ndepth (adj_n s)) as [|d]; [lia|exists d; reflexivity].
+Qed.
+
+Lemma subst_const s k : subst s (tconst k) = tconst k.
+Proof. unfold subst; destruct (depth_S s) as [d ->]; reflexivity. Qed.
+
+Lemma subst_app s t1 t2 : subst s (tapp t1 t2) = tapp (subst s t1) (subst s t2).
+Proof. unfold subst; destruct (depth_S s) as [d ->]; reflexivity. Qed.
+
+Lemma subst_lam s b : subst s (tlam b) = tlam (subst (lift None s) b).
+Proof.
+  unfold subst at 1; destruct (depth_S s) as [d Ed]; rewrite Ed.
+  change (subst_f (S d) s (tlam b)) with (tlam (subst_f (S d) (lift None s) b)); f_equal.
+  unfold subst; apply subst_f_fuel; [pose proof (depth_lift None s); lia|lia].
+Qed.
+
+Global Opaque subst.
+
+(** ** Substitution only looks at the variables of the term *)
+
+Definition agree (k : nat) (a b : sub) : Prop :=
+  forall v, (v_label v <> None \/ v_index v < k) -> apply a v = apply b v.
+
+Lemma agree_lift k a b : agree k a b -> agree (S k) (lift None a) (lift None b).
+Proof.
+  intros H v Hv; rewrite !apply_lift.
+  destruct (var_eqb_spec v (mk_var None 0)) as [->|Hne]; [reflexivity|].
+  rewrite H; [reflexivity|].
+  destruct v as [[x|] i]; cbn [v_label v_index unshift_var] in *; [left; discriminate|].
+  right; unfold unshift_var; cbn [v_label v_index label_eqb andb].
+  destruct i as [|i]; [exfalso; apply Hne; reflexivity|].
+  destruct Hv as [Hv|Hv]; [exfalso; apply Hv; reflexivity|]; cbn in *; lia.
+Qed.
+
+Lemma subst_agree t :
+  forall k a b, wf_term k t = true -> agree k a b -> subst a t = subst b t.
+Proof.
+  induction t as [v|n|t1 IH1 t2 IH2|b' IH]; intros k a b Hwf Hab.
+  - rewrite !subst_var, Hab; [reflexivity|].
+    unfold wf_term, wf_var in Hwf; destruct v as [[x|] i]; cbn in *;
+      [left; discriminate|right; apply Nat.ltb_lt, Hwf].
+  - rewrite !subst_const; reflexivity.
+  - cbn [wf_term] in Hwf; apply andb_true_iff in Hwf as [H1 H2].
+    rewrite !subst_app, (IH1 k a b), (IH2 k a b) by assumption; reflexivity.
+  - rewrite !subst_lam; f_equal; apply (IH (S k)); [exact Hwf|apply agree_lift, Hab].
+Qed.
+
+(** A payload term only sees the free variables of its adjustment, so
+    restricting a composite at the bound label changes nothing. *)
+Lemma subst_pcompose a ρ (u : cterm) :
+  subst (padj_adj (pcompose a ρ)) (ct u) = subst (compose a (padj_adj ρ)) (ct u).
+Proof.
+  apply (subst_agree _ 0); [apply Is_true_s_elim, ct_wf|].
+  intros v [Hv|Hv]; [|lia].
+  change (apply (padj_adj (pcompose a ρ)) v) with (papply (pcompose a ρ) v).
+  rewrite papply_pcompose, apply_compose by exact Hv; reflexivity.
+Qed.
+
+(** ** The laws *)
 
 Theorem subst_identity t : subst identity t = t.
 Proof.
-  induction t as [v|n|t1 IH1 t2 IH2|b IH]; cbn [subst].
-  - rewrite apply_identity; reflexivity.
-  - reflexivity.
-  - rewrite IH1, IH2; reflexivity.
-  - rewrite lift_identity, IH; reflexivity.
+  induction t as [v|n|t1 IH1 t2 IH2|b IH].
+  - rewrite subst_var, apply_identity; reflexivity.
+  - apply subst_const.
+  - rewrite subst_app, IH1, IH2; reflexivity.
+  - rewrite subst_lam, lift_identity, IH; reflexivity.
 Qed.
 
-Theorem rename_subst r s t :
-  rename r (subst s t) = subst (compose (rename r) (of_renaming r) s) t.
+Lemma subst_subst_depth n :
+  forall t b a, depth b <= n -> subst a (subst b t) = subst (compose a b) t.
 Proof.
-  revert r s; induction t as [v|n|t1 IH1 t2 IH2|b IH]; intros r s;
-    cbn [subst rename].
-  - rewrite apply_compose.
-    destruct (apply s v) as [w|u]; [|reflexivity].
-    cbn [rename]; rewrite apply_of_renaming.
-    destruct (apply r w) as [w'|[]]; reflexivity.
-  - reflexivity.
-  - rewrite IH1, IH2; reflexivity.
-  - rewrite IH; f_equal; f_equal.
-    rewrite <- lift_of_renaming.
-    apply lift_compose; intro p.
-    unfold shift_term; rewrite !rename_rename, lift_shift; reflexivity.
+  induction n as [|n IHn]; intros t b a Hb;
+    [pose proof (ndepth_pos (adj_n b)); unfold depth in *; lia|].
+  revert b a Hb; induction t as [v|k|t1 IH1 t2 IH2|body IH]; intros b a Hb.
+  - rewrite (subst_var b), (subst_var (compose a b)), apply_compose.
+    destruct (apply b v) as [w|[u ρ]] eqn:E; [rewrite subst_var; reflexivity|]; cbn [fst snd].
+    pose proof (depth_payload b v u ρ E).
+    rewrite IHn by (rewrite depth_padj; lia).
+    symmetry; apply subst_pcompose.
+  - rewrite !subst_const; reflexivity.
+  - rewrite !subst_app, IH1, IH2 by assumption; reflexivity.
+  - rewrite !subst_lam, IH by (pose proof (depth_lift None b); lia).
+    rewrite lift_compose; reflexivity.
 Qed.
 
-Theorem subst_rename s r t :
-  subst s (rename r t) = subst (compose (fun u => u) s (of_renaming r)) t.
+Theorem subst_subst a b t : subst a (subst b t) = subst (compose a b) t.
+Proof. apply (subst_subst_depth (depth b)); lia. Qed.
+
+(** ** Locally nameless operations *)
+
+(** Instantiating the innermost bound variable with a closed term. *)
+Definition instantiate (b : term) (u : cterm) : term :=
+  subst (subst1 None u (to_padj nidentity)) b.
+
+Definition open_term (x : label) (b : term) : term := subst (open x) b.
+Definition close_term (x : label) (t : term) : term := subst (close x) t.
+
+Theorem open_close x t : open_term x (close_term x t) = t.
 Proof.
-  revert s r; induction t as [v|n|t1 IH1 t2 IH2|b IH]; intros s r;
-    cbn [subst rename].
-  - rewrite apply_compose, apply_of_renaming.
-    destruct (apply r v) as [w|[]]; reflexivity.
-  - reflexivity.
-  - rewrite IH1, IH2; reflexivity.
-  - rewrite IH; f_equal; f_equal.
-    rewrite <- lift_of_renaming.
-    apply lift_compose; intro p. reflexivity.
-Qed.
-
-(** Substituting under a binder commutes with weakening by it. *)
-Lemma subst_shift_term s p :
-  subst (lift shift_term None s) (shift_term p) = shift_term (subst s p).
-Proof.
-  change (shift_term p) with (rename (shift None) p).
-  change (shift_term (subst s p)) with (rename (shift None) (subst s p)).
-  rewrite subst_rename, rename_subst.
-  f_equal; apply extensionality; intro v.
-  rewrite !apply_compose, !apply_of_renaming, apply_shift.
-  rewrite apply_lift.
-  destruct (var_eqb_spec (shift_var (mk_var None 0) v) (mk_var None 0)) as [Heq|Hne].
-  - exfalso; destruct v as [h i]; unfold shift_var in Heq; revert Heq; case_vars.
-  - rewrite unshift_shift_var.
-    destruct (apply s v) as [w|u]; [|reflexivity].
-    rewrite apply_of_renaming, apply_shift; reflexivity.
-Qed.
-
-Theorem subst_subst s1 s2 t :
-  subst s1 (subst s2 t) = subst (compose (subst s1) s1 s2) t.
-Proof.
-  revert s1 s2; induction t as [v|n|t1 IH1 t2 IH2|b IH]; intros s1 s2;
-    cbn [subst].
-  - rewrite apply_compose.
-    destruct (apply s2 v) as [w|u]; reflexivity.
-  - reflexivity.
-  - rewrite IH1, IH2; reflexivity.
-  - rewrite IH; f_equal; f_equal.
-    apply lift_compose; intro p.
-    apply subst_shift_term.
-Qed.
-
-(** ** Substitution without lifting
-
-    [subst_nolift s] goes under binders without lifting [s].  It agrees with
-    [subst s] whenever lifting [s] is free ([lift_free]); the indexed layer
-    uses it when the indices guarantee that. *)
-
-Fixpoint subst_nolift (s : adjustment term) (t : term) : term :=
-  match t with
-  | tvar v =>
-      match apply s v with
-      | inl w => tvar w
-      | inr u => u
-      end
-  | tconst n => tconst n
-  | tapp t1 t2 => tapp (subst_nolift s t1) (subst_nolift s t2)
-  | tlam b => tlam (subst_nolift s b)
-  end.
-
-Theorem subst_nolift_spec s t :
-  lift shift_term None s = s -> subst_nolift s t = subst s t.
-Proof.
-  intro Hs; induction t as [v|n|t1 IH1 t2 IH2|b IH]; cbn [subst_nolift subst];
-    [reflexivity|reflexivity|rewrite IH1, IH2; reflexivity|].
-  rewrite Hs, IH; reflexivity.
+  unfold open_term, close_term; rewrite subst_subst.
+  replace (compose (open x) (close x)) with (@identity cterm); [apply subst_identity|].
+  apply extensionality; intro v.
+  rewrite apply_compose, apply_identity; unfold open, close; rewrite !apply_rename1.
+  destruct v as [h i]; unfold var_eqb, shift_var, unshift_var; cbn [v_label v_index].
+  case_vars; rewrite ?apply_rename1; unfold var_eqb, shift_var, unshift_var;
+    cbn [v_label v_index]; case_vars.
 Qed.
