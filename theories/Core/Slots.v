@@ -990,4 +990,143 @@ Proof.
   apply apply_cons_entry.
 Qed.
 
+(** ** Composition
+
+    [compose fp a b] first applies [b] and then [a]; [fp] moves [b]'s
+    payloads through [a].  For each label [h] the result has [jlen b h]
+    input entries from [b], followed by [a]'s input entries that [b] passes
+    through to; its output slots are [a]'s slots followed (on the innermost
+    side) by those of [b]'s slots that [a] passes through. *)
+
+Section Compose.
+
+Variable fp : P -> P.
+
+Definition ext_count a b h : nat := count a h + (count b h - jlen a h).
+Definition res_len a b h : nat := jlen b h + (jlen a h - count b h).
+
+Definition encode_res a b (r : var + P) : target P :=
+  match r with
+  | inl u => Slot (v_label u) (ext_count a b (v_label u) - S (v_index u))
+  | inr p => Bind p
+  end.
+
+(** Where [b] sends the inner [h₍ᵢ₎]. *)
+Definition b_image b h (i : nat) : var + P := apply b (mk_var h i).
+
+Definition comp_target a b h (i : nat) : target P :=
+  match b_image b h i with
+  | inl w => encode_res a b (apply a w)
+  | inr p => Bind (fp p)
+  end.
+
+Definition comp_entry a b h : option (entry P) :=
+  let ts := map (comp_target a b h) (seq 0 (res_len a b h)) in
+  let k := ext_count a b h in
+  if nontrivial ts k then Some (mk_entry h ts k) else None.
+
+Definition compose_pre a b : raw P :=
+  merge (fun _ ea eb =>
+           match ea, eb with
+           | None, None => None
+           | Some e, _ => comp_entry a b (e_label e)
+           | None, Some e => comp_entry a b (e_label e)
+           end) a b.
+
+Lemma find_none_trivial a h : get (label_key h) a = None -> find a h = ([], 0).
+Proof. intro E; unfold find; rewrite E; reflexivity. Qed.
+
+Lemma find_compose_pre a b h :
+  normal a = true -> normal b = true ->
+  find (compose_pre a b) h = (map (comp_target a b h) (seq 0 (res_len a b h)), ext_count a b h).
+Proof.
+  intros Ha Hb; unfold find at 1, compose_pre; rewrite get_merge by reflexivity.
+  assert (Hc : forall e, comp_entry a b h = Some e -> (e_targets e, e_out e)
+                 = (map (comp_target a b h) (seq 0 (res_len a b h)), ext_count a b h)).
+  { unfold comp_entry; intros e; destruct (nontrivial _ _); [intros [= <-]; reflexivity|discriminate]. }
+  assert (Hn : comp_entry a b h = None ->
+               ([] : list (target P), 0) = (map (comp_target a b h) (seq 0 (res_len a b h)), ext_count a b h)).
+  { unfold comp_entry; destruct (map _ _) as [|t ts] eqn:E, (ext_count a b h) as [|k];
+      cbn [nontrivial]; try discriminate; intros _; reflexivity. }
+  destruct (get (label_key h) a) as [ea|] eqn:Ea, (get (label_key h) b) as [eb|] eqn:Eb.
+  - rewrite (find_label a h ea Ha Ea).
+    destruct (comp_entry a b h) as [e|] eqn:E; [apply Hc; reflexivity|apply Hn; reflexivity].
+  - rewrite (find_label a h ea Ha Ea).
+    destruct (comp_entry a b h) as [e|] eqn:E; [apply Hc; reflexivity|apply Hn; reflexivity].
+  - rewrite (find_label b h eb Hb Eb).
+    destruct (comp_entry a b h) as [e|] eqn:E; [apply Hc; reflexivity|apply Hn; reflexivity].
+  - unfold res_len, ext_count, jlen, count.
+    rewrite (find_none_trivial a h Ea), (find_none_trivial b h Eb); reflexivity.
+Qed.
+
+(** Results of [a] on the inputs that [b] reaches stay within the result's
+    slots. *)
+Lemma apply_a_bound a b w u :
+  normal a = true ->
+  v_index w < Nat.max (jlen a (v_label w)) (count b (v_label w)) ->
+  apply a w = inl u -> v_index u < ext_count a b (v_label u).
+Proof.
+  intros Ha Hw Hu; unfold apply in Hu.
+  destruct (nth_error (fst (find a (v_label w))) (v_index w)) as [t|] eqn:E.
+  - destruct t as [h' n|p]; cbn [resolve] in Hu; [|discriminate].
+    injection Hu as <-; cbn [v_label v_index].
+    pose proof (slot_bound a w h' n Ha E); unfold ext_count; lia.
+  - injection Hu as <-; cbn [v_label v_index].
+    apply nth_error_None in E; unfold ext_count, jlen in *; lia.
+Qed.
+
+Lemma resolve_encode_res c a b u :
+  count c (v_label u) = ext_count a b (v_label u) ->
+  v_index u < ext_count a b (v_label u) ->
+  resolve c (encode_res a b (inl u)) = inl u.
+Proof.
+  intros Hc Hb; cbn [encode_res resolve]; rewrite Hc.
+  destruct u as [h i]; cbn in *; do 2 f_equal; lia.
+Qed.
+
+Theorem apply_compose_pre a b v :
+  normal a = true -> normal b = true ->
+  apply (compose_pre a b) v
+  = match apply b v with
+    | inl w => apply a w
+    | inr p => inr (fp p)
+    end.
+Proof.
+  intros Ha Hb.
+  assert (Hcount : forall h, count (compose_pre a b) h = ext_count a b h)
+    by (intro h; unfold count; rewrite find_compose_pre by assumption; reflexivity).
+  destruct v as [h i].
+  assert (Hc : apply (compose_pre a b) (mk_var h i)
+               = if Nat.ltb i (res_len a b h)
+                 then resolve (compose_pre a b) (comp_target a b h i)
+                 else inl (mk_var h (i - res_len a b h + ext_count a b h))).
+  { unfold apply at 1; cbn [v_label v_index].
+    rewrite find_compose_pre, Hcount by assumption; cbn [fst snd].
+    rewrite nth_error_map, length_map, length_seq, nth_error_seq.
+    destruct (Nat.ltb_spec i (res_len a b h)); reflexivity. }
+  rewrite Hc.
+  destruct (Nat.ltb_spec i (res_len a b h)) as [Hi|Hi].
+  - unfold comp_target, b_image.
+    destruct (apply b (mk_var h i)) as [w|p] eqn:Ebw; [|reflexivity].
+    (* where b sends the inner h_i is within a's reach *)
+    assert (Hw : v_index w < Nat.max (jlen a (v_label w)) (count b (v_label w))).
+    { unfold apply in Ebw; cbn [v_label v_index] in Ebw.
+      destruct (nth_error (fst (find b h)) i) as [t|] eqn:Et.
+      - destruct t as [h' n|p]; cbn [resolve] in Ebw; [|discriminate].
+        injection Ebw as <-; cbn [v_label v_index].
+        pose proof (slot_bound b (mk_var h i) h' n Hb Et); lia.
+      - injection Ebw as <-; cbn [v_label v_index].
+        apply nth_error_None in Et; unfold res_len, jlen, count in *; lia. }
+    destruct (apply a w) as [u|p] eqn:Eaw; [|reflexivity].
+    apply resolve_encode_res; [apply Hcount|apply (apply_a_bound a b w u Ha Hw Eaw)].
+  - unfold apply; cbn [v_label v_index].
+    unfold res_len, ext_count, jlen in *.
+    rewrite (proj2 (nth_error_None (fst (find b h)) i)) by lia.
+    cbn [v_label v_index].
+    rewrite (proj2 (nth_error_None (fst (find a h)) _)) by lia.
+    do 2 f_equal; lia.
+Qed.
+
+End Compose.
+
 End Slots.
