@@ -1,7 +1,10 @@
 # Shifted names: design history and final design
 
 This document reconstructs how the design evolved from the TyDE 2019 talk to the
-last commit (July 2022), working from the code on each branch. Almost every
+last Coq commits (2022, plus a TODO note in 2026), working from the code on each
+branch. Section 7 covers the later OCaml variant of the same idea, used as the
+basis of an effect system on the `modal-effect-adjustments` branch of
+`lpw25/ocaml`. Almost every
 commit after the initial import is titled "WIP", so intent comes from comments in
 the source. Where a point is my interpretation and not stated in the code, it is
 marked *(inferred)*.
@@ -34,7 +37,8 @@ checking identifiers against definitions by hand.
 | 2 | 2020-02-16 – 2020-07-05 | `next` (`Index.v`/`Name.v`/`Level.v`, then the `I*.v` files) | Commutation is organised as **operational transforms** and permutation-group relations. Normal-form target found: a **Dyck word** of pops then pushes. |
 | 3 | 2020-07-05 – 2020-08-16 | `next` tip (`Var.v`, `Term.v`) | Concrete, level-indexed first-order datatypes `closing N M` / `renaming N M` with computable composition. **SProp** first used, for level bounds. Associativity proofs for indexed closings stall. |
 | 4 | 2020-08-17 – 2021-01-31 | `next-unindexed` | **Indexing is dropped.** Bound variables become just another label (`None`). A single `pop_var`/`push_var` pair subsumes open, close, bind and weaken. Renamings are raw syntax plus an **SProp normalisation proof**, so equality is Leibniz. A canonicity theorem is proved. |
-| 5 | 2022-07-20 | `adjustments` (one commit) | Restart of the renaming layer on top of phase 4. A renaming becomes two lists, *incoming* (pushes into numbered slots) and *outgoing* (pops from slots), with variables as `{label_opt; nat}`. Unfinished: the file stops mid-definition. |
+| 5 | 2022-07 – 2022-09 | `adjustments` | Restart of the renaming layer on top of phase 4. A renaming becomes two lists, *incoming* (pushes into numbered slots) and *outgoing* (pops from slots), with variables as `{label_opt; nat}`. Work then starts on keeping both lists sorted by label. Composition was never defined; a TODO list (committed 2026-11) records what remains. |
+| 6 | 2023-06 – 2024-06 | `lpw25/ocaml`, `modal-effect-adjustments`, `typing/effect.ml` | The same idea used for effect handlers. An **adjustment** is grouped per label: for each label, an array of the first *j* inner positions (each `Rename` to an outer slot, or `Bind`) and an array of the first *k* outer slots, with everything further out shifted passively. Composition is a direct lookup-and-append, and the normal form only requires stripping trailing identity entries. It handles weakening, contraction and substitution, not just bijective renamings. |
 
 **Status of the main goals:**
 
@@ -43,6 +47,9 @@ checking identifiers against definitions by hand.
 - The SProp idea of "build unindexed first, layer indexing on top" was put into
   practice in phase 4. The indexing layer itself was never written.
 - Terms and substitutions were dropped from the build in phases 4 and 5.
+- The OCaml variant (phase 6) is the most recent and simplest form of the idea,
+  and it settles several of the questions the Coq code left open. Section 7
+  recommends using it as the template for finishing the Coq development.
 
 **Branch topology:** the history is linear, so each later branch contains the
 earlier ones.
@@ -52,7 +59,8 @@ master:          14aad3f ─ 54ae7ba ─ eb28b95 (TyDE Names.v) ─ 14bb7fc (mer
                               │
 next:                         └─ b1644fa … e9f6a25   (2019-09-29 … 2020-08-16, 43 commits)
 next-unindexed:                              └─ d15042e … f62e58a   (2020-08-17 … 2021-01-31)
-adjustments:                                                 └─ 548e0df   (2022-07-20)
+adjustments:                                                 └─ 548e0df ─ b78037c ─ 428f1a4
+                                                                (2022-07-20, 2022-09-15, 2026-11-08 TODO note)
 ```
 
 ---
@@ -519,10 +527,11 @@ What is missing at f62e58a:
 
 ---
 
-## 6. Phase 5: the July 2022 restart (`adjustments`, 548e0df)
+## 6. Phase 5: the 2022 restart (`adjustments`: 548e0df, b78037c, 428f1a4)
 
-This single commit deletes everything except `Label.v`, `Var.v` and
-`RawRenaming.v`, and rewrites the latter two (73 and 164 lines).
+The first commit (2022-07-20) deletes everything except `Label.v`, `Var.v` and
+`RawRenaming.v`, and rewrites the latter two (73 and 164 lines). Two later
+commits extend it (section 6.1).
 
 ### Variables are a plain record
 
@@ -554,14 +563,17 @@ The intermediate state is `var + nat`: either a variable or an occupied slot.
 
 ```coq
 Definition apply_renaming inc otg {H : incoming_is_less_than (List.length otg) inc} v :=
-  match apply_outgoing otg (apply_incoming inc (inl v)) with
-  | inl v' => v'
-  | inr _ =>            (* <- file ends here *)
+  (match apply_outgoing otg (apply_incoming inc (inl v)) as vn
+         return vn_is_less_than 0 vn -> var with
+   | inl v' => fun _ => v'
+   | inr _ => fun H => match H with end
+   end) (apply_renaming_var_less_than inc otg v H).
 ```
 
 The SProp hypothesis `H`, through `apply_renaming_var_less_than`, shows that the
-result can never be a slot. The missing branch is meant to be eliminated by
-`sEmpty` *(inferred from that lemma)*.
+result can never be a slot, so the slot branch is eliminated by `sEmpty`. In
+548e0df the file stopped partway through this definition; b78037c completed it
+as shown.
 
 ### How this compares with phase 4 *(inferred)*
 
@@ -583,83 +595,284 @@ the same label in the matching slot) are **not yet written**.
 `RawRenamingEquations.vok` is still listed in the Makefile, but the file was
 deleted in the same commit.
 
+### 6.1 Sorting by label, and the TODO list (b78037c, 2022-09-15; 428f1a4)
+
+The September 2022 commit starts making the two lists canonical by **sorting
+them by label**:
+
+- `apply_outgoing` changes from `fold_left` to `fold_right`, so the head of the
+  outgoing list is the outermost pop.
+- `add_incoming` inserts an incoming item in label order.
+  `apply_add_incoming` is proved, using `apply_incoming_item_separate`, which
+  says items with different labels commute.
+- Outgoing items cannot simply be reordered, because moving a pop changes which
+  slot number it consumes. So `add_outgoing_aux` returns the new list together
+  with a slot **rotation** (`rotate_nat from to`, `rotate_vn`), and
+  `apply_rotation_incoming` renumbers the incoming side to match. The
+  correctness lemmas `apply_add_outgoing_aux` and `apply_add_outgoing` stop
+  after a few tactics.
+- A new `Permutations.v` represents permutations as lists of adjacent swaps,
+  with `apply_permutation` and `apply_permutation_nat`. `swap_nth` is proved;
+  `permutation_nth` ends in empty bullets. It is not in the Makefile.
+- `Label.v` gains two small lemmas relating `label_opt_eqb` and the strict
+  order.
+
+The final commit (428f1a4) adds only a TODO comment at the end of
+`RawRenaming.v`:
+
+```
+(* TODO:
+   - Define composition
+   - Prove composition with identity
+   - Prove associativity of composition
+   - Define normalized predicate and normalization
+   - Prove extentiality of normalized case *)
+```
+
+So in phase 5, **composition, the normality predicate and canonicity were
+never written.** The slot-rotation bookkeeping is exactly what the per-label
+OCaml representation (section 7) avoids.
+
 ---
 
-## 7. The final design, consolidated
+## 7. Phase 6: effect adjustments in OCaml (`lpw25/ocaml`, `modal-effect-adjustments`, 2023-06 – 2024-06)
 
-This combines phase 4's proven infrastructure with phase 5's representation.
+The same idea was used as the basis of an effect system for OCaml, in which
+effect handlers are named and code runs under an *adjustment* of the current
+handler stack. The relevant code is one fairly standalone module:
+
+| File | Dates | State |
+|---|---|---|
+| `typing/effect_context.ml` | 2023-06-06 | Effect contexts (lists of named handlers) |
+| `typing/effect_mode.ml(i)` | 2023-06-26 – 2024-01-02 | Adjustments and modes |
+| `typing/effect.ml(i)` | renamed 2024-01-02 | 4ae82a85 (2024-01-11) is the last version with full implementations (1183 lines). From cd779a7d (2024-01-23) to the tip 16b3d339 (2024-06-18), the interface is being redesigned: `effect.mli` grows to 855 lines, and the implementation is commented out or replaced with `failwith "Not implemented"` stubs. |
+
+Like the Coq code, this is a design sketch, not finished code. Even 4ae82a85
+contains things that will not type-check, for example `Option.default`,
+`Strint.Map`, and an unbound `name` in `split_effects`. The **mli at the tip is
+the most refined specification**, and 4ae82a85's `Adjustment` module is the
+reference implementation.
+
+### 7.1 The specification (tip `effect.mli`)
+
+```ocaml
+module Position : sig type t = { name : string; index : int } end
+  (* "A shiftable effect name": exactly a shifted name x₍ᵢ₎ *)
+module Binding  : sig type 'ty t = Unused | Handled of 'ty | Unknown end
+module Mapping  : sig type ('ty, 'pos) t = Rename of 'pos | Bind of 'ty Binding.t end
+module Adjustment : sig
+  type 'ty t
+  (* "An effect adjustment describes a transformation of a stack of handlers.
+      Equivalently, they are functions that map Position.t to Mapping.t." *)
+  val parse : outer:(string * Parse.Outer.t) list -> inner:(string * 'ty Parse.Inner.t) list
+              -> ('ty t, Parse.Error.t) result
+  val handler : 'ty Handler.t -> 'ty t
+  val identity : 'ty t
+end
+module Renaming : sig type empty = | type t = empty Adjustment.t end
+  (* "A renaming is an adjustment that does not bind any effects" *)
+```
+
+Example from the docs:
+`parse ~outer:["A", Unused; "B", Rename "x"] ~inner:["C", Rename "x"; "D", Bind (Handled "t")]`
+removes the top-most `A`, renames the top-most `B` to `C`, and adds a new
+top-most `D`.
+
+`Mode` builds on adjustments:
+
+- `absolute ctx` and `relative adj`, with `compose`, `equal`, `less_than` and
+  `left_residual`;
+- `Factor`, `Upper_bound` and `Lower_bound` for inference with residuals;
+- a comment giving a grammar of mode expressions and the
+  residuated-lattice equations used to simplify them.
+
+All of that is effect-system specific. What carries over to binding is
+`Position`, `Mapping` and `Adjustment`.
+
+### 7.2 The representation (4ae82a85, `Adjustment`)
+
+```ocaml
+type ('ty, 'knd) adjust =
+  | Rename : { to_hash : int; to_index : int } -> ('ty, 'knd) adjust
+  | Bind : 'ty -> ('ty, 'knd) adjust
+  | Meet : ('ty, _) adjust * ('ty, _) adjust -> ('ty, relational) adjust
+  | Top : ('ty, 'knd) adjust
+type ('ty, 'knd) gen =
+  { image       : string array Int.Map.t;               (* per label: k outer slots   *)
+    adjustments : (string * 'ty adjust) array Int.Map.t (* per label: j inner entries *) }
+```
+
+Labels are keyed by `hash_name`; the strings are stored only to detect hash
+collisions. Read as a function from inner positions to outer positions or
+bindings (`apply_name`), for a label `h` with `j = |adjustments[h]|` and
+`k = |image[h]|`:
+
+```
+(h, i)  ↦  adjustments[h][i]        if i < j   (Rename (h', i') = outer slot h'₍ᵢ'₎, or Bind)
+(h, i)  ↦  (h, i − j + k)           if i ≥ j   ("passive" shift)
+```
+
+**Operations:**
+
+- `identity` is the pair of empty maps.
+- `handler` produces only `Bind`s.
+- `compose t1 t2` (in `Simplified`) satisfies `apply (compose t1 t2) =
+  apply t1 ∘ apply t2`. It works in three steps:
+  1. Map every entry of `t2.adjustments` through `t1` (`apply_adjust`). A rename
+     into `t1`'s matched region becomes `t1`'s entry; a rename beyond it is
+     shifted.
+  2. Append `t1`'s entries that lie beyond `t2`'s image to the adjustments, and
+     `t2`'s image slots that lie beyond `t1`'s entries to the image.
+  3. `normalize` the result.
+- `normalize`: for each label, repeatedly drop the last entry while it is
+  *transparent*, meaning a rename to the same label's last image slot, which is
+  what the passive shift would do anyway. Then drop empty arrays.
+- `equal` compares normalised adjustments structurally, entry by entry, and
+  reports the first differing position.
+- `left_residual`, `Meet` and `Top` give the subtyping and lattice structure the
+  effect system needs.
+
+### 7.3 Comparison with the Coq designs
+
+| | Phase 4 (`next-unindexed`) | Phase 5 (`adjustments`) | Phase 6 (OCaml) |
+|---|---|---|---|
+| Variables | `free name` / `bound level` | `{label_opt; nat}` | `{name; index}`; every handler is named, with no anonymous label |
+| Shape | chain `extend vl r vr` (interleaved push/pop pairs) | one *incoming* list + one *outgoing* list over all labels | **per label**: *j* inner entries + *k* outer slots |
+| Captures and creates | arbitrary `vl`, `vr` | always index 0 | always the first *j* / *k* of each label, i.e. index 0, *j* or *k* times |
+| Where the permutation lives | order of the `extend`s | global slot numbers `m`, rotated when lists are reordered | each entry names its target slot `(label, index)` |
+| Expressible maps | bijections (a group) | renamings, including contraction (two items into one slot) and weakening (an unfilled slot) | renamings with contraction and weakening, **plus `Bind`** (substitution) and `Top` |
+| Composition | `compose_raw_renaming` via `transpose_push`; associativity proved | not defined (TODO) | direct lookup + append + normalise |
+| Normal form | sorted by `vr`, "normal" extensions, with "under" and completeness side conditions | sorting by label with slot rotations, unfinished | **no trailing transparent entry per label** |
+| Canonicity | proved (`is_normalized_equivalence_equal`) | not stated | not stated; appears immediate *(inferred, see below)* |
+
+The OCaml design is phase 5 with the incoming and outgoing lists *grouped by
+label*. Grouping removes the global slot numbering, and with it the rotations
+`b78037c` was struggling with. Since only index 0 is ever captured or created,
+the incoming list for a label is just a count of how many times its index 0 is
+captured, plus where each capture goes. The outgoing list for a label is just a
+count.
+
+**Why the normal form should be canonical** *(inferred, not proved)*: for each
+label the map is eventually passive, `(h, i) ↦ (h, i + (k − j))` for large `i`.
+The offset `k − j` is determined by the function. The smallest `j` past which
+it is passive is also determined, and stripping trailing transparent entries
+computes exactly that `j`. Everything below `j` is read off directly.
+
+Compared with phase 4's `is_normalized_equivalence_equal`, this predicate is
+much simpler: no ordering conditions, no "under" bound and no completeness side
+conditions.
+
+### 7.4 What to borrow
+
+1. **Per-label representation.** In Coq this is a finite map (or a sorted
+   association list, using `Label.v`'s order) from `option label` to an entry
+   list and an outgoing count. The image strings are only there for hash
+   collisions and can be dropped, so the outgoing side is just `option label ↦
+   nat`. The anonymous label `None` still gives de Bruijn-style bound
+   variables.
+2. **Result type `Rename of position | Bind of payload`**, with renamings as
+   the special case with an empty payload (`Renaming.t = empty Adjustment.t`).
+   This is the same "variable or slot" sum that phase 5 used as `var + nat`,
+   turned outward: application returns `var + payload`. One parametric
+   structure then covers renamings, weakening, contraction and substitutions.
+3. **Normality = "no trailing transparent entry, no empty entry"**, wrapped in
+   SProp in a record as in phase 4, so normalised adjustments are equal exactly
+   when their data is.
+4. **Composition by lookup** rather than by transposition. Prove
+   `apply (compose t1 t2) = apply t1 ∘ apply t2` once, together with canonicity.
+   Identity and associativity then follow for free, which is the "extensionality
+   of the normalised case" item on the 2026 TODO list.
+5. **A difference to handle.** In the effect system the `Bind` payloads are
+   types that do not mention positions, so `compose` leaves them untouched. For
+   terms, a `Bind`'s payload lives in the outer scope of its own adjustment.
+   Composing must therefore apply `t1` to `t2`'s payloads: the relative-monad
+   structure from phases 0–3. Renamings (empty payload) avoid this, so they
+   can be finished first.
+
+---
+
+## 8. The final design, consolidated
+
+This combines phase 4's proven variable theory and its SProp canonicity
+pattern with the phase 5/6 representation.
 
 1. **Labels and variables.**
-   - `label := string`, with a decidable total order.
+   - `label := string`, with a decidable total order (`Label.v`).
    - `var := {v_label_opt : option label; v_nat : nat}`. `Some x` with index `i`
      is the free name `x₍ᵢ₎`; `None` with index `i` is bound variable `i`.
-   - All variables are treated uniformly; there are no special bound-variable
-     operations.
+   - All variables are treated uniformly.
 2. **Primitive operations.**
-   - `shift_var v₁ v₂` and `unshift_var v₁ v₂` are the shift and unshift of `v₂`
-     past `v₁`.
-   - `push v` (capture `v` into a fresh slot, unshifting the rest) and `pop v`
-     (release a slot as `v`, shifting the rest). They are inverse
-     (`pop_push_identity`, `push_pop_identity`).
-   - Locally nameless open, close, bind and weaken are all push/pop pairs at
+   - `shift_var` and `unshift_var`.
+   - `push v` (capture into a slot) and `pop v` (release a slot), which are
+     inverse.
+   - Locally nameless open, close, bind and weaken are push/pop combinations at
      particular variables.
-3. **Renamings in normal form.**
-   - A renaming is a block of pushes followed by a block of pops, with an
-     explicit slot permutation (phase 5), or equivalently a sorted chain of
-     normal `extend`s (phase 4).
-   - Composition is computed by transposing operations. The algebra is
-     operational transforms and the Coxeter presentation of permutations,
-     proved in `VarEquations.v`.
+   - Phase 4's `VarEquations.v` holds the transposition and Coxeter theory if it
+     is needed.
+3. **Adjustments in normal form** (phase 6 shape). For each label:
+   - a list of entries for its first *j* indices, each `Rename (l', i')` (with
+     `i'` below `l'`'s outgoing count) or `Bind p`;
+   - an outgoing count *k*;
+   - everything further out is shifted by `k − j`.
+
+   Renamings are adjustments with an empty payload type; substitutions have
+   terms as the payload.
 4. **Canonicity via SProp.**
-   - A user-facing `renaming` is a record of the raw data plus an SProp proof
-     that the data is normalised.
-   - With a canonicity theorem (`r₁ =rr= r₂ → r₁ = r₂` for normalised data),
-     extensional equality *is* Leibniz equality, so ordinary `rewrite` works.
-   - Composition, identity, associativity and inverse laws hold by `=`. This
-     works already for closings (`ClosingEquations.v`) and raw renamings.
-5. **Planned on top, never written in the unindexed design.**
-   - Substitutions: renamings plus binds of terms, as in phase 3's
-     `substitution` datatype.
-   - Terms via a relative monad.
-   - An indexed layer in which `term N` / scoped variables are carved out of the
-     unindexed ones by SProp predicates.
-   - A reflective normaliser: reify a term-level expression of open, close,
-     shift, `[r]`, …; normalise by computing `compose`; prove `denote ∘
-     normalise = denote`.
+   - A user-facing adjustment is a record of the normalised data plus an SProp
+     proof of normality.
+   - Canonicity makes extensional equality Leibniz equality, so ordinary
+     `rewrite` works.
+   - `compose` is computed directly; the identity and associativity laws follow
+     from `apply_compose` and canonicity.
+5. **Still to design and build.**
+   - Composition for substitutions, which needs a term monad. Terms are probably
+     unindexed, with substitution by adjustments.
+   - The indexed layer: SProp well-scopedness predicates carving `term N` out of
+     unindexed terms.
+   - The reflective normaliser: reify open, close, shift and `[σ]` expressions;
+     normalise by computing `compose`; prove `denote ∘ normalise = denote`.
 
 ---
 
-## 8. State of the code by branch
+## 9. State of the code by branch
 
 | Branch / commit | Probably builds *(not compiled)* | Broken |
 |---|---|---|
 | `master` | Everything; there are no `admit`s. | — |
 | `next` (e9f6a25) | `Var.v` up to `apply_transpose_level_closing` | `RenamingEquations.v` (indexed associativity, admits), stale `Term.v` |
 | `next-unindexed` (f62e58a) | `Label.v`, `Var.v`, `VarEquations.v`, `RawRenaming.v`, `RawRenamingEquations.v`, plus `Renaming.v` lines 1 to about 753, including the canonicity theorem | Rest of `Renaming.v`, `Closing*.v` (old API), `RenamingEquations.v`, `Term.v`, `examples/Lambda.v` |
-| `adjustments` (548e0df) | `Label.v`, `Var.v` | `RawRenaming.v` stops mid-definition; Makefile references a deleted file |
+| `adjustments` (428f1a4) | `Label.v`, `Var.v`, and `RawRenaming.v` up to `apply_add_incoming` | `apply_add_outgoing_aux` and `apply_add_outgoing` are unfinished; `Permutations.v` (`permutation_nth`) is unfinished and not in the Makefile; the Makefile references the deleted `RawRenamingEquations.v` |
+| OCaml `modal-effect-adjustments` (16b3d339) | — | Design sketch: 4ae82a85 has implementations with type errors; the tip has stubs |
 
 The code needs Coq ≥ 8.10 for `SProp`, `-vos`/`-vok` and `Declare Scope`. Any
 recent Rocq release should work after minor updates, for example `Hint` locality
 attributes and `String Notation` syntax.
 
-## 9. Open questions to settle before finishing
+## 10. Open questions to settle before finishing
 
-1. **Phase 4 or phase 5 representation for renamings.** Phase 4 has a proved
-   canonicity theorem but awkward side conditions. Phase 5 looks simpler but
-   has no normality predicate or proofs yet. A good first task is to write the
-   phase 5 normality predicate and check whether phase 4's canonicity proof
-   structure transfers.
-2. **Weakening and substitution.** Raw renamings are bijections on variables.
-   Non-bijective operations (`wk`, bind/subst) need either slot-based
-   substitutions (pops of terms) or a separate layer. Phase 3's indexed
-   `substitution` datatype and phase 1's `r_subst` are the prior art.
+1. **Representation.** I recommend the phase 6 per-label form, built on phase
+   5's `var` and `Label.v`. Before committing to it, confirm the canonicity
+   argument in section 7.3 with a short paper proof. A good first milestone:
+   - define per-label renamings (empty payload) with `apply`, `compose` and
+     `normalize`;
+   - prove `apply_compose` and canonicity.
+
+   That discharges the whole 2026 TODO list.
+2. **Substitutions.** How a `Bind` payload is transformed by composition: the
+   term monad, and whether terms are unindexed. Phase 3's indexed
+   `substitution` datatype, phase 1's `r_subst` and phase 0's `Relative.v`
+   interface are the prior art.
 3. **The indexing layer.** How scoped terms are recovered from unindexed ones:
    an SProp well-scopedness predicate on terms, and its preservation by
-   normalised renamings.
+   normalised adjustments.
 4. **The reflective normaliser.** Its syntax of expressions, and whether it
-   targets renamings, substitutions, or term-level operations directly.
+   targets adjustments only or term-level operations directly.
 5. **Re-establishing the client API** of `examples/Lambda.v` (`[r] t`,
    `Γ =[r]=> Δ`, universal `LAM`) on the new core. This is the acceptance test.
+6. **Borrowing beyond the effect-specific parts.** Whether any of the
+   order-theoretic machinery (`Unknown`/`Top`, `Meet`, residuals) is useful
+   for binding. My guess is no, except that `parse ~outer ~inner` suggests a
+   readable surface notation for adjustments.
 
 ## Appendix: where to look
 
@@ -677,3 +890,6 @@ attributes and `String Notation` syntax.
 | Raw renaming group | f62e58a | `src/RawRenaming.v`, `src/RawRenamingEquations.v` |
 | Canonicity theorem | 0e3e616 – f62e58a | `src/Renaming.v`, around line 489 |
 | Slot-based incoming/outgoing renamings | 548e0df | `src/RawRenaming.v`, `src/Var.v` |
+| Label-sorting, slot rotations, TODO list | b78037c, 428f1a4 | `src/RawRenaming.v`, `src/Permutations.v` |
+| OCaml adjustment spec | `lpw25/ocaml` 16b3d339 | `typing/effect.mli` |
+| OCaml adjustment implementation (`compose`, `normalize`) | `lpw25/ocaml` 4ae82a85 | `typing/effect.ml`, module `Adjustment` |
