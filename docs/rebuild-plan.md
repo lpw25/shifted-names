@@ -103,3 +103,32 @@ Each stage ends with a green build, a commit and a push.
    to the reference versions.
 5. **Payload weakening tags** in the nested layer, with their canonical form.
 6. Re-check extraction and costs; update the design docs.
+
+## Status
+
+- **Stage 1 (done).** `Core/Lookup.v`, `Core/Syntax.v`, `Core/Subst.v`.
+  `apply` is structural (continuation lookups whose location proofs are
+  strict propositions, so the guard checker sees payload adjustments as
+  subterms and scoping proofs need no runtime test). Proved: the
+  characterisation of `apply` by the raw lookup, `kleisli_apply_under`
+  (offset to lift) and `kleisli_apply_here` (fold), `subst_identity`,
+  `subst_compose` (through payloads, by induction on nesting depth with
+  the user's associativity and re-basing laws). The user interface's
+  re-basing law is `kleisli_rebase` (general witness composition) rather
+  than a one-step unshift.
+- **Stage 2 (done).** `Examples/Lambda.v`: the λ-calculus as an indexed
+  family with one `kleisli` and five short law proofs; binder equations by
+  `cbn` plus the library rule, including nested binders; open/close
+  inverse laws; instantiation. The raw `LambdaCore.v` is gone.
+- **Stage 3 (done).** `Extraction/Extraction.v` and
+  `tests/extraction/run.sh`. Findings:
+  - declare the scope of a syntax as a *non-uniform parameter*
+    (`Inductive tm (N : nat) := ... | tlam (b : tm (S N))`), not an index:
+    constructors then store no scope, and `kleisli` needs no convoy
+    pattern; erasing indices with `Extraction Implicit` instead is unsafe
+    because `kleisli` computes the index at binders;
+  - label keys are computed by an OCaml realizer of `string_key` rather
+    than precomputed in labels (same cost class, much smaller change);
+  - the extracted `subst` is plain recursion with Zarith offsets and
+    continuation lookups; the smoke test checks open/close round trips and
+    instantiation under binders.
