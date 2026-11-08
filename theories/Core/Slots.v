@@ -688,13 +688,17 @@ Proof.
   - split; [intros _ H; injection H; congruence|reflexivity].
 Qed.
 
-(** Everything in [normal] except the strip condition for [h]. *)
-Definition almost_normal a h : Prop :=
+(** Everything in [normal] except the strip conditions for the labels in
+    [Q]. *)
+Definition pre_normal a (Q : option label -> Prop) : Prop :=
   keys_ok a = true
   /\ (forall key e, get key a = Some e -> nontrivial (e_targets e) (e_out e) = true)
   /\ (forall v h' n, nth_error (fst (find a (v_label v))) (v_index v) = Some (Slot h' n) ->
                      n < count a h')
-  /\ (forall h', h' <> h -> strip_ok a h' (fst (find a h')) = true).
+  /\ (forall h', ~ Q h' -> strip_ok a h' (fst (find a h')) = true).
+
+(** Everything in [normal] except the strip condition for [h]. *)
+Definition almost_normal a h : Prop := pre_normal a (fun l => l = h).
 
 Lemma find_entry_targets a h e :
   keys_ok a = true -> get (label_key h) a = Some e -> find a h = (e_targets e, e_out e).
@@ -747,8 +751,8 @@ Proof.
   destruct (get key a) as [e0|] eqn:E0; [|discriminate]; injection He as <-; apply (Ha _ _ E0).
 Qed.
 
-Lemma strip_ok_false_strippable a h :
-  almost_normal a h -> strip_ok a h (fst (find a h)) = false -> strippable a h.
+Lemma strip_ok_false_strippable a Q h :
+  pre_normal a Q -> strip_ok a h (fst (find a h)) = false -> strippable a h.
 Proof.
   intros [Hk [Hnt [Hwf Hs]]] Hf.
   assert (Hn : ~ (last_target (fst (find a h)) = Some (Slot h 0) -> other_ref a h (fst (find a h)))).
@@ -781,10 +785,10 @@ Proof.
     injection Ht as <-; exists t0; repeat split; auto; intro; contradiction.
 Qed.
 
-Theorem almost_normal_strip_once a h :
-  almost_normal a h -> strippable a h -> almost_normal (strip_once h a) h.
+Theorem pre_normal_strip_once a Q h :
+  pre_normal a Q -> Q h -> strippable a h -> pre_normal (strip_once h a) Q.
 Proof.
-  intros [Hk [Hnt [Hwf Hs]]] Hst.
+  intros [Hk [Hnt [Hwf Hs]]] HQh Hst.
   pose proof Hst as [Hlast [Huniq _]].
   repeat split.
   - apply keys_ok_renumber, keys_ok_set_entry, Hk.
@@ -807,11 +811,12 @@ Proof.
       exfalso; specialize (Huniq _ Ht0).
       destruct v as [hv iv]; injection Huniq as -> ->; cbn in Hlt; specialize (Hlt eq_refl); lia.
     + rewrite (proj2 (label_eqb_neq h0 h) Hh); exact Hb.
-  - intros h' Hne.
+  - intros h' HQ.
+    assert (Hne : h' <> h) by (intro E; subst; contradiction).
     pose proof (keys_ok_renumber h _ (keys_ok_set_entry h (removelast (fst (find a h)))
                                          (pred (count a h)) a Hk)) as Hk'.
     apply (strip_ok_spec _ _ _ Hk'); intros Hl'.
-    pose proof (Hs h' Hne) as Hs'; rewrite (strip_ok_spec _ _ _ Hk) in Hs'.
+    pose proof (Hs h' HQ) as Hs'; rewrite (strip_ok_spec _ _ _ Hk) in Hs'.
     assert (Ef : fst (find (strip_once h a) h') = map (renumber_target h) (fst (find a h'))).
     { rewrite find_strip_once; cbn [fst]; rewrite (proj2 (label_eqb_neq h' h) Hne); reflexivity. }
     rewrite Ef in Hl' |- *.
@@ -918,23 +923,45 @@ Fixpoint strip_loop (fuel : nat) h a : raw P :=
   | S f => if strip_ok a h (fst (find a h)) then a else strip_loop f h (strip_once h a)
   end.
 
-Theorem strip_loop_spec fuel h a :
-  almost_normal a h -> jlen a h < fuel ->
-  normal (strip_loop fuel h a) = true /\ (forall v, apply (strip_loop fuel h a) v = apply a v).
+Theorem strip_loop_spec_gen fuel Q h a :
+  pre_normal a Q -> Q h -> jlen a h < fuel ->
+  pre_normal (strip_loop fuel h a) (fun l => Q l /\ l <> h)
+  /\ (forall v, apply (strip_loop fuel h a) v = apply a v).
 Proof.
-  revert a; induction fuel as [|f IH]; intros a Ha Hlen; [lia|].
+  revert a; induction fuel as [|f IH]; intros a Ha HQh Hlen; [lia|].
   cbn [strip_loop].
   destruct (strip_ok a h (fst (find a h))) eqn:Hs.
-  - split; [apply (normal_iff a h); auto|reflexivity].
-  - pose proof (strip_ok_false_strippable a h Ha Hs) as Hst.
+  - split; [|reflexivity].
+    destruct Ha as [Hk [Hnt [Hwf HS]]]; repeat split; auto.
+    intros h' Hn; destruct (label_eq_dec h' h) as [->|Hne]; [exact Hs|].
+    apply HS; intro HQ; apply Hn; split; assumption.
+  - pose proof (strip_ok_false_strippable a Q h Ha Hs) as Hst.
     destruct (IH (strip_once h a)) as [Hn Happ].
-    + apply almost_normal_strip_once; assumption.
+    + apply pre_normal_strip_once; assumption.
+    + exact HQh.
     + unfold jlen in *; rewrite find_strip_once, label_eqb_refl; cbn [fst].
       rewrite length_map, length_removelast.
       destruct Hst as [Hl _]; unfold last_target in Hl.
       assert (0 < length (fst (find a h))) by (destruct (fst (find a h)); [discriminate|cbn; lia]).
       lia.
     + split; [exact Hn|]; intro v; rewrite Happ; apply apply_strip_once, Hst.
+Qed.
+
+Lemma normal_of_pre_normal a Q : pre_normal a Q -> (forall l, ~ Q l) -> normal a = true.
+Proof.
+  intros [Hk [Hnt [Hwf Hs]]] HQ.
+  apply (normal_iff a None); split; [repeat split; auto|].
+  apply Hs, HQ.
+Qed.
+
+Theorem strip_loop_spec fuel h a :
+  almost_normal a h -> jlen a h < fuel ->
+  normal (strip_loop fuel h a) = true /\ (forall v, apply (strip_loop fuel h a) v = apply a v).
+Proof.
+  intros Ha Hlen.
+  destruct (strip_loop_spec_gen fuel _ h a Ha eq_refl Hlen) as [Hn Happ].
+  split; [|exact Happ].
+  apply (normal_of_pre_normal _ _ Hn); intros l [-> Hne]; apply Hne; reflexivity.
 Qed.
 
 (** [push_inner h t a] adds the input entry [h ↦ t] in front of [a]; [t]
