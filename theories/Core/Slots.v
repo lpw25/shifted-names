@@ -1444,4 +1444,129 @@ Proof.
   intros v Hv; rewrite H4, Happ by exact Hv; apply apply_clear, Hv.
 Qed.
 
+(** ** Payloads occurring in an adjustment *)
+
+Definition binds_in (m : raw P) (p : P) : Prop :=
+  exists k e, get k m = Some e /\ In (Bind p) (e_targets e).
+
+
+
+Lemma binds_in_find (m : raw P) h p :
+  In (Bind p) (fst (find m h)) -> binds_in m p.
+Proof.
+  unfold find; destruct (get (label_key h) m) as [e|] eqn:E; cbn [fst]; [|intros []].
+  intros Hin; exists (label_key h), e; auto.
+Qed.
+
+Lemma binds_in_renumber h (m : raw P) p : binds_in (renumber h m) p -> binds_in m p.
+Proof.
+  intros [k [e [He Hin]]]; unfold renumber in He; rewrite get_map_filter in He.
+  destruct (get k m) as [e0|] eqn:E0; [|discriminate]; injection He as <-.
+  cbn [e_targets] in Hin; apply in_map_iff in Hin as [t [Ht Hin]].
+  exists k, e0; split; [exact E0|].
+  destruct t as [h' n|p']; cbn in Ht; [destruct (label_eqb h' h); discriminate|].
+  injection Ht as ->; exact Hin.
+Qed.
+
+Lemma binds_in_set_entry h ts n (m : raw P) p :
+  binds_in (set_entry h ts n m) p -> binds_in m p \/ In (Bind p) ts.
+Proof.
+  intros [k [e [He Hin]]]; unfold set_entry in He; rewrite get_update in He.
+  destruct (Pos.eqb k (label_key h)); [|left; exists k, e; auto].
+  destruct (nontrivial ts n); [|discriminate]; injection He as <-; right; exact Hin.
+Qed.
+
+Lemma In_removelast {A} (x : A) (xs : list A) : In x (removelast xs) -> In x xs.
+Proof.
+  induction xs as [|y xs IH]; [intros []|]; cbn.
+  destruct xs as [|z xs]; [intros []|]; intros [->|H]; [left; reflexivity|right; apply IH, H].
+Qed.
+
+Lemma binds_in_strip_once h (m : raw P) p : binds_in (strip_once h m) p -> binds_in m p.
+Proof.
+  unfold strip_once; intros H; apply binds_in_renumber, binds_in_set_entry in H as [H|H];
+    [exact H|apply In_removelast, binds_in_find in H; exact H].
+Qed.
+
+Lemma binds_in_strip_loop fuel h (m : raw P) p :
+  binds_in (strip_loop fuel h m) p -> binds_in m p.
+Proof.
+  revert m; induction fuel as [|f IH]; intros m H; cbn [strip_loop] in H; [exact H|].
+  destruct (strip_ok _ _ _); [exact H|].
+  apply (binds_in_strip_once h), IH, H.
+Qed.
+
+Lemma binds_in_push_inner h t (m : raw P) p :
+  binds_in (push_inner h t m) p -> binds_in m p \/ t = Bind p.
+Proof.
+  unfold push_inner, cons_entry; intros H.
+  apply binds_in_strip_loop, binds_in_set_entry in H as [H|[H|H]];
+    [left; exact H|right; exact H|left; apply binds_in_find in H; exact H].
+Qed.
+
+Lemma binds_in_keys (m : raw P) p :
+  keys_ok m = true -> binds_in m p -> exists h, In (Bind p) (fst (find m h)).
+Proof.
+  intros Hk [k [e [He Hin]]]; exists (e_label e).
+  unfold keys_ok in Hk; rewrite forallb_spec in Hk.
+  pose proof (proj1 (Pos.eqb_eq _ _) (Hk _ _ He)) as Hkey.
+  unfold find; rewrite <- Hkey, He; exact Hin.
+Qed.
+
+Lemma binds_in_apply (m : raw P) v p : apply m v = inr p -> binds_in m p.
+Proof.
+  unfold apply; destruct (nth_error (fst (find m (v_label v))) (v_index v)) as [t|] eqn:E;
+    [|discriminate].
+  destruct t as [h n|p']; cbn [resolve]; [discriminate|intros [= ->]].
+  apply (binds_in_find m (v_label v)), (nth_error_In _ _ E).
+Qed.
+
+Lemma binds_in_normalize_list L (m : raw P) p :
+  binds_in (normalize_list L m) p -> binds_in m p.
+Proof.
+  revert m; induction L as [|l L IH]; intros m H; cbn [normalize_list] in H; [exact H|].
+  apply IH, binds_in_strip_loop in H; exact H.
+Qed.
+
+Lemma binds_in_compose fp a b p :
+  normal a = true -> normal b = true ->
+  binds_in (compose fp a b) p -> binds_in a p \/ exists p', binds_in b p' /\ p = fp p'.
+Proof.
+  intros Ha Hb H; unfold compose in H; apply binds_in_normalize_list in H.
+  apply binds_in_keys in H as [h Hin]; [|apply keys_ok_compose_pre; assumption].
+  rewrite find_compose_pre in Hin by assumption; cbn [fst] in Hin.
+  apply in_map_iff in Hin as [i [Ht _]]; unfold comp_target, b_image in Ht.
+  destruct (apply b (mk_var h i)) as [w|p'] eqn:Eb.
+  - destruct (apply a w) as [u|p''] eqn:Ea; cbn [encode_res] in Ht; [discriminate|].
+    injection Ht as ->; left; apply (binds_in_apply a w), Ea.
+  - injection Ht as <-; right; exists p'; split; [apply (binds_in_apply b _ _ Eb)|reflexivity].
+Qed.
+
+Lemma binds_in_clear h (m : raw P) p : binds_in (clear h m) p -> binds_in m p.
+Proof. intros H; apply binds_in_set_entry in H as [H|[]]; exact H. Qed.
+
+Lemma binds_in_trim_loop fuel h (m : raw P) p : binds_in (trim_loop fuel h m) p -> binds_in m p.
+Proof.
+  revert m; induction fuel as [|f IH]; intros m H; cbn [trim_loop] in H; [exact H|].
+  destruct (_ || _); [exact H|apply (binds_in_strip_once h), IH, H].
+Qed.
+
+Lemma binds_in_restrict h (m : raw P) p : binds_in (restrict h m) p -> binds_in m p.
+Proof.
+  unfold restrict; intros H.
+  apply binds_in_trim_loop, binds_in_normalize_list, binds_in_clear in H; exact H.
+Qed.
+
+(** ** Composition ignores [fp] outside [b]'s payloads *)
+
+Lemma compose_ext fp fp' a b :
+  normal a = true -> normal b = true ->
+  (forall p, binds_in b p -> fp p = fp' p) -> compose fp a b = compose fp' a b.
+Proof.
+  intros Ha Hb H; apply canonical; try (apply normal_compose; assumption).
+  intros v; rewrite !apply_compose by assumption.
+  destruct (apply b v) eqn:E; [reflexivity|].
+  rewrite (H _ (binds_in_apply b v _ E)); reflexivity.
+Qed.
+
 End Slots.

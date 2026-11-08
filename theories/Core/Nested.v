@@ -354,9 +354,6 @@ Qed.
 
 (** ** Payloads occurring in a trie *)
 
-Definition binds_in (m : raw payload) (p : payload) : Prop :=
-  exists k e, get k m = Some e /\ In (Bind p) (e_targets e).
-
 Lemma payloads_ok_binds m :
   payloads_ok m = true <->
   (forall p, binds_in m p -> nnormal (snd p) = true /\ pnormal_raw (nraw (snd p)) = true).
@@ -364,59 +361,6 @@ Proof.
   rewrite payloads_ok_spec; split.
   - intros H p [k [e [He Hin]]]; exact (H k e p He Hin).
   - intros H k e p He Hin; apply H; exists k, e; auto.
-Qed.
-
-Lemma binds_in_find (m : raw payload) h p :
-  In (Bind p) (fst (find m h)) -> binds_in m p.
-Proof.
-  unfold find; destruct (get (label_key h) m) as [e|] eqn:E; cbn [fst]; [|intros []].
-  intros Hin; exists (label_key h), e; auto.
-Qed.
-
-Lemma binds_in_renumber h (m : raw payload) p : binds_in (renumber h m) p -> binds_in m p.
-Proof.
-  intros [k [e [He Hin]]]; unfold renumber in He; rewrite get_map_filter in He.
-  destruct (get k m) as [e0|] eqn:E0; [|discriminate]; injection He as <-.
-  cbn [e_targets] in Hin; apply in_map_iff in Hin as [t [Ht Hin]].
-  exists k, e0; split; [exact E0|].
-  destruct t as [h' n|p']; cbn in Ht; [destruct (label_eqb h' h); discriminate|].
-  injection Ht as ->; exact Hin.
-Qed.
-
-Lemma binds_in_set_entry h ts n (m : raw payload) p :
-  binds_in (set_entry h ts n m) p -> binds_in m p \/ In (Bind p) ts.
-Proof.
-  intros [k [e [He Hin]]]; unfold set_entry in He; rewrite get_update in He.
-  destruct (Pos.eqb k (label_key h)); [|left; exists k, e; auto].
-  destruct (nontrivial ts n); [|discriminate]; injection He as <-; right; exact Hin.
-Qed.
-
-Lemma In_removelast {A} (x : A) l : In x (removelast l) -> In x l.
-Proof.
-  induction l as [|a l IH]; [intros []|]; cbn.
-  destruct l as [|b l]; [intros []|]; intros [->|H]; [left; reflexivity|right; apply IH, H].
-Qed.
-
-Lemma binds_in_strip_once h (m : raw payload) p : binds_in (strip_once h m) p -> binds_in m p.
-Proof.
-  unfold strip_once; intros H; apply binds_in_renumber, binds_in_set_entry in H as [H|H];
-    [exact H|apply In_removelast, binds_in_find in H; exact H].
-Qed.
-
-Lemma binds_in_strip_loop fuel h (m : raw payload) p :
-  binds_in (strip_loop fuel h m) p -> binds_in m p.
-Proof.
-  revert m; induction fuel as [|f IH]; intros m H; cbn [strip_loop] in H; [exact H|].
-  destruct (@strip_ok payload _ _ _); [exact H|].
-  apply (binds_in_strip_once h), IH, H.
-Qed.
-
-Lemma binds_in_push_inner h t (m : raw payload) p :
-  binds_in (push_inner h t m) p -> binds_in m p \/ t = Bind p.
-Proof.
-  unfold push_inner, cons_entry; intros H.
-  apply binds_in_strip_loop, binds_in_set_entry in H as [H|[H|H]];
-    [left; exact H|right; exact H|left; apply binds_in_find in H; exact H].
 Qed.
 
 (** ** Nested [push_inner]: payloads live in the output scope, so they are
