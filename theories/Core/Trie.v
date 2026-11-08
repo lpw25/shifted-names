@@ -12,7 +12,7 @@
     Keys are read least-significant bit first: [xO k] is looked up as [k] in
     the left subtree and [xI k] as [k] in the right subtree. *)
 
-From Stdlib Require Import PArith List.
+From Stdlib Require Import PArith List Lia.
 Import ListNotations.
 
 Inductive tree' (A : Type) : Type :=
@@ -457,3 +457,65 @@ Lemma get_map_filter {A B} (f : positive -> A -> option B) m i :
   get i (map_filter f m) =
   match get i m with Some a => f i a | None => None end.
 Proof. unfold map_filter; rewrite get_merge; reflexivity. Qed.
+
+(** ** Structural folds
+
+    These are defined by structural recursion on the tree, so that nested
+    fixpoints over types stored in tries pass the guard checker. *)
+
+Section Structural.
+
+Context {A : Type}.
+
+Fixpoint tall' (f : A -> bool) (m : tree' A) : bool :=
+  match m with
+  | Node001 r => tall' f r
+  | Node010 x => f x
+  | Node011 x r => f x && tall' f r
+  | Node100 l => tall' f l
+  | Node101 l r => tall' f l && tall' f r
+  | Node110 l x => tall' f l && f x
+  | Node111 l x r => tall' f l && f x && tall' f r
+  end.
+
+Definition tall (f : A -> bool) (m : tree A) : bool :=
+  match m with Empty => true | Nodes m' => tall' f m' end.
+
+Lemma tall'_elements f m kf :
+  tall' f m = List.forallb (fun kx => f (snd kx)) (elements' kf m).
+Proof.
+  revert kf; induction m; intro kf; cbn [tall' elements'];
+    rewrite ?List.forallb_app; cbn [List.forallb snd];
+    rewrite <- ?IHm, <- ?IHm1, <- ?IHm2, ?Bool.andb_true_r, ?Bool.andb_assoc; reflexivity.
+Qed.
+
+Lemma tall_spec f m : tall f m = true <-> (forall k x, get k m = Some x -> f x = true).
+Proof.
+  assert (E : tall f m = forallb (fun _ x => f x) m).
+  { unfold forallb; destruct m as [|m]; [reflexivity|]; apply tall'_elements. }
+  rewrite E, forallb_spec; reflexivity.
+Qed.
+
+Fixpoint tmax' (f : A -> nat) (m : tree' A) : nat :=
+  match m with
+  | Node001 r => tmax' f r
+  | Node010 x => f x
+  | Node011 x r => Nat.max (f x) (tmax' f r)
+  | Node100 l => tmax' f l
+  | Node101 l r => Nat.max (tmax' f l) (tmax' f r)
+  | Node110 l x => Nat.max (tmax' f l) (f x)
+  | Node111 l x r => Nat.max (Nat.max (tmax' f l) (f x)) (tmax' f r)
+  end.
+
+Definition tmax (f : A -> nat) (m : tree A) : nat :=
+  match m with Empty => 0 | Nodes m' => tmax' f m' end.
+
+Lemma tmax_ge f m k x : get k m = Some x -> f x <= tmax f m.
+Proof.
+  destruct m as [|m]; cbn [get tmax]; [discriminate|].
+  revert k; induction m; intros [k|k|] Hx; cbn [get' tmax'] in *; try discriminate;
+    try (injection Hx as <-); try (specialize (IHm _ Hx)); try (specialize (IHm1 _ Hx));
+    try (specialize (IHm2 _ Hx)); lia.
+Qed.
+
+End Structural.
