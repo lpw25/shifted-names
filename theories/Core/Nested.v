@@ -489,4 +489,72 @@ Proof.
   apply (proj1 (payloads_ok_binds mb) (nnormal_payloads mb Hb) p Hbd).
 Qed.
 
+(** ** Canonicity of payload adjustments
+
+    Payload adjustments are only ever applied to the free (non-[None])
+    variables of a closed term, so they are canonical with respect to that
+    restricted meaning. *)
+
+Lemma slot_image (m : raw payload) v w :
+  normal m = true -> apply m v = inl w -> v_label w <> v_label v ->
+  v_index w < count m (v_label w).
+Proof.
+  intros Hm Hw Hne; unfold apply in Hw.
+  destruct (nth_error (fst (find m (v_label v))) (v_index v)) as [t|] eqn:E.
+  - destruct t as [h n|p]; cbn [resolve] in Hw; [|discriminate].
+    injection Hw as <-; cbn [v_label v_index].
+    pose proof (slot_bound m v h n Hm E); lia.
+  - injection Hw as <-; contradiction.
+Qed.
+
+Lemma pnormal_none (m : raw payload) i :
+  pnormal_raw m = true -> apply m (mk_var None i) = inl (mk_var None (i + count m None)).
+Proof.
+  unfold pnormal_raw, apply; cbn [v_label v_index].
+  destruct (fst (find m None)) eqn:E; [|discriminate]; intros _.
+  rewrite nth_error_nil; cbn [length]; do 2 f_equal; lia.
+Qed.
+
+Lemma pnormal_count_le ρ1 ρ2 :
+  nnormal ρ1 = true -> pnormal_raw (nraw ρ1) = true ->
+  nnormal ρ2 = true -> pnormal_raw (nraw ρ2) = true ->
+  (forall v, v_label v <> None -> napply ρ1 v = napply ρ2 v) ->
+  count (nraw ρ1) None <= count (nraw ρ2) None.
+Proof.
+  intros Hn1 Hp1 Hn2 Hp2 Heq.
+  apply nnormal_normal in Hn1, Hn2.
+  destruct (count (nraw ρ1) None) as [|c] eqn:Ec; [lia|].
+  pose proof Hp1 as Hp1'.
+  unfold pnormal_raw in Hp1'; rewrite Ec in Hp1'; cbn [Nat.eqb orb] in Hp1'.
+  apply andb_true_iff in Hp1' as [Hnil Hr].
+  destruct (fst (find (nraw ρ1) None)) eqn:Ef; [|discriminate].
+  apply existsb_exists in Hr as [[[v h] [|n]] [Hin Hh]]; [|discriminate].
+  apply label_eqb_eq in Hh; subst h.
+  apply In_refs in Hin; [|exact Hn1].
+  assert (Hv : v_label v <> None).
+  { intros Hl; rewrite Hl, Ef, nth_error_nil in Hin; discriminate. }
+  assert (Ha1 : napply ρ1 v = inl (mk_var None c)).
+  { unfold napply, apply; rewrite Hin; cbn [resolve]; rewrite Ec; do 2 f_equal; lia. }
+  rewrite Heq in Ha1 by exact Hv.
+  pose proof (slot_image _ _ _ Hn2 Ha1) as H; cbn [v_label v_index] in H.
+  assert (c < count (nraw ρ2) None) by (apply H; congruence); lia.
+Qed.
+
+Theorem pcanonical ρ1 ρ2 :
+  nnormal ρ1 = true -> pnormal_raw (nraw ρ1) = true ->
+  nnormal ρ2 = true -> pnormal_raw (nraw ρ2) = true ->
+  (forall v, v_label v <> None -> napply ρ1 v = napply ρ2 v) ->
+  ρ1 = ρ2.
+Proof.
+  intros Hn1 Hp1 Hn2 Hp2 Heq.
+  assert (Hc : count (nraw ρ1) None = count (nraw ρ2) None).
+  { apply Nat.le_antisymm; apply pnormal_count_le; auto.
+    intros v Hv; symmetry; apply Heq, Hv. }
+  destruct ρ1 as [m1], ρ2 as [m2]; f_equal.
+  apply canonical; [apply (nnormal_normal (NAdj m1)), Hn1|apply (nnormal_normal (NAdj m2)), Hn2|].
+  intros [h i]; destruct h as [x|].
+  - apply (Heq (mk_var (Some x) i)); discriminate.
+  - cbn [nraw] in *; rewrite !pnormal_none, Hc by assumption; reflexivity.
+Qed.
+
 End Nested.
