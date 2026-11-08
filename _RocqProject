@@ -8,5 +8,6 @@ theories/Core/Nested.v
 theories/Core/Adjustment.v
 theories/Core/Laws.v
 theories/Core/Scoped.v
+theories/Core/Indexed.v
 theories/Examples/LambdaCore.v
 theories/Tests/CoreTests.v
