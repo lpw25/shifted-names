@@ -528,6 +528,31 @@ Proof.
   rewrite IH; reflexivity.
 Qed.
 
+Lemma nth_map {A B} (f : A -> B) t i : nth i (map f t) = option_map f (nth i t).
+Proof.
+  revert i; induction t as [|x l IHl r IHr]; intros [|i]; cbn; try reflexivity.
+  destruct (Nat.even i); [apply IHl|apply IHr].
+Qed.
+
+Lemma in_update {A} i (f : A -> A) t z :
+  In z (to_list (update i f t)) -> In z (to_list t) \/ exists x, In x (to_list t) /\ z = f x.
+Proof.
+  revert i; induction t as [|x l IHl r IHr]; intros [|i] H; cbn [update] in H; [exact (or_introl H)..| |].
+  - apply in_to_list_node in H as [->|[H|H]].
+    + right; exists x; split; [apply in_to_list_node; left|]; reflexivity.
+    + left; apply in_to_list_node; auto.
+    + left; apply in_to_list_node; auto.
+  - destruct (Nat.even i); apply in_to_list_node in H as [->|[H|H]];
+      try (left; apply in_to_list_node; auto; fail).
+    + destruct (IHl _ H) as [H'|[y [Hy ->]]];
+        [left|right; exists y; split]; auto; apply in_to_list_node; auto.
+    + destruct (IHr _ H) as [H'|[y [Hy ->]]];
+        [left|right; exists y; split]; auto; apply in_to_list_node; auto.
+Qed.
+
+Lemma empty_canonical {A} (t : braun A) : balanced t -> to_list t = [] -> t = BE.
+Proof. intros Hb H; apply (canonical t BE Hb I H). Qed.
+
 (** ** Structural folds
 
     Defined on the tree itself, so that a function recursing through the
@@ -570,15 +595,7 @@ Proof.
   lia.
 Qed.
 
-(** ** Sequences: balanced trees
-
-    A [seq] is a Braun tree with a strict (hence irrelevant) proof that it is
-    balanced.  Every operation keeps the balance, so the list equations
-    below hold without side conditions, and two sequences are equal exactly
-    when they denote the same list ([seq_ext]). *)
-
-From Stdlib Require Import StrictProp.
-From ShiftedNames.Core Require Import Strict.
+(** ** Deciding balance and equality *)
 
 Fixpoint balancedb {A} (t : braun A) : bool :=
   match t with
@@ -593,88 +610,18 @@ Proof.
   rewrite !Bool.andb_true_iff, !Nat.leb_le, IHl, IHr; tauto.
 Qed.
 
-Record seq (A : Type) : Type := mk_seq { stree : braun A; seq_ok : Is_true_s (balancedb stree) }.
+Fixpoint eqb {A} (eqA : A -> A -> bool) (t u : braun A) : bool :=
+  match t, u with
+  | BE, BE => true
+  | BN x l r, BN y l' r' => eqA x y && eqb eqA l l' && eqb eqA r r'
+  | _, _ => false
+  end.
 
-Arguments mk_seq {A} _ _.
-Arguments stree {A} _.
-Arguments seq_ok {A} _.
-
-Section Seq.
-
-Context {A : Type}.
-
-Implicit Types (s : seq A) (x : A) (i : nat).
-
-Lemma seq_balanced s : balanced (stree s).
-Proof. apply balancedb_spec, Is_true_s_elim, seq_ok. Qed.
-
-Definition ok {t : braun A} (H : balanced t) : Is_true_s (balancedb t) :=
-  Is_true_s_intro (proj2 (balancedb_spec t) H).
-
-Definition elems s : list A := to_list (stree s).
-Definition len s : nat := size (stree s).
-
-Definition empty : seq A := mk_seq BE stt.
-Definition scons x s : seq A := mk_seq (cons x (stree s)) (ok (balanced_cons x _ (seq_balanced s))).
-Definition stail s : seq A := mk_seq (tail (stree s)) (ok (proj1 (tail_spec _ (seq_balanced s)))).
-Definition ssnoc s x : seq A := mk_seq (snoc (stree s) x) (ok (proj1 (snoc_spec _ x (seq_balanced s)))).
-Definition sunsnoc s : seq A := mk_seq (unsnoc (stree s)) (ok (proj1 (unsnoc_spec _ (seq_balanced s)))).
-Definition supdate i (f : A -> A) s : seq A :=
-  mk_seq (update i f (stree s)) (ok (balanced_update i f _ (seq_balanced s))).
-Definition snth i s : option A := nth i (stree s).
-Definition slast s : option A := last (stree s).
-Definition of_elems (xs : list A) : seq A := mk_seq (of_list xs) (ok (balanced_of_list xs)).
-
-(** ** The list equations *)
-
-Theorem seq_ext s1 s2 : elems s1 = elems s2 -> s1 = s2.
+Lemma eqb_spec {A} (eqA : A -> A -> bool) :
+  (forall x y, eqA x y = true <-> x = y) -> forall t u, eqb eqA t u = true <-> t = u.
 Proof.
-  intros H; destruct s1 as [t1 H1], s2 as [t2 H2]; unfold elems in H; cbn in H.
-  assert (t1 = t2) as ->; [|reflexivity].
-  apply canonical; auto; apply balancedb_spec, Is_true_s_elim; assumption.
+  intros HA t; induction t as [|x l IHl r IHr]; intros [|y l' r']; cbn;
+    try (split; [discriminate|intros [=]]); [split; auto|].
+  rewrite !Bool.andb_true_iff, HA, IHl, IHr; split; [intros [[-> ->] ->]; reflexivity|].
+  intros [= -> -> ->]; auto.
 Qed.
-
-Lemma len_elems s : length (elems s) = len s.
-Proof. apply to_list_length. Qed.
-
-Lemma elems_empty : elems empty = [].
-Proof. reflexivity. Qed.
-
-Lemma elems_scons x s : elems (scons x s) = x :: elems s.
-Proof. apply to_list_cons. Qed.
-
-Lemma elems_stail s : elems (stail s) = List.tl (elems s).
-Proof. apply (tail_spec _ (seq_balanced s)). Qed.
-
-Lemma elems_ssnoc s x : elems (ssnoc s x) = elems s ++ [x].
-Proof. apply (snoc_spec _ x (seq_balanced s)). Qed.
-
-Lemma elems_sunsnoc s : elems (sunsnoc s) = removelast (elems s).
-Proof. apply (unsnoc_spec _ (seq_balanced s)). Qed.
-
-Lemma snth_elems i s : snth i s = nth_error (elems s) i.
-Proof. apply nth_to_list, seq_balanced. Qed.
-
-Lemma slast_elems s : slast s = nth_error (elems s) (pred (length (elems s))).
-Proof. apply last_spec, seq_balanced. Qed.
-
-Lemma elems_of_elems xs : elems (of_elems xs) = xs.
-Proof. apply to_list_of_list. Qed.
-
-Lemma snth_supdate i f s j :
-  snth j (supdate i f s) = if Nat.eqb i j then option_map f (snth j s) else snth j s.
-Proof. apply nth_update. Qed.
-
-Lemma len_supdate i f s : len (supdate i f s) = len s.
-Proof. apply size_update. Qed.
-
-End Seq.
-
-Definition smap {A B} (f : A -> B) (s : seq A) : seq B :=
-  mk_seq (map f (stree s)) (ok (balanced_map f _ (seq_balanced s))).
-
-Lemma elems_smap {A B} (f : A -> B) s : elems (smap f s) = List.map f (elems s).
-Proof. apply to_list_map. Qed.
-
-Lemma len_smap {A B} (f : A -> B) s : len (smap f s) = len s.
-Proof. apply size_map. Qed.

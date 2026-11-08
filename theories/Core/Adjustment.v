@@ -249,7 +249,7 @@ Theorem rapply_push_inner h t a v :
     else rapply a (unshift_rvar (mk_rvar h 0) v).
 Proof.
   apply lower_inj; rewrite lower_rapply; cbn [radj_n rpush_inner].
-  pose proof (nnormal_normal _ (radj_ok_true a)) as Ha.
+  pose proof (radj_ok_true a) as Ha.
   destruct t as [w|u ρ]; cbn [rpush_inner_n].
   - rewrite napply_npush_inner_var by exact Ha.
     destruct (rvar_eqb v (mk_rvar h 0)); [reflexivity|symmetry; apply lower_rapply].

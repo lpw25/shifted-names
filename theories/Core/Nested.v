@@ -43,7 +43,7 @@ Definition pnormal_raw (m : raw payload) : bool :=
 Fixpoint nnormal (a : nadj T) : bool :=
   match a with
   | NAdj m =>
-      normal m
+      normal m && linked m
       && tall (fun e => Braun.ball (fun t => match t with
                                              | Bind (u, ρ) => nnormal ρ && pnormal_raw (nraw ρ)
                                              | Slot _ _ => true
@@ -61,7 +61,7 @@ Definition map_target (f : payload -> payload) (t : target payload) : target pay
 
 Definition map_payloads (f : payload -> payload) (m : raw payload) : raw payload :=
   map_filter (fun _ e => Some (mk_entry (e_label e) (Braun.map (map_target f) (e_tree e))
-                                        (e_out e))) m.
+                                        (e_out e) (e_back e))) m.
 
 Lemma find_map_payloads f m h :
   find (map_payloads f m) h = (map (map_target f) (fst (find m h)), snd (find m h)).
@@ -119,7 +119,7 @@ Proof.
     destruct (get key m) as [e0|] eqn:E0; [|discriminate]; injection Hget as <-.
     rewrite forallb_spec in He; specialize (He _ _ E0).
     unfold entry_ok, strip_ok in *.
-    replace (e_targets (mk_entry (e_label e0) (Braun.map (map_target f) (e_tree e0)) (e_out e0)))
+    replace (e_targets (mk_entry (e_label e0) (Braun.map (map_target f) (e_tree e0)) (e_out e0) (e_back e0)))
       with (map (map_target f) (e_targets e0))
       by (unfold e_targets; cbn [e_tree]; rewrite Braun.to_list_map; reflexivity).
     cbn [e_label e_tree e_out].
@@ -137,6 +137,31 @@ Proof.
     apply refs_map_payloads in Hin.
     rewrite List.forallb_forall in Hr; specialize (Hr _ Hin); cbn in *.
     rewrite count_map_payloads; exact Hr.
+Qed.
+
+Lemma refers_map_payloads f m g j k p : refers (map_payloads f m) g j k p <-> refers m g j k p.
+Proof.
+  unfold refers, map_payloads; rewrite get_map_filter.
+  destruct (get k m) as [e|]; split.
+  - intros [e' [[= <-] [Hp Hn]]]; unfold e_targets in Hn; cbn [e_tree] in Hp, Hn.
+    rewrite Braun.size_map in Hp, Hn; rewrite Braun.to_list_map, nth_error_map in Hn.
+    exists e; split; [reflexivity|split; [exact Hp|]].
+    fold (e_targets e) in Hn; destruct (nth_error (e_targets e) _) as [[]|]; cbn in Hn; congruence.
+  - intros [e' [[= <-] [Hp Hn]]]; eexists; split; [reflexivity|]; unfold e_targets; cbn [e_tree].
+    rewrite Braun.size_map, Braun.to_list_map, nth_error_map; fold (e_targets e); rewrite Hn; auto.
+  - intros [e' [[=] _]].
+  - intros [e' [[=] _]].
+Qed.
+
+Theorem linked_map_payloads f m :
+  normal m = true -> linked m = true -> linked (map_payloads f m) = true.
+Proof.
+  intros Hm Lm; apply linked_spec in Lm; [|apply normal_slots_ok, Hm].
+  apply linked_spec; [apply normal_slots_ok, normal_map_payloads, Hm|].
+  intros key e E; unfold map_payloads in E; rewrite get_map_filter in E.
+  destruct (get key m) as [e0|] eqn:E0; [|discriminate]; injection E as <-.
+  unfold backs_ok; apply (backs_for_iff (refers m)); [intros; symmetry; apply refers_map_payloads|].
+  apply (Lm _ _ E0).
 Qed.
 
 (** ** Nesting depth, for induction over payloads *)
@@ -176,8 +201,22 @@ Definition payload_ok (t : target payload) : bool :=
 Definition payloads_ok (m : raw payload) : bool :=
   tall (fun e => Braun.ball payload_ok (e_tree e)) m.
 
-Lemma nnormal_NAdj m : nnormal (NAdj m) = normal m && payloads_ok m.
+Lemma nnormal_NAdj m : nnormal (NAdj m) = normal m && linked m && payloads_ok m.
 Proof. reflexivity. Qed.
+
+Lemma nnormal_normal a : nnormal a = true -> normal (nraw a) = true.
+Proof. destruct a as [m]; rewrite nnormal_NAdj, !andb_true_iff; tauto. Qed.
+
+Lemma nnormal_linked a : nnormal a = true -> linked (nraw a) = true.
+Proof. destruct a as [m]; rewrite nnormal_NAdj, !andb_true_iff; tauto. Qed.
+
+Lemma nnormal_payloads m :
+  nnormal (NAdj m) = true -> payloads_ok m = true.
+Proof. rewrite nnormal_NAdj, !andb_true_iff; tauto. Qed.
+
+Lemma nnormal_intro m :
+  normal m = true -> linked m = true -> payloads_ok m = true -> nnormal (NAdj m) = true.
+Proof. intros H1 H2 H3; rewrite nnormal_NAdj, H1, H2, H3; reflexivity. Qed.
 
 Lemma payloads_ok_spec m :
   payloads_ok m = true <->
@@ -196,7 +235,8 @@ Lemma payloads_ok_push_outer h m : payloads_ok (push_outer h m) = payloads_ok m.
 Proof.
   apply Bool.eq_iff_eq_true; rewrite !payloads_ok_spec; split.
   - intros H k e p He Hin; apply (H k (if Pos.eqb k (label_key h)
-                                         then mk_entry h (e_tree e) (S (e_out e)) else e) p).
+                                         then mk_entry h (e_tree e) (S (e_out e))
+                                                (Braun.snoc (e_back e) Empty) else e) p).
     + unfold push_outer; rewrite get_update.
       destruct (Pos.eqb_spec k (label_key h)) as [->|]; [rewrite He; reflexivity|exact He].
     + destruct (Pos.eqb k _); exact Hin.
@@ -322,19 +362,24 @@ Lemma nnormal_pshift_depth h n :
   forall ρ, ndepth ρ <= n -> nnormal ρ = true -> nnormal (pshift h ρ) = true.
 Proof.
   induction n as [|n IH]; intros [m] Hd Hn; [cbn in Hd; lia|].
-  rewrite nnormal_NAdj in Hn; apply andb_true_iff in Hn as [Hm Hp].
-  cbn [pshift]; rewrite nnormal_NAdj.
+  pose proof (nnormal_normal _ Hn) as Hm; pose proof (nnormal_linked _ Hn) as Hl.
+  pose proof (nnormal_payloads _ Hn) as Hp; cbn [nraw] in Hm, Hl.
+  cbn [pshift].
   assert (Hq : payloads_ok (map_payloads (fun p => (fst p, pshift h (snd p))) m) = true).
   { apply payloads_ok_map; intros k e p He Hin; cbn [snd].
     pose proof (proj1 (payloads_ok_spec m) Hp k e p He Hin) as [Hn1 Hn2].
     pose proof (ndepth_payload m k e p He Hin).
     split; [apply IH; [lia|exact Hn1]|].
-    rewrite pnormal_pshift; [exact Hn2|].
-    destruct (snd p) as [m']; rewrite nnormal_NAdj in Hn1; apply andb_true_iff in Hn1; apply Hn1. }
-  destruct (label_eqb h None && Nat.eqb (count m None) 0).
-  - rewrite normal_map_payloads, Hq by exact Hm; reflexivity.
-  - rewrite normal_push_outer, payloads_ok_push_outer, Hq by (apply normal_map_payloads, Hm).
-    reflexivity.
+    rewrite pnormal_pshift; [exact Hn2|apply nnormal_normal, Hn1]. }
+  pose proof (normal_map_payloads (fun p => (fst p, pshift h (snd p))) m Hm) as Hm'.
+  pose proof (linked_map_payloads (fun p => (fst p, pshift h (snd p))) m Hm Hl) as Hl'.
+  destruct (label_eqb h None && Nat.eqb (count m None) 0); apply nnormal_intro.
+  - exact Hm'.
+  - exact Hl'.
+  - exact Hq.
+  - apply normal_push_outer, Hm'.
+  - apply linked_push_outer; assumption.
+  - rewrite payloads_ok_push_outer; exact Hq.
 Qed.
 
 Theorem nnormal_pshift h ρ : nnormal ρ = true -> nnormal (pshift h ρ) = true.
@@ -342,20 +387,19 @@ Proof. apply (nnormal_pshift_depth h (ndepth ρ)); lia. Qed.
 
 Theorem pnormal_pshift' h ρ :
   nnormal ρ = true -> pnormal_raw (nraw ρ) = true -> pnormal_raw (nraw (pshift h ρ)) = true.
-Proof.
-  intros Hn Hp; rewrite pnormal_pshift; [exact Hp|].
-  destruct ρ as [m]; rewrite nnormal_NAdj in Hn; apply andb_true_iff in Hn; apply Hn.
-Qed.
+Proof. intros Hn Hp; rewrite pnormal_pshift; [exact Hp|apply nnormal_normal, Hn]. Qed.
 
 Theorem nnormal_npush_outer h a : nnormal a = true -> nnormal (npush_outer h a) = true.
 Proof.
   destruct a as [m]; intros Hn; pose proof (nnormal_pshift h (NAdj m) Hn) as H.
-  cbn [pshift] in H; unfold npush_outer; rewrite nnormal_NAdj in *.
-  apply andb_true_iff in Hn as [Hm _].
-  destruct (label_eqb h None && Nat.eqb (count m None) 0).
-  - rewrite normal_push_outer, payloads_ok_push_outer by (apply normal_map_payloads, Hm).
-    apply andb_true_iff in H; apply H.
-  - exact H.
+  pose proof (nnormal_normal _ Hn) as Hm; pose proof (nnormal_linked _ Hn) as Hl; cbn [nraw] in Hm, Hl.
+  cbn [pshift] in H; unfold npush_outer.
+  destruct (label_eqb h None && Nat.eqb (count m None) 0); [|exact H].
+  pose proof (nnormal_payloads _ H) as Hq.
+  apply nnormal_intro.
+  - apply normal_push_outer, normal_map_payloads, Hm.
+  - apply linked_push_outer; [apply normal_map_payloads, Hm|apply linked_map_payloads; assumption].
+  - rewrite payloads_ok_push_outer; exact Hq.
 Qed.
 
 (** ** Payloads occurring in a trie *)
@@ -375,19 +419,22 @@ Definition npush_inner_var (h : option label) (w : rvar) (a : nadj T) : nadj T :
   match a with NAdj m => NAdj (push_inner_var h w m) end.
 
 Theorem napply_npush_inner_var h w a v :
-  normal (nraw a) = true ->
+  nnormal a = true ->
   napply (npush_inner_var h w a) v
   = if rvar_eqb v (mk_rvar h 0) then inl w else napply a (unshift_rvar (mk_rvar h 0) v).
-Proof. destruct a as [m]; intros Hm; apply (push_inner_var_spec h w m Hm). Qed.
+Proof.
+  destruct a as [m]; intros Hn.
+  apply (push_inner_var_spec h w m (nnormal_normal _ Hn) (nnormal_linked _ Hn)).
+Qed.
 
 Theorem nnormal_npush_inner_var h w a :
   nnormal a = true -> nnormal (npush_inner_var h w a) = true.
 Proof.
-  destruct a as [m]; cbn [npush_inner_var]; rewrite !nnormal_NAdj.
-  intros Hn; apply andb_true_iff in Hn as [Hm Hq]; apply andb_true_iff; split.
-  - apply push_inner_var_spec, Hm.
-  - apply payloads_ok_binds; intros p Hb.
-    apply (proj1 (payloads_ok_binds m) Hq p), (binds_in_push_inner_var h w m p Hb).
+  destruct a as [m]; cbn [npush_inner_var]; intros Hn.
+  destruct (push_inner_var_spec h w m (nnormal_normal _ Hn) (nnormal_linked _ Hn)) as [H1 [H2 _]].
+  apply nnormal_intro; [exact H1|exact H2|].
+  apply payloads_ok_binds; intros p Hb.
+  apply (proj1 (payloads_ok_binds m) (nnormal_payloads _ Hn) p), (binds_in_push_inner_var h w m p Hb).
 Qed.
 
 (** ** Nested [push_inner]: payloads live in the output scope, so they are
@@ -397,24 +444,27 @@ Definition npush_inner (h : option label) (t : target payload) (a : nadj T) : na
   match a with NAdj m => NAdj (push_inner h t m) end.
 
 Theorem napply_npush_inner h t a v :
-  normal (nraw a) = true -> (forall h' n, t = Slot h' n -> n < count (nraw a) h') ->
+  nnormal a = true -> (forall h' n, t = Slot h' n -> n < count (nraw a) h') ->
   napply (npush_inner h t a) v
   = if rvar_eqb v (mk_rvar h 0) then resolve (nraw a) t
     else napply a (unshift_rvar (mk_rvar h 0) v).
-Proof. destruct a as [m]; apply apply_push_inner. Qed.
+Proof.
+  destruct a as [m]; intros Hn Ht.
+  apply (push_inner_normal h t m (nnormal_normal _ Hn) (nnormal_linked _ Hn) Ht).
+Qed.
 
 Theorem nnormal_npush_inner h t a :
   nnormal a = true -> (forall h' n, t = Slot h' n -> n < count (nraw a) h') ->
   payload_ok t = true ->
   nnormal (npush_inner h t a) = true.
 Proof.
-  destruct a as [m]; cbn [nraw npush_inner]; rewrite !nnormal_NAdj.
-  intros Hn Ht Hp; apply andb_true_iff in Hn as [Hm Hq]; apply andb_true_iff; split.
-  - apply normal_push_inner; assumption.
-  - apply payloads_ok_binds; intros p Hb.
-    apply binds_in_push_inner in Hb as [Hb|Hb].
-    + apply (proj1 (payloads_ok_binds m) Hq p Hb).
-    + subst t; destruct p as [u ρ]; cbn in Hp; apply andb_true_iff in Hp; exact Hp.
+  destruct a as [m]; cbn [nraw npush_inner]; intros Hn Ht Hp.
+  destruct (push_inner_normal h t m (nnormal_normal _ Hn) (nnormal_linked _ Hn) Ht) as [H1 [H2 _]].
+  apply nnormal_intro; [exact H1|exact H2|].
+  apply payloads_ok_binds; intros p Hb.
+  apply binds_in_push_inner in Hb as [Hb|Hb].
+  - apply (proj1 (payloads_ok_binds m) (nnormal_payloads _ Hn) p Hb).
+  - subst t; destruct p as [u ρ]; cbn in Hp; apply andb_true_iff in Hp; exact Hp.
 Qed.
 
 (** ** Composition
@@ -438,21 +488,15 @@ Fixpoint ncompose_f (fuel : nat) (a b : nadj T) : nadj T :=
 
 Definition ncompose (a b : nadj T) : nadj T := ncompose_f (ndepth b) a b.
 
-Lemma nnormal_normal a : nnormal a = true -> normal (nraw a) = true.
-Proof. destruct a as [m]; rewrite nnormal_NAdj; intros H; apply andb_true_iff in H; apply H. Qed.
-
-Lemma nnormal_payloads m :
-  nnormal (NAdj m) = true -> payloads_ok m = true.
-Proof. rewrite nnormal_NAdj; intros H; apply andb_true_iff in H; apply H. Qed.
 
 Theorem nnormal_prestrict ρ :
   nnormal ρ = true -> nnormal (prestrict ρ) = true /\ pnormal_raw (nraw (prestrict ρ)) = true.
 Proof.
   destruct ρ as [m]; intros Hn; cbn [prestrict nraw].
   pose proof (nnormal_payloads m Hn) as Hp; apply nnormal_normal in Hn; cbn [nraw] in Hn.
-  destruct (restrict_spec None m Hn) as [H1 [H2 [H3 _]]].
+  destruct (restrict_spec None m Hn) as [H1 [Hl [H2 [H3 _]]]].
   split.
-  - rewrite nnormal_NAdj, H1; cbn [andb].
+  - apply nnormal_intro; [exact H1|exact Hl|].
     apply payloads_ok_binds; intros p Hb.
     apply (proj1 (payloads_ok_binds m) Hp), (binds_in_restrict None m p Hb).
   - unfold pnormal_raw; rewrite H2; cbn [andb].
@@ -467,7 +511,7 @@ Proof.
   destruct a as [ma], b as [mb]; cbn [ncompose_f].
   pose proof (nnormal_normal _ Ha) as Hma; pose proof (nnormal_normal _ Hb) as Hmb.
   cbn [nraw] in Hma, Hmb.
-  rewrite nnormal_NAdj, normal_compose by assumption; cbn [andb].
+  apply nnormal_intro; [apply normal_compose; assumption|apply linked_compose; assumption|].
   apply payloads_ok_binds; intros p Hbd.
   apply binds_in_compose in Hbd as [Hbd|[p' [Hbd ->]]]; [| |exact Hma|exact Hmb].
   - apply (proj1 (payloads_ok_binds ma) (nnormal_payloads ma Ha) p Hbd).
@@ -578,7 +622,8 @@ Proof.
   { apply Nat.le_antisymm; apply pnormal_count_le; auto.
     intros v Hv; symmetry; apply Heq, Hv. }
   destruct ρ1 as [m1], ρ2 as [m2]; f_equal.
-  apply canonical; [apply (nnormal_normal (NAdj m1)), Hn1|apply (nnormal_normal (NAdj m2)), Hn2|].
+  apply canonical; [apply (nnormal_normal (NAdj m1)), Hn1|apply (nnormal_normal (NAdj m2)), Hn2
+                   |apply (nnormal_linked (NAdj m1)), Hn1|apply (nnormal_linked (NAdj m2)), Hn2|].
   intros [h i]; destruct h as [x|].
   - apply (Heq (mk_rvar (Some x) i)); discriminate.
   - cbn [nraw] in *; rewrite !pnormal_none, Hc by assumption; reflexivity.
@@ -622,7 +667,8 @@ Theorem nextensionality a b :
   nnormal a = true -> nnormal b = true -> (forall v, napply a v = napply b v) -> a = b.
 Proof.
   destruct a as [ma], b as [mb]; intros Ha Hb H; f_equal.
-  apply canonical; [apply (nnormal_normal (NAdj ma) Ha)|apply (nnormal_normal (NAdj mb) Hb)|].
+  apply canonical; [apply (nnormal_normal (NAdj ma) Ha)|apply (nnormal_normal (NAdj mb) Hb)
+                   |apply (nnormal_linked (NAdj ma) Ha)|apply (nnormal_linked (NAdj mb) Hb)|].
   exact H.
 Qed.
 

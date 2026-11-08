@@ -533,3 +533,53 @@ Proof.
 Qed.
 
 End Structural.
+
+(** ** Deciding equality *)
+
+Section Eqb.
+
+Context {A : Type} (eqA : A -> A -> bool) (HA : forall x y, eqA x y = true <-> x = y).
+
+Fixpoint teqb' (m1 m2 : tree' A) : bool :=
+  match m1, m2 with
+  | Node001 r1, Node001 r2 => teqb' r1 r2
+  | Node010 x1, Node010 x2 => eqA x1 x2
+  | Node011 x1 r1, Node011 x2 r2 => eqA x1 x2 && teqb' r1 r2
+  | Node100 l1, Node100 l2 => teqb' l1 l2
+  | Node101 l1 r1, Node101 l2 r2 => teqb' l1 l2 && teqb' r1 r2
+  | Node110 l1 x1, Node110 l2 x2 => teqb' l1 l2 && eqA x1 x2
+  | Node111 l1 x1 r1, Node111 l2 x2 r2 => teqb' l1 l2 && eqA x1 x2 && teqb' r1 r2
+  | _, _ => false
+  end.
+
+Definition teqb (m1 m2 : tree A) : bool :=
+  match m1, m2 with
+  | Empty, Empty => true
+  | Nodes m1, Nodes m2 => teqb' m1 m2
+  | _, _ => false
+  end.
+
+Lemma teqb'_spec m1 m2 : teqb' m1 m2 = true <-> m1 = m2.
+Proof.
+  revert m2; induction m1; intros []; cbn;
+    try (split; [discriminate|intros [=]]);
+    rewrite ?Bool.andb_true_iff, ?HA, ?IHm1, ?IHm1_1, ?IHm1_2;
+    split; intros; repeat match goal with H : _ /\ _ |- _ => destruct H end;
+    subst; try reflexivity; try (injection H; intros; subst); auto.
+Qed.
+
+Lemma teqb_spec m1 m2 : teqb m1 m2 = true <-> m1 = m2.
+Proof.
+  destruct m1 as [|m1], m2 as [|m2]; cbn; try (split; [discriminate|intros [=]]).
+  - split; reflexivity.
+  - rewrite teqb'_spec; split; [intros ->; reflexivity|intros [= ->]; reflexivity].
+Qed.
+
+End Eqb.
+
+Lemma get_nonempty {A} (m : tree A) : m <> Empty -> exists i x, get i m = Some x.
+Proof.
+  destruct m as [|m]; [contradiction|intros _].
+  destruct (get'_not_empty m) as [i Hi]; destruct (get' i m) as [x|] eqn:E; [|contradiction].
+  exists i, x; exact E.
+Qed.

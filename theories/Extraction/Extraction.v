@@ -13,7 +13,7 @@
       the Rocq function it replaces. *)
 
 From Stdlib Require Extraction.
-From Stdlib Require Import Arith ExtrOcamlBasic ExtrOcamlNatBigInt ExtrOcamlNativeString.
+From Stdlib Require Import PArith Arith ExtrOcamlBasic ExtrOcamlNatBigInt ExtrOcamlNativeString.
 From ShiftedNames.Core Require Import Label Syntax.
 
 (** Comparisons on [nat] that [ExtrOcamlNatBigInt] does not cover. *)
@@ -28,6 +28,22 @@ Extract Inlined Constant Init.Nat.div2 => "(fun n -> Big_int_Z.shift_right_big_i
 Extract Inlined Constant PeanoNat.Nat.even =>
   "(fun n -> Big_int_Z.sign_big_int (Big_int_Z.and_big_int n Big_int_Z.unit_big_int) = 0)".
 Extract Inlined Constant PeanoNat.Nat.div2 => "(fun n -> Big_int_Z.shift_right_big_int n 1)".
+
+(** Converting between [nat] and [positive] (back-link positions are trie
+    keys): bit by bit rather than in unary. *)
+Extract Constant BinPos.Pos.of_succ_nat =>
+  "(fun n -> let rec go m =
+       if Big_int_Z.eq_big_int m Big_int_Z.unit_big_int then XH
+       else let q = go (Big_int_Z.shift_right_big_int m 1) in
+            if Big_int_Z.sign_big_int (Big_int_Z.and_big_int m Big_int_Z.unit_big_int) = 0
+            then XO q else XI q in
+     go (Big_int_Z.succ_big_int n))".
+Extract Constant BinPos.Pos.to_nat =>
+  "(fun p -> let rec go p = match p with
+       | XH -> Big_int_Z.unit_big_int
+       | XO q -> Big_int_Z.shift_left_big_int (go q) 1
+       | XI q -> Big_int_Z.succ_big_int (Big_int_Z.shift_left_big_int (go q) 1) in
+     go p)".
 
 (** Extension witnesses are their depth. *)
 Extraction Implicit ext_under [K L].
