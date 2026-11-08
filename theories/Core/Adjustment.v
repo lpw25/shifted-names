@@ -18,22 +18,10 @@
     [u], and are canonical for that restricted meaning. *)
 
 From Stdlib Require Import PArith Arith List Lia Bool StrictProp.
+From ShiftedNames.Core Require Export Strict.
 From ShiftedNames.Core Require Import Trie Label Var Nested.
 From ShiftedNames.Core Require Slots.
 Import ListNotations.
-
-(** ** Booleans as strict propositions *)
-
-Definition Is_true_s (b : bool) : SProp := if b then sUnit else sEmpty.
-
-Definition Is_true_s_intro {b : bool} : b = true -> Is_true_s b :=
-  match b with
-  | true => fun _ => stt
-  | false => fun H => match diff_false_true H with end
-  end.
-
-Lemma Is_true_s_elim {b : bool} : Is_true_s b -> b = true.
-Proof. destruct b; [reflexivity|intros []]. Qed.
 
 (** ** The types of adjustments and payload adjustments *)
 

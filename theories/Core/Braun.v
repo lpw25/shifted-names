@@ -492,3 +492,112 @@ Proof.
   intros xs; induction xs as [|x xs IH]; intros [|y ys]; cbn; try reflexivity.
   rewrite IH; reflexivity.
 Qed.
+
+(** ** Sequences: balanced trees
+
+    A [seq] is a Braun tree with a strict (hence irrelevant) proof that it is
+    balanced.  Every operation keeps the balance, so the list equations
+    below hold without side conditions, and two sequences are equal exactly
+    when they denote the same list ([seq_ext]). *)
+
+From Stdlib Require Import StrictProp.
+From ShiftedNames.Core Require Import Strict.
+
+Fixpoint balancedb {A} (t : braun A) : bool :=
+  match t with
+  | BE => true
+  | BN _ l r => Nat.leb (size r) (size l) && Nat.leb (size l) (S (size r))
+                && balancedb l && balancedb r
+  end.
+
+Lemma balancedb_spec {A} (t : braun A) : balancedb t = true <-> balanced t.
+Proof.
+  induction t as [|x l IHl r IHr]; cbn; [split; auto|].
+  rewrite !Bool.andb_true_iff, !Nat.leb_le, IHl, IHr; tauto.
+Qed.
+
+Record seq (A : Type) : Type := mk_seq { tree : braun A; seq_ok : Is_true_s (balancedb tree) }.
+
+Arguments mk_seq {A} _ _.
+Arguments tree {A} _.
+Arguments seq_ok {A} _.
+
+Section Seq.
+
+Context {A : Type}.
+
+Implicit Types (s : seq A) (x : A) (i : nat).
+
+Lemma seq_balanced s : balanced (tree s).
+Proof. apply balancedb_spec, Is_true_s_elim, seq_ok. Qed.
+
+Definition ok {t : braun A} (H : balanced t) : Is_true_s (balancedb t) :=
+  Is_true_s_intro (proj2 (balancedb_spec t) H).
+
+Definition elems s : list A := to_list (tree s).
+Definition len s : nat := size (tree s).
+
+Definition empty : seq A := mk_seq BE stt.
+Definition scons x s : seq A := mk_seq (cons x (tree s)) (ok (balanced_cons x _ (seq_balanced s))).
+Definition stail s : seq A := mk_seq (tail (tree s)) (ok (proj1 (tail_spec _ (seq_balanced s)))).
+Definition ssnoc s x : seq A := mk_seq (snoc (tree s) x) (ok (proj1 (snoc_spec _ x (seq_balanced s)))).
+Definition sunsnoc s : seq A := mk_seq (unsnoc (tree s)) (ok (proj1 (unsnoc_spec _ (seq_balanced s)))).
+Definition supdate i (f : A -> A) s : seq A :=
+  mk_seq (update i f (tree s)) (ok (balanced_update i f _ (seq_balanced s))).
+Definition snth i s : option A := nth i (tree s).
+Definition slast s : option A := last (tree s).
+Definition of_elems (xs : list A) : seq A := mk_seq (of_list xs) (ok (balanced_of_list xs)).
+
+(** ** The list equations *)
+
+Theorem seq_ext s1 s2 : elems s1 = elems s2 -> s1 = s2.
+Proof.
+  intros H; destruct s1 as [t1 H1], s2 as [t2 H2]; unfold elems in H; cbn in H.
+  assert (t1 = t2) as ->; [|reflexivity].
+  apply canonical; auto; apply balancedb_spec, Is_true_s_elim; assumption.
+Qed.
+
+Lemma len_elems s : length (elems s) = len s.
+Proof. apply to_list_length. Qed.
+
+Lemma elems_empty : elems empty = [].
+Proof. reflexivity. Qed.
+
+Lemma elems_scons x s : elems (scons x s) = x :: elems s.
+Proof. apply to_list_cons. Qed.
+
+Lemma elems_stail s : elems (stail s) = List.tl (elems s).
+Proof. apply (tail_spec _ (seq_balanced s)). Qed.
+
+Lemma elems_ssnoc s x : elems (ssnoc s x) = elems s ++ [x].
+Proof. apply (snoc_spec _ x (seq_balanced s)). Qed.
+
+Lemma elems_sunsnoc s : elems (sunsnoc s) = removelast (elems s).
+Proof. apply (unsnoc_spec _ (seq_balanced s)). Qed.
+
+Lemma snth_elems i s : snth i s = nth_error (elems s) i.
+Proof. apply nth_to_list, seq_balanced. Qed.
+
+Lemma slast_elems s : slast s = nth_error (elems s) (pred (length (elems s))).
+Proof. apply last_spec, seq_balanced. Qed.
+
+Lemma elems_of_elems xs : elems (of_elems xs) = xs.
+Proof. apply to_list_of_list. Qed.
+
+Lemma snth_supdate i f s j :
+  snth j (supdate i f s) = if Nat.eqb i j then option_map f (snth j s) else snth j s.
+Proof. apply nth_update. Qed.
+
+Lemma len_supdate i f s : len (supdate i f s) = len s.
+Proof. apply size_update. Qed.
+
+End Seq.
+
+Definition smap {A B} (f : A -> B) (s : seq A) : seq B :=
+  mk_seq (map f (tree s)) (ok (balanced_map f _ (seq_balanced s))).
+
+Lemma elems_smap {A B} (f : A -> B) s : elems (smap f s) = List.map f (elems s).
+Proof. apply to_list_map. Qed.
+
+Lemma len_smap {A B} (f : A -> B) s : len (smap f s) = len s.
+Proof. apply size_map. Qed.

@@ -3,6 +3,7 @@
 theories/Core/Trie.v
 theories/Core/Label.v
 theories/Core/Var.v
+theories/Core/Strict.v
 theories/Core/Braun.v
 theories/Core/Lookup.v
 theories/Core/Slots.v
