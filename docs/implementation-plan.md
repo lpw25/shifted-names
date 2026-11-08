@@ -317,5 +317,32 @@ setoids.
 
 ## Environment
 
-See the section added to this file once the environment is set up
-(Stage 0).
+**Toolchain:** Rocq 9.2.0 with stdlib 9.2.0, OCaml 4.14.1 and dune 3.14. The
+native compiler is disabled (`vm_compute` works; `native_compute` falls back
+to the VM).
+
+**Cloud sessions** (claude.ai/code). Use the personal environment
+`shifted-names`. Its setup script runs whenever a fresh container is built. It
+installs Ubuntu's `ocaml-nox`, `ocaml-dune`, `libzarith-ocaml-dev` and
+`ocaml-findlib`, then builds Rocq and the stdlib from the `V9.2.0` tags of
+`github.com/rocq-prover/rocq` and `github.com/rocq-prover/stdlib`, installing
+into `/usr/local`. This takes about 4 minutes. opam is not used because
+`opam.ocaml.org` and GitHub release tarballs are not reachable from the cloud
+network policy, but `git clone` from GitHub is.
+
+**Locally:**
+
+```bash
+opam install rocq-prover.9.2.0
+```
+
+`rocq-prover` pulls in the matching stdlib.
+
+**Quick check:**
+
+```bash
+rocq c -R src SNames src/Label.v
+```
+
+The old sources compile with deprecation warnings (`Require Import String` →
+`From Stdlib Require Import String`). New code should use `From Stdlib`.
