@@ -35,15 +35,29 @@ Local Notation payload := (T * nadj T)%type.
 (** Payload adjustments in scope [M]. *)
 Definition pok (M : nat) (x : nadj T) : bool := nnormal x && pnormal_raw (nraw x) && nscoped M x.
 
+(** Payload adjustments in scope [M]. *)
+
+(** Where a lookup in a normal adjustment ends up. *)
+
 Lemma loc_some (m : raw payload) h ent i t :
-  get (label_key h) m = Some ent -> nth_error (e_targets ent) i = Some t ->
+  normal m = true -> get (label_key h) m = Some ent -> Braun.nth i (e_tree ent) = Some t ->
   Slots.apply m (mk_rvar h i) = resolve m t.
-Proof. intros H1 H2; unfold Slots.apply, find; cbn; rewrite H1; cbn; rewrite H2; reflexivity. Qed.
+Proof.
+  intros Hm H1 H2; rewrite (Braun.nth_to_list _ _ (normal_balanced _ _ _ Hm H1)) in H2.
+  fold (e_targets ent) in H2; unfold Slots.apply, find; cbn; rewrite H1; cbn; rewrite H2; reflexivity.
+Qed.
 
 Lemma loc_pass (m : raw payload) h ent i :
-  get (label_key h) m = Some ent -> nth_error (e_targets ent) i = None ->
-  Slots.apply m (mk_rvar h i) = inl (mk_rvar h (i - length (e_targets ent) + e_out ent)).
-Proof. intros H1 H2; unfold Slots.apply, count, find; cbn; rewrite H1; cbn; rewrite H2; reflexivity. Qed.
+  normal m = true -> get (label_key h) m = Some ent -> Braun.nth i (e_tree ent) = None ->
+  Slots.apply m (mk_rvar h i) = inl (mk_rvar h (i - Braun.size (e_tree ent) + e_out ent)).
+Proof.
+  intros Hm H1 H2; rewrite (Braun.nth_to_list _ _ (normal_balanced _ _ _ Hm H1)) in H2.
+  fold (e_targets ent) in H2; unfold Slots.apply, count, find; cbn; rewrite H1; cbn; rewrite H2.
+  unfold e_targets; rewrite Braun.to_list_length; reflexivity.
+Qed.
+
+Lemma pok_normal M x : pok M x = true -> normal (nraw x) = true.
+Proof. unfold pok; rewrite !andb_true_iff; intros [[H _] _]; apply nnormal_normal, H. Qed.
 
 Lemma loc_none (m : raw payload) h i :
   get (label_key h) m = None -> Slots.apply m (mk_rvar h i) = inl (mk_rvar h i).
@@ -140,26 +154,28 @@ Qed.
 Lemma W_pslot (m : raw payload) Mρ s L0 {K L} (e : ext 0 L0 K L) y i ent h l
   (HL : Is_true_s (Nat.eqb L0 (s + Mρ))) (Hx : Is_true_s (pok Mρ (NAdj m)))
   (H1 : Squash (get (label_key (Some y)) m = Some ent))
-  (H2 : Squash (nth_error (e_targets ent) i = Some (Slots.Slot h l))) :
+  (H2 : Squash (Braun.nth i (e_tree ent) = Some (Slots.Slot h l))) :
   Is_true_s (wf_var L (up (s + ext_depth e) (mk_rvar h (count m h - S l)))).
 Proof.
+  pose proof (pok_normal _ _ (Is_true_s_elim Hx)) as HM; cbn [nraw] in HM.
   destruct H1 as [H1], H2 as [H2]; apply Is_true_s_intro.
   apply (pay_var_wf (NAdj m) Mρ s L0 e (mk_rvar (Some y) i));
     [apply Is_true_s_elim, Hx|apply Nat.eqb_eq, Is_true_s_elim, HL|discriminate|].
-  unfold napply; cbn [nraw]; rewrite (loc_some _ _ _ _ _ H1 H2); reflexivity.
+  unfold napply; cbn [nraw]; rewrite (loc_some _ _ _ _ _ HM H1 H2); reflexivity.
 Qed.
 
 Lemma W_ppass (m : raw payload) Mρ s L0 {K L} (e : ext 0 L0 K L) y i ent
   (HL : Is_true_s (Nat.eqb L0 (s + Mρ))) (Hx : Is_true_s (pok Mρ (NAdj m)))
   (H1 : Squash (get (label_key (Some y)) m = Some ent))
-  (H2 : Squash (nth_error (e_targets ent) i = None)) :
+  (H2 : Squash (Braun.nth i (e_tree ent) = None)) :
   Is_true_s (wf_var L (up (s + ext_depth e)
-                          (mk_rvar (Some y) (i - length (e_targets ent) + e_out ent)))).
+                          (mk_rvar (Some y) (i - Braun.size (e_tree ent) + e_out ent)))).
 Proof.
+  pose proof (pok_normal _ _ (Is_true_s_elim Hx)) as HM; cbn [nraw] in HM.
   destruct H1 as [H1], H2 as [H2]; apply Is_true_s_intro.
   apply (pay_var_wf (NAdj m) Mρ s L0 e (mk_rvar (Some y) i));
     [apply Is_true_s_elim, Hx|apply Nat.eqb_eq, Is_true_s_elim, HL|discriminate|].
-  unfold napply; cbn [nraw]; apply (loc_pass _ _ _ _ H1 H2).
+  unfold napply; cbn [nraw]; apply (loc_pass _ _ _ _ HM H1 H2).
 Qed.
 
 Lemma W_pnone (m : raw payload) Mρ s L0 {K L} (e : ext 0 L0 K L) y i
@@ -175,13 +191,14 @@ Qed.
 
 Lemma W_ppay (m : raw payload) Mρ y i ent u ρ (Hx : Is_true_s (pok Mρ (NAdj m)))
   (H1 : Squash (get (label_key (Some y)) m = Some ent))
-  (H2 : Squash (nth_error (e_targets ent) i = Some (Slots.Bind (u, ρ)))) :
+  (H2 : Squash (Braun.nth i (e_tree ent) = Some (Slots.Bind (u, ρ)))) :
   Is_true_s (pok Mρ ρ).
 Proof.
+  pose proof (pok_normal _ _ (Is_true_s_elim Hx)) as HM; cbn [nraw] in HM.
   destruct H1 as [H1], H2 as [H2]; apply Is_true_s_intro.
   apply (pay_payload_ok (NAdj m) Mρ (mk_rvar (Some y) i) u ρ);
     [apply Is_true_s_elim, Hx|discriminate|].
-  unfold napply; cbn [nraw]; rewrite (loc_some _ _ _ _ _ H1 H2); reflexivity.
+  unfold napply; cbn [nraw]; rewrite (loc_some _ _ _ _ _ HM H1 H2); reflexivity.
 Qed.
 
 (** At the top level. *)
@@ -207,24 +224,26 @@ Proof. apply Is_true_s_intro, Nat.eqb_eq, ext_depth_L. Qed.
 Lemma W_tslot {N M K L} (a : adj T N M) (e : ext N M K L) v' (Hv' : wf_var N v' = true)
   ent h l
   (H1 : Squash (get (label_key (v_label v')) (nraw (radj_n (adj_raw a))) = Some ent))
-  (H2 : Squash (nth_error (e_targets ent) (v_index v') = Some (Slots.Slot h l))) :
+  (H2 : Squash (Braun.nth (v_index v') (e_tree ent) = Some (Slots.Slot h l))) :
   Is_true_s (wf_var L (up (ext_depth e)
                           (mk_rvar h (count (nraw (radj_n (adj_raw a))) h - S l)))).
 Proof.
+  pose proof (nnormal_normal _ (radj_ok_true (adj_raw a))) as HM.
   destruct H1 as [H1], H2 as [H2]; apply Is_true_s_intro.
   apply (top_var_wf a e v' _ Hv'); unfold napply.
-  destruct v' as [h' i']; cbn [v_label v_index] in *; rewrite (loc_some _ _ _ _ _ H1 H2); reflexivity.
+  destruct v' as [h' i']; cbn [v_label v_index] in *; rewrite (loc_some _ _ _ _ _ HM H1 H2); reflexivity.
 Qed.
 
 Lemma W_tpass {N M K L} (a : adj T N M) (e : ext N M K L) v' (Hv' : wf_var N v' = true) ent
   (H1 : Squash (get (label_key (v_label v')) (nraw (radj_n (adj_raw a))) = Some ent))
-  (H2 : Squash (nth_error (e_targets ent) (v_index v') = None)) :
+  (H2 : Squash (Braun.nth (v_index v') (e_tree ent) = None)) :
   Is_true_s (wf_var L (up (ext_depth e)
-                          (mk_rvar (v_label v') (v_index v' - length (e_targets ent) + e_out ent)))).
+                          (mk_rvar (v_label v') (v_index v' - Braun.size (e_tree ent) + e_out ent)))).
 Proof.
+  pose proof (nnormal_normal _ (radj_ok_true (adj_raw a))) as HM.
   destruct H1 as [H1], H2 as [H2]; apply Is_true_s_intro.
   apply (top_var_wf a e v' _ Hv'); unfold napply.
-  destruct v' as [h' i']; cbn [v_label v_index] in *; apply (loc_pass _ _ _ _ H1 H2).
+  destruct v' as [h' i']; cbn [v_label v_index] in *; apply (loc_pass _ _ _ _ HM H1 H2).
 Qed.
 
 Lemma W_tnone {N M K L} (a : adj T N M) (e : ext N M K L) v' (Hv' : wf_var N v' = true)
@@ -238,12 +257,13 @@ Qed.
 
 Lemma W_tpay {N M} (a : adj T N M) v' (Hv' : wf_var N v' = true) ent u ρ
   (H1 : Squash (get (label_key (v_label v')) (nraw (radj_n (adj_raw a))) = Some ent))
-  (H2 : Squash (nth_error (e_targets ent) (v_index v') = Some (Slots.Bind (u, ρ)))) :
+  (H2 : Squash (Braun.nth (v_index v') (e_tree ent) = Some (Slots.Bind (u, ρ)))) :
   Is_true_s (pok M ρ).
 Proof.
+  pose proof (nnormal_normal _ (radj_ok_true (adj_raw a))) as HM.
   destruct H1 as [H1], H2 as [H2]; apply Is_true_s_intro.
   apply (top_payload_ok a v' u ρ Hv'); unfold napply.
-  destruct v' as [h' i']; cbn [v_label v_index] in *; rewrite (loc_some _ _ _ _ _ H1 H2); reflexivity.
+  destruct v' as [h' i']; cbn [v_label v_index] in *; rewrite (loc_some _ _ _ _ _ HM H1 H2); reflexivity.
 Qed.
 
 (** ** The raw lookup of lifts, compositions and payloads *)
@@ -308,17 +328,17 @@ Fixpoint papply (x : nadj P) (Mρ s L0 : nat) (HL : Is_true_s (Nat.eqb L0 (s + M
       | NAdj m => fun Hx =>
           get_with (label_key (Some y)) m
             (fun ent H1 =>
-               nth_with (v_index (var_raw v)) (e_targets ent)
+               nth_with (v_index (var_raw v)) (e_tree ent)
                  (fun t =>
                     match t as t0
-                          return Squash (nth_error (e_targets ent) (v_index (var_raw v)) = Some t0) ->
+                          return Squash (Braun.nth (v_index (var_raw v)) (e_tree ent) = Some t0) ->
                                  term L with
                     | Slots.Slot h l => fun H2 =>
                         tvar (mk_var (up (s + ext_depth e) (mk_rvar h (count m h - S l)))
                                 (W_pslot m Mρ s L0 e y _ ent h l HL Hx H1 H2))
                     | Slots.Bind p =>
                         match p as p0
-                              return Squash (nth_error (e_targets ent) (v_index (var_raw v)) = Some (Slots.Bind p0)) ->
+                              return Squash (Braun.nth (v_index (var_raw v)) (e_tree ent) = Some (Slots.Bind p0)) ->
                                      term L with
                         | (u, ρ) => fun H2 =>
                             kleisli (papply ρ Mρ (s + ext_depth e) L (W_pHL Mρ s e HL)
@@ -328,7 +348,7 @@ Fixpoint papply (x : nadj P) (Mρ s L0 : nat) (HL : Is_true_s (Nat.eqb L0 (s + M
                     end)
                  (fun H2 =>
                     tvar (mk_var (up (s + ext_depth e)
-                                    (mk_rvar (Some y) (v_index (var_raw v) - length (e_targets ent) + e_out ent)))
+                                    (mk_rvar (Some y) (v_index (var_raw v) - Braun.size (e_tree ent) + e_out ent)))
                             (W_ppass m Mρ s L0 e y _ ent HL Hx H1 H2))))
             (fun H1 =>
                tvar (mk_var (up (s + ext_depth e) (mk_rvar (Some y) (v_index (var_raw v))))
@@ -342,16 +362,16 @@ Definition look {N M K L} (a : adj P N M) (e : ext N M K L) (v' : rvar)
   let m := nraw (radj_n (adj_raw a)) in
   get_with (label_key (v_label v')) m
     (fun ent H1 =>
-       nth_with (v_index v') (e_targets ent)
+       nth_with (v_index v') (e_tree ent)
          (fun t =>
             match t as t0
-                  return Squash (nth_error (e_targets ent) (v_index v') = Some t0) -> term L with
+                  return Squash (Braun.nth (v_index v') (e_tree ent) = Some t0) -> term L with
             | Slots.Slot h l => fun H2 =>
                 tvar (mk_var (up (ext_depth e) (mk_rvar h (count m h - S l)))
                         (W_tslot a e v' Hv' ent h l H1 H2))
             | Slots.Bind p =>
                 match p as p0
-                      return Squash (nth_error (e_targets ent) (v_index v') = Some (Slots.Bind p0)) -> term L with
+                      return Squash (Braun.nth (v_index v') (e_tree ent) = Some (Slots.Bind p0)) -> term L with
                 | (u, ρ) => fun H2 =>
                     kleisli (papply ρ M (ext_depth e) L (W_tHL e) (W_tpay a v' Hv' ent u ρ H1 H2))
                             ext_here u
@@ -359,7 +379,7 @@ Definition look {N M K L} (a : adj P N M) (e : ext N M K L) (v' : rvar)
             end)
          (fun H2 =>
             tvar (mk_var (up (ext_depth e)
-                            (mk_rvar (v_label v') (v_index v' - length (e_targets ent) + e_out ent)))
+                            (mk_rvar (v_label v') (v_index v' - Braun.size (e_tree ent) + e_out ent)))
                     (W_tpass a e v' Hv' ent H1 H2))))
     (fun H1 => tvar (mk_var (up (ext_depth e) v') (W_tnone a e v' Hv' H1))).
 
@@ -390,15 +410,16 @@ Proof. destruct o; eauto. Qed.
 Lemma look_var {N M K L} (a : adj P N M) (e : ext N M K L) v' Hv' w H :
   napply (radj_n (adj_raw a)) v' = inl w -> look a e v' Hv' = tvar (mk_var (up (ext_depth e) w) H).
 Proof.
+  pose proof (nnormal_normal _ (radj_ok_true (adj_raw a))) as HM.
   unfold look, napply; cbv zeta; set (m := nraw (radj_n (adj_raw a))) in *.
   destruct v' as [h i]; cbn [v_label v_index] in *.
   destruct (option_cases (get (label_key h) m)) as [[ent E1]|E1].
   - rewrite (get_with_some _ _ _ _ ent E1); cbv beta.
-    destruct (option_cases (nth_error (e_targets ent) i)) as [[t E2]|E2].
+    destruct (option_cases (Braun.nth i (e_tree ent))) as [[t E2]|E2].
     + rewrite (nth_with_some _ _ _ _ t E2).
-      rewrite (loc_some _ _ _ _ _ E1 E2); destruct t as [h' l|[u ρ]]; cbn; [|discriminate].
+      rewrite (loc_some _ _ _ _ _ HM E1 E2); destruct t as [h' l|[u ρ]]; cbn; [|discriminate].
       intros [= <-]; f_equal; apply var_eq; reflexivity.
-    + rewrite (nth_with_none _ _ _ _ E2), (loc_pass _ _ _ _ E1 E2).
+    + rewrite (nth_with_none _ _ _ _ E2), (loc_pass _ _ _ _ HM E1 E2).
       intros [= <-]; f_equal; apply var_eq; reflexivity.
   - rewrite (get_with_none _ _ _ _ E1), (loc_none _ _ _ E1).
     intros [= <-]; f_equal; apply var_eq; reflexivity.
@@ -408,15 +429,16 @@ Lemma look_pay {N M K L} (a : adj P N M) (e : ext N M K L) v' Hv' u ρ HL Hρ :
   napply (radj_n (adj_raw a)) v' = inr (u, ρ) ->
   look a e v' Hv' = kleisli (papply ρ M (ext_depth e) L HL Hρ) ext_here u.
 Proof.
+  pose proof (nnormal_normal _ (radj_ok_true (adj_raw a))) as HM.
   unfold look, napply; cbv zeta; set (m := nraw (radj_n (adj_raw a))) in *.
   destruct v' as [h i]; cbn [v_label v_index] in *.
   destruct (option_cases (get (label_key h) m)) as [[ent E1]|E1].
   - rewrite (get_with_some _ _ _ _ ent E1); cbv beta.
-    destruct (option_cases (nth_error (e_targets ent) i)) as [[t E2]|E2].
+    destruct (option_cases (Braun.nth i (e_tree ent))) as [[t E2]|E2].
     + rewrite (nth_with_some _ _ _ _ t E2).
-      rewrite (loc_some _ _ _ _ _ E1 E2); destruct t as [h' l|[u' ρ']]; cbn; [discriminate|].
+      rewrite (loc_some _ _ _ _ _ HM E1 E2); destruct t as [h' l|[u' ρ']]; cbn; [discriminate|].
       intros [= <- <-]; reflexivity.
-    + rewrite (loc_pass _ _ _ _ E1 E2); discriminate.
+    + rewrite (loc_pass _ _ _ _ HM E1 E2); discriminate.
   - rewrite (loc_none _ _ _ E1); discriminate.
 Qed.
 
@@ -464,15 +486,16 @@ Lemma papply_var x Mρ s L0 HL Hx {K L} (e : ext 0 L0 K L) v w H :
   v_label (var_raw v) <> None -> napply x (var_raw v) = inl w ->
   papply x Mρ s L0 HL Hx K L e v = tvar (mk_var (up (s + ext_depth e) w) H).
 Proof.
+  pose proof (pok_normal _ _ (Is_true_s_elim Hx)) as HM.
   destruct v as [[[y|] i] Hv]; cbn [var_raw v_label v_index]; intros Hl; [|contradiction].
-  destruct x as [m]; unfold napply; cbn [papply nraw var_raw v_label v_index].
+  destruct x as [m]; cbn [nraw] in HM; unfold napply; cbn [papply nraw var_raw v_label v_index].
   destruct (option_cases (get (label_key (Some y)) m)) as [[ent E1]|E1].
   - rewrite (get_with_some _ _ _ _ ent E1); cbv beta.
-    destruct (option_cases (nth_error (e_targets ent) i)) as [[t E2]|E2].
+    destruct (option_cases (Braun.nth i (e_tree ent))) as [[t E2]|E2].
     + rewrite (nth_with_some _ _ _ _ t E2).
-      rewrite (loc_some _ _ _ _ _ E1 E2); destruct t as [h' l|[u ρ]]; cbn; [|discriminate].
+      rewrite (loc_some _ _ _ _ _ HM E1 E2); destruct t as [h' l|[u ρ]]; cbn; [|discriminate].
       intros [= <-]; f_equal; apply var_eq; reflexivity.
-    + rewrite (nth_with_none _ _ _ _ E2), (loc_pass _ _ _ _ E1 E2).
+    + rewrite (nth_with_none _ _ _ _ E2), (loc_pass _ _ _ _ HM E1 E2).
       intros [= <-]; f_equal; apply var_eq; reflexivity.
   - rewrite (get_with_none _ _ _ _ E1), (loc_none _ _ _ E1).
     intros [= <-]; f_equal; apply var_eq; reflexivity.
@@ -482,15 +505,16 @@ Lemma papply_pay x Mρ s L0 HL Hx {K L} (e : ext 0 L0 K L) v u ρ HL' Hρ :
   v_label (var_raw v) <> None -> napply x (var_raw v) = inr (u, ρ) ->
   papply x Mρ s L0 HL Hx K L e v = kleisli (papply ρ Mρ (s + ext_depth e) L HL' Hρ) ext_here u.
 Proof.
+  pose proof (pok_normal _ _ (Is_true_s_elim Hx)) as HM.
   destruct v as [[[y|] i] Hv]; cbn [var_raw v_label v_index]; intros Hl; [|contradiction].
-  destruct x as [m]; unfold napply; cbn [papply nraw var_raw v_label v_index].
+  destruct x as [m]; cbn [nraw] in HM; unfold napply; cbn [papply nraw var_raw v_label v_index].
   destruct (option_cases (get (label_key (Some y)) m)) as [[ent E1]|E1].
   - rewrite (get_with_some _ _ _ _ ent E1); cbv beta.
-    destruct (option_cases (nth_error (e_targets ent) i)) as [[t E2]|E2].
+    destruct (option_cases (Braun.nth i (e_tree ent))) as [[t E2]|E2].
     + rewrite (nth_with_some _ _ _ _ t E2).
-      rewrite (loc_some _ _ _ _ _ E1 E2); destruct t as [h' l|[u' ρ']]; cbn; [discriminate|].
+      rewrite (loc_some _ _ _ _ _ HM E1 E2); destruct t as [h' l|[u' ρ']]; cbn; [discriminate|].
       intros [= <- <-]; reflexivity.
-    + rewrite (loc_pass _ _ _ _ E1 E2); discriminate.
+    + rewrite (loc_pass _ _ _ _ HM E1 E2); discriminate.
   - rewrite (loc_none _ _ _ E1); discriminate.
 Qed.
 

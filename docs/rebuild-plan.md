@@ -137,13 +137,20 @@ Each stage ends with a green build, a commit and a push.
 
 - **Sequences (`Core/Braun.v`, done).** Braun trees, specified by the list
   they denote (`to_list`); canonical (`canonical`); cons/tail, snoc/unsnoc,
-  nth/update in O(log n). A `seq` record packages a tree with a strict proof
-  of balance, so every sequence is balanced by construction and the list
-  equations hold unconditionally.
-- **Per-label targets become `seq`s.** Proofs keep reasoning about the list a
-  label's targets denote (`find` gives that list); computation uses the
-  sequence operations directly. Each operation is specified by its effect on
-  the denoted lists; nothing is stated as "equal to the previous version".
+  nth/update in O(log n); structural folds `ball`/`bmax` for recursion
+  through nested payloads.
+- **Per-label targets are Braun trees (done).** An entry holds a plain tree
+  (a record with a strict balance field cannot appear in a nested inductive:
+  positivity fails), and balance is part of `keys_ok`/`normal`. Proofs
+  reason about the list a label's targets denote (`find` gives that list);
+  computation uses the tree operations directly. Each operation is specified
+  by its effect on the denoted lists. `Subst.apply` looks targets up with a
+  Braun continuation lookup (`Lookup.nth_with`), O(log n), and `Extraction.v`
+  realizes `Nat.even`/`Nat.div2` on Zarith.
+- **Remaining runtime costs seen in the extraction:** `push_inner` still runs
+  `strip_ok`, which scans all references (`refs`), under a fuel bound
+  computed at runtime; back-links remove both. `rto_padj` still tests
+  normality at runtime (`psel`); it goes when `Bind` takes a closed term.
 - **Back-links.** Each label's entry also records, for each of its output
   slots (innermost first), the set of inputs referring to it, as positions
   counted from the back of the referring label's sequence (stable under

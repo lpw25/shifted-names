@@ -21,6 +21,14 @@ Extract Inlined Constant Nat.ltb => "Big_int_Z.lt_big_int".
 Extract Inlined Constant Nat.leb => "Big_int_Z.le_big_int".
 Extract Inlined Constant Compare_dec.lt_dec => "Big_int_Z.lt_big_int".
 
+(** Parity and halving, used to index Braun trees. *)
+Extract Inlined Constant Init.Nat.even =>
+  "(fun n -> Big_int_Z.sign_big_int (Big_int_Z.and_big_int n Big_int_Z.unit_big_int) = 0)".
+Extract Inlined Constant Init.Nat.div2 => "(fun n -> Big_int_Z.shift_right_big_int n 1)".
+Extract Inlined Constant PeanoNat.Nat.even =>
+  "(fun n -> Big_int_Z.sign_big_int (Big_int_Z.and_big_int n Big_int_Z.unit_big_int) = 0)".
+Extract Inlined Constant PeanoNat.Nat.div2 => "(fun n -> Big_int_Z.shift_right_big_int n 1)".
+
 (** Extension witnesses are their depth. *)
 Extraction Implicit ext_under [K L].
 Extract Inductive ext => "Big_int_Z.big_int"

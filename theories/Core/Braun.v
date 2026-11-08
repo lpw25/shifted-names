@@ -477,6 +477,41 @@ Proof. induction xs; cbn; [exact I|apply balanced_cons; assumption]. Qed.
 Lemma to_list_of_list (xs : list A) : to_list (of_list xs) = xs.
 Proof. unfold of_list; induction xs; cbn; [reflexivity|rewrite to_list_cons, IHxs; reflexivity]. Qed.
 
+(** ** Membership (for any tree) *)
+
+Lemma in_interleave (xs ys : list A) z : In z (interleave xs ys) <-> In z xs \/ In z ys.
+Proof.
+  revert ys; induction xs as [|x xs IH]; intros [|y ys]; cbn; try tauto.
+  rewrite IH; tauto.
+Qed.
+
+Lemma in_to_list_node z x l r : In z (to_list (BN x l r)) <-> z = x \/ In z (to_list l) \/ In z (to_list r).
+Proof. cbn; rewrite in_interleave; intuition congruence. Qed.
+
+Lemma in_drop_at i t z : In z (to_list (drop_at i t)) -> In z (to_list t).
+Proof.
+  revert i; induction t as [|x l IHl r IHr]; intros i H; [exact H|].
+  destruct i as [|i]; cbn [drop_at] in H; [destruct H|].
+  apply in_to_list_node; destruct (Nat.even i); apply in_to_list_node in H;
+    destruct H as [H|[H|H]]; eauto.
+Qed.
+
+Lemma in_unsnoc t z : In z (to_list (unsnoc t)) -> In z (to_list t).
+Proof. apply in_drop_at. Qed.
+
+Lemma in_add_at i x t z : In z (to_list (add_at i x t)) -> z = x \/ In z (to_list t).
+Proof.
+  revert i; induction t as [|y l IHl r IHr]; intros i H.
+  - destruct H as [H|[]]; auto.
+  - destruct i as [|i]; cbn [add_at] in H; [auto|].
+    rewrite in_to_list_node; destruct (Nat.even i); apply in_to_list_node in H;
+      destruct H as [H|[H|H]]; auto;
+      [apply IHl in H as [H|H]|apply IHr in H as [H|H]]; auto.
+Qed.
+
+Lemma in_snoc t x z : In z (to_list (snoc t x)) -> z = x \/ In z (to_list t).
+Proof. apply in_add_at. Qed.
+
 End Facts.
 
 Lemma size_map {A B} (f : A -> B) t : size (map f t) = size t.
@@ -491,6 +526,48 @@ Proof.
   rewrite IHl, IHr; generalize (to_list l) (to_list r); clear.
   intros xs; induction xs as [|x xs IH]; intros [|y ys]; cbn; try reflexivity.
   rewrite IH; reflexivity.
+Qed.
+
+(** ** Structural folds
+
+    Defined on the tree itself, so that a function recursing through the
+    elements is structurally recursive. *)
+
+Fixpoint ball {A} (f : A -> bool) (t : braun A) : bool :=
+  match t with
+  | BE => true
+  | BN x l r => f x && ball f l && ball f r
+  end.
+
+Fixpoint bmax {A} (f : A -> nat) (t : braun A) : nat :=
+  match t with
+  | BE => 0
+  | BN x l r => Nat.max (f x) (Nat.max (bmax f l) (bmax f r))
+  end.
+
+Lemma ball_spec {A} (f : A -> bool) t : ball f t = true <-> forall x, In x (to_list t) -> f x = true.
+Proof.
+  induction t as [|x l IHl r IHr]; cbn [ball]; [split; [intros _ y []|reflexivity]|].
+  rewrite !Bool.andb_true_iff, IHl, IHr; split.
+  - intros [[Hx Hl] Hr] y Hy; apply in_to_list_node in Hy as [->|[Hy|Hy]]; auto.
+  - intros H; repeat split; [apply H, in_to_list_node; auto|intros y Hy|intros y Hy];
+      apply H, in_to_list_node; auto.
+Qed.
+
+Lemma bmax_ge {A} (f : A -> nat) t x : In x (to_list t) -> f x <= bmax f t.
+Proof.
+  induction t as [|y l IHl r IHr]; [intros []|].
+  intros H; apply in_to_list_node in H as [->|[H|H]]; cbn [bmax];
+    [|specialize (IHl H)|specialize (IHr H)]; lia.
+Qed.
+
+Lemma bmax_le {A} (f : A -> nat) t D : (forall x, In x (to_list t) -> f x <= D) -> bmax f t <= D.
+Proof.
+  induction t as [|y l IHl r IHr]; intros H; cbn [bmax]; [lia|].
+  assert (f y <= D) by (apply H, in_to_list_node; auto).
+  assert (bmax f l <= D) by (apply IHl; intros x Hx; apply H, in_to_list_node; auto).
+  assert (bmax f r <= D) by (apply IHr; intros x Hx; apply H, in_to_list_node; auto).
+  lia.
 Qed.
 
 (** ** Sequences: balanced trees
@@ -516,10 +593,10 @@ Proof.
   rewrite !Bool.andb_true_iff, !Nat.leb_le, IHl, IHr; tauto.
 Qed.
 
-Record seq (A : Type) : Type := mk_seq { tree : braun A; seq_ok : Is_true_s (balancedb tree) }.
+Record seq (A : Type) : Type := mk_seq { stree : braun A; seq_ok : Is_true_s (balancedb stree) }.
 
 Arguments mk_seq {A} _ _.
-Arguments tree {A} _.
+Arguments stree {A} _.
 Arguments seq_ok {A} _.
 
 Section Seq.
@@ -528,24 +605,24 @@ Context {A : Type}.
 
 Implicit Types (s : seq A) (x : A) (i : nat).
 
-Lemma seq_balanced s : balanced (tree s).
+Lemma seq_balanced s : balanced (stree s).
 Proof. apply balancedb_spec, Is_true_s_elim, seq_ok. Qed.
 
 Definition ok {t : braun A} (H : balanced t) : Is_true_s (balancedb t) :=
   Is_true_s_intro (proj2 (balancedb_spec t) H).
 
-Definition elems s : list A := to_list (tree s).
-Definition len s : nat := size (tree s).
+Definition elems s : list A := to_list (stree s).
+Definition len s : nat := size (stree s).
 
 Definition empty : seq A := mk_seq BE stt.
-Definition scons x s : seq A := mk_seq (cons x (tree s)) (ok (balanced_cons x _ (seq_balanced s))).
-Definition stail s : seq A := mk_seq (tail (tree s)) (ok (proj1 (tail_spec _ (seq_balanced s)))).
-Definition ssnoc s x : seq A := mk_seq (snoc (tree s) x) (ok (proj1 (snoc_spec _ x (seq_balanced s)))).
-Definition sunsnoc s : seq A := mk_seq (unsnoc (tree s)) (ok (proj1 (unsnoc_spec _ (seq_balanced s)))).
+Definition scons x s : seq A := mk_seq (cons x (stree s)) (ok (balanced_cons x _ (seq_balanced s))).
+Definition stail s : seq A := mk_seq (tail (stree s)) (ok (proj1 (tail_spec _ (seq_balanced s)))).
+Definition ssnoc s x : seq A := mk_seq (snoc (stree s) x) (ok (proj1 (snoc_spec _ x (seq_balanced s)))).
+Definition sunsnoc s : seq A := mk_seq (unsnoc (stree s)) (ok (proj1 (unsnoc_spec _ (seq_balanced s)))).
 Definition supdate i (f : A -> A) s : seq A :=
-  mk_seq (update i f (tree s)) (ok (balanced_update i f _ (seq_balanced s))).
-Definition snth i s : option A := nth i (tree s).
-Definition slast s : option A := last (tree s).
+  mk_seq (update i f (stree s)) (ok (balanced_update i f _ (seq_balanced s))).
+Definition snth i s : option A := nth i (stree s).
+Definition slast s : option A := last (stree s).
 Definition of_elems (xs : list A) : seq A := mk_seq (of_list xs) (ok (balanced_of_list xs)).
 
 (** ** The list equations *)
@@ -594,7 +671,7 @@ Proof. apply size_update. Qed.
 End Seq.
 
 Definition smap {A B} (f : A -> B) (s : seq A) : seq B :=
-  mk_seq (map f (tree s)) (ok (balanced_map f _ (seq_balanced s))).
+  mk_seq (map f (stree s)) (ok (balanced_map f _ (seq_balanced s))).
 
 Lemma elems_smap {A B} (f : A -> B) s : elems (smap f s) = List.map f (elems s).
 Proof. apply to_list_map. Qed.

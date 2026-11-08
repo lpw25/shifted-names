@@ -44,10 +44,10 @@ Fixpoint nnormal (a : nadj T) : bool :=
   match a with
   | NAdj m =>
       normal m
-      && tall (fun e => List.forallb (fun t => match t with
-                                               | Bind (u, ρ) => nnormal ρ && pnormal_raw (nraw ρ)
-                                               | Slot _ _ => true
-                                               end) (e_targets e)) m
+      && tall (fun e => Braun.ball (fun t => match t with
+                                             | Bind (u, ρ) => nnormal ρ && pnormal_raw (nraw ρ)
+                                             | Slot _ _ => true
+                                             end) (e_tree e)) m
   end.
 
 (** ** Semantics *)
@@ -60,18 +60,19 @@ Definition map_target (f : payload -> payload) (t : target payload) : target pay
   match t with Bind p => Bind (f p) | Slot h n => Slot h n end.
 
 Definition map_payloads (f : payload -> payload) (m : raw payload) : raw payload :=
-  map_filter (fun _ e => Some (mk_entry (e_label e) (map (map_target f) (e_targets e))
+  map_filter (fun _ e => Some (mk_entry (e_label e) (Braun.map (map_target f) (e_tree e))
                                         (e_out e))) m.
 
 Lemma find_map_payloads f m h :
   find (map_payloads f m) h = (map (map_target f) (fst (find m h)), snd (find m h)).
 Proof.
   unfold find, map_payloads; rewrite get_map_filter.
-  destruct (get (label_key h) m); reflexivity.
+  destruct (get (label_key h) m); [|reflexivity].
+  unfold e_targets; cbn [e_tree e_out fst snd]; rewrite Braun.to_list_map; reflexivity.
 Qed.
 
 Lemma count_map_payloads f m h : count (map_payloads f m) h = count m h.
-Proof. unfold count; rewrite find_map_payloads; reflexivity. Qed.
+Proof. rewrite !count_find, find_map_payloads; reflexivity. Qed.
 
 Lemma apply_map_payloads f m v :
   apply (map_payloads f m) v
@@ -88,13 +89,14 @@ Proof.
   destruct r as [[v h] n]; rewrite !In_refs_gen; split.
   - intros [key [e [He [Hl Hn]]]]; unfold map_payloads in He; rewrite get_map_filter in He.
     destruct (get key m) as [e0|] eqn:E0; [|discriminate]; injection He as <-.
-    cbn [e_label e_targets] in *; rewrite nth_error_map in Hn.
-    exists key, e0; repeat split; auto.
+    unfold e_targets in Hn; cbn [e_label e_tree] in *; rewrite Braun.to_list_map, nth_error_map in Hn.
+    exists key, e0; repeat split; auto; fold (e_targets e0) in Hn.
     destruct (nth_error (e_targets e0) (v_index v)) as [[h' n'|p]|]; cbn in Hn;
       [exact Hn|discriminate|discriminate].
   - intros [key [e [He [Hl Hn]]]]; exists key; unfold map_payloads; rewrite get_map_filter, He.
-    eexists; repeat split; [cbn; exact Hl|]; cbn [e_targets].
-    rewrite nth_error_map, Hn; reflexivity.
+    eexists; repeat split; [cbn; exact Hl|].
+    unfold e_targets; cbn [e_tree]; rewrite Braun.to_list_map, nth_error_map.
+    fold (e_targets e); rewrite Hn; reflexivity.
 Qed.
 
 Lemma existsb_same_members' {A} (f : A -> bool) (l1 l2 : list A) :
@@ -116,14 +118,21 @@ Proof.
     unfold map_payloads in Hget; rewrite get_map_filter in Hget.
     destruct (get key m) as [e0|] eqn:E0; [|discriminate]; injection Hget as <-.
     rewrite forallb_spec in He; specialize (He _ _ E0).
-    unfold entry_ok, strip_ok in *; cbn [e_label e_targets e_out].
+    unfold entry_ok, strip_ok in *.
+    replace (e_targets (mk_entry (e_label e0) (Braun.map (map_target f) (e_tree e0)) (e_out e0)))
+      with (map (map_target f) (e_targets e0))
+      by (unfold e_targets; cbn [e_tree]; rewrite Braun.to_list_map; reflexivity).
+    cbn [e_label e_tree e_out].
     rewrite last_target_map_payloads.
     rewrite (existsb_same_members' _ (refs (map_payloads f m)) (refs m))
       by (intro; apply refs_map_payloads).
-    destruct (e_targets e0) as [|t ts] eqn:Et; [exact He|].
-    rewrite <- Et in *.
-    destruct (last_target (e_targets e0)) as [[h n|p]|]; cbn [option_map map_target];
-      rewrite ?length_map; destruct (e_targets e0); cbn in *; exact He.
+    rewrite !andb_true_iff in He; destruct He as [[[Hk Hb] Hn] Hs].
+    rewrite Hk, (proj2 (Braun.balancedb_spec _) (Braun.balanced_map _ _ (proj1 (Braun.balancedb_spec _) Hb))).
+    cbn [andb].
+    rewrite length_map; apply andb_true_iff; split.
+    + destruct (e_targets e0); exact Hn.
+    + destruct (last_target (e_targets e0)) as [[h n|p]|]; cbn [option_map map_target];
+        exact Hs || reflexivity.
   - apply List.forallb_forall; intros [[v h] n] Hin.
     apply refs_map_payloads in Hin.
     rewrite List.forallb_forall in Hr; specialize (Hr _ Hin); cbn in *.
@@ -134,30 +143,26 @@ Qed.
 
 Fixpoint ndepth (a : nadj T) : nat :=
   match a with
-  | NAdj m => S (tmax (fun e => list_max (map (fun t => match t with
-                                                        | Bind p => ndepth (snd p)
-                                                        | Slot _ _ => 0
-                                                        end) (e_targets e))) m)
+  | NAdj m => S (tmax (fun e => Braun.bmax (fun t => match t with
+                                                    | Bind p => ndepth (snd p)
+                                                    | Slot _ _ => 0
+                                                    end) (e_tree e)) m)
   end.
 
 Lemma ndepth_payload m k e p :
   get k m = Some e -> In (Bind p) (e_targets e) -> ndepth (snd p) < ndepth (NAdj m).
 Proof.
   intros He Hin; cbn [ndepth].
-  pose proof (tmax_ge (fun e => list_max (map (fun t => match t with
-                                                       | Bind p => ndepth (snd p)
-                                                       | Slot _ _ => 0
-                                                       end) (e_targets e))) m k e He) as H.
+  pose proof (tmax_ge (fun e => Braun.bmax (fun t => match t with
+                                                   | Bind p => ndepth (snd p)
+                                                   | Slot _ _ => 0
+                                                   end) (e_tree e)) m k e He) as H.
   cbn beta in H.
-  assert (ndepth (snd p) <= list_max (map (fun t => match t with
-                                                     | Bind p => ndepth (snd p)
-                                                     | Slot _ _ => 0
-                                                     end) (e_targets e))).
-  { assert (Hm : forall l x, In x l -> x <= list_max l).
-    { intros l x Hx; pose proof (proj1 (list_max_le l (list_max l)) (Nat.le_refl _)) as Hl.
-      rewrite Forall_forall in Hl; exact (Hl x Hx). }
-    apply Hm, in_map_iff; exists (Bind p); split; [reflexivity|exact Hin]. }
-  lia.
+  pose proof (Braun.bmax_ge (fun t => match t with
+                                     | Bind p => ndepth (snd p)
+                                     | Slot _ _ => 0
+                                     end) (e_tree e) (Bind p) Hin) as H'.
+  cbn beta in H'; lia.
 Qed.
 
 (** ** Payload conditions on a whole trie *)
@@ -169,7 +174,7 @@ Definition payload_ok (t : target payload) : bool :=
   end.
 
 Definition payloads_ok (m : raw payload) : bool :=
-  tall (fun e => List.forallb payload_ok (e_targets e)) m.
+  tall (fun e => Braun.ball payload_ok (e_tree e)) m.
 
 Lemma nnormal_NAdj m : nnormal (NAdj m) = normal m && payloads_ok m.
 Proof. reflexivity. Qed.
@@ -181,9 +186,9 @@ Lemma payloads_ok_spec m :
 Proof.
   unfold payloads_ok; rewrite tall_spec; split.
   - intros H k e [u ρ] He Hin; specialize (H _ _ He).
-    rewrite List.forallb_forall in H; specialize (H _ Hin); cbn in H.
+    rewrite Braun.ball_spec in H; specialize (H _ Hin); cbn in H.
     apply andb_true_iff in H; exact H.
-  - intros H k e He; apply List.forallb_forall; intros [h n|[u ρ]] Hin; [reflexivity|].
+  - intros H k e He; apply Braun.ball_spec; intros [h n|[u ρ]] Hin; [reflexivity|].
     cbn; apply andb_true_iff, (H _ _ (u, ρ) He Hin).
 Qed.
 
@@ -191,7 +196,7 @@ Lemma payloads_ok_push_outer h m : payloads_ok (push_outer h m) = payloads_ok m.
 Proof.
   apply Bool.eq_iff_eq_true; rewrite !payloads_ok_spec; split.
   - intros H k e p He Hin; apply (H k (if Pos.eqb k (label_key h)
-                                         then mk_entry h (e_targets e) (S (e_out e)) else e) p).
+                                         then mk_entry h (e_tree e) (S (e_out e)) else e) p).
     + unfold push_outer; rewrite get_update.
       destruct (Pos.eqb_spec k (label_key h)) as [->|]; [rewrite He; reflexivity|exact He].
     + destruct (Pos.eqb k _); exact Hin.
@@ -209,7 +214,8 @@ Proof.
   intros H; apply payloads_ok_spec; intros k e p He Hin.
   unfold map_payloads in He; rewrite get_map_filter in He.
   destruct (get k m) as [e0|] eqn:E0; [|discriminate]; injection He as <-.
-  cbn [e_targets] in Hin; apply in_map_iff in Hin as [[h n|p0] [Ht Hin]]; [discriminate|].
+  unfold e_targets in Hin; cbn [e_tree] in Hin; rewrite Braun.to_list_map in Hin.
+  apply in_map_iff in Hin as [[h n|p0] [Ht Hin]]; [discriminate|].
   injection Ht as <-; apply (H _ _ _ E0 Hin).
 Qed.
 
@@ -693,8 +699,7 @@ Lemma ndepth_le m D :
   (forall p, binds_in m p -> ndepth (snd p) <= D) -> ndepth (NAdj m) <= S D.
 Proof.
   intros H; cbn [ndepth]; apply le_n_S, tmax_le; intros k e He.
-  apply list_max_le, Forall_forall; intros x Hx.
-  apply in_map_iff in Hx as [[h n|p] [<- Hin]]; [lia|].
+  apply Braun.bmax_le; intros [h n|p] Hin; [lia|].
   apply H; exists k, e; auto.
 Qed.
 
@@ -703,7 +708,8 @@ Lemma binds_in_map_payloads f m p :
 Proof.
   intros [k [e [He Hin]]]; unfold map_payloads in He; rewrite get_map_filter in He.
   destruct (get k m) as [e0|] eqn:E0; [|discriminate]; injection He as <-.
-  cbn [e_targets] in Hin; apply in_map_iff in Hin as [[h n|p0] [Ht Hin]]; [discriminate|].
+  unfold e_targets in Hin; cbn [e_tree] in Hin; rewrite Braun.to_list_map in Hin.
+  apply in_map_iff in Hin as [[h n|p0] [Ht Hin]]; [discriminate|].
   injection Ht as <-; exists p0; split; [exists k, e0; auto|reflexivity].
 Qed.
 

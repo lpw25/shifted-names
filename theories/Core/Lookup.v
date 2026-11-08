@@ -1,7 +1,8 @@
 (** * Lookups with continuations
 
     [get_with i m k n] looks up [i] in [m] and calls [k x] on the element it
-    finds, or [n] if there is none; [nth_with] does the same for lists.  The
+    finds, or [n] if there is none; [nth_with] does the same for Braun
+    trees.  The
     continuation also receives, as a strict proposition, where the element
     was found.
 
@@ -14,6 +15,8 @@
 
 From Stdlib Require Import PArith List StrictProp.
 From ShiftedNames.Core Require Import Trie.
+From ShiftedNames.Core Require Braun.
+Import Braun(braun, BE, BN).
 Import ListNotations.
 
 Lemma sq_sym {X} {a b : X} : Squash (a = b) -> Squash (b = a).
@@ -53,18 +56,26 @@ End GetWith.
 
 Section NthWith.
 
-Context {A R : Type} (i0 : nat) (l0 : list A)
-  (k : forall x, Squash (nth_error l0 i0 = Some x) -> R) (n : Squash (nth_error l0 i0 = None) -> R).
+Context {A R : Type} (i0 : nat) (t0 : braun A)
+  (k : forall x, Squash (Braun.nth i0 t0 = Some x) -> R) (n : Squash (Braun.nth i0 t0 = None) -> R).
 
-Fixpoint nth_with' (i : nat) (l : list A) {struct l} : Squash (nth_error l i = nth_error l0 i0) -> R :=
-  match l as l1, i as i1 return Squash (nth_error l1 i1 = nth_error l0 i0) -> R with
-  | x :: _, 0 => fun H => k x (sq_sym H)
-  | _ :: l', S i' => fun H => nth_with' i' l' H
-  | [], 0 => fun H => n (sq_sym H)
-  | [], S _ => fun H => n (sq_sym H)
+Fixpoint nth_with' (i : nat) (t : braun A) {struct t} : Squash (Braun.nth i t = Braun.nth i0 t0) -> R :=
+  match t as t1 return Squash (Braun.nth i t1 = Braun.nth i0 t0) -> R with
+  | BE => fun H => n (sq_sym H)
+  | BN x l r =>
+      match i as i1 return Squash (Braun.nth i1 (BN x l r) = Braun.nth i0 t0) -> R with
+      | 0 => fun H => k x (sq_sym H)
+      | S j =>
+          match Nat.even j as b
+                return Squash ((if b then Braun.nth (Nat.div2 j) l else Braun.nth (Nat.div2 j) r)
+                               = Braun.nth i0 t0) -> R with
+          | true => fun H => nth_with' (Nat.div2 j) l H
+          | false => fun H => nth_with' (Nat.div2 j) r H
+          end
+      end
   end.
 
-Definition nth_with : R := nth_with' i0 l0 (squash eq_refl).
+Definition nth_with : R := nth_with' i0 t0 (squash eq_refl).
 
 End NthWith.
 
@@ -109,29 +120,32 @@ Proof.
   exact (get_with'_none i (Nodes m) k n i m _ eq_refl H).
 Qed.
 
-Lemma nth_with'_some i0 (l0 : list A) (k : forall x, Squash (nth_error l0 i0 = Some x) -> R) n i l H
-  (E : nth_error l i = nth_error l0 i0) x (X : nth_error l0 i0 = Some x) :
-  nth_with' i0 l0 k n i l H = k x (squash X).
+Lemma nth_with'_some i0 (t0 : braun A) (k : forall x, Squash (Braun.nth i0 t0 = Some x) -> R) n i t H
+  (E : Braun.nth i t = Braun.nth i0 t0) x (X : Braun.nth i0 t0 = Some x) :
+  nth_with' i0 t0 k n i t H = k x (squash X).
 Proof.
-  revert i H E; induction l as [|y l IH]; intros [|i] H E; cbn [nth_with'];
-    try (apply IH; exact E); cbn in E; rewrite X in E; try discriminate;
-    injection E as ->; reflexivity.
+  revert i H E; induction t as [|y l IHl r IHr]; intros [|j] H E; cbn [nth_with'];
+    cbn in E; rewrite ?X in E; try discriminate; [injection E as ->; reflexivity|].
+  cbn [Braun.nth] in H; revert H E; destruct (Nat.even j); intros H E;
+    [apply IHl|apply IHr]; rewrite X; exact E.
 Qed.
 
-Lemma nth_with'_none i0 (l0 : list A) (k : forall x, Squash (nth_error l0 i0 = Some x) -> R) n i l H
-  (E : nth_error l i = nth_error l0 i0) (X : nth_error l0 i0 = None) :
-  nth_with' i0 l0 k n i l H = n (squash X).
+Lemma nth_with'_none i0 (t0 : braun A) (k : forall x, Squash (Braun.nth i0 t0 = Some x) -> R) n i t H
+  (E : Braun.nth i t = Braun.nth i0 t0) (X : Braun.nth i0 t0 = None) :
+  nth_with' i0 t0 k n i t H = n (squash X).
 Proof.
-  revert i H E; induction l as [|y l IH]; intros [|i] H E; cbn [nth_with'];
-    try (apply IH; exact E); cbn in E; rewrite X in E; try discriminate; reflexivity.
+  revert i H E; induction t as [|y l IHl r IHr]; intros [|j] H E; cbn [nth_with'];
+    cbn in E; rewrite ?X in E; try discriminate; try reflexivity.
+  cbn [Braun.nth] in H; revert H E; destruct (Nat.even j); intros H E;
+    [apply IHl|apply IHr]; rewrite X; exact E.
 Qed.
 
-Lemma nth_with_some i (l : list A) (k : forall x, Squash (nth_error l i = Some x) -> R) n x
-  (H : nth_error l i = Some x) : nth_with i l k n = k x (squash H).
-Proof. exact (nth_with'_some i l k n i l _ eq_refl x H). Qed.
+Lemma nth_with_some i (t : braun A) (k : forall x, Squash (Braun.nth i t = Some x) -> R) n x
+  (H : Braun.nth i t = Some x) : nth_with i t k n = k x (squash H).
+Proof. exact (nth_with'_some i t k n i t _ eq_refl x H). Qed.
 
-Lemma nth_with_none i (l : list A) (k : forall x, Squash (nth_error l i = Some x) -> R) n
-  (H : nth_error l i = None) : nth_with i l k n = n (squash H).
-Proof. exact (nth_with'_none i l k n i l _ eq_refl H). Qed.
+Lemma nth_with_none i (t : braun A) (k : forall x, Squash (Braun.nth i t = Some x) -> R) n
+  (H : Braun.nth i t = None) : nth_with i t k n = n (squash H).
+Proof. exact (nth_with'_none i t k n i t _ eq_refl H). Qed.
 
 End Specs.

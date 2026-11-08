@@ -36,10 +36,10 @@ Fixpoint nscoped (M : nat) (x : nadj T) : bool :=
   match x with
   | NAdj m =>
       Nat.leb (count m None) M
-      && tall (fun e => List.forallb (fun t => match t with
-                                               | Slots.Bind p => nscoped M (snd p)
-                                               | Slots.Slot _ _ => true
-                                               end) (e_targets e)) m
+      && tall (fun e => Braun.ball (fun t => match t with
+                                             | Slots.Bind p => nscoped M (snd p)
+                                             | Slots.Slot _ _ => true
+                                             end) (e_tree e)) m
   end.
 
 Definition rwf (M : nat) (r : rvar + payload) : bool :=
@@ -58,7 +58,7 @@ Definition target_wf (M c : nat) (t : Slots.target payload) : bool :=
 Definition nscoped_top (N M : nat) (m : raw payload) : bool :=
   Nat.leb (jlen m None) N
   && Nat.eqb (count m None + N) (M + jlen m None)
-  && tall (fun e => List.forallb (target_wf M (count m None)) (e_targets e)) m.
+  && tall (fun e => Braun.ball (target_wf M (count m None)) (e_tree e)) m.
 
 Definition scoped_sem (N M : nat) (m : raw payload) : Prop :=
   (forall i, N <= i -> Slots.apply m (mk_rvar None i) = inl (mk_rvar None (i - N + M)))
@@ -77,7 +77,7 @@ Theorem nscoped_top_spec N M (m : raw payload) :
   normal m = true -> (nscoped_top N M m = true <-> scoped_sem N M m).
 Proof.
   intros Hm; pose proof (normal_keys_ok m Hm) as Hk.
-  unfold nscoped_top, jlen; set (ts := fst (find m None)); set (c := count m None).
+  unfold nscoped_top; rewrite !jlen_find; set (ts := fst (find m None)); set (c := count m None).
   split.
   - intros H; apply andb_true_iff in H as [H Ht]; apply andb_true_iff in H as [Hj Hc].
     apply Nat.leb_le in Hj; apply Nat.eqb_eq in Hc.
