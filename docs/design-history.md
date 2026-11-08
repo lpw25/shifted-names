@@ -836,7 +836,23 @@ pattern with the phase 5/6 representation.
 
 ## 9. State of the code by branch
 
-| Branch / commit | Probably builds *(not compiled)* | Broken |
+**Checked with Rocq 9.2 (2026-11-08)**, compiling the two most recent Coq
+snapshots file by file. Apart from deprecation warnings about stdlib paths:
+
+- **`adjustments` (428f1a4):**
+  - `Label.v` and `Var.v` compile.
+  - `RawRenaming.v` fails at line 264 (the unfinished `apply_add_outgoing_aux`
+    statement), so everything above it checks, including `apply_add_incoming`.
+  - `Permutations.v` fails at line 71 (the unfinished `permutation_nth`).
+- **`next-unindexed` (f62e58a):**
+  - `Label.v`, `Var.v`, `VarEquations.v`, `RawRenaming.v` and
+    `RawRenamingEquations.v` compile.
+  - `Renaming.v` fails at line 774 (`is_ordered_raw_renaming_var` not found), so
+    **the canonicity theorem at line 489 is machine-checked.**
+
+The other rows of the table below are still from reading the code only.
+
+| Branch / commit | Probably builds | Broken |
 |---|---|---|
 | `master` | Everything; there are no `admit`s. | — |
 | `next` (e9f6a25) | `Var.v` up to `apply_transpose_level_closing` | `RenamingEquations.v` (indexed associativity, admits), stale `Term.v` |
