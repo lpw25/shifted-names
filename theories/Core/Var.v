@@ -24,6 +24,9 @@ Proof.
   - constructor; congruence.
 Qed.
 
+Lemma var_eqb_refl v : var_eqb v v = true.
+Proof. destruct (var_eqb_spec v v); congruence. Qed.
+
 Definition var_eq_dec (v1 v2 : var) : {v1 = v2} + {v1 <> v2}.
 Proof. destruct (var_eqb_spec v1 v2); [left|right]; assumption. Defined.
 
