@@ -10,11 +10,18 @@ From ShiftedNames.Core Require Import Label Var Nested Adjustment Laws Scoped In
 
 (** ** The syntax *)
 
-Inductive tm : nat -> Type :=
-| tvar {N} (v : var N) : tm N
-| tconst {N} (n : nat) : tm N
-| tapp {N} (t1 t2 : tm N) : tm N
-| tlam {N} (b : tm (S N)) : tm N.
+(** The scope is a (non-uniform) parameter, not an index: constructors do
+    not store it, so extracted terms carry no scope information. *)
+Inductive tm (N : nat) : Type :=
+| tvar (v : var N)
+| tconst (n : nat)
+| tapp (t1 t2 : tm N)
+| tlam (b : tm (S N)).
+
+Arguments tvar {N} v.
+Arguments tconst {N} n.
+Arguments tapp {N} t1 t2.
+Arguments tlam {N} b.
 
 Module LambdaSyntax <: SYNTAX.
 
@@ -25,12 +32,12 @@ Module LambdaSyntax <: SYNTAX.
 
   (** The one function: Kleisli extension, structural on terms. *)
   Fixpoint kleisli {N M} (f : morph N M) {K L} (e : ext N M K L) (t : term K) : term L :=
-    match t in tm K' return ext N M K' L -> term L with
-    | Lambda.tvar v => fun e => f _ _ e v
-    | tconst n => fun _ => tconst n
-    | tapp t1 t2 => fun e => tapp (kleisli f e t1) (kleisli f e t2)
-    | tlam b => fun e => tlam (kleisli f (ext_under e) b)
-    end e.
+    match t with
+    | Lambda.tvar v => f K L e v
+    | tconst n => tconst n
+    | tapp t1 t2 => tapp (kleisli f e t1) (kleisli f e t2)
+    | tlam b => tlam (kleisli f (ext_under e) b)
+    end.
 
   Definition unit_m {N} : morph N N := fun K L e v => tvar (ext_var e v).
 
