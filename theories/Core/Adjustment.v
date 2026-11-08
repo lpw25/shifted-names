@@ -286,6 +286,33 @@ Proof.
   destruct (var_eqb_spec v (mk_var h 0)) as [->|]; reflexivity.
 Qed.
 
+(** ** Nesting depth
+
+    Term-level operations recurse into payloads; these bounds justify that
+    recursion. *)
+
+Definition depth a : nat := ndepth (adj_n a).
+
+Lemma depth_payload a v u ρ : apply a v = inr (u, ρ) -> ndepth (padj_n ρ) < depth a.
+Proof.
+  intros H; pose proof (f_equal lower H) as H'; rewrite lower_apply in H'; cbn [lower fst snd] in H'.
+  unfold depth; destruct (adj_n a) as [m] eqn:E.
+  apply (ndepth_binds m (u, padj_n ρ)), (Slots.binds_in_apply m v), H'.
+Qed.
+
+Lemma depth_push_outer h a : depth (push_outer h a) <= depth a.
+Proof. apply ndepth_npush_outer. Qed.
+
+Lemma depth_lift h a : depth (lift h a) <= depth a.
+Proof.
+  unfold depth, lift; cbn [adj_n push_inner push_inner_n].
+  pose proof (ndepth_npush_inner_var h (mk_var h 0) (adj_n (push_outer h a))).
+  pose proof (depth_push_outer h a); unfold depth in *; lia.
+Qed.
+
+Lemma depth_padj ρ : depth (padj_adj ρ) = ndepth (padj_n ρ).
+Proof. reflexivity. Qed.
+
 End Adjustment.
 
 Arguments target T : clear implicits.

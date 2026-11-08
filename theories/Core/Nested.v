@@ -687,4 +687,71 @@ Theorem ncompose_assoc a b c :
   ncompose a (ncompose b c) = ncompose (ncompose a b) c.
 Proof. intros Ha Hb Hc; apply (ncompose_assoc_depth a b (ndepth c)); auto. Qed.
 
+(** ** Bounds on nesting depth *)
+
+Lemma ndepth_le m D :
+  (forall p, binds_in m p -> ndepth (snd p) <= D) -> ndepth (NAdj m) <= S D.
+Proof.
+  intros H; cbn [ndepth]; apply le_n_S, tmax_le; intros k e He.
+  apply list_max_le, Forall_forall; intros x Hx.
+  apply in_map_iff in Hx as [[h n|p] [<- Hin]]; [lia|].
+  apply H; exists k, e; auto.
+Qed.
+
+Lemma binds_in_map_payloads f m p :
+  binds_in (map_payloads f m) p -> exists p', binds_in m p' /\ p = f p'.
+Proof.
+  intros [k [e [He Hin]]]; unfold map_payloads in He; rewrite get_map_filter in He.
+  destruct (get k m) as [e0|] eqn:E0; [|discriminate]; injection He as <-.
+  cbn [e_targets] in Hin; apply in_map_iff in Hin as [[h n|p0] [Ht Hin]]; [discriminate|].
+  injection Ht as <-; exists p0; split; [exists k, e0; auto|reflexivity].
+Qed.
+
+Lemma binds_in_push_outer h (m : raw payload) p : binds_in (push_outer h m) p -> binds_in m p.
+Proof.
+  intros [k [e [He Hin]]]; unfold push_outer in He; rewrite get_update in He.
+  destruct (Pos.eqb_spec k (label_key h)) as [->|]; [|exists k, e; auto].
+  destruct (get (label_key h) m) as [e0|] eqn:E0; injection He as <-; cbn in Hin;
+    [exists (label_key h), e0; auto|destruct Hin].
+Qed.
+
+Lemma ndepth_pshift_depth h n :
+  forall ρ, ndepth ρ <= n -> ndepth (pshift h ρ) <= ndepth ρ.
+Proof.
+  induction n as [|n IH]; intros [m] Hd; [pose proof (ndepth_pos (NAdj m)); lia|].
+  assert (Hb : forall p, binds_in (map_payloads (fun p => (fst p, pshift h (snd p))) m) p ->
+                         ndepth (snd p) <= pred (ndepth (NAdj m))).
+  { intros p Hp; apply binds_in_map_payloads in Hp as [p' [Hp' ->]]; cbn [snd].
+    pose proof (ndepth_binds m p' Hp').
+    pose proof (IH (snd p') ltac:(lia)); lia. }
+  pose proof (ndepth_pos (NAdj m)).
+  cbn [pshift]; destruct (_ && _).
+  - pose proof (ndepth_le _ _ Hb); lia.
+  - assert (Hb' : forall p, binds_in (push_outer h (map_payloads (fun p => (fst p, pshift h (snd p))) m)) p ->
+                            ndepth (snd p) <= pred (ndepth (NAdj m)))
+      by (intros p Hp; apply Hb, (binds_in_push_outer h), Hp).
+    pose proof (ndepth_le _ _ Hb'); lia.
+Qed.
+
+Lemma ndepth_pshift h ρ : ndepth (pshift h ρ) <= ndepth ρ.
+Proof. apply (ndepth_pshift_depth h (ndepth ρ)); lia. Qed.
+
+Lemma ndepth_npush_outer h a : ndepth (npush_outer h a) <= ndepth a.
+Proof.
+  destruct a as [m]; cbn [npush_outer]; pose proof (ndepth_pos (NAdj m)).
+  enough (ndepth (NAdj (push_outer h (map_payloads (fun p => (fst p, pshift h (snd p))) m)))
+          <= S (pred (ndepth (NAdj m)))) by lia.
+  apply ndepth_le; intros p Hp.
+  apply binds_in_push_outer, binds_in_map_payloads in Hp as [p' [Hp' ->]]; cbn [snd].
+  pose proof (ndepth_binds m p' Hp'); pose proof (ndepth_pshift h (snd p')); lia.
+Qed.
+
+Lemma ndepth_npush_inner_var h w a : ndepth (npush_inner_var h w a) <= ndepth a.
+Proof.
+  destruct a as [m]; cbn [npush_inner_var]; pose proof (ndepth_pos (NAdj m)).
+  enough (ndepth (NAdj (push_inner_var h w m)) <= S (pred (ndepth (NAdj m)))) by lia.
+  apply ndepth_le; intros p Hp; apply binds_in_push_inner_var in Hp.
+  pose proof (ndepth_binds m p Hp); lia.
+Qed.
+
 End Nested.

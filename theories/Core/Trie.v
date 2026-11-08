@@ -518,4 +518,18 @@ Proof.
     try (specialize (IHm2 _ Hx)); lia.
 Qed.
 
+Lemma tmax_le f m D : (forall k x, get k m = Some x -> f x <= D) -> tmax f m <= D.
+Proof.
+  destruct m as [|m]; cbn [get tmax]; [lia|].
+  induction m; intros H; cbn [tmax'];
+    repeat match goal with
+           | IH : (forall k x, get' k ?t = Some x -> _) -> tmax' f ?t <= D |- _ =>
+               let H' := fresh in
+               assert (H' : tmax' f t <= D) by (apply IH; intros k' x' Hk'; first
+                 [ apply (H (xO k') x' Hk') | apply (H (xI k') x' Hk') ]);
+               clear IH
+           end;
+    try (assert (f a <= D) by (apply (H xH a); reflexivity)); lia.
+Qed.
+
 End Structural.
