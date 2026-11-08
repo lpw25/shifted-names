@@ -189,12 +189,12 @@ Qed.
 Lemma rel_some (rv : rvar) y : v_label rv = Some y -> v_label rv = None -> forall d, d <= v_index rv.
 Proof. congruence. Qed.
 
-Lemma rel_ltb (rv : rvar) d : Nat.ltb (v_index rv) d = false -> v_label rv = None -> d <= v_index rv.
-Proof. intros H _; apply Nat.ltb_ge, H. Qed.
+Lemma rel_ge (rv : rvar) d : ~ v_index rv < d -> v_label rv = None -> d <= v_index rv.
+Proof. intros H _; lia. Qed.
 
 Lemma W_tinner {N M K L} (e : ext N M K L) (rv : rvar) (Hl : v_label rv = None)
-  (Hb : Nat.ltb (v_index rv) (ext_depth e) = true) : Is_true_s (wf_var L rv).
-Proof. apply Is_true_s_intro, (inner_wf e); [exact Hl|apply Nat.ltb_lt, Hb]. Qed.
+  (Hb : v_index rv < ext_depth e) : Is_true_s (wf_var L rv).
+Proof. apply Is_true_s_intro, (inner_wf e); [exact Hl|exact Hb]. Qed.
 
 Lemma W_tdown {N M K L} (e : ext N M K L) (rv : rvar) (Hv : Is_true_s (wf_var K rv))
   (Hrel : v_label rv = None -> ext_depth e <= v_index rv) :
@@ -328,16 +328,131 @@ Definition apply {N M} (a : adj P N M) : morph N M :=
   let rv := var_raw v in
   match v_label rv as o return v_label rv = o -> term L with
   | None => fun Hl =>
-      match Nat.ltb (v_index rv) (ext_depth e) as b
-            return Nat.ltb (v_index rv) (ext_depth e) = b -> term L with
-      | true => fun Hb => tvar (mk_var rv (W_tinner e rv Hl Hb))
-      | false => fun Hb => look a e (down (ext_depth e) rv) (W_tdown e rv (var_ok v) (rel_ltb rv _ Hb))
-      end eq_refl
+      match lt_dec (v_index rv) (ext_depth e) with
+      | Specif.left Hb => tvar (mk_var rv (W_tinner e rv Hl Hb))
+      | Specif.right Hb => look a e (down (ext_depth e) rv) (W_tdown e rv (var_ok v) (rel_ge rv _ Hb))
+      end
   | Some y => fun Hl =>
       look a e (down (ext_depth e) rv) (W_tdown e rv (var_ok v) (fun H => rel_some rv y Hl H _))
   end eq_refl.
 
 Definition subst {N M} (a : adj P N M) (t : term N) : term M := kleisli (apply a) ext_here t.
 
+
+(** ** What [apply] computes *)
+
+Section Char.
+
+Lemma option_cases {X} (o : option X) : (exists x, o = Some x) \/ o = None.
+Proof. destruct o; eauto. Qed.
+
+Lemma look_var {N M K L} (a : adj P N M) (e : ext N M K L) v' Hv' w H :
+  napply (radj_n (adj_raw a)) v' = inl w -> look a e v' Hv' = tvar (mk_var (up (ext_depth e) w) H).
+Proof.
+  unfold look, napply; cbv zeta; set (m := nraw (radj_n (adj_raw a))) in *.
+  destruct v' as [h i]; cbn [v_label v_index] in *.
+  destruct (option_cases (get (label_key h) m)) as [[ent E1]|E1].
+  - rewrite (get_with_some _ _ _ _ ent E1); cbv beta.
+    destruct (option_cases (nth_error (e_targets ent) i)) as [[t E2]|E2].
+    + rewrite (nth_with_some _ _ _ _ t E2).
+      rewrite (loc_some _ _ _ _ _ E1 E2); destruct t as [h' l|[u ρ]]; cbn; [|discriminate].
+      intros [= <-]; f_equal; apply var_eq; reflexivity.
+    + rewrite (nth_with_none _ _ _ _ E2), (loc_pass _ _ _ _ E1 E2).
+      intros [= <-]; f_equal; apply var_eq; reflexivity.
+  - rewrite (get_with_none _ _ _ _ E1), (loc_none _ _ _ E1).
+    intros [= <-]; f_equal; apply var_eq; reflexivity.
+Qed.
+
+Lemma look_pay {N M K L} (a : adj P N M) (e : ext N M K L) v' Hv' u ρ HL Hρ :
+  napply (radj_n (adj_raw a)) v' = inr (u, ρ) ->
+  look a e v' Hv' = kleisli (papply ρ M (ext_depth e) L HL Hρ) ext_here u.
+Proof.
+  unfold look, napply; cbv zeta; set (m := nraw (radj_n (adj_raw a))) in *.
+  destruct v' as [h i]; cbn [v_label v_index] in *.
+  destruct (option_cases (get (label_key h) m)) as [[ent E1]|E1].
+  - rewrite (get_with_some _ _ _ _ ent E1); cbv beta.
+    destruct (option_cases (nth_error (e_targets ent) i)) as [[t E2]|E2].
+    + rewrite (nth_with_some _ _ _ _ t E2).
+      rewrite (loc_some _ _ _ _ _ E1 E2); destruct t as [h' l|[u' ρ']]; cbn; [discriminate|].
+      intros [= <- <-]; reflexivity.
+    + rewrite (loc_pass _ _ _ _ E1 E2); discriminate.
+  - rewrite (loc_none _ _ _ E1); discriminate.
+Qed.
+
+Lemma apply_inner {N M K L} (a : adj P N M) (e : ext N M K L) v H :
+  v_label (var_raw v) = None -> v_index (var_raw v) < ext_depth e ->
+  apply a K L e v = tvar (mk_var (var_raw v) H).
+Proof.
+  destruct v as [[[y|] i] Hv]; cbn [var_raw v_label v_index]; intros Hl Hi; [discriminate|].
+  unfold apply; cbn [var_raw v_label v_index].
+  destruct (lt_dec i (ext_depth e)) as [Hb|Hb]; [reflexivity|contradiction].
+Qed.
+
+Lemma apply_var {N M K L} (a : adj P N M) (e : ext N M K L) v w H :
+  (v_label (var_raw v) = None -> ext_depth e <= v_index (var_raw v)) ->
+  napply (radj_n (adj_raw a)) (down (ext_depth e) (var_raw v)) = inl w ->
+  apply a K L e v = tvar (mk_var (up (ext_depth e) w) H).
+Proof.
+  destruct v as [[[y|] i] Hv]; cbn [var_raw v_label v_index]; intros Hr Hw;
+    unfold apply; cbn [var_raw v_label v_index].
+  - apply look_var, Hw.
+  - specialize (Hr eq_refl).
+    destruct (lt_dec i (ext_depth e)) as [Hb|Hb]; [lia|apply look_var, Hw].
+Qed.
+
+Lemma apply_pay {N M K L} (a : adj P N M) (e : ext N M K L) v u ρ HL Hρ :
+  (v_label (var_raw v) = None -> ext_depth e <= v_index (var_raw v)) ->
+  napply (radj_n (adj_raw a)) (down (ext_depth e) (var_raw v)) = inr (u, ρ) ->
+  apply a K L e v = kleisli (papply ρ M (ext_depth e) L HL Hρ) ext_here u.
+Proof.
+  destruct v as [[[y|] i] Hv]; cbn [var_raw v_label v_index]; intros Hr Hw;
+    unfold apply; cbn [var_raw v_label v_index].
+  - apply look_pay, Hw.
+  - specialize (Hr eq_refl).
+    destruct (lt_dec i (ext_depth e)) as [Hb|Hb]; [lia|apply look_pay, Hw].
+Qed.
+
+Lemma papply_inner x Mρ s L0 HL Hx {K L} (e : ext 0 L0 K L) v H :
+  v_label (var_raw v) = None -> papply x Mρ s L0 HL Hx K L e v = tvar (mk_var (var_raw v) H).
+Proof.
+  destruct v as [[[y|] i] Hv]; cbn [var_raw v_label v_index]; intros Hl; [discriminate|].
+  destruct x as [m]; reflexivity.
+Qed.
+
+Lemma papply_var x Mρ s L0 HL Hx {K L} (e : ext 0 L0 K L) v w H :
+  v_label (var_raw v) <> None -> napply x (var_raw v) = inl w ->
+  papply x Mρ s L0 HL Hx K L e v = tvar (mk_var (up (s + ext_depth e) w) H).
+Proof.
+  destruct v as [[[y|] i] Hv]; cbn [var_raw v_label v_index]; intros Hl; [|contradiction].
+  destruct x as [m]; unfold napply; cbn [papply nraw var_raw v_label v_index].
+  destruct (option_cases (get (label_key (Some y)) m)) as [[ent E1]|E1].
+  - rewrite (get_with_some _ _ _ _ ent E1); cbv beta.
+    destruct (option_cases (nth_error (e_targets ent) i)) as [[t E2]|E2].
+    + rewrite (nth_with_some _ _ _ _ t E2).
+      rewrite (loc_some _ _ _ _ _ E1 E2); destruct t as [h' l|[u ρ]]; cbn; [|discriminate].
+      intros [= <-]; f_equal; apply var_eq; reflexivity.
+    + rewrite (nth_with_none _ _ _ _ E2), (loc_pass _ _ _ _ E1 E2).
+      intros [= <-]; f_equal; apply var_eq; reflexivity.
+  - rewrite (get_with_none _ _ _ _ E1), (loc_none _ _ _ E1).
+    intros [= <-]; f_equal; apply var_eq; reflexivity.
+Qed.
+
+Lemma papply_pay x Mρ s L0 HL Hx {K L} (e : ext 0 L0 K L) v u ρ HL' Hρ :
+  v_label (var_raw v) <> None -> napply x (var_raw v) = inr (u, ρ) ->
+  papply x Mρ s L0 HL Hx K L e v = kleisli (papply ρ Mρ (s + ext_depth e) L HL' Hρ) ext_here u.
+Proof.
+  destruct v as [[[y|] i] Hv]; cbn [var_raw v_label v_index]; intros Hl; [|contradiction].
+  destruct x as [m]; unfold napply; cbn [papply nraw var_raw v_label v_index].
+  destruct (option_cases (get (label_key (Some y)) m)) as [[ent E1]|E1].
+  - rewrite (get_with_some _ _ _ _ ent E1); cbv beta.
+    destruct (option_cases (nth_error (e_targets ent) i)) as [[t E2]|E2].
+    + rewrite (nth_with_some _ _ _ _ t E2).
+      rewrite (loc_some _ _ _ _ _ E1 E2); destruct t as [h' l|[u' ρ']]; cbn; [discriminate|].
+      intros [= <- <-]; reflexivity.
+    + rewrite (loc_pass _ _ _ _ E1 E2); discriminate.
+  - rewrite (loc_none _ _ _ E1); discriminate.
+Qed.
+
+End Char.
 
 End Subst.
