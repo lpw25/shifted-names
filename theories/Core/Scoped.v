@@ -360,4 +360,68 @@ Proof.
   - rewrite Hat, Hbt by exact Hi; reflexivity.
 Qed.
 
+(** ** Closed adjustments work at every scope, and lifting them is free *)
+
+Lemma wf_var_mono M M' v : M <= M' -> wf_var M v = true -> wf_var M' v = true.
+Proof.
+  destruct v as [[x|] i]; cbn; [reflexivity|].
+  intros H1 H2; apply Nat.ltb_lt in H2; apply Nat.ltb_lt; lia.
+Qed.
+
+Lemma pscoped_mono_depth M M' n :
+  M <= M' -> forall ρ, ndepth (padj_n ρ) <= n -> pscoped M ρ = true -> pscoped M' ρ = true.
+Proof.
+  intros Hle; induction n as [|n IH]; intros ρ Hd H; [pose proof (ndepth_pos (padj_n ρ)); lia|].
+  apply pscoped_spec; intros v Hv; pose proof (proj1 (pscoped_spec M ρ) H v Hv) as Hr.
+  destruct (papply ρ v) as [w|[u ρ']] eqn:E.
+  - rewrite result_wf_inl in *; apply (wf_var_mono M); assumption.
+  - rewrite result_wf_inr in *; pose proof (papply_depth _ _ _ _ E); apply IH; [lia|exact Hr].
+Qed.
+
+Lemma pscoped_mono M M' ρ : M <= M' -> pscoped M ρ = true -> pscoped M' ρ = true.
+Proof. intros Hle; apply (pscoped_mono_depth M M' (ndepth (padj_n ρ)) Hle); lia. Qed.
+
+Lemma result_wf_mono M M' r : M <= M' -> result_wf M r = true -> result_wf M' r = true.
+Proof.
+  destruct r as [w|[u ρ]]; intros Hle; [apply wf_var_mono, Hle|apply pscoped_mono, Hle].
+Qed.
+
+Theorem scoped_closed N a : scoped 0 0 a = true -> scoped N N a = true.
+Proof.
+  intros H; apply scoped_spec in H as [Ht Hr]; apply scoped_spec; split.
+  - intros i Hi; rewrite Ht by lia; do 2 f_equal; lia.
+  - intros [[x|] i] Hv.
+    + apply (result_wf_mono 0); [lia|apply Hr; reflexivity].
+    + rewrite Ht by lia; cbn in *; replace (i - 0 + 0) with i by lia; exact Hv.
+Qed.
+
+Lemma pshift_closed_depth n :
+  forall ρ, ndepth (padj_n ρ) <= n -> pscoped 0 ρ = true -> pshift_p None ρ = ρ.
+Proof.
+  induction n as [|n IH]; intros ρ Hd H; [pose proof (ndepth_pos (padj_n ρ)); lia|].
+  apply pextensionality; intros v Hv; rewrite papply_pshift by exact Hv.
+  pose proof (proj1 (pscoped_spec 0 ρ) H v Hv) as Hr.
+  destruct (papply ρ v) as [[[x|] i]|[u ρ']] eqn:E.
+  - reflexivity.
+  - cbn in Hr; discriminate.
+  - rewrite result_wf_inr in Hr; pose proof (papply_depth _ _ _ _ E).
+    cbn [fst snd]; rewrite IH by (lia || exact Hr); reflexivity.
+Qed.
+
+Theorem pshift_closed ρ : pscoped 0 ρ = true -> pshift_p None ρ = ρ.
+Proof. apply (pshift_closed_depth (ndepth (padj_n ρ))); lia. Qed.
+
+Theorem lift_closed a : scoped 0 0 a = true -> lift None a = a.
+Proof.
+  intros H; apply scoped_spec in H as [Ht Hr]; apply lift_free.
+  - intros i; rewrite Ht by lia; do 2 f_equal; lia.
+  - intros [[x|] i] w Hv E; [|contradiction].
+    pose proof (Hr (mk_var (Some x) i) eq_refl) as Hw; rewrite E in Hw.
+    destruct w as [[y|] j]; cbn in Hw; [discriminate|discriminate].
+  - intros [[x|] i] [u ρ] E.
+    + pose proof (Hr (mk_var (Some x) i) eq_refl) as Hw; rewrite E in Hw.
+      apply pshift_closed, Hw.
+    + rewrite Ht in E by lia; discriminate.
+Qed.
+
 End Scoped.

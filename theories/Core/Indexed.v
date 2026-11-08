@@ -177,4 +177,19 @@ Proof. apply sadj_eq, compose_cancel. Qed.
 Theorem slift_as_context {N M} (a : sadj T N M) : slift a = scons (SRename sbvar0) (sweaken a).
 Proof. reflexivity. Qed.
 
+(** ** Closed adjustments
+
+    An adjustment from no bound variables to none can be used at any scope
+    with unchanged data, and going under a binder leaves it unchanged. *)
+
+Definition at_scope {N} (a : sadj T 0 0) : sadj T N N :=
+  mk_sadj (sa a) (Is_true_s_intro (scoped_closed N _ (sa_scoped a))).
+
+Theorem slift_at_scope {N} (a : sadj T 0 0) : slift (@at_scope N a) = @at_scope (S N) a.
+Proof. apply sadj_eq; cbn; apply lift_closed, (sa_scoped a). Qed.
+
+Theorem at_scope_compose {N} (a b : sadj T 0 0) :
+  scompose (@at_scope N a) (at_scope b) = at_scope (scompose a b).
+Proof. apply sadj_eq; reflexivity. Qed.
+
 End Indexed.

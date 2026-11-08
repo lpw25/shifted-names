@@ -161,3 +161,9 @@ Proof. apply sadj_eq, compose_open_close. Qed.
 
 Theorem close_open {N} x : scompose (@close_sub N x) (open_sub x) = sid.
 Proof. apply sadj_eq, compose_close_open. Qed.
+
+(** ** Closed substitutions go under binders for free *)
+
+Theorem subst_closed_lam {N} (s : sub 0 0) (b : tm (S N)) :
+  ⟦at_scope s⟧ (lam b) = lam (⟦at_scope s⟧ b).
+Proof. rewrite subst_lam, slift_at_scope; reflexivity. Qed.
