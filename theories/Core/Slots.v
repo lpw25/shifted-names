@@ -1127,6 +1127,119 @@ Proof.
     do 2 f_equal; lia.
 Qed.
 
+Lemma comp_target_slot_bound a b h i h' n :
+  normal a = true -> normal b = true -> i < res_len a b h ->
+  comp_target a b h i = Slot h' n -> n < ext_count a b h'.
+Proof.
+  intros Ha Hb Hi; unfold comp_target, b_image.
+  destruct (apply b (mk_var h i)) as [w|p] eqn:Ebw; [|discriminate].
+  assert (Hw : v_index w < Nat.max (jlen a (v_label w)) (count b (v_label w))).
+  { unfold apply in Ebw; cbn [v_label v_index] in Ebw.
+    destruct (nth_error (fst (find b h)) i) as [t|] eqn:Et.
+    - destruct t as [h'' n'|p]; cbn [resolve] in Ebw; [|discriminate].
+      injection Ebw as <-; cbn [v_label v_index].
+      pose proof (slot_bound b (mk_var h i) h'' n' Hb Et); lia.
+    - injection Ebw as <-; cbn [v_label v_index].
+      apply nth_error_None in Et; unfold res_len, jlen, count in *; lia. }
+  destruct (apply a w) as [u|p] eqn:Eaw; cbn [encode_res]; [|discriminate].
+  intros [= <- <-].
+  pose proof (apply_a_bound a b w u Ha Hw Eaw); lia.
+Qed.
+
+Definition labels a : list (option label) := map (fun ke => e_label (snd ke)) (elements a).
+
+Lemma not_in_labels a l : keys_ok a = true -> ~ In l (labels a) -> get (label_key l) a = None.
+Proof.
+  intros Ha Hl; destruct (get (label_key l) a) as [e|] eqn:E; [|reflexivity].
+  exfalso; apply Hl, in_map_iff; exists (label_key l, e); split.
+  - cbn [snd]; apply (keys_ok_label a l e Ha E).
+  - apply In_elements, E.
+Qed.
+
+Lemma keys_ok_compose_pre a b :
+  normal a = true -> normal b = true -> keys_ok (compose_pre a b) = true.
+Proof.
+  intros Ha Hb; unfold keys_ok; apply forallb_spec; intros key e He.
+  unfold compose_pre in He; rewrite get_merge in He by reflexivity.
+  assert (Hc : forall l, comp_entry a b l = Some e -> e_label e = l)
+    by (intros l; unfold comp_entry; destruct (nontrivial _ _); [intros [= <-]; reflexivity|discriminate]).
+  destruct (get key a) as [ea|] eqn:Ea, (get key b) as [eb|] eqn:Eb; try discriminate.
+  all: first [ rewrite (Hc _ He); apply Pos.eqb_eq, (normal_label a key ea Ha Ea)
+             | rewrite (Hc _ He); apply Pos.eqb_eq, (normal_label b key eb Hb Eb) ].
+Qed.
+
+Theorem pre_normal_compose_pre a b :
+  normal a = true -> normal b = true ->
+  pre_normal (compose_pre a b) (fun l => In l (labels (compose_pre a b))).
+Proof.
+  intros Ha Hb.
+  pose proof (keys_ok_compose_pre a b Ha Hb) as Hk.
+  repeat split.
+  - exact Hk.
+  - intros key e He; unfold compose_pre in He; rewrite get_merge in He by reflexivity.
+    assert (Hc : forall l, comp_entry a b l = Some e -> nontrivial (e_targets e) (e_out e) = true)
+      by (intros l; unfold comp_entry; destruct (nontrivial _ _) eqn:N;
+          [intros [= <-]; exact N|discriminate]).
+    destruct (get key a), (get key b); try discriminate; apply (Hc _ He).
+  - intros v h' n Hn.
+    unfold count; rewrite find_compose_pre by assumption; cbn [snd].
+    rewrite find_compose_pre in Hn by assumption; cbn [fst] in Hn.
+    rewrite nth_error_map, nth_error_seq in Hn.
+    destruct (Nat.ltb_spec (v_index v) (res_len a b (v_label v))) as [Hi|]; [|discriminate].
+    injection Hn as Hn.
+    apply (comp_target_slot_bound a b (v_label v) (v_index v) h' n Ha Hb Hi Hn).
+  - intros h' Hn.
+    unfold find; rewrite (not_in_labels _ h' Hk Hn); reflexivity.
+Qed.
+
 End Compose.
+
+Lemma pre_normal_mono a (Q Q' : option label -> Prop) :
+  pre_normal a Q -> (forall x, ~ Q' x -> ~ Q x) -> pre_normal a Q'.
+Proof. intros [Hk [Hnt [Hwf Hs]]] H; repeat split; auto. Qed.
+
+Fixpoint normalize_list (L : list (option label)) a : raw P :=
+  match L with
+  | [] => a
+  | l :: L' => normalize_list L' (strip_loop (S (jlen a l)) l a)
+  end.
+
+Theorem normalize_list_spec L a :
+  pre_normal a (fun l => In l L) ->
+  normal (normalize_list L a) = true /\ (forall v, apply (normalize_list L a) v = apply a v).
+Proof.
+  revert a; induction L as [|l L IH]; intros a Ha; cbn [normalize_list].
+  - split; [|reflexivity].
+    apply (normal_of_pre_normal a _ Ha); intros x [].
+  - destruct (strip_loop_spec_gen (S (jlen a l)) _ l a Ha (or_introl eq_refl) ltac:(lia))
+      as [Hn Happ].
+    assert (Hmono : forall x, ~ In x L -> ~ (In x (l :: L) /\ x <> l)).
+    { intros x Hx [[E|Hin] Hne]; [apply Hne; symmetry; exact E|apply Hx, Hin]. }
+    destruct (IH _ (pre_normal_mono _ _ _ Hn Hmono)) as [Hn' Happ'].
+    split; [exact Hn'|]; intro v; rewrite Happ', Happ; reflexivity.
+Qed.
+
+Definition compose (fp : P -> P) a b : raw P :=
+  normalize_list (labels (compose_pre fp a b)) (compose_pre fp a b).
+
+Theorem normal_compose fp a b :
+  normal a = true -> normal b = true -> normal (compose fp a b) = true.
+Proof.
+  intros Ha Hb; apply normalize_list_spec, pre_normal_compose_pre; assumption.
+Qed.
+
+Theorem apply_compose fp a b v :
+  normal a = true -> normal b = true ->
+  apply (compose fp a b) v
+  = match apply b v with
+    | inl w => apply a w
+    | inr p => inr (fp p)
+    end.
+Proof.
+  intros Ha Hb; unfold compose.
+  rewrite (proj2 (normalize_list_spec _ _ (pre_normal_compose_pre fp a b Ha Hb))).
+  apply apply_compose_pre; assumption.
+Qed.
+
 
 End Slots.
