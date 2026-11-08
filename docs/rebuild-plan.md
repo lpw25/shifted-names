@@ -132,3 +132,23 @@ Each stage ends with a green build, a commit and a push.
   - the extracted `subst` is plain recursion with Zarith offsets and
     continuation lookups; the smoke test checks open/close round trips and
     instantiation under binders.
+
+### Stage 4 design (in progress)
+
+- **Sequences (`Core/Braun.v`, done).** Braun trees, specified by the list
+  they denote (`to_list`); canonical (`canonical`); cons/tail, snoc/unsnoc,
+  nth/update in O(log n). A `seq` record packages a tree with a strict proof
+  of balance, so every sequence is balanced by construction and the list
+  equations hold unconditionally.
+- **Per-label targets become `seq`s.** Proofs keep reasoning about the list a
+  label's targets denote (`find` gives that list); computation uses the
+  sequence operations directly. Each operation is specified by its effect on
+  the denoted lists; nothing is stated as "equal to the previous version".
+- **Back-links.** Each label's entry also records, for each of its output
+  slots (innermost first), the set of inputs referring to it, as positions
+  counted from the back of the referring label's sequence (stable under
+  cons). They are a function of the targets, so canonicity is unaffected;
+  normality includes their consistency. The strip check reads the innermost
+  slot's set; stripping updates only the referring inputs.
+- **Cheap fixes to fold in:** `comp_entry` maps over the targets instead of
+  indexing them; identity payloads are returned without traversal.
