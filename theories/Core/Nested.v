@@ -24,7 +24,7 @@ Section Nested.
 
 Context {T : Type}.
 
-Definition payload : Type := (T * nadj T)%type.
+Local Notation payload := (T * nadj T)%type.
 
 Definition nraw (a : nadj T) : raw payload := match a with NAdj m => m end.
 
@@ -388,6 +388,105 @@ Proof.
     apply binds_in_push_inner in Hb as [Hb|Hb].
     + apply (proj1 (payloads_ok_binds m) Hq p Hb).
     + subst t; destruct p as [u ρ]; cbn in Hp; apply andb_true_iff in Hp; exact Hp.
+Qed.
+
+(** ** Composition
+
+    [ncompose a b] first applies [b] and then [a].  A payload [(u, ρ)] of [b]
+    becomes [(u, a ∘ ρ)], restricted to the free (non-[None]) inputs of the
+    closed term [u].  Recursion is on payload nesting depth, via fuel. *)
+
+Definition prestrict (ρ : nadj T) : nadj T :=
+  match ρ with NAdj m => NAdj (restrict None m) end.
+
+Fixpoint ncompose_f (fuel : nat) (a b : nadj T) : nadj T :=
+  match fuel with
+  | 0 => b
+  | S f =>
+      match a, b with
+      | NAdj ma, NAdj mb =>
+          NAdj (compose (fun p => (fst p, prestrict (ncompose_f f a (snd p)))) ma mb)
+      end
+  end.
+
+Definition ncompose (a b : nadj T) : nadj T := ncompose_f (ndepth b) a b.
+
+Lemma nnormal_normal a : nnormal a = true -> normal (nraw a) = true.
+Proof. destruct a as [m]; rewrite nnormal_NAdj; intros H; apply andb_true_iff in H; apply H. Qed.
+
+Lemma nnormal_payloads m :
+  nnormal (NAdj m) = true -> payloads_ok m = true.
+Proof. rewrite nnormal_NAdj; intros H; apply andb_true_iff in H; apply H. Qed.
+
+Theorem nnormal_prestrict ρ :
+  nnormal ρ = true -> nnormal (prestrict ρ) = true /\ pnormal_raw (nraw (prestrict ρ)) = true.
+Proof.
+  destruct ρ as [m]; intros Hn; cbn [prestrict nraw].
+  pose proof (nnormal_payloads m Hn) as Hp; apply nnormal_normal in Hn; cbn [nraw] in Hn.
+  destruct (restrict_spec None m Hn) as [H1 [H2 [H3 _]]].
+  split.
+  - rewrite nnormal_NAdj, H1; cbn [andb].
+    apply payloads_ok_binds; intros p Hb.
+    apply (proj1 (payloads_ok_binds m) Hp), (binds_in_restrict None m p Hb).
+  - unfold pnormal_raw; rewrite H2; cbn [andb].
+    destruct H3 as [H3|H3]; [rewrite H3; reflexivity|].
+    unfold has_ref0 in H3; rewrite H3; apply orb_true_r.
+Qed.
+
+Theorem nnormal_ncompose_f f a b :
+  nnormal a = true -> nnormal b = true -> nnormal (ncompose_f f a b) = true.
+Proof.
+  revert a b; induction f as [|f IH]; intros a b Ha Hb; [exact Hb|].
+  destruct a as [ma], b as [mb]; cbn [ncompose_f].
+  pose proof (nnormal_normal _ Ha) as Hma; pose proof (nnormal_normal _ Hb) as Hmb.
+  cbn [nraw] in Hma, Hmb.
+  rewrite nnormal_NAdj, normal_compose by assumption; cbn [andb].
+  apply payloads_ok_binds; intros p Hbd.
+  apply binds_in_compose in Hbd as [Hbd|[p' [Hbd ->]]]; [| |exact Hma|exact Hmb].
+  - apply (proj1 (payloads_ok_binds ma) (nnormal_payloads ma Ha) p Hbd).
+  - cbn [snd]; apply nnormal_prestrict, IH; [exact Ha|].
+    apply (proj1 (payloads_ok_binds mb) (nnormal_payloads mb Hb) p' Hbd).
+Qed.
+
+Theorem nnormal_ncompose a b :
+  nnormal a = true -> nnormal b = true -> nnormal (ncompose a b) = true.
+Proof. apply nnormal_ncompose_f. Qed.
+
+Lemma ndepth_binds m p : binds_in m p -> ndepth (snd p) < ndepth (NAdj m).
+Proof. intros [k [e [He Hin]]]; apply (ndepth_payload m k e p He Hin). Qed.
+
+Lemma ndepth_pos a : 0 < ndepth a.
+Proof. destruct a; cbn [ndepth]; lia. Qed.
+
+Lemma ncompose_fuel f :
+  forall g a b, nnormal a = true -> nnormal b = true -> ndepth b <= f -> ndepth b <= g ->
+  ncompose_f f a b = ncompose_f g a b.
+Proof.
+  induction f as [|f IH]; intros g a b Ha Hb Hf Hg; [pose proof (ndepth_pos b); lia|].
+  destruct g as [|g]; [pose proof (ndepth_pos b); lia|].
+  destruct a as [ma], b as [mb]; cbn [ncompose_f]; f_equal.
+  apply compose_ext; [apply (nnormal_normal _ Ha)|apply (nnormal_normal _ Hb)|].
+  intros p Hbd; pose proof (ndepth_binds mb p Hbd).
+  rewrite (IH g); [reflexivity|exact Ha| |lia|lia].
+  apply (proj1 (payloads_ok_binds mb) (nnormal_payloads mb Hb) p Hbd).
+Qed.
+
+Theorem napply_ncompose a b v :
+  nnormal a = true -> nnormal b = true ->
+  napply (ncompose a b) v
+  = match napply b v with
+    | inl w => napply a w
+    | inr p => inr (fst p, prestrict (ncompose a (snd p)))
+    end.
+Proof.
+  intros Ha Hb; unfold ncompose.
+  destruct (ndepth b) as [|d] eqn:Ed; [pose proof (ndepth_pos b); lia|].
+  destruct a as [ma], b as [mb]; cbn [ncompose_f]; unfold napply; cbn [nraw].
+  rewrite apply_compose by (apply (nnormal_normal (NAdj _)); assumption).
+  destruct (@apply payload mb v) as [w|p] eqn:E; [reflexivity|].
+  pose proof (binds_in_apply mb v p E) as Hbd; pose proof (ndepth_binds mb p Hbd).
+  rewrite (ncompose_fuel d (ndepth (snd p))); [reflexivity|exact Ha| |lia|lia].
+  apply (proj1 (payloads_ok_binds mb) (nnormal_payloads mb Hb) p Hbd).
 Qed.
 
 End Nested.
