@@ -525,6 +525,32 @@ result `(u, ρ)` (applying `ρ` to `u`) is the term layer's job: a term-level
 `act : adjustment T → term → term` recursing on terms and, at payloads, on
 the strictly smaller nesting depth of `ρ`.
 
+### D11. The indexed layer (Stage 8, as implemented)
+
+Implemented in `Scoped.v` and `Indexed.v`; indices are plain `nat` (the
+unindexed `adjustment` remains available for internal use).
+
+- **Scoping is a property of adjustments alone**, because payload terms are
+  closed. `scoped N M a`:
+  - bound inputs `None₍ᵢ₎`, `i ≥ N`, pass through to `None₍ᵢ₋N₊M₎` (a fixed
+    tail, so scoped adjustments stay canonical: `scoped_ext`);
+  - every other input lands in a variable in scope `M`, or a payload whose
+    adjustment has at most `M` bound outputs, recursively (`pscoped M`).
+  It is checked on the data (`nscoped_top`) and proved equivalent to that
+  meaning (`scoped_spec`, `pscoped_spec`).
+- **Public types:** `svar M`, `spadj T M`, `starget T M`, `sadj T N M`,
+  each a record with an SProp proof. Constructors: `sid`, `scompose`,
+  `sweaken`/`sweaken_free x`, `scons t`/`scons_free x t`,
+  `slift`/`slift_free x`, `spcompose`. Laws are inherited from `Laws.v`.
+- **Closed adjustments:** `sadj T 0 0` can be used at any scope with the same
+  data (`at_scope`), and `slift (at_scope a) = at_scope a` (`lift_closed`).
+- **Payload terms must be closed.** Substituting a non-variable term that
+  mentions bound variables is not supported; open binders first.
+- **Example:** `Examples/Lambda.v` builds `tm N` and
+  `subst : sub N M → tm N → tm M` (with `sub N M = sadj cterm N M`) and
+  proves the constructor equations, identity, composition, instantiation
+  and open/close laws.
+
 ### D6. Users see only the indexed form
 
 Scoped terms and adjustments (indexed by the number of bound names), built as

@@ -28,11 +28,14 @@ condition.
     (`identity`, `compose`, `push_inner`, `push_outer`, `lift`).
   - `Laws.v`: the equational laws of the constructors and the primitive
     adjustments (`shift`, `rename1`, `open`, `close`, `swap`, `subst1`).
+  - `Scoped.v`: scoping of adjustments (from `N` to `M` bound variables),
+    checked on the data, with preservation by every constructor.
+  - `Indexed.v`: the public scoped types `sadj T N M`, `svar`, `spadj`,
+    `starget`, their constructors and laws.
 - `theories/Examples/`: a concrete λ-calculus built on the core (a test
   instance; the library itself does not fix a term language):
-  `LambdaCore.v` (unindexed terms and the substitution laws).
-  `LambdaScope.v` and `Lambda.v` are the scoped layer on the previous core,
-  not yet ported and not built.
+  `LambdaCore.v` (unindexed terms and the substitution laws) and `Lambda.v`
+  (scoped terms `tm N` and substitutions on the public layer).
 - `theories/Tests/`: executable tests.
 - `src/`, `examples/`, `TyDE-2019/`: the original 2019 development, kept for
   reference.
