@@ -178,3 +178,29 @@ Proof.
     apply lift_compose; intro p.
     apply subst_shift_term.
 Qed.
+
+(** ** Substitution without lifting
+
+    [subst_nolift s] goes under binders without lifting [s].  It agrees with
+    [subst s] whenever lifting [s] is free ([lift_free]); the indexed layer
+    uses it when the indices guarantee that. *)
+
+Fixpoint subst_nolift (s : adjustment term) (t : term) : term :=
+  match t with
+  | tvar v =>
+      match apply s v with
+      | inl w => tvar w
+      | inr u => u
+      end
+  | tconst n => tconst n
+  | tapp t1 t2 => tapp (subst_nolift s t1) (subst_nolift s t2)
+  | tlam b => tlam (subst_nolift s b)
+  end.
+
+Theorem subst_nolift_spec s t :
+  lift shift_term None s = s -> subst_nolift s t = subst s t.
+Proof.
+  intro Hs; induction t as [v|n|t1 IH1 t2 IH2|b IH]; cbn [subst_nolift subst];
+    [reflexivity|reflexivity|rewrite IH1, IH2; reflexivity|].
+  rewrite Hs, IH; reflexivity.
+Qed.

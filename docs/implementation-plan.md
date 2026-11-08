@@ -296,6 +296,22 @@ of `m` payloads therefore does `d·m` payload shifts.
   behind `act`, or in a normalisation step that is not part of the
   canonical data. Open question.
 
+**Decision: free lifting is justified by indexing, not tracked at runtime.**
+There is no reference counting. Instead:
+- **Core lemma.** `lift_free` (Laws.v) shows `lift sp l a = a` whenever `a`
+  has no entry for `l`, no target mentioning `l`, and payloads unchanged by
+  the shift.
+- **Indexed layer.** Where the indices guarantee those conditions, it uses a
+  "go under a binder" that does nothing, with a proof that it agrees with
+  `lift` there. In the λ example (`theories/Examples/`), any closed
+  substitution `s : sub 0 0` can be used at every scope (`at_scope`) with
+  unchanged data, `lift (at_scope s) = at_scope s`. The traversal
+  `subst_closed` never lifts, and `subst_closed_spec` says it equals the
+  ordinary substitution.
+- **User-facing substitutions** should be of this closed kind: free names to
+  closed terms, as in `master`. The locally nameless operations (open,
+  close, instantiate) are the only ones that genuinely change when lifted.
+
 **Minimal requirements on terms (what the core actually uses).** None for
 renamings (payload type `Empty_set`). For substitutions, the payload type
 `P` needs only a **right action of adjustments**:

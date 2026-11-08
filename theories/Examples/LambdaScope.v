@@ -328,3 +328,76 @@ Proof.
   - intros i Hi; rewrite apply_compose, Hbout by exact Hi.
     rewrite Haout by lia; f_equal; f_equal; lia.
 Qed.
+
+(** ** Closed substitutions go under binders for free *)
+
+Lemma wf_var_mono N N' v : N <= N' -> wf_var N v = true -> wf_var N' v = true.
+Proof.
+  destruct v as [[x|] i]; unfold wf_var; cbn [v_label v_index]; [reflexivity|].
+  rewrite !Nat.ltb_lt; lia.
+Qed.
+
+Lemma wf_term_mono N N' t : N <= N' -> wf_term N t = true -> wf_term N' t = true.
+Proof.
+  revert N N'; induction t as [v|n|t1 IH1 t2 IH2|b IH]; intros N N' Hle;
+    cbn [wf_term]; [apply wf_var_mono, Hle|reflexivity| |].
+  - rewrite !andb_true_iff; intros [H1 H2]; split; eauto.
+  - apply IH; lia.
+Qed.
+
+Lemma rename_fixes N r p :
+  (forall v, wf_var N v = true -> apply r v = inl v) ->
+  wf_term N p = true -> rename r p = p.
+Proof.
+  revert N r; induction p as [v|n|t1 IH1 t2 IH2|b IH]; intros N r Hr Hp;
+    cbn [rename wf_term] in *.
+  - rewrite (Hr v Hp); reflexivity.
+  - reflexivity.
+  - apply andb_true_iff in Hp as [H1 H2]; rewrite (IH1 N r), (IH2 N r); auto.
+  - f_equal; apply (IH (S N)); [|exact Hp].
+    intros v Hv; rewrite apply_lift.
+    destruct (var_eqb_spec v (mk_var None 0)) as [->|Hne]; [reflexivity|].
+    rewrite (Hr _ (wf_var_unshift_none N v Hne Hv)).
+    rewrite shift_unshift_var by exact Hne; reflexivity.
+Qed.
+
+Lemma shift_term_closed p : wf_term 0 p = true -> shift_term p = p.
+Proof.
+  apply rename_fixes; intros [[x|] i] Hv; [|discriminate].
+  rewrite apply_shift; reflexivity.
+Qed.
+
+Theorem lift_scoped_closed a : scoped 0 0 a = true -> lift shift_term None a = a.
+Proof.
+  intro Ha; apply scoped_spec in Ha as [Hin Hout].
+  apply lift_free.
+  - intro i; rewrite Hout by lia; f_equal; f_equal; lia.
+  - intros [[x|] i] w Hl Hw; [|contradiction].
+    specialize (Hin (mk_var (Some x) i) eq_refl); rewrite Hw in Hin.
+    destruct w as [[y|] j]; cbn in *; discriminate.
+  - intros [[x|] i] p Hp.
+    + specialize (Hin (mk_var (Some x) i) eq_refl); rewrite Hp in Hin.
+      cbn [result_ok] in Hin; apply andb_true_iff in Hin as [Hin _].
+      apply shift_term_closed, Hin.
+    + rewrite Hout in Hp by lia; discriminate.
+Qed.
+
+Theorem scoped_closed_weaken N a : scoped 0 0 a = true -> scoped N N a = true.
+Proof.
+  intro Ha; apply scoped_spec in Ha as [Hin Hout]; apply scoped_spec; split.
+  - intros [[x|] i] Hv.
+    + specialize (Hin (mk_var (Some x) i) eq_refl).
+      destruct (apply a _) as [w|p]; cbn [result_ok] in *.
+      * apply (wf_var_mono 0); [lia|exact Hin].
+      * rewrite andb_true_iff in *; destruct Hin as [H1 H2]; split; [|exact H2].
+        apply (wf_term_mono 0); [lia|exact H1].
+    + rewrite Hout by lia; cbn [result_ok]; rewrite Nat.sub_0_r, Nat.add_0_r; exact Hv.
+  - intros i Hi; rewrite Hout by lia; f_equal; f_equal; lia.
+Qed.
+
+Theorem wf_subst_nolift N a t :
+  scoped 0 0 a = true -> wf_term N t = true -> wf_term N (subst_nolift a t) = true.
+Proof.
+  intros Ha Ht; rewrite subst_nolift_spec by (apply lift_scoped_closed, Ha).
+  apply (wf_subst N N); [apply scoped_maps_ok, scoped_closed_weaken, Ha|exact Ht].
+Qed.

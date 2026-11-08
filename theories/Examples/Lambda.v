@@ -370,3 +370,27 @@ Proof. rewrite subst_comp, comp_weak_bound, comp_sid_l; reflexivity. Qed.
 Theorem subst_weak_free {N M} x (s : sub N M) t :
   ⟦weak_free x s⟧ t = ⟦weak_free x sid⟧ (⟦s⟧ t).
 Proof. rewrite subst_comp, comp_weak_free, comp_sid_l; reflexivity. Qed.
+
+(** ** Closed substitutions
+
+    A substitution [s : sub 0 0] acts on free names only, and its payloads
+    are closed.  It can be used at any scope ([at_scope]) without changing
+    its data, and moving it under a binder is free ([lift_at_scope]), so
+    [subst_closed] never lifts. *)
+
+Definition at_scope {N} (s : sub 0 0) : sub N N :=
+  mk_sub (sub_raw s) (Is_true_s_intro (scoped_closed_weaken N _ (sub_scoped_true s))).
+
+Theorem lift_at_scope {N} (s : sub 0 0) : lift (@at_scope N s) = at_scope s.
+Proof. apply sub_eq; rewrite lift_raw; exact (lift_scoped_closed _ (sub_scoped_true s)). Qed.
+
+Definition subst_closed {N} (s : sub 0 0) (t : tm N) : tm N :=
+  mk_tm (L.subst_nolift (sub_raw s) (tm_raw t))
+    (Is_true_s_intro (wf_subst_nolift N _ _ (sub_scoped_true s) (tm_wf_true t))).
+
+Theorem subst_closed_spec {N} (s : sub 0 0) (t : tm N) :
+  subst_closed s t = ⟦at_scope s⟧ t.
+Proof.
+  apply tm_eq; cbn [subst_closed subst tm_raw at_scope sub_raw].
+  apply L.subst_nolift_spec; exact (lift_scoped_closed _ (sub_scoped_true s)).
+Qed.

@@ -169,6 +169,35 @@ Proof.
     + rewrite Hsp; reflexivity.
 Qed.
 
+(** Going under a binder is free when the adjustment does not touch the
+    binder's label: no entry for [l], no target mentioning [l], and payloads
+    unchanged by the shift.  The indexed layer uses this to skip [lift]
+    entirely when the indices guarantee these conditions. *)
+Theorem lift_free sp l a :
+  (forall i, apply a (mk_var l i) = inl (mk_var l i)) ->
+  (forall v w, v_label v <> l -> apply a v = inl w -> v_label w <> l) ->
+  (forall v p, apply a v = inr p -> sp p = p) ->
+  lift sp l a = a.
+Proof.
+  intros Hl Hw Hp; apply extensionality; intro v.
+  rewrite apply_lift.
+  destruct (var_eqb_spec v (mk_var l 0)) as [->|Hne]; [symmetry; apply Hl|].
+  destruct v as [h i]; destruct (label_eq_dec h l) as [->|Hhl].
+  - destruct i as [|i]; [exfalso; apply Hne; reflexivity|].
+    unfold unshift_var; cbn [v_label v_index]; rewrite label_eqb_refl.
+    cbn [andb Nat.ltb Nat.leb]; replace (S i - 1) with i by lia.
+    rewrite !Hl; unfold shift_var; cbn [v_label v_index].
+    rewrite label_eqb_refl; reflexivity.
+  - unfold unshift_var; cbn [v_label v_index].
+    rewrite (proj2 (label_eqb_neq l h)) by congruence; cbn [andb].
+    destruct (apply a (mk_var h i)) as [w|p] eqn:E.
+    + unfold shift_var; cbn [v_label v_index].
+      rewrite (proj2 (label_eqb_neq l (v_label w)))
+        by (intro H; apply (Hw (mk_var h i) w Hhl E); symmetry; exact H).
+      reflexivity.
+    + rewrite (Hp _ _ E); reflexivity.
+Qed.
+
 Theorem map_payload_lift {Q} (f : P -> Q) sp sq l a :
   (forall p, f (sp p) = sq (f p)) ->
   map_payload f (lift sp l a) = lift sq l (map_payload f a).
