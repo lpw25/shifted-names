@@ -1,0 +1,226 @@
+(** * Scoped adjustments
+
+    An adjustment from [N] to [M] bound variables.  Payload terms are closed,
+    so scoping is a property of adjustments alone:
+
+    - bound inputs [None₍ᵢ₎] with [i ≥ N] are outside the scope; they pass
+      through to [None₍ᵢ₋N₊M₎] (a fixed tail, so the data stays canonical);
+    - every other input is sent to a variable well scoped in [M], or to a
+      payload whose adjustment uses fewer than [M] bound outputs
+      (recursively).
+
+    [scoped N M a] checks this on the data; [scoped_spec] says it means the
+    above.  The public type [sadj N M] packages an adjustment with an SProp
+    proof of [scoped N M], so equality is still Leibniz. *)
+
+From Stdlib Require Import PArith Arith List Lia Bool StrictProp.
+From ShiftedNames.Core Require Import Trie Label Var Slots Nested Adjustment Laws.
+Import ListNotations.
+
+Section Scoped.
+
+Context {T : Type}.
+
+Local Notation payload := (T * nadj T)%type.
+
+(** A variable is in scope [M] if it is free, or bound below [M]. *)
+Definition wf_var (M : nat) (v : var) : bool :=
+  match v_label v with
+  | None => Nat.ltb (v_index v) M
+  | Some _ => true
+  end.
+
+(** Payload adjustments in scope [M]: fewer than [M] bound outputs, and the
+    same for nested payloads. *)
+Fixpoint nscoped (M : nat) (x : nadj T) : bool :=
+  match x with
+  | NAdj m =>
+      Nat.leb (count m None) M
+      && tall (fun e => List.forallb (fun t => match t with
+                                               | Slots.Bind p => nscoped M (snd p)
+                                               | Slots.Slot _ _ => true
+                                               end) (e_targets e)) m
+  end.
+
+Definition rwf (M : nat) (r : var + payload) : bool :=
+  match r with
+  | inl w => wf_var M w
+  | inr p => nscoped M (snd p)
+  end.
+
+Definition target_wf (M c : nat) (t : Slots.target payload) : bool :=
+  match t with
+  | Slots.Slot None l => Nat.ltb (c - S l) M
+  | Slots.Slot (Some _) _ => true
+  | Slots.Bind p => nscoped M (snd p)
+  end.
+
+Definition nscoped_top (N M : nat) (m : raw payload) : bool :=
+  Nat.leb (jlen m None) N
+  && Nat.eqb (count m None + N) (M + jlen m None)
+  && tall (fun e => List.forallb (target_wf M (count m None)) (e_targets e)) m.
+
+Definition scoped_sem (N M : nat) (m : raw payload) : Prop :=
+  (forall i, N <= i -> Slots.apply m (mk_var None i) = inl (mk_var None (i - N + M)))
+  /\ (forall v, wf_var N v = true -> rwf M (Slots.apply m v) = true).
+
+Lemma apply_unfold (m : raw payload) v :
+  Slots.apply m v
+  = match nth_error (fst (find m (v_label v))) (v_index v) with
+    | Some t => resolve m t
+    | None => inl (mk_var (v_label v)
+                     (v_index v - length (fst (find m (v_label v))) + count m (v_label v)))
+    end.
+Proof. reflexivity. Qed.
+
+Theorem nscoped_top_spec N M (m : raw payload) :
+  normal m = true -> (nscoped_top N M m = true <-> scoped_sem N M m).
+Proof.
+  intros Hm; pose proof (normal_keys_ok m Hm) as Hk.
+  unfold nscoped_top, jlen; set (ts := fst (find m None)); set (c := count m None).
+  split.
+  - intros H; apply andb_true_iff in H as [H Ht]; apply andb_true_iff in H as [Hj Hc].
+    apply Nat.leb_le in Hj; apply Nat.eqb_eq in Hc.
+    pose proof (proj1 (tall_targets _ m Hk) Ht) as Ht'.
+    split.
+    + intros i Hi; rewrite apply_unfold; cbn [v_label v_index]; fold ts c.
+      rewrite (proj2 (nth_error_None ts i)) by lia.
+      do 2 f_equal; lia.
+    + intros [h i] Hv; rewrite apply_unfold; cbn [v_label v_index] in *.
+      destruct (nth_error (fst (find m h)) i) as [t|] eqn:E.
+      * specialize (Ht' h i t E).
+        destruct t as [[x|] l|p]; cbn in *; [reflexivity|exact Ht'|exact Ht'].
+      * destruct h as [x|]; cbn [rwf wf_var v_label v_index]; [reflexivity|].
+        fold ts c in E |- *; apply nth_error_None in E.
+        apply Nat.ltb_lt in Hv; cbn [v_index] in Hv; apply Nat.ltb_lt; lia.
+  - intros [Htail Hrel].
+    assert (Hpass : forall i, length ts <= i ->
+                    Slots.apply m (mk_var None i) = inl (mk_var None (i - length ts + c))).
+    { intros i Hi; rewrite apply_unfold; cbn [v_label v_index]; fold ts c.
+      rewrite (proj2 (nth_error_None ts i)) by exact Hi; reflexivity. }
+    assert (Hjn : length ts <= N).
+    { destruct (Nat.le_gt_cases (length ts) N) as [|Hlt]; [assumption|exfalso].
+      set (j := length ts) in *.
+      assert (Hcj : c = j - N + M).
+      { pose proof (Hpass j (Nat.le_refl _)) as H1; rewrite Htail in H1 by lia.
+        injection H1; lia. }
+      destruct (nth_error ts (pred j)) as [t|] eqn:El;
+        [|apply nth_error_None in El; unfold j in *; lia].
+      pose proof (Htail (pred j) ltac:(lia)) as H2; rewrite apply_unfold in H2.
+      cbn [v_label v_index] in H2; fold ts in H2; rewrite El in H2.
+      destruct t as [h l|p]; cbn [resolve] in H2; [|discriminate].
+      injection H2 as -> Hl.
+      pose proof (slot_bound m (mk_var None (pred j)) None l Hm) as Hb.
+      cbn [v_label v_index] in Hb; fold ts in Hb; specialize (Hb El); fold c in Hb, Hl.
+      assert (l = 0) as -> by lia.
+      pose proof (proj2 (proj1 (normal_iff m None) Hm)) as Hs; fold ts in Hs.
+      rewrite (strip_ok_spec _ _ _ Hk) in Hs.
+      destruct (Hs El) as [[hw k] [Hw Hne]]; cbn [v_label v_index] in Hw.
+      assert (Ha : Slots.apply m (mk_var hw k) = inl (mk_var None (c - 1))).
+      { rewrite apply_unfold; cbn [v_label v_index]; rewrite Hw; reflexivity. }
+      destruct (match hw with None => Nat.ltb k N | Some _ => true end) eqn:Hrv.
+      + pose proof (Hrel (mk_var hw k) Hrv) as H3; rewrite Ha in H3.
+        cbn in H3; apply Nat.ltb_lt in H3; lia.
+      + destruct hw as [x|]; [discriminate|]; apply Nat.ltb_ge in Hrv.
+        rewrite Htail in Ha by exact Hrv; injection Ha as Hk'.
+        apply Hne; f_equal; unfold j in *; lia. }
+    assert (Hceq : c + N = M + length ts).
+    { pose proof (Hpass N Hjn) as H1; rewrite Htail in H1 by lia.
+      injection H1; lia. }
+    apply andb_true_iff; split; [apply andb_true_iff; split|].
+    + apply Nat.leb_le, Hjn.
+    + apply Nat.eqb_eq, Hceq.
+    + apply (tall_targets _ m Hk); intros h i t E.
+      assert (Hv : wf_var N (mk_var h i) = true).
+      { destruct h as [x|]; cbn; [reflexivity|].
+        apply Nat.ltb_lt; fold ts in E.
+        assert (i < length ts) by (apply nth_error_Some; congruence); lia. }
+      pose proof (Hrel _ Hv) as H; rewrite apply_unfold in H; cbn [v_label v_index] in H.
+      rewrite E in H.
+      destruct t as [[x|] l|p]; cbn in *; [reflexivity|exact H|exact H].
+Qed.
+
+Theorem nscoped_spec M x :
+  nnormal x = true -> pnormal_raw (nraw x) = true ->
+  (nscoped M x = true <-> forall v, v_label v <> None -> rwf M (napply x v) = true).
+Proof.
+  destruct x as [m]; intros Hn Hp; cbn [nraw] in Hp; unfold napply; cbn [nraw nscoped].
+  pose proof (nnormal_normal _ Hn) as Hm; cbn [nraw] in Hm.
+  pose proof (normal_keys_ok m Hm) as Hk.
+  unfold pnormal_raw in Hp; apply andb_true_iff in Hp as [Hnil Href].
+  destruct (fst (find m None)) as [|t0 ts0] eqn:Ef; [|discriminate]; clear Hnil.
+  split.
+  - intros H; apply andb_true_iff in H as [Hc Ht]; apply Nat.leb_le in Hc.
+    rewrite (tall_targets _ m Hk) in Ht.
+    intros [h i] Hv; rewrite apply_unfold; cbn [v_label v_index] in *.
+    destruct (nth_error (fst (find m h)) i) as [t|] eqn:E.
+    + destruct t as [[x|] l|p]; cbn [resolve rwf wf_var v_label v_index].
+      * reflexivity.
+      * pose proof (slot_bound m (mk_var h i) None l Hm E).
+        apply Nat.ltb_lt; lia.
+      * apply (Ht h i _ E).
+    + destruct h as [x|]; [reflexivity|contradiction].
+  - intros H; apply andb_true_iff; split.
+    + apply Nat.leb_le.
+      destruct (Nat.le_gt_cases (count m None) M) as [|Hlt]; [assumption|exfalso].
+      destruct (Nat.eqb_spec (count m None) 0) as [|Hc0]; [lia|].
+      cbn [orb] in Href; apply existsb_exists in Href as [[[w h] [|n]] [Hin Hr]];
+        [|discriminate].
+      apply label_eqb_eq in Hr; subst h.
+      apply In_refs in Hin; [|exact Hm].
+      destruct w as [[x|] k]; cbn [v_label v_index] in Hin;
+        [|rewrite Ef, nth_error_nil in Hin; discriminate].
+      specialize (H (mk_var (Some x) k) ltac:(discriminate)).
+      rewrite apply_unfold in H; cbn [v_label v_index] in H; rewrite Hin in H.
+      cbn in H; apply Nat.ltb_lt in H; lia.
+    + apply (tall_targets _ m Hk); intros h i t E.
+      destruct t as [h' l|p]; [reflexivity|].
+      destruct h as [x|]; [|rewrite Ef, nth_error_nil in E; discriminate].
+      specialize (H (mk_var (Some x) i) ltac:(discriminate)).
+      rewrite apply_unfold in H; cbn [v_label v_index] in H; rewrite E in H; exact H.
+Qed.
+
+(** ** In terms of the user-facing API *)
+
+Definition result_wf (M : nat) (r : result T) : bool := rwf M (lower r).
+
+Definition pscoped (M : nat) (ρ : padj T) : bool := nscoped M (padj_n ρ).
+
+Definition scoped (N M : nat) (a : adjustment T) : bool := nscoped_top N M (nraw (adj_n a)).
+
+Lemma result_wf_apply M (a : adjustment T) v : result_wf M (apply a v) = rwf M (napply (adj_n a) v).
+Proof. unfold result_wf; rewrite lower_apply; reflexivity. Qed.
+
+Lemma apply_inl (a : adjustment T) v w : apply a v = inl w <-> napply (adj_n a) v = inl w.
+Proof.
+  rewrite <- lower_apply; split; [intros ->; reflexivity|].
+  intros H; apply lower_inj; exact H.
+Qed.
+
+Theorem pscoped_spec M ρ :
+  pscoped M ρ = true <-> (forall v, v_label v <> None -> result_wf M (papply ρ v) = true).
+Proof.
+  unfold pscoped, papply; rewrite nscoped_spec by (apply padj_nnormal || apply padj_pnormal).
+  split; intros H v Hv; specialize (H v Hv); rewrite ?result_wf_apply in *; exact H.
+Qed.
+
+Theorem scoped_spec N M a :
+  scoped N M a = true
+  <-> (forall i, N <= i -> apply a (mk_var None i) = inl (mk_var None (i - N + M)))
+      /\ (forall v, wf_var N v = true -> result_wf M (apply a v) = true).
+Proof.
+  unfold scoped; rewrite nscoped_top_spec by apply (nnormal_normal _ (adj_ok_true a)).
+  unfold scoped_sem; split; intros [H1 H2]; split.
+  - intros i Hi; apply apply_inl, H1, Hi.
+  - intros v Hv; rewrite result_wf_apply; apply H2, Hv.
+  - intros i Hi; apply apply_inl, H1, Hi.
+  - intros v Hv; change (rwf M (napply (adj_n a) v) = true); rewrite <- result_wf_apply; apply H2, Hv.
+Qed.
+
+Lemma result_wf_inl M w : result_wf M (inl w : result T) = wf_var M w.
+Proof. reflexivity. Qed.
+
+Lemma result_wf_inr M (u : T) ρ : result_wf M (inr (u, ρ)) = pscoped M ρ.
+Proof. reflexivity. Qed.
+
+End Scoped.

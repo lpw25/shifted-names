@@ -1867,4 +1867,24 @@ Proof.
   apply binds_in_push_inner in H as [H|H]; [apply binds_in_expand_n in H; exact H|discriminate].
 Qed.
 
+(** ** Conditions on every target *)
+
+Lemma tall_targets (Pt : target P -> bool) a :
+  keys_ok a = true ->
+  tall (fun e => List.forallb Pt (e_targets e)) a = true
+  <-> (forall h i t, nth_error (fst (find a h)) i = Some t -> Pt t = true).
+Proof.
+  intros Hk; rewrite tall_spec; split.
+  - intros H h i t E; unfold find in E.
+    destruct (get (label_key h) a) as [e|] eqn:He; cbn [fst] in E;
+      [|rewrite nth_error_nil in E; discriminate].
+    specialize (H _ _ He); rewrite List.forallb_forall in H.
+    apply H, (nth_error_In _ _ E).
+  - intros H k e He; apply List.forallb_forall; intros t Hin.
+    apply In_nth_error in Hin as [i Hi].
+    unfold keys_ok in Hk; rewrite forallb_spec in Hk.
+    pose proof (proj1 (Pos.eqb_eq _ _) (Hk _ _ He)) as Hkey.
+    apply (H (e_label e) i); unfold find; rewrite <- Hkey, He; exact Hi.
+Qed.
+
 End Slots.
