@@ -546,7 +546,7 @@ unindexed `radj` remains available for internal use).
   meaning (`scoped_spec`, `pscoped_spec`).
 - **Public types:** `var M`, `padj T M`, `target T M`, `adj T N M`,
   each a record with an SProp proof. Constructors: `identity`, `compose`,
-  `weaken`/`sweaken_free x`, `cons t`/`scons_free x t`,
+  `weaken`/`sweaken_free x`, `extend t`/`scons_free x t`,
   `lift`/`slift_free x`, `pcompose`. Laws are inherited from `Laws.v`.
 - **Closed adjustments:** `adj T 0 0` can be used at any scope with the same
   data (`at_scope`), and `lift (at_scope a) = at_scope a` (`lift_closed`).

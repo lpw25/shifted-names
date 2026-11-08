@@ -10,7 +10,7 @@
     - [identity : adj N N];
     - [compose : adj M K -> adj N M -> adj N K];
     - [weaken] adds an output bound variable, [weaken_free x] an output [x];
-    - [cons t] adds an input bound variable sent to [t], [cons_free x t] an
+    - [extend t] adds an input bound variable sent to [t], [extend_free x t] an
       input [x];
     - [lift] goes under a bound binder, [lift_free x] under an [x] one. *)
 
@@ -111,11 +111,11 @@ Definition weaken_free {N M} (x : label) (a : adj T N M) : adj T N M :=
   mk_adj (rpush_outer (Some x) (adj_raw a))
     (Is_true_s_intro (scoped_push_outer_some x N M _ (adj_scoped a))).
 
-Definition cons {N M} (t : target T M) (a : adj T N M) : adj T (S N) M :=
+Definition extend {N M} (t : target T M) (a : adj T N M) : adj T (S N) M :=
   mk_adj (rpush_inner None (to_target t) (adj_raw a))
     (Is_true_s_intro (scoped_push_inner_none N M _ _ (adj_scoped a) (to_target_wf t))).
 
-Definition cons_free {N M} (x : label) (t : target T M) (a : adj T N M) : adj T N M :=
+Definition extend_free {N M} (x : label) (t : target T M) (a : adj T N M) : adj T N M :=
   mk_adj (rpush_inner (Some x) (to_target t) (adj_raw a))
     (Is_true_s_intro (scoped_push_inner_some x N M _ _ (adj_scoped a) (to_target_wf t))).
 
@@ -167,14 +167,14 @@ Proof. apply adj_eq, rcompose_push_outer_l. Qed.
 
 (** An output entry is cancelled by an input entry with the same label. *)
 Theorem compose_cancel {N M K} (t : target T K) (a : adj T M K) (b : adj T N M) :
-  compose (cons t a) (weaken b) = compose a b.
+  compose (extend t a) (weaken b) = compose a b.
 Proof. apply adj_eq, rcompose_cancel. Qed.
 
 Theorem compose_cancel_free {N M K} x (t : target T K) (a : adj T M K) (b : adj T N M) :
-  compose (cons_free x t a) (weaken_free x b) = compose a b.
+  compose (extend_free x t a) (weaken_free x b) = compose a b.
 Proof. apply adj_eq, rcompose_cancel. Qed.
 
-Theorem lift_as_context {N M} (a : adj T N M) : lift a = cons (Rename bvar0) (weaken a).
+Theorem lift_as_context {N M} (a : adj T N M) : lift a = extend (Rename bvar0) (weaken a).
 Proof. reflexivity. Qed.
 
 (** ** Closed adjustments

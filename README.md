@@ -33,7 +33,7 @@ condition.
   - `Scoped.v`: scoping of adjustments (from `N` to `M` bound variables),
     checked on the data, with preservation by every constructor.
   - `Indexed.v`: the public indexed types `adj T N M`, `var`, `padj`,
-    `target`, their constructors (`identity`, `compose`, `weaken`, `cons`,
+    `target`, their constructors (`identity`, `compose`, `weaken`, `extend`,
     `lift`, ...) and laws.
 - `theories/Examples/`: a concrete λ-calculus built on the core (a test
   instance; the library itself does not fix a term language):

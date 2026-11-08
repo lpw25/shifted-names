@@ -7,7 +7,7 @@
     laws below.
 
     Terms:          [tfvar x i], [tbvar i], [tapp t1 t2], [tlam b], [tconst n].
-    Substitutions:  [identity], [cons t σ], [cons_free x t σ], [weaken σ],
+    Substitutions:  [identity], [extend t σ], [extend_free x t σ], [weaken σ],
                     [weaken_free x σ], [compose σ τ], [lift σ], and the
                     derived [open_sub x], [close_sub x], [inst u].
 
@@ -82,10 +82,10 @@ Definition closed_target {M} (u : term 0) : target L.cterm M := Bind (to_cterm u
 (** Opening the innermost bound variable as [x], closing [x] into a new
     innermost bound variable, and instantiating it with a closed term. *)
 Definition open_sub {N} (x : label) : sub (S N) N :=
-  cons (tvar_target (fvar x 0)) (weaken_free x identity).
+  extend (tvar_target (fvar x 0)) (weaken_free x identity).
 Definition close_sub {N} (x : label) : sub N (S N) :=
-  cons_free x (tvar_target bvar0) (weaken identity).
-Definition inst {N} (u : term 0) : sub (S N) N := cons (closed_target u) identity.
+  extend_free x (tvar_target bvar0) (weaken identity).
+Definition inst {N} (u : term 0) : sub (S N) N := extend (closed_target u) identity.
 
 (** ** Substitution on terms *)
 
@@ -113,35 +113,35 @@ Theorem subst_comp {N M K} (s : sub M K) (r : sub N M) t : ⟦s⟧ (⟦r⟧ t) =
 Proof. apply term_eq, L.rsubst_subst. Qed.
 
 Theorem subst_cons_var0 {N M} (w : var M) (s : sub N M) :
-  ⟦cons (tvar_target w) s⟧ tbvar0 = tvar w.
+  ⟦extend (tvar_target w) s⟧ tbvar0 = tvar w.
 Proof.
   apply term_eq; cbn [term_raw subst tbvar0 tvar var_raw bvar0].
-  rewrite L.rsubst_var; cbn [adj_raw cons to_target tvar_target].
+  rewrite L.rsubst_var; cbn [adj_raw extend to_target tvar_target].
   rewrite rapply_push_inner, rvar_eqb_refl; reflexivity.
 Qed.
 
 Theorem subst_cons_bind0 {N M} u (ρ : padj L.cterm M) (s : sub N M) :
-  ⟦cons (Bind u ρ) s⟧ tbvar0 = payload_term u ρ.
+  ⟦extend (Bind u ρ) s⟧ tbvar0 = payload_term u ρ.
 Proof.
   apply term_eq; cbn [term_raw subst tbvar0 tvar var_raw bvar0].
-  rewrite L.rsubst_var; cbn [adj_raw cons to_target].
+  rewrite L.rsubst_var; cbn [adj_raw extend to_target].
   rewrite rapply_push_inner, rvar_eqb_refl; reflexivity.
 Qed.
 
 Theorem subst_cons_S {N M} (t : target L.cterm M) (s : sub N M) i H :
-  ⟦cons t s⟧ (tbvar (S i) H) = ⟦s⟧ (tbvar i H).
+  ⟦extend t s⟧ (tbvar (S i) H) = ⟦s⟧ (tbvar i H).
 Proof.
   apply term_eq; cbn [term_raw subst tbvar tvar var_raw bvar].
-  rewrite !L.rsubst_var; cbn [adj_raw cons].
+  rewrite !L.rsubst_var; cbn [adj_raw extend].
   rewrite rapply_push_inner; unfold rvar_eqb, unshift_rvar; cbn.
   replace (i - 0) with i by lia; reflexivity.
 Qed.
 
 Theorem subst_cons_fvar {N M} (t : target L.cterm M) (s : sub N M) x i :
-  ⟦cons t s⟧ (tfvar x i) = ⟦s⟧ (tfvar x i).
+  ⟦extend t s⟧ (tfvar x i) = ⟦s⟧ (tfvar x i).
 Proof.
   apply term_eq; cbn [term_raw subst tfvar tvar var_raw fvar].
-  rewrite !L.rsubst_var; cbn [adj_raw cons].
+  rewrite !L.rsubst_var; cbn [adj_raw extend].
   rewrite rapply_push_inner; reflexivity.
 Qed.
 
