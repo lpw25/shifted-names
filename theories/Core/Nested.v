@@ -52,7 +52,7 @@ Fixpoint nnormal (a : nadj T) : bool :=
 
 (** ** Semantics *)
 
-Definition napply (a : nadj T) (v : var) : var + payload := apply (nraw a) v.
+Definition napply (a : nadj T) (v : rvar) : rvar + payload := apply (nraw a) v.
 
 (** ** Mapping over the payloads of the top level *)
 
@@ -232,7 +232,7 @@ Theorem napply_npush_outer h a v :
   normal (nraw a) = true ->
   napply (npush_outer h a) v
   = match napply a v with
-    | inl w => inl (shift_var (mk_var h 0) w)
+    | inl w => inl (shift_rvar (mk_rvar h 0) w)
     | inr p => inr (fst p, pshift h (snd p))
     end.
 Proof.
@@ -257,7 +257,7 @@ Theorem napply_pshift h ρ v :
   normal (nraw ρ) = true -> v_label v <> None ->
   napply (pshift h ρ) v
   = match napply ρ v with
-    | inl w => inl (shift_var (mk_var h 0) w)
+    | inl w => inl (shift_rvar (mk_rvar h 0) w)
     | inr p => inr (fst p, pshift h (snd p))
     end.
 Proof.
@@ -267,7 +267,7 @@ Proof.
     + rewrite apply_map_payloads.
       destruct (@apply payload m v) as [w|p] eqn:E; [|reflexivity].
       pose proof (count_none_zero_no_bound m v w Hm Hc Hv E) as Hw.
-      unfold shift_var; cbn [v_label v_index].
+      unfold shift_rvar; cbn [v_label v_index].
       destruct (v_label w) as [x|] eqn:Ew; [|contradiction]; cbn [label_eqb andb].
       reflexivity.
     + rewrite apply_push_outer by (apply normal_map_payloads, Hm).
@@ -365,13 +365,13 @@ Qed.
 
 (** ** Nested [push_inner] with a variable target *)
 
-Definition npush_inner_var (h : option label) (w : var) (a : nadj T) : nadj T :=
+Definition npush_inner_var (h : option label) (w : rvar) (a : nadj T) : nadj T :=
   match a with NAdj m => NAdj (push_inner_var h w m) end.
 
 Theorem napply_npush_inner_var h w a v :
   normal (nraw a) = true ->
   napply (npush_inner_var h w a) v
-  = if var_eqb v (mk_var h 0) then inl w else napply a (unshift_var (mk_var h 0) v).
+  = if rvar_eqb v (mk_rvar h 0) then inl w else napply a (unshift_rvar (mk_rvar h 0) v).
 Proof. destruct a as [m]; intros Hm; apply (push_inner_var_spec h w m Hm). Qed.
 
 Theorem nnormal_npush_inner_var h w a :
@@ -393,8 +393,8 @@ Definition npush_inner (h : option label) (t : target payload) (a : nadj T) : na
 Theorem napply_npush_inner h t a v :
   normal (nraw a) = true -> (forall h' n, t = Slot h' n -> n < count (nraw a) h') ->
   napply (npush_inner h t a) v
-  = if var_eqb v (mk_var h 0) then resolve (nraw a) t
-    else napply a (unshift_var (mk_var h 0) v).
+  = if rvar_eqb v (mk_rvar h 0) then resolve (nraw a) t
+    else napply a (unshift_rvar (mk_rvar h 0) v).
 Proof. destruct a as [m]; apply apply_push_inner. Qed.
 
 Theorem nnormal_npush_inner h t a :
@@ -529,7 +529,7 @@ Proof.
 Qed.
 
 Lemma pnormal_none (m : raw payload) i :
-  pnormal_raw m = true -> apply m (mk_var None i) = inl (mk_var None (i + count m None)).
+  pnormal_raw m = true -> apply m (mk_rvar None i) = inl (mk_rvar None (i + count m None)).
 Proof.
   unfold pnormal_raw, apply; cbn [v_label v_index].
   destruct (fst (find m None)) eqn:E; [|discriminate]; intros _.
@@ -554,7 +554,7 @@ Proof.
   apply In_refs in Hin; [|exact Hn1].
   assert (Hv : v_label v <> None).
   { intros Hl; rewrite Hl, Ef, nth_error_nil in Hin; discriminate. }
-  assert (Ha1 : napply ρ1 v = inl (mk_var None c)).
+  assert (Ha1 : napply ρ1 v = inl (mk_rvar None c)).
   { unfold napply, apply; rewrite Hin; cbn [resolve]; rewrite Ec; do 2 f_equal; lia. }
   rewrite Heq in Ha1 by exact Hv.
   pose proof (slot_image _ _ _ Hn2 Ha1) as H; cbn [v_label v_index] in H.
@@ -574,7 +574,7 @@ Proof.
   destruct ρ1 as [m1], ρ2 as [m2]; f_equal.
   apply canonical; [apply (nnormal_normal (NAdj m1)), Hn1|apply (nnormal_normal (NAdj m2)), Hn2|].
   intros [h i]; destruct h as [x|].
-  - apply (Heq (mk_var (Some x) i)); discriminate.
+  - apply (Heq (mk_rvar (Some x) i)); discriminate.
   - cbn [nraw] in *; rewrite !pnormal_none, Hc by assumption; reflexivity.
 Qed.
 

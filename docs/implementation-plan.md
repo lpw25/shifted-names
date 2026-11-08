@@ -506,29 +506,35 @@ constructor has no side condition and no junk case.
 (`ndepth`), with `compose_ext` (by canonicity) giving fuel independence.
 Proved: normality, semantics, identity laws, associativity.
 
-**User-facing API** (`Adjustment.v`): `adjustment T` and `padj T` are
+**Raw API** (`Adjustment.v`): `radj T` and `rpadj T` are
 records of nested data plus an SProp normality proof, so equality is Leibniz.
-`apply a v : var + (T * padj T)`; `extensionality`; `identity`, `compose`,
-`push_outer`, `push_inner h (Rename w | Bind u ρ)`, `lift`; payload
-operations `pcompose`, `pshift_p`.
+`rapply a v : var + (T * rpadj T)`; `rextensionality`; `ridentity`, `rcompose`,
+`rpush_outer`, `rpush_inner h (RRename w | RBind u ρ)`, `rlift`; payload
+operations `rpcompose`, `rpshift`.
 
 **Laws** (`Laws.v`) need no payload side conditions, because weakening a
-payload is composition with `shift` (`pshift_as_pcompose`), so
-`push_outer h a = compose (shift h) a`. Proved: entry commutation,
-`push_outer_inner`, `compose_push_inner_r`, `compose_push_outer_l`,
-`compose_cancel`, `lift_identity`, `lift_compose`, `lift_free`, and the
-primitives (`shift`, `rename1`, `open`, `close`, `swap`, `subst1`) as
+payload is composition with `rshift` (`rpshift_as_pcompose`), so
+`rpush_outer h a = rcompose (rshift h) a`. Proved: entry commutation,
+`rpush_outer_inner`, `rcompose_push_inner_r`, `rcompose_push_outer_l`,
+`rcompose_cancel`, `rlift_identity`, `rlift_compose`, `rlift_free`, and the
+primitives (`rshift`, `rrename1`, `ropen`, `rclose`, `rswap`, `rsubst1`) as
 context forms.
 
 **What terms must provide.** Nothing, for the core. Materialising a lookup
 result `(u, ρ)` (applying `ρ` to `u`) is the term layer's job: a term-level
-`act : adjustment T → term → term` recursing on terms and, at payloads, on
+`act : radj T → term → term` recursing on terms and, at payloads, on
 the strictly smaller nesting depth of `ρ`.
 
 ### D11. The indexed layer (Stage 8, as implemented)
 
 Implemented in `Scoped.v` and `Indexed.v`; indices are plain `nat` (the
-unindexed `adjustment` remains available for internal use).
+unindexed `radj` remains available for internal use).
+
+**Naming.** The indexed public forms take the plain names (`adj`, `var`,
+`padj`, `target`, `apply`, `identity`, `compose`, `lift`, ...); the raw
+(unindexed) forms carry an `r` prefix (`radj`, `rvar`, `rpadj`, `rtarget`,
+`rapply`, `ridentity`, `rcompose`, `rlift`, ..., and the raw laws, e.g.
+`rcompose_assoc`). The same holds in the λ example (`term N` vs `rterm`).
 
 - **Scoping is a property of adjustments alone**, because payload terms are
   closed. `scoped N M a`:
@@ -538,16 +544,16 @@ unindexed `adjustment` remains available for internal use).
     adjustment has at most `M` bound outputs, recursively (`pscoped M`).
   It is checked on the data (`nscoped_top`) and proved equivalent to that
   meaning (`scoped_spec`, `pscoped_spec`).
-- **Public types:** `svar M`, `spadj T M`, `starget T M`, `sadj T N M`,
-  each a record with an SProp proof. Constructors: `sid`, `scompose`,
-  `sweaken`/`sweaken_free x`, `scons t`/`scons_free x t`,
-  `slift`/`slift_free x`, `spcompose`. Laws are inherited from `Laws.v`.
-- **Closed adjustments:** `sadj T 0 0` can be used at any scope with the same
-  data (`at_scope`), and `slift (at_scope a) = at_scope a` (`lift_closed`).
+- **Public types:** `var M`, `padj T M`, `target T M`, `adj T N M`,
+  each a record with an SProp proof. Constructors: `identity`, `compose`,
+  `weaken`/`sweaken_free x`, `cons t`/`scons_free x t`,
+  `lift`/`slift_free x`, `pcompose`. Laws are inherited from `Laws.v`.
+- **Closed adjustments:** `adj T 0 0` can be used at any scope with the same
+  data (`at_scope`), and `lift (at_scope a) = at_scope a` (`lift_closed`).
 - **Payload terms must be closed.** Substituting a non-variable term that
   mentions bound variables is not supported; open binders first.
 - **Example:** `Examples/Lambda.v` builds `tm N` and
-  `subst : sub N M → tm N → tm M` (with `sub N M = sadj cterm N M`) and
+  `subst : sub N M → tm N → tm M` (with `sub N M = adj cterm N M`) and
   proves the constructor equations, identity, composition, instantiation
   and open/close laws.
 

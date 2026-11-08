@@ -43,7 +43,7 @@ Section Slots.
 
 Context {P : Type}.
 
-Implicit Types (a b : raw P) (h l : option label) (v w : var) (t : target P)
+Implicit Types (a b : raw P) (h l : option label) (v w : rvar) (t : target P)
   (ts : list (target P)).
 
 (** ** Semantics *)
@@ -56,16 +56,16 @@ Definition find a h : list (target P) * nat :=
 
 Definition count a h : nat := snd (find a h).
 
-Definition resolve a t : var + P :=
+Definition resolve a t : rvar + P :=
   match t with
-  | Slot h l => inl (mk_var h (count a h - S l))
+  | Slot h l => inl (mk_rvar h (count a h - S l))
   | Bind p => inr p
   end.
 
-Definition apply a v : var + P :=
+Definition apply a v : rvar + P :=
   match nth_error (fst (find a (v_label v))) (v_index v) with
   | Some t => resolve a t
-  | None => inl (mk_var (v_label v)
+  | None => inl (mk_rvar (v_label v)
                    (v_index v - length (fst (find a (v_label v))) + count a (v_label v)))
   end.
 
@@ -78,19 +78,19 @@ Definition is_slot h (n : nat) t : bool :=
   end.
 
 (** All slot references, with the input variable they belong to. *)
-Definition refs_of_entry (e : entry P) : list (var * option label * nat) :=
+Definition refs_of_entry (e : entry P) : list (rvar * option label * nat) :=
   let fix go (ts : list (target P)) (i : nat) :=
     match ts with
     | [] => []
-    | Slot h' n :: ts' => (mk_var (e_label e) i, h', n) :: go ts' (S i)
+    | Slot h' n :: ts' => (mk_rvar (e_label e) i, h', n) :: go ts' (S i)
     | Bind _ :: ts' => go ts' (S i)
     end in
   go (e_targets e) 0.
 
-Definition refs a : list (var * option label * nat) :=
+Definition refs a : list (rvar * option label * nat) :=
   flat_map (fun ke => refs_of_entry (snd ke)) (elements a).
 
-Definition slot_wf a (r : var * option label * nat) : bool :=
+Definition slot_wf a (r : rvar * option label * nat) : bool :=
   match r with (_, h, n) => Nat.ltb n (count a h) end.
 
 Definition last_target ts : option (target P) := nth_error ts (pred (length ts)).
@@ -104,7 +104,7 @@ Definition strip_ok a h ts : bool :=
         existsb (fun r => match r with
                           | (v, h'', 0) =>
                               label_eqb h'' h
-                              && negb (var_eqb v (mk_var h (pred (length ts))))
+                              && negb (rvar_eqb v (mk_rvar h (pred (length ts))))
                           | _ => false
                           end) (refs a)
       else true
@@ -146,7 +146,7 @@ Lemma go_refs (e : entry P) ts i v h' n :
     ((fix go (ts : list (target P)) (i : nat) :=
         match ts with
         | [] => []
-        | Slot h' n :: ts' => (mk_var (e_label e) i, h', n) :: go ts' (S i)
+        | Slot h' n :: ts' => (mk_rvar (e_label e) i, h', n) :: go ts' (S i)
         | Bind _ :: ts' => go ts' (S i)
         end) ts i)
   <-> v_label v = e_label e /\ i <= v_index v /\ nth_error ts (v_index v - i) = Some (Slot h' n).
@@ -209,7 +209,7 @@ Definition jlen a h : nat := length (fst (find a h)).
     one preimage, the pass-through input. *)
 Theorem tail_passthrough a h m :
   normal a = true -> count a h <= m ->
-  forall v, apply a v = inl (mk_var h m) <-> v = mk_var h (m + jlen a h - count a h).
+  forall v, apply a v = inl (mk_rvar h m) <-> v = mk_rvar h (m + jlen a h - count a h).
 Proof.
   intros Ha Hm v; unfold apply, jlen; split.
   - destruct (nth_error (fst (find a (v_label v))) (v_index v)) as [t|] eqn:E.
@@ -224,7 +224,7 @@ Proof.
 Qed.
 
 Lemma resolve_slot_inv a t h k :
-  resolve a t = inl (mk_var h k) ->
+  resolve a t = inl (mk_rvar h k) ->
   exists n, t = Slot h n /\ k = count a h - S n.
 Proof.
   destruct t as [h' n|p]; cbn [resolve]; [|discriminate].
@@ -236,8 +236,8 @@ Qed.
     something other than a lone last target. *)
 Theorem innermost_slot_not_passthrough a h :
   normal a = true -> 0 < count a h ->
-  ~ (forall v, apply a v = inl (mk_var h (count a h - 1))
-               <-> v = mk_var h (count a h - 1 + jlen a h - count a h)).
+  ~ (forall v, apply a v = inl (mk_rvar h (count a h - 1))
+               <-> v = mk_rvar h (count a h - 1 + jlen a h - count a h)).
 Proof.
   intros Ha Hk H.
   unfold jlen in H.
@@ -246,7 +246,7 @@ Proof.
   destruct ts as [|t0 ts0] eqn:Ets.
   - (* no input entries: the candidate preimage passes through elsewhere *)
     cbn [length] in H; replace (k - 1 + 0 - k) with 0 in H by lia.
-    specialize (proj2 (H (mk_var h 0)) eq_refl) as Happ.
+    specialize (proj2 (H (mk_rvar h 0)) eq_refl) as Happ.
     unfold apply in Happ; cbn [v_label v_index] in Happ.
     rewrite Ef in Happ; cbn [fst nth_error length] in Happ.
     unfold count in Happ; rewrite Ef in Happ; cbn in Happ.
@@ -255,14 +255,14 @@ Proof.
     set (jj := length ts) in *.
     assert (Hj : 0 < jj) by (subst jj ts; cbn; lia).
     replace (k - 1 + jj - k) with (pred jj) in H by lia.
-    specialize (proj2 (H (mk_var h (pred jj))) eq_refl) as Happ.
+    specialize (proj2 (H (mk_rvar h (pred jj))) eq_refl) as Happ.
     unfold apply in Happ; cbn [v_label v_index] in Happ; rewrite Ef in Happ; cbn [fst] in Happ.
     destruct (nth_error ts (pred jj)) as [t|] eqn:Et;
       [|apply nth_error_None in Et; subst jj; lia].
     apply resolve_slot_inv in Happ as [n [-> Hn]].
     unfold count in Hn; rewrite Ef in Hn; cbn [snd] in Hn.
     assert (Hb : n < k).
-    { pose proof (slot_bound a (mk_var h (pred jj)) h n Ha) as Hsb.
+    { pose proof (slot_bound a (mk_rvar h (pred jj)) h n Ha) as Hsb.
       cbn [v_label v_index] in Hsb; rewrite Ef in Hsb; unfold count in Hsb.
       rewrite Ef in Hsb; apply Hsb, Et. }
     assert (n = 0) as -> by lia.
@@ -281,10 +281,10 @@ Proof.
     rewrite andb_true_iff, negb_true_iff in Hr; destruct Hr as [Hh'' Hv'].
     apply label_eqb_eq in Hh''; subst h''.
     apply (In_refs a v' h 0 Ha) in Hin.
-    assert (Happ' : apply a v' = inl (mk_var h (k - 1))).
+    assert (Happ' : apply a v' = inl (mk_rvar h (k - 1))).
     { unfold apply; rewrite Hin; cbn [resolve].
       unfold count, find; rewrite Ee; cbn [snd]; rewrite Hk'; do 2 f_equal; lia. }
-    apply H in Happ'; rewrite Happ', var_eqb_refl in Hv'; discriminate.
+    apply H in Happ'; rewrite Happ', rvar_eqb_refl in Hv'; discriminate.
 Qed.
 
 Lemma resolve_inj a b t1 t2 :
@@ -331,11 +331,11 @@ Proof.
     unfold count, jlen in Hk, Hj; rewrite Ea, Eb in Hk, Hj; cbn in Hk, Hj; subst kb.
     f_equal; apply nth_error_ext; intro i.
     destruct (nth_error tsa i) as [ta|] eqn:Ta, (nth_error tsb i) as [tb|] eqn:Tb.
-    - f_equal; specialize (Heq (mk_var h i)); unfold apply in Heq; cbn [v_label v_index] in Heq.
+    - f_equal; specialize (Heq (mk_rvar h i)); unfold apply in Heq; cbn [v_label v_index] in Heq.
       rewrite Ea, Eb in Heq; cbn [fst] in Heq; rewrite Ta, Tb in Heq.
       apply (resolve_inj a b ta tb Ha Hb Hcnt); [| |exact Heq].
-      + intros h' n ->; apply (slot_bound a (mk_var h i) h' n Ha); cbn; rewrite Ea; exact Ta.
-      + intros h' n ->; apply (slot_bound b (mk_var h i) h' n Hb); cbn; rewrite Eb; exact Tb.
+      + intros h' n ->; apply (slot_bound a (mk_rvar h i) h' n Ha); cbn; rewrite Ea; exact Ta.
+      + intros h' n ->; apply (slot_bound b (mk_rvar h i) h' n Hb); cbn; rewrite Eb; exact Tb.
     - apply nth_error_None in Tb; assert (i < length tsa) by (apply nth_error_Some; congruence); lia.
     - apply nth_error_None in Ta; assert (i < length tsb) by (apply nth_error_Some; congruence); lia.
     - reflexivity. }
@@ -420,7 +420,7 @@ Theorem apply_push_outer h a v :
   normal a = true ->
   apply (push_outer h a) v
   = match apply a v with
-    | inl w => inl (shift_var (mk_var h 0) w)
+    | inl w => inl (shift_rvar (mk_rvar h 0) w)
     | inr p => inr p
     end.
 Proof.
@@ -431,23 +431,23 @@ Proof.
              nth_error (fst (find a hv)) i = Some (Slot h' n) ->
              resolve (push_outer h a) (Slot h' n)
              = match resolve a (Slot h' n) with
-               | inl w => inl (shift_var (mk_var h 0) w)
+               | inl w => inl (shift_rvar (mk_rvar h 0) w)
                | inr p => inr p
                end).
   { intros hv' i' h' n Et; cbn [resolve]; rewrite count_push_outer by exact Ha.
-    pose proof (slot_bound a (mk_var hv' i') h' n Ha Et) as Hb.
-    unfold shift_var; cbn [v_label v_index]; rewrite (label_eqb_sym h h').
+    pose proof (slot_bound a (mk_rvar hv' i') h' n Ha Et) as Hb.
+    unfold shift_rvar; cbn [v_label v_index]; rewrite (label_eqb_sym h h').
     destruct (label_eqb_spec h' h) as [->|]; cbn [andb Nat.leb]; [do 2 f_equal; lia|reflexivity]. }
   destruct (label_eqb_spec hv h) as [->|Hne]; cbn [fst snd].
   - destruct (nth_error (fst (find a h)) i) as [[h' n|p]|] eqn:Et.
     + apply (Hslot h i h' n Et).
     + reflexivity.
-    + unfold shift_var; cbn [v_label v_index]; rewrite label_eqb_refl; cbn [andb Nat.leb].
+    + unfold shift_rvar; cbn [v_label v_index]; rewrite label_eqb_refl; cbn [andb Nat.leb].
       apply nth_error_None in Et; do 2 f_equal; lia.
   - destruct (nth_error (fst (find a hv)) i) as [[h' n|p]|] eqn:Et.
     + apply (Hslot hv i h' n Et).
     + reflexivity.
-    + unfold shift_var; cbn [v_label v_index].
+    + unfold shift_rvar; cbn [v_label v_index].
       rewrite (proj2 (label_eqb_neq h hv)) by congruence; reflexivity.
 Qed.
 
@@ -563,7 +563,7 @@ Qed.
 Definition strippable a h : Prop :=
   last_target (fst (find a h)) = Some (Slot h 0)
   /\ (forall v, nth_error (fst (find a (v_label v))) (v_index v) = Some (Slot h 0) ->
-                v = mk_var h (pred (length (fst (find a h)))))
+                v = mk_rvar h (pred (length (fst (find a h)))))
   /\ (forall v h' n, nth_error (fst (find a (v_label v))) (v_index v) = Some (Slot h' n) ->
                      n < count a h').
 
@@ -591,7 +591,7 @@ Proof.
   unfold last_target in Hlast.
   set (ts := fst (find a h)) in *; set (k := count a h).
   assert (Hk : 0 < k).
-  { pose proof (Hwf (mk_var h (pred (length ts))) h 0) as Hw; cbn in Hw.
+  { pose proof (Hwf (mk_rvar h (pred (length ts))) h 0) as Hw; cbn in Hw.
     apply Hw, Hlast. }
   assert (Hlen : 0 < length ts) by (destruct ts; [discriminate|cbn; lia]).
   unfold apply; destruct v as [hv i]; cbn [v_label v_index].
@@ -603,7 +603,7 @@ Proof.
   (* resolution of a renumbered slot reference that is not the stripped one *)
   assert (Hr : forall w h' n,
              nth_error (fst (find a (v_label w))) (v_index w) = Some (Slot h' n) ->
-             w <> mk_var h (pred (length ts)) ->
+             w <> mk_rvar h (pred (length ts)) ->
              resolve (strip_once h a) (renumber_target h (Slot h' n))
              = resolve a (Slot h' n)).
   { intros w h' n Hw Hne; cbn [renumber_target].
@@ -618,7 +618,7 @@ Proof.
     + rewrite removelast_nth by exact Hi.
       destruct (nth_error ts i) as [[h' n|p]|] eqn:E; cbn [option_map];
         [| reflexivity | apply nth_error_None in E; lia].
-      apply (Hr (mk_var h i) h' n E); intro H; injection H; lia.
+      apply (Hr (mk_rvar h i) h' n E); intro H; injection H; lia.
     + rewrite (proj2 (nth_error_None (removelast ts) i)) by (rewrite length_removelast; lia).
       destruct (Nat.eq_dec i (pred (length ts))) as [->|Hi'].
       * rewrite Hlast; cbn [resolve option_map]; fold k; do 2 f_equal; lia.
@@ -626,7 +626,7 @@ Proof.
   - rewrite nth_error_map, length_map.
     destruct (nth_error (fst (find a hv)) i) as [[h' n|p]|] eqn:E; cbn [option_map];
       [| reflexivity | reflexivity].
-    apply (Hr (mk_var hv i) h' n E); intro H; injection H; congruence.
+    apply (Hr (mk_rvar hv i) h' n E); intro H; injection H; congruence.
 Qed.
 
 (** ** Normal forms in terms of [find] *)
@@ -663,7 +663,7 @@ Qed.
 
 Definition other_ref a h (ts : list (target P)) : Prop :=
   exists v, nth_error (fst (find a (v_label v))) (v_index v) = Some (Slot h 0)
-            /\ v <> mk_var h (pred (length ts)).
+            /\ v <> mk_rvar h (pred (length ts)).
 
 Lemma strip_ok_spec a h ts :
   keys_ok a = true ->
@@ -680,11 +680,11 @@ Proof.
       rewrite andb_true_iff, negb_true_iff in Hr; destruct Hr as [Hh Hv].
       apply label_eqb_eq in Hh; subst h''.
       exists v; split; [apply (In_refs_keys a v h 0 Ha), Hin|].
-      intro Heq; rewrite Heq, var_eqb_refl in Hv; discriminate.
+      intro Heq; rewrite Heq, rvar_eqb_refl in Hv; discriminate.
     + intros H; destruct (H eq_refl) as [v [Hn Hv]].
       exists (v, h, 0); split; [apply (In_refs_keys a v h 0 Ha), Hn|].
       rewrite label_eqb_refl; cbn [andb].
-      destruct (var_eqb_spec v (mk_var h (pred (length ts)))); [contradiction|reflexivity].
+      destruct (rvar_eqb_spec v (mk_rvar h (pred (length ts)))); [contradiction|reflexivity].
   - split; [intros _ H; injection H; congruence|reflexivity].
 Qed.
 
@@ -761,7 +761,7 @@ Proof.
     try (exfalso; apply Hn; intro H; discriminate).
   destruct (label_eq_dec h' h) as [->|Hne]; [|exfalso; apply Hn; intro H; injection H; congruence].
   repeat split; [exact El| |exact Hwf].
-  intros v Hv; destruct (var_eq_dec v (mk_var h (pred (length (fst (find a h)))))) as [E|E];
+  intros v Hv; destruct (rvar_eq_dec v (mk_rvar h (pred (length (fst (find a h)))))) as [E|E];
     [exact E|].
   exfalso; apply Hn; intros _; exists v; auto.
 Qed.
@@ -865,10 +865,10 @@ Proof. destruct t'; cbn [resolve]; rewrite ?count_cons_entry; reflexivity. Qed.
 
 Theorem apply_cons_entry h t a v :
   apply (cons_entry h t a) v
-  = if var_eqb v (mk_var h 0) then resolve a t else apply a (unshift_var (mk_var h 0) v).
+  = if rvar_eqb v (mk_rvar h 0) then resolve a t else apply a (unshift_rvar (mk_rvar h 0) v).
 Proof.
   unfold apply; rewrite !find_cons_entry, count_cons_entry.
-  destruct v as [hv i]; unfold var_eqb, unshift_var; cbn [v_label v_index].
+  destruct v as [hv i]; unfold rvar_eqb, unshift_rvar; cbn [v_label v_index].
   rewrite (label_eqb_sym h hv).
   destruct (label_eqb_spec hv h) as [->|Hne]; cbn [andb fst snd].
   - destruct i as [|i]; cbn [Nat.eqb Nat.ltb Nat.leb nth_error]; [apply resolve_cons_entry|].
@@ -898,8 +898,8 @@ Proof.
     destruct v as [hv i]; cbn [v_label v_index] in Hn.
     destruct (label_eqb_spec hv h) as [->|]; cbn [fst] in Hn.
     + destruct i as [|i]; cbn [nth_error] in Hn; [injection Hn as ->; apply Ht; reflexivity|].
-      apply (Hwf (mk_var h i)), Hn.
-    + apply (Hwf (mk_var hv i)), Hn.
+      apply (Hwf (mk_rvar h i)), Hn.
+    + apply (Hwf (mk_rvar hv i)), Hn.
   - intros h' Hne.
     apply (strip_ok_spec _ _ _ Hk'); intros Hl.
     pose proof (Hs h' Hne) as Hs'; rewrite (strip_ok_spec _ _ _ Hk) in Hs'.
@@ -908,7 +908,7 @@ Proof.
     rewrite Ef in Hl |- *.
     destruct (Hs' Hl) as [w [Hw Hwne]].
     destruct (label_eq_dec (v_label w) h) as [Hwl|Hwl].
-    + exists (mk_var h (S (v_index w))); split.
+    + exists (mk_rvar h (S (v_index w))); split.
       * rewrite find_cons_entry; cbn [v_label v_index]; rewrite label_eqb_refl; cbn [fst nth_error].
         rewrite <- Hwl; exact Hw.
       * intro E; injection E as E1 _; congruence.
@@ -980,7 +980,7 @@ Qed.
 Theorem apply_push_inner h t a v :
   normal a = true -> (forall h' n, t = Slot h' n -> n < count a h') ->
   apply (push_inner h t a) v
-  = if var_eqb v (mk_var h 0) then resolve a t else apply a (unshift_var (mk_var h 0) v).
+  = if rvar_eqb v (mk_rvar h 0) then resolve a t else apply a (unshift_rvar (mk_rvar h 0) v).
 Proof.
   intros Ha Ht; unfold push_inner.
   assert (Hlen : jlen (cons_entry h t a) h < S (S (jlen a h)))
@@ -1004,14 +1004,14 @@ Variable fp : P -> P.
 Definition ext_count a b h : nat := count a h + (count b h - jlen a h).
 Definition res_len a b h : nat := jlen b h + (jlen a h - count b h).
 
-Definition encode_res a b (r : var + P) : target P :=
+Definition encode_res a b (r : rvar + P) : target P :=
   match r with
   | inl u => Slot (v_label u) (ext_count a b (v_label u) - S (v_index u))
   | inr p => Bind p
   end.
 
 (** Where [b] sends the inner [h₍ᵢ₎]. *)
-Definition b_image b h (i : nat) : var + P := apply b (mk_var h i).
+Definition b_image b h (i : nat) : rvar + P := apply b (mk_rvar h i).
 
 Definition comp_target a b h (i : nat) : target P :=
   match b_image b h i with
@@ -1095,10 +1095,10 @@ Proof.
   assert (Hcount : forall h, count (compose_pre a b) h = ext_count a b h)
     by (intro h; unfold count; rewrite find_compose_pre by assumption; reflexivity).
   destruct v as [h i].
-  assert (Hc : apply (compose_pre a b) (mk_var h i)
+  assert (Hc : apply (compose_pre a b) (mk_rvar h i)
                = if Nat.ltb i (res_len a b h)
                  then resolve (compose_pre a b) (comp_target a b h i)
-                 else inl (mk_var h (i - res_len a b h + ext_count a b h))).
+                 else inl (mk_rvar h (i - res_len a b h + ext_count a b h))).
   { unfold apply at 1; cbn [v_label v_index].
     rewrite find_compose_pre, Hcount by assumption; cbn [fst snd].
     rewrite nth_error_map, length_map, length_seq, nth_error_seq.
@@ -1106,14 +1106,14 @@ Proof.
   rewrite Hc.
   destruct (Nat.ltb_spec i (res_len a b h)) as [Hi|Hi].
   - unfold comp_target, b_image.
-    destruct (apply b (mk_var h i)) as [w|p] eqn:Ebw; [|reflexivity].
+    destruct (apply b (mk_rvar h i)) as [w|p] eqn:Ebw; [|reflexivity].
     (* where b sends the inner h_i is within a's reach *)
     assert (Hw : v_index w < Nat.max (jlen a (v_label w)) (count b (v_label w))).
     { unfold apply in Ebw; cbn [v_label v_index] in Ebw.
       destruct (nth_error (fst (find b h)) i) as [t|] eqn:Et.
       - destruct t as [h' n|p]; cbn [resolve] in Ebw; [|discriminate].
         injection Ebw as <-; cbn [v_label v_index].
-        pose proof (slot_bound b (mk_var h i) h' n Hb Et); lia.
+        pose proof (slot_bound b (mk_rvar h i) h' n Hb Et); lia.
       - injection Ebw as <-; cbn [v_label v_index].
         apply nth_error_None in Et; unfold res_len, jlen, count in *; lia. }
     destruct (apply a w) as [u|p] eqn:Eaw; [|reflexivity].
@@ -1131,13 +1131,13 @@ Lemma comp_target_slot_bound a b h i h' n :
   comp_target a b h i = Slot h' n -> n < ext_count a b h'.
 Proof.
   intros Ha Hb Hi; unfold comp_target, b_image.
-  destruct (apply b (mk_var h i)) as [w|p] eqn:Ebw; [|discriminate].
+  destruct (apply b (mk_rvar h i)) as [w|p] eqn:Ebw; [|discriminate].
   assert (Hw : v_index w < Nat.max (jlen a (v_label w)) (count b (v_label w))).
   { unfold apply in Ebw; cbn [v_label v_index] in Ebw.
     destruct (nth_error (fst (find b h)) i) as [t|] eqn:Et.
     - destruct t as [h'' n'|p]; cbn [resolve] in Ebw; [|discriminate].
       injection Ebw as <-; cbn [v_label v_index].
-      pose proof (slot_bound b (mk_var h i) h'' n' Hb Et); lia.
+      pose proof (slot_bound b (mk_rvar h i) h'' n' Hb Et); lia.
     - injection Ebw as <-; cbn [v_label v_index].
       apply nth_error_None in Et; unfold res_len, jlen, count in *; lia. }
   destruct (apply a w) as [u|p] eqn:Eaw; cbn [encode_res]; [|discriminate].
@@ -1536,7 +1536,7 @@ Proof.
   apply binds_in_keys in H as [h Hin]; [|apply keys_ok_compose_pre; assumption].
   rewrite find_compose_pre in Hin by assumption; cbn [fst] in Hin.
   apply in_map_iff in Hin as [i [Ht _]]; unfold comp_target, b_image in Ht.
-  destruct (apply b (mk_var h i)) as [w|p'] eqn:Eb.
+  destruct (apply b (mk_rvar h i)) as [w|p'] eqn:Eb.
   - destruct (apply a w) as [u|p''] eqn:Ea; cbn [encode_res] in Ht; [discriminate|].
     injection Ht as ->; left; apply (binds_in_apply a w), Ea.
   - injection Ht as <-; right; exists p'; split; [apply (binds_in_apply b _ _ Eb)|reflexivity].
@@ -1670,7 +1670,7 @@ Proof.
         destruct (nth_error (fst (find a h)) i) as [t0|] eqn:E; [|discriminate].
         injection Hn as Hn.
         destruct t0 as [h0 n0|p]; cbn [up_target] in Hn; [|discriminate].
-        pose proof (Hwf (mk_var h i) h0 n0 E) as Hw.
+        pose proof (Hwf (mk_rvar h i) h0 n0 E) as Hw.
         destruct (label_eqb_spec h0 h) as [->|Hh]; injection Hn as <- <-.
         -- rewrite label_eqb_refl; lia.
         -- rewrite (proj2 (label_eqb_neq h0 h) Hh); exact Hw.
@@ -1683,7 +1683,7 @@ Proof.
       destruct (nth_error (fst (find a hv)) i) as [t0|] eqn:E; [|discriminate].
       injection Hn as Hn.
       destruct t0 as [h0 n0|p]; cbn [up_target] in Hn; [|discriminate].
-      pose proof (Hwf (mk_var hv i) h0 n0 E) as Hw.
+      pose proof (Hwf (mk_rvar hv i) h0 n0 E) as Hw.
       destruct (label_eqb_spec h0 h) as [->|Hh]; injection Hn as <- <-.
       * rewrite label_eqb_refl; lia.
       * rewrite (proj2 (label_eqb_neq h0 h) Hh); exact Hw.
@@ -1752,8 +1752,8 @@ Proof.
     destruct v as [hv i]; cbn [v_label v_index] in Hn.
     destruct (label_eqb_spec hv h) as [->|]; cbn [fst] in Hn.
     + destruct i as [|i]; cbn [nth_error] in Hn; [injection Hn as ->; apply Ht; reflexivity|].
-      apply (Hwf (mk_var h i)), Hn.
-    + apply (Hwf (mk_var hv i)), Hn.
+      apply (Hwf (mk_rvar h i)), Hn.
+    + apply (Hwf (mk_rvar hv i)), Hn.
   - intros h' Hn'.
     assert (HQ : ~ Q h') by (intro; apply Hn'; left; assumption).
     assert (Hne : h' <> h) by (intro; apply Hn'; right; assumption).
@@ -1764,7 +1764,7 @@ Proof.
     rewrite Ef in Hl |- *.
     destruct (Hs' Hl) as [w [Hw Hwne]].
     destruct (label_eq_dec (v_label w) h) as [Hwl|Hwl].
-    + exists (mk_var h (S (v_index w))); split.
+    + exists (mk_rvar h (S (v_index w))); split.
       * rewrite find_cons_entry; cbn [v_label v_index]; rewrite label_eqb_refl; cbn [fst nth_error].
         rewrite <- Hwl; exact Hw.
       * intro E; injection E as E1 _; congruence.
@@ -1786,14 +1786,14 @@ Lemma strip_ok_cons_ref h h' a :
   strip_ok (cons_entry h (Slot h' 0) a) h' (fst (find (cons_entry h (Slot h' 0) a) h')) = true.
 Proof.
   intros Hk Hne; apply strip_ok_spec; [apply keys_ok_set_entry, Hk|].
-  intros _; exists (mk_var h 0); split.
+  intros _; exists (mk_rvar h 0); split.
   - rewrite find_cons_entry; cbn [v_label v_index]; rewrite label_eqb_refl; reflexivity.
   - intro E; injection E as E _; congruence.
 Qed.
 
 (** [push_inner_var h w a] sends the innermost [h] to the variable [w] and
     passes everything else to [a]; [w] may be any variable. *)
-Definition push_inner_var h (w : var) a : raw P :=
+Definition push_inner_var h (w : rvar) a : raw P :=
   let a' := expand_n (S (v_index w) - count a (v_label w)) (v_label w) a in
   push_inner h (Slot (v_label w) (count a' (v_label w) - S (v_index w))) a'.
 
@@ -1801,8 +1801,8 @@ Theorem push_inner_var_spec h w a :
   normal a = true ->
   normal (push_inner_var h w a) = true
   /\ (forall v, apply (push_inner_var h w a) v
-                = if var_eqb v (mk_var h 0) then inl w
-                  else apply a (unshift_var (mk_var h 0) v)).
+                = if rvar_eqb v (mk_rvar h 0) then inl w
+                  else apply a (unshift_rvar (mk_rvar h 0) v)).
 Proof.
   intros Ha; destruct w as [h' i]; unfold push_inner_var; cbn [v_label v_index].
   set (d := S i - count a h'); set (a' := expand_n d h' a).
@@ -1835,7 +1835,7 @@ Proof.
   split.
   - apply (normal_of_pre_normal _ _ Hn); intros l [H1 H2]; contradiction.
   - intros v; unfold push_inner; rewrite Happ, apply_cons_entry.
-    destruct (var_eqb v (mk_var h 0)); [|apply apply_expand_n].
+    destruct (rvar_eqb v (mk_rvar h 0)); [|apply apply_expand_n].
     unfold t; cbn [resolve]; do 2 f_equal; lia.
 Qed.
 

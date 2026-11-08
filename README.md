@@ -23,19 +23,22 @@ condition.
     the payload type.
   - `Nested.v`: payloads `(u, ρ)` of a closed term and a lazily applied
     adjustment; nested composition, payload canonicity, depth bounds.
-  - `Adjustment.v`: the user-facing records (SProp normality, so equality is
-    Leibniz), `apply`, extensionality and the context-form constructors
-    (`identity`, `compose`, `push_inner`, `push_outer`, `lift`).
-  - `Laws.v`: the equational laws of the constructors and the primitive
-    adjustments (`shift`, `rename1`, `open`, `close`, `swap`, `subst1`).
+  - `Adjustment.v`: raw (unindexed) adjustments `radj T`, records with
+    SProp normality so equality is Leibniz: `rapply`, `rextensionality` and
+    the context-form constructors (`ridentity`, `rcompose`, `rpush_inner`,
+    `rpush_outer`, `rlift`).  Raw names carry an `r` prefix; the indexed
+    layer takes the plain names.
+  - `Laws.v`: the equational laws of the raw constructors and the primitive
+    adjustments (`rshift`, `rrename1`, `ropen`, `rclose`, `rswap`, `rsubst1`).
   - `Scoped.v`: scoping of adjustments (from `N` to `M` bound variables),
     checked on the data, with preservation by every constructor.
-  - `Indexed.v`: the public scoped types `sadj T N M`, `svar`, `spadj`,
-    `starget`, their constructors and laws.
+  - `Indexed.v`: the public indexed types `adj T N M`, `var`, `padj`,
+    `target`, their constructors (`identity`, `compose`, `weaken`, `cons`,
+    `lift`, ...) and laws.
 - `theories/Examples/`: a concrete λ-calculus built on the core (a test
   instance; the library itself does not fix a term language):
   `LambdaCore.v` (unindexed terms and the substitution laws) and `Lambda.v`
-  (scoped terms `tm N` and substitutions on the public layer).
+  (indexed terms `term N` and substitutions on the public layer).
 - `theories/Tests/`: executable tests.
 - `src/`, `examples/`, `TyDE-2019/`: the original 2019 development, kept for
   reference.

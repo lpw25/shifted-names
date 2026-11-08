@@ -24,7 +24,7 @@ Context {T : Type}.
 Local Notation payload := (T * nadj T)%type.
 
 (** A variable is in scope [M] if it is free, or bound below [M]. *)
-Definition wf_var (M : nat) (v : var) : bool :=
+Definition wf_var (M : nat) (v : rvar) : bool :=
   match v_label v with
   | None => Nat.ltb (v_index v) M
   | Some _ => true
@@ -42,7 +42,7 @@ Fixpoint nscoped (M : nat) (x : nadj T) : bool :=
                                                end) (e_targets e)) m
   end.
 
-Definition rwf (M : nat) (r : var + payload) : bool :=
+Definition rwf (M : nat) (r : rvar + payload) : bool :=
   match r with
   | inl w => wf_var M w
   | inr p => nscoped M (snd p)
@@ -61,14 +61,14 @@ Definition nscoped_top (N M : nat) (m : raw payload) : bool :=
   && tall (fun e => List.forallb (target_wf M (count m None)) (e_targets e)) m.
 
 Definition scoped_sem (N M : nat) (m : raw payload) : Prop :=
-  (forall i, N <= i -> Slots.apply m (mk_var None i) = inl (mk_var None (i - N + M)))
+  (forall i, N <= i -> Slots.apply m (mk_rvar None i) = inl (mk_rvar None (i - N + M)))
   /\ (forall v, wf_var N v = true -> rwf M (Slots.apply m v) = true).
 
 Lemma apply_unfold (m : raw payload) v :
   Slots.apply m v
   = match nth_error (fst (find m (v_label v))) (v_index v) with
     | Some t => resolve m t
-    | None => inl (mk_var (v_label v)
+    | None => inl (mk_rvar (v_label v)
                      (v_index v - length (fst (find m (v_label v))) + count m (v_label v)))
     end.
 Proof. reflexivity. Qed.
@@ -95,7 +95,7 @@ Proof.
         apply Nat.ltb_lt in Hv; cbn [v_index] in Hv; apply Nat.ltb_lt; lia.
   - intros [Htail Hrel].
     assert (Hpass : forall i, length ts <= i ->
-                    Slots.apply m (mk_var None i) = inl (mk_var None (i - length ts + c))).
+                    Slots.apply m (mk_rvar None i) = inl (mk_rvar None (i - length ts + c))).
     { intros i Hi; rewrite apply_unfold; cbn [v_label v_index]; fold ts c.
       rewrite (proj2 (nth_error_None ts i)) by exact Hi; reflexivity. }
     assert (Hjn : length ts <= N).
@@ -110,16 +110,16 @@ Proof.
       cbn [v_label v_index] in H2; fold ts in H2; rewrite El in H2.
       destruct t as [h l|p]; cbn [resolve] in H2; [|discriminate].
       injection H2 as -> Hl.
-      pose proof (slot_bound m (mk_var None (pred j)) None l Hm) as Hb.
+      pose proof (slot_bound m (mk_rvar None (pred j)) None l Hm) as Hb.
       cbn [v_label v_index] in Hb; fold ts in Hb; specialize (Hb El); fold c in Hb, Hl.
       assert (l = 0) as -> by lia.
       pose proof (proj2 (proj1 (normal_iff m None) Hm)) as Hs; fold ts in Hs.
       rewrite (strip_ok_spec _ _ _ Hk) in Hs.
       destruct (Hs El) as [[hw k] [Hw Hne]]; cbn [v_label v_index] in Hw.
-      assert (Ha : Slots.apply m (mk_var hw k) = inl (mk_var None (c - 1))).
+      assert (Ha : Slots.apply m (mk_rvar hw k) = inl (mk_rvar None (c - 1))).
       { rewrite apply_unfold; cbn [v_label v_index]; rewrite Hw; reflexivity. }
       destruct (match hw with None => Nat.ltb k N | Some _ => true end) eqn:Hrv.
-      + pose proof (Hrel (mk_var hw k) Hrv) as H3; rewrite Ha in H3.
+      + pose proof (Hrel (mk_rvar hw k) Hrv) as H3; rewrite Ha in H3.
         cbn in H3; apply Nat.ltb_lt in H3; lia.
       + destruct hw as [x|]; [discriminate|]; apply Nat.ltb_ge in Hrv.
         rewrite Htail in Ha by exact Hrv; injection Ha as Hk'.
@@ -131,7 +131,7 @@ Proof.
     + apply Nat.leb_le, Hjn.
     + apply Nat.eqb_eq, Hceq.
     + apply (tall_targets _ m Hk); intros h i t E.
-      assert (Hv : wf_var N (mk_var h i) = true).
+      assert (Hv : wf_var N (mk_rvar h i) = true).
       { destruct h as [x|]; cbn; [reflexivity|].
         apply Nat.ltb_lt; fold ts in E.
         assert (i < length ts) by (apply nth_error_Some; congruence); lia. }
@@ -156,7 +156,7 @@ Proof.
     destruct (nth_error (fst (find m h)) i) as [t|] eqn:E.
     + destruct t as [[x|] l|p]; cbn [resolve rwf wf_var v_label v_index].
       * reflexivity.
-      * pose proof (slot_bound m (mk_var h i) None l Hm E).
+      * pose proof (slot_bound m (mk_rvar h i) None l Hm E).
         apply Nat.ltb_lt; lia.
       * apply (Ht h i _ E).
     + destruct h as [x|]; [reflexivity|contradiction].
@@ -170,54 +170,54 @@ Proof.
       apply In_refs in Hin; [|exact Hm].
       destruct w as [[x|] k]; cbn [v_label v_index] in Hin;
         [|rewrite Ef, nth_error_nil in Hin; discriminate].
-      specialize (H (mk_var (Some x) k) ltac:(discriminate)).
+      specialize (H (mk_rvar (Some x) k) ltac:(discriminate)).
       rewrite apply_unfold in H; cbn [v_label v_index] in H; rewrite Hin in H.
       cbn in H; apply Nat.ltb_lt in H; lia.
     + apply (tall_targets _ m Hk); intros h i t E.
       destruct t as [h' l|p]; [reflexivity|].
       destruct h as [x|]; [|rewrite Ef, nth_error_nil in E; discriminate].
-      specialize (H (mk_var (Some x) i) ltac:(discriminate)).
+      specialize (H (mk_rvar (Some x) i) ltac:(discriminate)).
       rewrite apply_unfold in H; cbn [v_label v_index] in H; rewrite E in H; exact H.
 Qed.
 
 (** ** In terms of the user-facing API *)
 
-Definition result_wf (M : nat) (r : result T) : bool := rwf M (lower r).
+Definition result_wf (M : nat) (r : rresult T) : bool := rwf M (lower r).
 
-Definition pscoped (M : nat) (ρ : padj T) : bool := nscoped M (padj_n ρ).
+Definition pscoped (M : nat) (ρ : rpadj T) : bool := nscoped M (rpadj_n ρ).
 
-Definition scoped (N M : nat) (a : adjustment T) : bool := nscoped_top N M (nraw (adj_n a)).
+Definition scoped (N M : nat) (a : radj T) : bool := nscoped_top N M (nraw (radj_n a)).
 
-Lemma result_wf_apply M (a : adjustment T) v : result_wf M (apply a v) = rwf M (napply (adj_n a) v).
-Proof. unfold result_wf; rewrite lower_apply; reflexivity. Qed.
+Lemma result_wf_apply M (a : radj T) v : result_wf M (rapply a v) = rwf M (napply (radj_n a) v).
+Proof. unfold result_wf; rewrite lower_rapply; reflexivity. Qed.
 
-Lemma apply_inl (a : adjustment T) v w : apply a v = inl w <-> napply (adj_n a) v = inl w.
+Lemma apply_inl (a : radj T) v w : rapply a v = inl w <-> napply (radj_n a) v = inl w.
 Proof.
-  rewrite <- lower_apply; split; [intros ->; reflexivity|].
+  rewrite <- lower_rapply; split; [intros ->; reflexivity|].
   intros H; apply lower_inj; exact H.
 Qed.
 
 Theorem pscoped_spec M ρ :
-  pscoped M ρ = true <-> (forall v, v_label v <> None -> result_wf M (papply ρ v) = true).
+  pscoped M ρ = true <-> (forall v, v_label v <> None -> result_wf M (rpapply ρ v) = true).
 Proof.
-  unfold pscoped, papply; rewrite nscoped_spec by (apply padj_nnormal || apply padj_pnormal).
+  unfold pscoped, rpapply; rewrite nscoped_spec by (apply rpadj_nnormal || apply rpadj_pnormal).
   split; intros H v Hv; specialize (H v Hv); rewrite ?result_wf_apply in *; exact H.
 Qed.
 
 Theorem scoped_spec N M a :
   scoped N M a = true
-  <-> (forall i, N <= i -> apply a (mk_var None i) = inl (mk_var None (i - N + M)))
-      /\ (forall v, wf_var N v = true -> result_wf M (apply a v) = true).
+  <-> (forall i, N <= i -> rapply a (mk_rvar None i) = inl (mk_rvar None (i - N + M)))
+      /\ (forall v, wf_var N v = true -> result_wf M (rapply a v) = true).
 Proof.
-  unfold scoped; rewrite nscoped_top_spec by apply (nnormal_normal _ (adj_ok_true a)).
+  unfold scoped; rewrite nscoped_top_spec by apply (nnormal_normal _ (radj_ok_true a)).
   unfold scoped_sem; split; intros [H1 H2]; split.
   - intros i Hi; apply apply_inl, H1, Hi.
   - intros v Hv; rewrite result_wf_apply; apply H2, Hv.
   - intros i Hi; apply apply_inl, H1, Hi.
-  - intros v Hv; change (rwf M (napply (adj_n a) v) = true); rewrite <- result_wf_apply; apply H2, Hv.
+  - intros v Hv; change (rwf M (napply (radj_n a) v) = true); rewrite <- result_wf_apply; apply H2, Hv.
 Qed.
 
-Lemma result_wf_inl M w : result_wf M (inl w : result T) = wf_var M w.
+Lemma result_wf_inl M w : result_wf M (inl w : rresult T) = wf_var M w.
 Proof. reflexivity. Qed.
 
 Lemma result_wf_inr M (u : T) ρ : result_wf M (inr (u, ρ)) = pscoped M ρ.
@@ -225,136 +225,136 @@ Proof. reflexivity. Qed.
 
 (** ** Scoping is preserved by the constructors *)
 
-Implicit Types (a b : adjustment T) (ρ : padj T).
+Implicit Types (a b : radj T) (ρ : rpadj T).
 
-Lemma wf_var_none M i : wf_var M (mk_var None i) = Nat.ltb i M.
+Lemma wf_var_none M i : wf_var M (mk_rvar None i) = Nat.ltb i M.
 Proof. reflexivity. Qed.
 
-Lemma wf_var_some M x i : wf_var M (mk_var (Some x) i) = true.
+Lemma wf_var_some M x i : wf_var M (mk_rvar (Some x) i) = true.
 Proof. reflexivity. Qed.
 
-Theorem scoped_identity N : scoped N N (@identity T) = true.
+Theorem scoped_identity N : scoped N N (@ridentity T) = true.
 Proof.
   apply scoped_spec; split.
-  - intros i Hi; rewrite apply_identity; do 2 f_equal; lia.
-  - intros v Hv; rewrite apply_identity; exact Hv.
+  - intros i Hi; rewrite rapply_identity; do 2 f_equal; lia.
+  - intros v Hv; rewrite rapply_identity; exact Hv.
 Qed.
 
 Lemma pscoped_pcompose_depth M K a n :
   scoped M K a = true ->
-  forall ρ, ndepth (padj_n ρ) <= n -> pscoped M ρ = true -> pscoped K (pcompose a ρ) = true.
+  forall ρ, ndepth (rpadj_n ρ) <= n -> pscoped M ρ = true -> pscoped K (rpcompose a ρ) = true.
 Proof.
   intros Ha; apply scoped_spec in Ha as [_ Ha].
-  induction n as [|n IH]; intros ρ Hd Hρ; [pose proof (ndepth_pos (padj_n ρ)); lia|].
-  apply pscoped_spec; intros v Hv; rewrite papply_pcompose by exact Hv.
+  induction n as [|n IH]; intros ρ Hd Hρ; [pose proof (ndepth_pos (rpadj_n ρ)); lia|].
+  apply pscoped_spec; intros v Hv; rewrite rpapply_pcompose by exact Hv.
   pose proof (proj1 (pscoped_spec M ρ) Hρ v Hv) as Hr.
-  destruct (papply ρ v) as [w|[u ρ']] eqn:E.
+  destruct (rpapply ρ v) as [w|[u ρ']] eqn:E.
   - apply Ha, Hr.
   - cbn [fst snd]; rewrite result_wf_inr; rewrite result_wf_inr in Hr.
-    pose proof (papply_depth _ _ _ _ E); apply IH; [lia|exact Hr].
+    pose proof (rpapply_depth _ _ _ _ E); apply IH; [lia|exact Hr].
 Qed.
 
 Theorem pscoped_pcompose M K a ρ :
-  scoped M K a = true -> pscoped M ρ = true -> pscoped K (pcompose a ρ) = true.
-Proof. intros Ha; apply (pscoped_pcompose_depth M K a (ndepth (padj_n ρ)) Ha); lia. Qed.
+  scoped M K a = true -> pscoped M ρ = true -> pscoped K (rpcompose a ρ) = true.
+Proof. intros Ha; apply (pscoped_pcompose_depth M K a (ndepth (rpadj_n ρ)) Ha); lia. Qed.
 
 Theorem scoped_compose N M K a b :
-  scoped M K a = true -> scoped N M b = true -> scoped N K (compose a b) = true.
+  scoped M K a = true -> scoped N M b = true -> scoped N K (rcompose a b) = true.
 Proof.
   intros Ha Hb; pose proof Ha as Ha'.
   apply scoped_spec in Ha as [Hat Har]; apply scoped_spec in Hb as [Hbt Hbr].
   apply scoped_spec; split.
-  - intros i Hi; rewrite apply_compose, Hbt by exact Hi.
+  - intros i Hi; rewrite rapply_compose, Hbt by exact Hi.
     rewrite Hat by lia; do 2 f_equal; lia.
-  - intros v Hv; rewrite apply_compose; specialize (Hbr v Hv).
-    destruct (apply b v) as [w|[u ρ]].
+  - intros v Hv; rewrite rapply_compose; specialize (Hbr v Hv).
+    destruct (rapply b v) as [w|[u ρ]].
     + apply Har, Hbr.
     + cbn [fst snd]; rewrite result_wf_inr in *; apply (pscoped_pcompose M); assumption.
 Qed.
 
-Theorem scoped_shift_none M : scoped M (S M) (@shift T None) = true.
+Theorem scoped_shift_none M : scoped M (S M) (@rshift T None) = true.
 Proof.
   apply scoped_spec; split.
-  - intros i Hi; rewrite apply_shift; unfold shift_var; cbn.
+  - intros i Hi; rewrite rapply_shift; unfold shift_rvar; cbn.
     do 2 f_equal; lia.
-  - intros [[x|] i] Hv; rewrite apply_shift; unfold shift_var; cbn in *; [reflexivity|].
+  - intros [[x|] i] Hv; rewrite rapply_shift; unfold shift_rvar; cbn in *; [reflexivity|].
     apply Nat.ltb_lt in Hv; apply Nat.ltb_lt; lia.
 Qed.
 
-Theorem scoped_shift_some x M : scoped M M (@shift T (Some x)) = true.
+Theorem scoped_shift_some x M : scoped M M (@rshift T (Some x)) = true.
 Proof.
   apply scoped_spec; split.
-  - intros i Hi; rewrite apply_shift; unfold shift_var; cbn.
+  - intros i Hi; rewrite rapply_shift; unfold shift_rvar; cbn.
     do 2 f_equal; lia.
-  - intros [[y|] i] Hv; rewrite apply_shift; unfold shift_var; cbn in *;
+  - intros [[y|] i] Hv; rewrite rapply_shift; unfold shift_rvar; cbn in *;
       [destruct (_ && _); reflexivity|exact Hv].
 Qed.
 
 Theorem scoped_push_outer_none N M a :
-  scoped N M a = true -> scoped N (S M) (push_outer None a) = true.
+  scoped N M a = true -> scoped N (S M) (rpush_outer None a) = true.
 Proof.
-  intros Ha; rewrite push_outer_as_compose.
+  intros Ha; rewrite rpush_outer_as_compose.
   apply (scoped_compose _ M); [apply scoped_shift_none|exact Ha].
 Qed.
 
 Theorem scoped_push_outer_some x N M a :
-  scoped N M a = true -> scoped N M (push_outer (Some x) a) = true.
+  scoped N M a = true -> scoped N M (rpush_outer (Some x) a) = true.
 Proof.
-  intros Ha; rewrite push_outer_as_compose.
+  intros Ha; rewrite rpush_outer_as_compose.
   apply (scoped_compose _ M); [apply scoped_shift_some|exact Ha].
 Qed.
 
 Theorem scoped_push_inner_none N M t a :
-  scoped N M a = true -> result_wf M (target_result t) = true ->
-  scoped (S N) M (push_inner None t a) = true.
+  scoped N M a = true -> result_wf M (rtarget_result t) = true ->
+  scoped (S N) M (rpush_inner None t a) = true.
 Proof.
   intros Ha Ht; apply scoped_spec in Ha as [Hat Har]; apply scoped_spec; split.
-  - intros i Hi; rewrite apply_push_inner.
+  - intros i Hi; rewrite rapply_push_inner.
     destruct i as [|i]; [lia|]; cbn.
-    unfold unshift_var; cbn; replace (i - 0) with i by lia.
+    unfold unshift_rvar; cbn; replace (i - 0) with i by lia.
     rewrite Hat by lia; do 2 f_equal; lia.
-  - intros [[x|] i] Hv; rewrite apply_push_inner; cbn [var_eqb v_label v_index].
-    + unfold var_eqb; cbn; apply Har; reflexivity.
-    + destruct i as [|i]; unfold var_eqb; cbn; [exact Ht|].
-      unfold unshift_var; cbn; replace (i - 0) with i by lia.
+  - intros [[x|] i] Hv; rewrite rapply_push_inner; cbn [rvar_eqb v_label v_index].
+    + unfold rvar_eqb; cbn; apply Har; reflexivity.
+    + destruct i as [|i]; unfold rvar_eqb; cbn; [exact Ht|].
+      unfold unshift_rvar; cbn; replace (i - 0) with i by lia.
       apply Har; cbn in *; apply Nat.ltb_lt in Hv; apply Nat.ltb_lt; lia.
 Qed.
 
 Theorem scoped_push_inner_some x N M t a :
-  scoped N M a = true -> result_wf M (target_result t) = true ->
-  scoped N M (push_inner (Some x) t a) = true.
+  scoped N M a = true -> result_wf M (rtarget_result t) = true ->
+  scoped N M (rpush_inner (Some x) t a) = true.
 Proof.
   intros Ha Ht; apply scoped_spec in Ha as [Hat Har]; apply scoped_spec; split.
-  - intros i Hi; rewrite apply_push_inner; unfold var_eqb, unshift_var; cbn.
+  - intros i Hi; rewrite rapply_push_inner; unfold rvar_eqb, unshift_rvar; cbn.
     apply Hat, Hi.
-  - intros [h i] Hv; rewrite apply_push_inner.
-    destruct (var_eqb_spec (mk_var h i) (mk_var (Some x) 0)) as [E|E]; [exact Ht|].
-    apply Har; destruct h as [y|]; unfold unshift_var; cbn in *.
+  - intros [h i] Hv; rewrite rapply_push_inner.
+    destruct (rvar_eqb_spec (mk_rvar h i) (mk_rvar (Some x) 0)) as [E|E]; [exact Ht|].
+    apply Har; destruct h as [y|]; unfold unshift_rvar; cbn in *.
     + destruct (_ && _); reflexivity.
     + exact Hv.
 Qed.
 
 Theorem scoped_lift_none N M a :
-  scoped N M a = true -> scoped (S N) (S M) (lift None a) = true.
+  scoped N M a = true -> scoped (S N) (S M) (rlift None a) = true.
 Proof.
-  intros Ha; unfold lift; apply scoped_push_inner_none;
+  intros Ha; unfold rlift; apply scoped_push_inner_none;
     [apply scoped_push_outer_none, Ha|reflexivity].
 Qed.
 
 Theorem scoped_lift_some x N M a :
-  scoped N M a = true -> scoped N M (lift (Some x) a) = true.
+  scoped N M a = true -> scoped N M (rlift (Some x) a) = true.
 Proof.
-  intros Ha; unfold lift; apply scoped_push_inner_some;
+  intros Ha; unfold rlift; apply scoped_push_inner_some;
     [apply scoped_push_outer_some, Ha|reflexivity].
 Qed.
 
 (** Scoped adjustments are determined by what they do in scope. *)
 Theorem scoped_ext N M a b :
   scoped N M a = true -> scoped N M b = true ->
-  (forall v, wf_var N v = true -> apply a v = apply b v) -> a = b.
+  (forall v, wf_var N v = true -> rapply a v = rapply b v) -> a = b.
 Proof.
   intros Ha Hb H; apply scoped_spec in Ha as [Hat _]; apply scoped_spec in Hb as [Hbt _].
-  apply extensionality; intros [[x|] i]; [apply H; reflexivity|].
+  apply rextensionality; intros [[x|] i]; [apply H; reflexivity|].
   destruct (Nat.lt_ge_cases i N) as [Hi|Hi].
   - apply H; apply Nat.ltb_lt, Hi.
   - rewrite Hat, Hbt by exact Hi; reflexivity.
@@ -369,17 +369,17 @@ Proof.
 Qed.
 
 Lemma pscoped_mono_depth M M' n :
-  M <= M' -> forall ρ, ndepth (padj_n ρ) <= n -> pscoped M ρ = true -> pscoped M' ρ = true.
+  M <= M' -> forall ρ, ndepth (rpadj_n ρ) <= n -> pscoped M ρ = true -> pscoped M' ρ = true.
 Proof.
-  intros Hle; induction n as [|n IH]; intros ρ Hd H; [pose proof (ndepth_pos (padj_n ρ)); lia|].
+  intros Hle; induction n as [|n IH]; intros ρ Hd H; [pose proof (ndepth_pos (rpadj_n ρ)); lia|].
   apply pscoped_spec; intros v Hv; pose proof (proj1 (pscoped_spec M ρ) H v Hv) as Hr.
-  destruct (papply ρ v) as [w|[u ρ']] eqn:E.
+  destruct (rpapply ρ v) as [w|[u ρ']] eqn:E.
   - rewrite result_wf_inl in *; apply (wf_var_mono M); assumption.
-  - rewrite result_wf_inr in *; pose proof (papply_depth _ _ _ _ E); apply IH; [lia|exact Hr].
+  - rewrite result_wf_inr in *; pose proof (rpapply_depth _ _ _ _ E); apply IH; [lia|exact Hr].
 Qed.
 
 Lemma pscoped_mono M M' ρ : M <= M' -> pscoped M ρ = true -> pscoped M' ρ = true.
-Proof. intros Hle; apply (pscoped_mono_depth M M' (ndepth (padj_n ρ)) Hle); lia. Qed.
+Proof. intros Hle; apply (pscoped_mono_depth M M' (ndepth (rpadj_n ρ)) Hle); lia. Qed.
 
 Lemma result_wf_mono M M' r : M <= M' -> result_wf M r = true -> result_wf M' r = true.
 Proof.
@@ -396,30 +396,30 @@ Proof.
 Qed.
 
 Lemma pshift_closed_depth n :
-  forall ρ, ndepth (padj_n ρ) <= n -> pscoped 0 ρ = true -> pshift_p None ρ = ρ.
+  forall ρ, ndepth (rpadj_n ρ) <= n -> pscoped 0 ρ = true -> rpshift None ρ = ρ.
 Proof.
-  induction n as [|n IH]; intros ρ Hd H; [pose proof (ndepth_pos (padj_n ρ)); lia|].
-  apply pextensionality; intros v Hv; rewrite papply_pshift by exact Hv.
+  induction n as [|n IH]; intros ρ Hd H; [pose proof (ndepth_pos (rpadj_n ρ)); lia|].
+  apply rpextensionality; intros v Hv; rewrite rpapply_pshift by exact Hv.
   pose proof (proj1 (pscoped_spec 0 ρ) H v Hv) as Hr.
-  destruct (papply ρ v) as [[[x|] i]|[u ρ']] eqn:E.
+  destruct (rpapply ρ v) as [[[x|] i]|[u ρ']] eqn:E.
   - reflexivity.
   - cbn in Hr; discriminate.
-  - rewrite result_wf_inr in Hr; pose proof (papply_depth _ _ _ _ E).
+  - rewrite result_wf_inr in Hr; pose proof (rpapply_depth _ _ _ _ E).
     cbn [fst snd]; rewrite IH by (lia || exact Hr); reflexivity.
 Qed.
 
-Theorem pshift_closed ρ : pscoped 0 ρ = true -> pshift_p None ρ = ρ.
-Proof. apply (pshift_closed_depth (ndepth (padj_n ρ))); lia. Qed.
+Theorem pshift_closed ρ : pscoped 0 ρ = true -> rpshift None ρ = ρ.
+Proof. apply (pshift_closed_depth (ndepth (rpadj_n ρ))); lia. Qed.
 
-Theorem lift_closed a : scoped 0 0 a = true -> lift None a = a.
+Theorem lift_closed a : scoped 0 0 a = true -> rlift None a = a.
 Proof.
-  intros H; apply scoped_spec in H as [Ht Hr]; apply lift_free.
+  intros H; apply scoped_spec in H as [Ht Hr]; apply rlift_free.
   - intros i; rewrite Ht by lia; do 2 f_equal; lia.
   - intros [[x|] i] w Hv E; [|contradiction].
-    pose proof (Hr (mk_var (Some x) i) eq_refl) as Hw; rewrite E in Hw.
+    pose proof (Hr (mk_rvar (Some x) i) eq_refl) as Hw; rewrite E in Hw.
     destruct w as [[y|] j]; cbn in Hw; [discriminate|discriminate].
   - intros [[x|] i] [u ρ] E.
-    + pose proof (Hr (mk_var (Some x) i) eq_refl) as Hw; rewrite E in Hw.
+    + pose proof (Hr (mk_rvar (Some x) i) eq_refl) as Hw; rewrite E in Hw.
       apply pshift_closed, Hw.
     + rewrite Ht in E by lia; discriminate.
 Qed.

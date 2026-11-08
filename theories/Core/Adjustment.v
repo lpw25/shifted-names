@@ -1,16 +1,19 @@
-(** * Adjustments
+(** * Raw adjustments
 
-    An [adjustment T] is a normal nested adjustment (Nested.v) packaged with
+    The unindexed layer; its names carry an [r] prefix, and the indexed
+    public layer (Indexed.v) takes the plain names.
+
+    A [radj T] is a normal nested adjustment (Nested.v) packaged with
     an SProp proof of normality.  [T] is the user's type of terms with no
     bound variables; the library never looks inside it.
 
     Because the proof is in SProp, two adjustments are equal exactly when
     their data is equal, and by canonicity that happens exactly when they
-    act the same ([extensionality]).  So all the usual laws hold up to
+    act the same ([rextensionality]).  So all the usual laws hold up to
     Leibniz equality.
 
     A variable is sent either to a variable or to a payload [(u, ρ)]: a term
-    [u] together with a payload adjustment [ρ : padj T] that is still to be
+    [u] together with a payload adjustment [ρ : rpadj T] that is still to be
     applied to it.  Payload adjustments only ever see the free variables of
     [u], and are canonical for that restricted meaning. *)
 
@@ -34,49 +37,49 @@ Proof. destruct b; [reflexivity|intros []]. Qed.
 
 (** ** The types of adjustments and payload adjustments *)
 
-Record adjustment (T : Type) : Type :=
-  mk_adj {
-    adj_n : nadj T;
-    adj_ok : Is_true_s (nnormal adj_n)
+Record radj (T : Type) : Type :=
+  mk_radj {
+    radj_n : nadj T;
+    radj_ok : Is_true_s (nnormal radj_n)
   }.
 
-Record padj (T : Type) : Type :=
-  mk_padj {
-    padj_n : nadj T;
-    padj_ok : Is_true_s (nnormal padj_n && pnormal_raw (nraw padj_n))
+Record rpadj (T : Type) : Type :=
+  mk_rpadj {
+    rpadj_n : nadj T;
+    rpadj_ok : Is_true_s (nnormal rpadj_n && pnormal_raw (nraw rpadj_n))
   }.
 
-Arguments mk_adj {T} _ _.
-Arguments adj_n {T} _.
-Arguments adj_ok {T} _.
-Arguments mk_padj {T} _ _.
-Arguments padj_n {T} _.
-Arguments padj_ok {T} _.
+Arguments mk_radj {T} _ _.
+Arguments radj_n {T} _.
+Arguments radj_ok {T} _.
+Arguments mk_rpadj {T} _ _.
+Arguments rpadj_n {T} _.
+Arguments rpadj_ok {T} _.
 
-Lemma adj_eq {T} (a b : adjustment T) : adj_n a = adj_n b -> a = b.
+Lemma radj_eq {T} (a b : radj T) : radj_n a = radj_n b -> a = b.
 Proof. destruct a as [ra Ha], b as [rb Hb]; cbn; intros ->; reflexivity. Qed.
 
-Lemma padj_eq {T} (a b : padj T) : padj_n a = padj_n b -> a = b.
+Lemma rpadj_eq {T} (a b : rpadj T) : rpadj_n a = rpadj_n b -> a = b.
 Proof. destruct a as [ra Ha], b as [rb Hb]; cbn; intros ->; reflexivity. Qed.
 
 Section Adjustment.
 
 Context {T : Type}.
 
-Implicit Types (a b c : adjustment T) (ρ : padj T) (v w : var) (h l : option label).
+Implicit Types (a b c : radj T) (ρ : rpadj T) (v w : rvar) (h l : option label).
 
-Lemma adj_ok_true a : nnormal (adj_n a) = true.
-Proof. apply Is_true_s_elim, adj_ok. Qed.
+Lemma radj_ok_true a : nnormal (radj_n a) = true.
+Proof. apply Is_true_s_elim, radj_ok. Qed.
 
-Lemma padj_nnormal ρ : nnormal (padj_n ρ) = true.
-Proof. pose proof (Is_true_s_elim (padj_ok ρ)) as H; apply andb_true_iff in H; apply H. Qed.
+Lemma rpadj_nnormal ρ : nnormal (rpadj_n ρ) = true.
+Proof. pose proof (Is_true_s_elim (rpadj_ok ρ)) as H; apply andb_true_iff in H; apply H. Qed.
 
-Lemma padj_pnormal ρ : pnormal_raw (nraw (padj_n ρ)) = true.
-Proof. pose proof (Is_true_s_elim (padj_ok ρ)) as H; apply andb_true_iff in H; apply H. Qed.
+Lemma rpadj_pnormal ρ : pnormal_raw (nraw (rpadj_n ρ)) = true.
+Proof. pose proof (Is_true_s_elim (rpadj_ok ρ)) as H; apply andb_true_iff in H; apply H. Qed.
 
 (** A payload adjustment is in particular an adjustment. *)
-Definition padj_adj ρ : adjustment T :=
-  mk_adj (padj_n ρ) (Is_true_s_intro (padj_nnormal ρ)).
+Definition rpadj_adj ρ : radj T :=
+  mk_radj (rpadj_n ρ) (Is_true_s_intro (rpadj_nnormal ρ)).
 
 (** ** Action *)
 
@@ -88,202 +91,202 @@ Definition psel (x : nadj T) : nadj T :=
 Lemma psel_ok x : nnormal (psel x) && pnormal_raw (nraw (psel x)) = true.
 Proof. unfold psel; destruct (nnormal x && pnormal_raw (nraw x)) eqn:E; [exact E|reflexivity]. Qed.
 
-Definition to_padj (x : nadj T) : padj T := mk_padj (psel x) (Is_true_s_intro (psel_ok x)).
+Definition rto_padj (x : nadj T) : rpadj T := mk_rpadj (psel x) (Is_true_s_intro (psel_ok x)).
 
-Lemma padj_n_to_padj x :
-  nnormal x = true -> pnormal_raw (nraw x) = true -> padj_n (to_padj x) = x.
+Lemma rpadj_n_to_padj x :
+  nnormal x = true -> pnormal_raw (nraw x) = true -> rpadj_n (rto_padj x) = x.
 Proof. intros H1 H2; cbn; unfold psel; rewrite H1, H2; reflexivity. Qed.
 
-Lemma to_padj_padj_n ρ : to_padj (padj_n ρ) = ρ.
-Proof. apply padj_eq, padj_n_to_padj; [apply padj_nnormal|apply padj_pnormal]. Qed.
+Lemma rto_padj_padj_n ρ : rto_padj (rpadj_n ρ) = ρ.
+Proof. apply rpadj_eq, rpadj_n_to_padj; [apply rpadj_nnormal|apply rpadj_pnormal]. Qed.
 
-Definition result : Type := (var + (T * padj T))%type.
+Definition rresult : Type := (rvar + (T * rpadj T))%type.
 
-Definition apply a v : result :=
-  match napply (adj_n a) v with
+Definition rapply a v : rresult :=
+  match napply (radj_n a) v with
   | inl w => inl w
-  | inr p => inr (fst p, to_padj (snd p))
+  | inr p => inr (fst p, rto_padj (snd p))
   end.
 
-Definition lower (r : result) : var + (T * nadj T) :=
+Definition lower (r : rresult) : rvar + (T * nadj T) :=
   match r with
   | inl w => inl w
-  | inr p => inr (fst p, padj_n (snd p))
+  | inr p => inr (fst p, rpadj_n (snd p))
   end.
 
 Lemma lower_inj r1 r2 : lower r1 = lower r2 -> r1 = r2.
 Proof.
   destruct r1 as [w1|[u1 ρ1]], r2 as [w2|[u2 ρ2]]; cbn; intros H; try discriminate;
     injection H; intros; subst; [reflexivity|].
-  f_equal; f_equal; apply padj_eq; assumption.
+  f_equal; f_equal; apply rpadj_eq; assumption.
 Qed.
 
-Lemma lower_apply a v : lower (apply a v) = napply (adj_n a) v.
+Lemma lower_rapply a v : lower (rapply a v) = napply (radj_n a) v.
 Proof.
-  unfold apply; destruct (napply (adj_n a) v) as [w|[u x]] eqn:E; [reflexivity|].
-  cbn [lower fst snd]; pose proof (napply_payload _ _ _ (adj_ok_true a) E) as [H1 H2].
-  rewrite padj_n_to_padj by assumption; reflexivity.
+  unfold rapply; destruct (napply (radj_n a) v) as [w|[u x]] eqn:E; [reflexivity|].
+  cbn [lower fst snd]; pose proof (napply_payload _ _ _ (radj_ok_true a) E) as [H1 H2].
+  rewrite rpadj_n_to_padj by assumption; reflexivity.
 Qed.
 
 (** Adjustments are equal when they act the same. *)
-Theorem extensionality a b : (forall v, apply a v = apply b v) -> a = b.
+Theorem rextensionality a b : (forall v, rapply a v = rapply b v) -> a = b.
 Proof.
-  intros H; apply adj_eq, nextensionality; try apply adj_ok_true.
-  intros v; rewrite <- !lower_apply, H; reflexivity.
+  intros H; apply radj_eq, nextensionality; try apply radj_ok_true.
+  intros v; rewrite <- !lower_rapply, H; reflexivity.
 Qed.
 
 (** ** Identity and composition *)
 
-Definition identity : adjustment T := mk_adj nidentity (Is_true_s_intro nnormal_identity).
+Definition ridentity : radj T := mk_radj nidentity (Is_true_s_intro nnormal_identity).
 
-Lemma apply_identity v : apply identity v = inl v.
-Proof. apply lower_inj; rewrite lower_apply; apply napply_identity. Qed.
+Lemma rapply_identity v : rapply ridentity v = inl v.
+Proof. apply lower_inj; rewrite lower_rapply; apply napply_identity. Qed.
 
-(** [pcompose a ρ]: the payload adjustment [a ∘ ρ]. *)
-Lemma pcompose_ok a ρ :
-  nnormal (prestrict (ncompose (adj_n a) (padj_n ρ)))
-  && pnormal_raw (nraw (prestrict (ncompose (adj_n a) (padj_n ρ)))) = true.
+(** [rpcompose a ρ]: the payload adjustment [a ∘ ρ]. *)
+Lemma rpcompose_ok a ρ :
+  nnormal (prestrict (ncompose (radj_n a) (rpadj_n ρ)))
+  && pnormal_raw (nraw (prestrict (ncompose (radj_n a) (rpadj_n ρ)))) = true.
 Proof.
   apply andb_true_iff, nnormal_prestrict, nnormal_ncompose;
-    [apply adj_ok_true|apply padj_nnormal].
+    [apply radj_ok_true|apply rpadj_nnormal].
 Qed.
 
-Definition pcompose a ρ : padj T :=
-  mk_padj (prestrict (ncompose (adj_n a) (padj_n ρ))) (Is_true_s_intro (pcompose_ok a ρ)).
+Definition rpcompose a ρ : rpadj T :=
+  mk_rpadj (prestrict (ncompose (radj_n a) (rpadj_n ρ))) (Is_true_s_intro (rpcompose_ok a ρ)).
 
-(** [compose a b] first applies [b] and then [a]. *)
-Definition compose a b : adjustment T :=
-  mk_adj (ncompose (adj_n a) (adj_n b))
-    (Is_true_s_intro (nnormal_ncompose _ _ (adj_ok_true a) (adj_ok_true b))).
+(** [rcompose a b] first applies [b] and then [a]. *)
+Definition rcompose a b : radj T :=
+  mk_radj (ncompose (radj_n a) (radj_n b))
+    (Is_true_s_intro (nnormal_ncompose _ _ (radj_ok_true a) (radj_ok_true b))).
 
-Theorem apply_compose a b v :
-  apply (compose a b) v
-  = match apply b v with
-    | inl w => apply a w
-    | inr p => inr (fst p, pcompose a (snd p))
+Theorem rapply_compose a b v :
+  rapply (rcompose a b) v
+  = match rapply b v with
+    | inl w => rapply a w
+    | inr p => inr (fst p, rpcompose a (snd p))
     end.
 Proof.
-  apply lower_inj; rewrite lower_apply; cbn [adj_n compose].
-  rewrite napply_ncompose by apply adj_ok_true.
-  rewrite <- (lower_apply b v); destruct (apply b v) as [w|[u ρ]]; cbn.
-  - symmetry; apply lower_apply.
+  apply lower_inj; rewrite lower_rapply; cbn [radj_n rcompose].
+  rewrite napply_ncompose by apply radj_ok_true.
+  rewrite <- (lower_rapply b v); destruct (rapply b v) as [w|[u ρ]]; cbn.
+  - symmetry; apply lower_rapply.
   - reflexivity.
 Qed.
 
-Theorem compose_identity_l b : compose identity b = b.
-Proof. apply adj_eq, ncompose_identity_l, adj_ok_true. Qed.
+Theorem rcompose_identity_l b : rcompose ridentity b = b.
+Proof. apply radj_eq, ncompose_identity_l, radj_ok_true. Qed.
 
-Theorem compose_identity_r a : compose a identity = a.
-Proof. apply adj_eq, ncompose_identity_r, adj_ok_true. Qed.
+Theorem rcompose_identity_r a : rcompose a ridentity = a.
+Proof. apply radj_eq, ncompose_identity_r, radj_ok_true. Qed.
 
-Theorem compose_assoc a b c : compose a (compose b c) = compose (compose a b) c.
-Proof. apply adj_eq, ncompose_assoc; apply adj_ok_true. Qed.
+Theorem rcompose_assoc a b c : rcompose a (rcompose b c) = rcompose (rcompose a b) c.
+Proof. apply radj_eq, ncompose_assoc; apply radj_ok_true. Qed.
 
-Theorem pcompose_identity ρ : pcompose identity ρ = ρ.
+Theorem rpcompose_identity ρ : rpcompose ridentity ρ = ρ.
 Proof.
-  apply padj_eq; cbn [pcompose padj_n adj_n identity].
-  rewrite ncompose_identity_l by apply padj_nnormal.
-  apply prestrict_pnormal; [apply padj_nnormal|apply padj_pnormal].
+  apply rpadj_eq; cbn [rpcompose rpadj_n radj_n ridentity].
+  rewrite ncompose_identity_l by apply rpadj_nnormal.
+  apply prestrict_pnormal; [apply rpadj_nnormal|apply rpadj_pnormal].
 Qed.
 
-Theorem pcompose_compose a b ρ : pcompose a (pcompose b ρ) = pcompose (compose a b) ρ.
+Theorem rpcompose_compose a b ρ : rpcompose a (rpcompose b ρ) = rpcompose (rcompose a b) ρ.
 Proof.
-  apply padj_eq; cbn [pcompose padj_n adj_n compose].
+  apply rpadj_eq; cbn [rpcompose rpadj_n radj_n rcompose].
   rewrite prestrict_ncompose_prestrict;
-    [|apply adj_ok_true|apply nnormal_ncompose; [apply adj_ok_true|apply padj_nnormal]].
-  rewrite ncompose_assoc; [reflexivity|apply adj_ok_true|apply adj_ok_true|apply padj_nnormal].
+    [|apply radj_ok_true|apply nnormal_ncompose; [apply radj_ok_true|apply rpadj_nnormal]].
+  rewrite ncompose_assoc; [reflexivity|apply radj_ok_true|apply radj_ok_true|apply rpadj_nnormal].
 Qed.
 
-(** ** Output entries: [push_outer h a] is [a] followed by weakening past
+(** ** Output entries: [rpush_outer h a] is [a] followed by weakening past
     one new outer [h]. *)
 
-Definition push_outer h a : adjustment T :=
-  mk_adj (npush_outer h (adj_n a)) (Is_true_s_intro (nnormal_npush_outer h _ (adj_ok_true a))).
+Definition rpush_outer h a : radj T :=
+  mk_radj (npush_outer h (radj_n a)) (Is_true_s_intro (nnormal_npush_outer h _ (radj_ok_true a))).
 
-Lemma pshift_ok h ρ :
-  nnormal (pshift h (padj_n ρ)) && pnormal_raw (nraw (pshift h (padj_n ρ))) = true.
+Lemma rpshift_ok h ρ :
+  nnormal (pshift h (rpadj_n ρ)) && pnormal_raw (nraw (pshift h (rpadj_n ρ))) = true.
 Proof.
   apply andb_true_iff; split;
-    [apply nnormal_pshift, padj_nnormal|apply pnormal_pshift'; [apply padj_nnormal|apply padj_pnormal]].
+    [apply nnormal_pshift, rpadj_nnormal|apply pnormal_pshift'; [apply rpadj_nnormal|apply rpadj_pnormal]].
 Qed.
 
 (** Weakening a payload adjustment past a new outer [h]. *)
-Definition pshift_p h ρ : padj T := mk_padj (pshift h (padj_n ρ)) (Is_true_s_intro (pshift_ok h ρ)).
+Definition rpshift h ρ : rpadj T := mk_rpadj (pshift h (rpadj_n ρ)) (Is_true_s_intro (rpshift_ok h ρ)).
 
-Theorem apply_push_outer h a v :
-  apply (push_outer h a) v
-  = match apply a v with
-    | inl w => inl (shift_var (mk_var h 0) w)
-    | inr p => inr (fst p, pshift_p h (snd p))
+Theorem rapply_push_outer h a v :
+  rapply (rpush_outer h a) v
+  = match rapply a v with
+    | inl w => inl (shift_rvar (mk_rvar h 0) w)
+    | inr p => inr (fst p, rpshift h (snd p))
     end.
 Proof.
-  apply lower_inj; rewrite lower_apply; cbn [adj_n push_outer].
-  rewrite napply_npush_outer by apply (nnormal_normal _ (adj_ok_true a)).
-  rewrite <- (lower_apply a v); destruct (apply a v) as [w|[u ρ]]; reflexivity.
+  apply lower_inj; rewrite lower_rapply; cbn [radj_n rpush_outer].
+  rewrite napply_npush_outer by apply (nnormal_normal _ (radj_ok_true a)).
+  rewrite <- (lower_rapply a v); destruct (rapply a v) as [w|[u ρ]]; reflexivity.
 Qed.
 
-(** ** Input entries: [push_inner h t a] sends the innermost [h] to [t] and
+(** ** Input entries: [rpush_inner h t a] sends the innermost [h] to [t] and
     passes everything else to [a].  A variable target may be any variable. *)
 
-Inductive target : Type :=
-| Rename (w : var)
-| Bind (u : T) (ρ : padj T).
+Inductive rtarget : Type :=
+| RRename (w : rvar)
+| RBind (u : T) (ρ : rpadj T).
 
-Definition target_result (t : target) : result :=
+Definition rtarget_result (t : rtarget) : rresult :=
   match t with
-  | Rename w => inl w
-  | Bind u ρ => inr (u, ρ)
+  | RRename w => inl w
+  | RBind u ρ => inr (u, ρ)
   end.
 
-Definition push_inner_n h t a : nadj T :=
+Definition rpush_inner_n h t a : nadj T :=
   match t with
-  | Rename w => npush_inner_var h w (adj_n a)
-  | Bind u ρ => npush_inner h (Slots.Bind (u, padj_n ρ)) (adj_n a)
+  | RRename w => npush_inner_var h w (radj_n a)
+  | RBind u ρ => npush_inner h (Slots.Bind (u, rpadj_n ρ)) (radj_n a)
   end.
 
-Lemma push_inner_n_ok h t a : nnormal (push_inner_n h t a) = true.
+Lemma rpush_inner_n_ok h t a : nnormal (rpush_inner_n h t a) = true.
 Proof.
-  destruct t as [w|u ρ]; cbn [push_inner_n].
-  - apply nnormal_npush_inner_var, adj_ok_true.
-  - apply nnormal_npush_inner; [apply adj_ok_true|discriminate|].
-    cbn; rewrite padj_nnormal, padj_pnormal; reflexivity.
+  destruct t as [w|u ρ]; cbn [rpush_inner_n].
+  - apply nnormal_npush_inner_var, radj_ok_true.
+  - apply nnormal_npush_inner; [apply radj_ok_true|discriminate|].
+    cbn; rewrite rpadj_nnormal, rpadj_pnormal; reflexivity.
 Qed.
 
-Definition push_inner h t a : adjustment T :=
-  mk_adj (push_inner_n h t a) (Is_true_s_intro (push_inner_n_ok h t a)).
+Definition rpush_inner h t a : radj T :=
+  mk_radj (rpush_inner_n h t a) (Is_true_s_intro (rpush_inner_n_ok h t a)).
 
-Theorem apply_push_inner h t a v :
-  apply (push_inner h t a) v
-  = if var_eqb v (mk_var h 0) then target_result t
-    else apply a (unshift_var (mk_var h 0) v).
+Theorem rapply_push_inner h t a v :
+  rapply (rpush_inner h t a) v
+  = if rvar_eqb v (mk_rvar h 0) then rtarget_result t
+    else rapply a (unshift_rvar (mk_rvar h 0) v).
 Proof.
-  apply lower_inj; rewrite lower_apply; cbn [adj_n push_inner].
-  pose proof (nnormal_normal _ (adj_ok_true a)) as Ha.
-  destruct t as [w|u ρ]; cbn [push_inner_n].
+  apply lower_inj; rewrite lower_rapply; cbn [radj_n rpush_inner].
+  pose proof (nnormal_normal _ (radj_ok_true a)) as Ha.
+  destruct t as [w|u ρ]; cbn [rpush_inner_n].
   - rewrite napply_npush_inner_var by exact Ha.
-    destruct (var_eqb v (mk_var h 0)); [reflexivity|symmetry; apply lower_apply].
+    destruct (rvar_eqb v (mk_rvar h 0)); [reflexivity|symmetry; apply lower_rapply].
   - rewrite napply_npush_inner by (try discriminate; exact Ha).
-    destruct (var_eqb v (mk_var h 0)); [reflexivity|symmetry; apply lower_apply].
+    destruct (rvar_eqb v (mk_rvar h 0)); [reflexivity|symmetry; apply lower_rapply].
 Qed.
 
 (** The number of [h] output slots of [a]'s canonical form. *)
-Definition out_count a h : nat := Slots.count (nraw (adj_n a)) h.
+Definition rout_count a h : nat := Slots.count (nraw (radj_n a)) h.
 
 (** ** Going under a binder *)
 
-(** [lift h a] is [a] moved under a binder labelled [h]. *)
-Definition lift h a : adjustment T := push_inner h (Rename (mk_var h 0)) (push_outer h a).
+(** [rlift h a] is [a] moved under a binder labelled [h]. *)
+Definition rlift h a : radj T := rpush_inner h (RRename (mk_rvar h 0)) (rpush_outer h a).
 
-Theorem apply_lift h a v :
-  apply (lift h a) v
-  = if var_eqb v (mk_var h 0) then inl v
-    else match apply a (unshift_var (mk_var h 0) v) with
-         | inl w => inl (shift_var (mk_var h 0) w)
-         | inr p => inr (fst p, pshift_p h (snd p))
+Theorem rapply_lift h a v :
+  rapply (rlift h a) v
+  = if rvar_eqb v (mk_rvar h 0) then inl v
+    else match rapply a (unshift_rvar (mk_rvar h 0) v) with
+         | inl w => inl (shift_rvar (mk_rvar h 0) w)
+         | inr p => inr (fst p, rpshift h (snd p))
          end.
 Proof.
-  unfold lift; rewrite apply_push_inner, apply_push_outer.
-  destruct (var_eqb_spec v (mk_var h 0)) as [->|]; reflexivity.
+  unfold rlift; rewrite rapply_push_inner, rapply_push_outer.
+  destruct (rvar_eqb_spec v (mk_rvar h 0)) as [->|]; reflexivity.
 Qed.
 
 (** ** Nesting depth
@@ -291,29 +294,29 @@ Qed.
     Term-level operations recurse into payloads; these bounds justify that
     recursion. *)
 
-Definition depth a : nat := ndepth (adj_n a).
+Definition rdepth a : nat := ndepth (radj_n a).
 
-Lemma depth_payload a v u ρ : apply a v = inr (u, ρ) -> ndepth (padj_n ρ) < depth a.
+Lemma rdepth_payload a v u ρ : rapply a v = inr (u, ρ) -> ndepth (rpadj_n ρ) < rdepth a.
 Proof.
-  intros H; pose proof (f_equal lower H) as H'; rewrite lower_apply in H'; cbn [lower fst snd] in H'.
-  unfold depth; destruct (adj_n a) as [m] eqn:E.
-  apply (ndepth_binds m (u, padj_n ρ)), (Slots.binds_in_apply m v), H'.
+  intros H; pose proof (f_equal lower H) as H'; rewrite lower_rapply in H'; cbn [lower fst snd] in H'.
+  unfold rdepth; destruct (radj_n a) as [m] eqn:E.
+  apply (ndepth_binds m (u, rpadj_n ρ)), (Slots.binds_in_apply m v), H'.
 Qed.
 
-Lemma depth_push_outer h a : depth (push_outer h a) <= depth a.
+Lemma rdepth_push_outer h a : rdepth (rpush_outer h a) <= rdepth a.
 Proof. apply ndepth_npush_outer. Qed.
 
-Lemma depth_lift h a : depth (lift h a) <= depth a.
+Lemma rdepth_lift h a : rdepth (rlift h a) <= rdepth a.
 Proof.
-  unfold depth, lift; cbn [adj_n push_inner push_inner_n].
-  pose proof (ndepth_npush_inner_var h (mk_var h 0) (adj_n (push_outer h a))).
-  pose proof (depth_push_outer h a); unfold depth in *; lia.
+  unfold rdepth, rlift; cbn [radj_n rpush_inner rpush_inner_n].
+  pose proof (ndepth_npush_inner_var h (mk_rvar h 0) (radj_n (rpush_outer h a))).
+  pose proof (rdepth_push_outer h a); unfold rdepth in *; lia.
 Qed.
 
-Lemma depth_padj ρ : depth (padj_adj ρ) = ndepth (padj_n ρ).
+Lemma rdepth_padj ρ : rdepth (rpadj_adj ρ) = ndepth (rpadj_n ρ).
 Proof. reflexivity. Qed.
 
 End Adjustment.
 
-Arguments target T : clear implicits.
-Arguments result T : clear implicits.
+Arguments rtarget T : clear implicits.
+Arguments rresult T : clear implicits.

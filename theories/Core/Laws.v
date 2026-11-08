@@ -1,14 +1,14 @@
 (** * Laws of the context-form constructors
 
-    Equations between adjustments built from [identity], [push_inner],
-    [push_outer] and [compose], all stated with [=].  They are the rules the
+    Equations between adjustments built from [ridentity], [rpush_inner],
+    [rpush_outer] and [rcompose], all stated with [=].  They are the rules the
     normaliser implements: entries with different labels commute, output
     entries move inside input entries, composition cancels an output entry
     against an input entry, and composition distributes over the
     constructors.
 
     Payloads need no side conditions: weakening a payload adjustment is
-    composing it with [shift] ([pshift_as_pcompose]). *)
+    composing it with [rshift] ([rpshift_as_pcompose]). *)
 
 From Stdlib Require Import Arith List Lia Bool.
 From ShiftedNames.Core Require Import Label Var Nested Adjustment.
@@ -18,326 +18,326 @@ Section Laws.
 
 Context {T : Type}.
 
-Implicit Types (a b c : adjustment T) (ρ : padj T) (v w : var) (h l : option label)
-  (t : target T).
+Implicit Types (a b c : radj T) (ρ : rpadj T) (v w : rvar) (h l : option label)
+  (t : rtarget T).
 
 (** ** Primitive adjustments as context forms *)
 
-(** [shift l]: weaken by one [l]; every [l₍ᵢ₎] becomes [l₍ᵢ₊₁₎]. *)
-Definition shift l : adjustment T := push_outer l identity.
+(** [rshift l]: weaken by one [l]; every [l₍ᵢ₎] becomes [l₍ᵢ₊₁₎]. *)
+Definition rshift l : radj T := rpush_outer l ridentity.
 
-(** [rename1 l1 l2]: the innermost [l1] becomes a new innermost [l2]. *)
-Definition rename1 l1 l2 : adjustment T :=
-  push_inner l1 (Rename (mk_var l2 0)) (shift l2).
+(** [rrename1 l1 l2]: the innermost [l1] becomes a new innermost [l2]. *)
+Definition rrename1 l1 l2 : radj T :=
+  rpush_inner l1 (RRename (mk_rvar l2 0)) (rshift l2).
 
 (** Opening a bound variable as [x], and closing [x] into a bound variable. *)
-Definition open (x : label) : adjustment T := rename1 None (Some x).
-Definition close (x : label) : adjustment T := rename1 (Some x) None.
+Definition ropen (x : label) : radj T := rrename1 None (Some x).
+Definition rclose (x : label) : radj T := rrename1 (Some x) None.
 
-(** [swap l] exchanges the two innermost [l]s. *)
-Definition swap l : adjustment T :=
-  push_inner l (Rename (mk_var l 1)) (push_inner l (Rename (mk_var l 0)) (push_outer l (shift l))).
+(** [rswap l] exchanges the two innermost [l]s. *)
+Definition rswap l : radj T :=
+  rpush_inner l (RRename (mk_rvar l 1)) (rpush_inner l (RRename (mk_rvar l 0)) (rpush_outer l (rshift l))).
 
-(** [subst1 l u ρ]: the innermost [l] is replaced by the payload [(u, ρ)]. *)
-Definition subst1 l (u : T) ρ : adjustment T := push_inner l (Bind u ρ) identity.
+(** [rsubst1 l u ρ]: the innermost [l] is replaced by the payload [(u, ρ)]. *)
+Definition rsubst1 l (u : T) ρ : radj T := rpush_inner l (RBind u ρ) ridentity.
 
-Lemma apply_shift l v : apply (shift l) v = inl (shift_var (mk_var l 0) v).
-Proof. unfold shift; rewrite apply_push_outer, apply_identity; reflexivity. Qed.
+Lemma rapply_shift l v : rapply (rshift l) v = inl (shift_rvar (mk_rvar l 0) v).
+Proof. unfold rshift; rewrite rapply_push_outer, rapply_identity; reflexivity. Qed.
 
-Lemma apply_rename1 l1 l2 v :
-  apply (rename1 l1 l2) v
-  = if var_eqb v (mk_var l1 0) then inl (mk_var l2 0)
-    else inl (shift_var (mk_var l2 0) (unshift_var (mk_var l1 0) v)).
+Lemma rapply_rename1 l1 l2 v :
+  rapply (rrename1 l1 l2) v
+  = if rvar_eqb v (mk_rvar l1 0) then inl (mk_rvar l2 0)
+    else inl (shift_rvar (mk_rvar l2 0) (unshift_rvar (mk_rvar l1 0) v)).
 Proof.
-  unfold rename1; rewrite apply_push_inner, apply_shift.
-  destruct (var_eqb v (mk_var l1 0)); reflexivity.
+  unfold rrename1; rewrite rapply_push_inner, rapply_shift.
+  destruct (rvar_eqb v (mk_rvar l1 0)); reflexivity.
 Qed.
 
-Lemma apply_subst1 l u ρ v :
-  apply (subst1 l u ρ) v
-  = if var_eqb v (mk_var l 0) then inr (u, ρ) else inl (unshift_var (mk_var l 0) v).
+Lemma rapply_subst1 l u ρ v :
+  rapply (rsubst1 l u ρ) v
+  = if rvar_eqb v (mk_rvar l 0) then inr (u, ρ) else inl (unshift_rvar (mk_rvar l 0) v).
 Proof.
-  unfold subst1; rewrite apply_push_inner, apply_identity.
-  destruct (var_eqb v (mk_var l 0)); reflexivity.
+  unfold rsubst1; rewrite rapply_push_inner, rapply_identity.
+  destruct (rvar_eqb v (mk_rvar l 0)); reflexivity.
 Qed.
 
 (** ** Payload adjustments *)
 
-Definition papply ρ v : result T := apply (padj_adj ρ) v.
+Definition rpapply ρ v : rresult T := rapply (rpadj_adj ρ) v.
 
 (** Payload adjustments are equal when they act the same on free
     variables. *)
-Theorem pextensionality ρ1 ρ2 :
-  (forall v, v_label v <> None -> papply ρ1 v = papply ρ2 v) -> ρ1 = ρ2.
+Theorem rpextensionality ρ1 ρ2 :
+  (forall v, v_label v <> None -> rpapply ρ1 v = rpapply ρ2 v) -> ρ1 = ρ2.
 Proof.
-  intros H; apply padj_eq, pcanonical;
-    try first [apply padj_nnormal|apply padj_pnormal].
-  intros v Hv; unfold papply in H.
-  rewrite <- (lower_apply (padj_adj ρ1)), <- (lower_apply (padj_adj ρ2)), H by exact Hv.
+  intros H; apply rpadj_eq, pcanonical;
+    try first [apply rpadj_nnormal|apply rpadj_pnormal].
+  intros v Hv; unfold rpapply in H.
+  rewrite <- (lower_rapply (rpadj_adj ρ1)), <- (lower_rapply (rpadj_adj ρ2)), H by exact Hv.
   reflexivity.
 Qed.
 
-Lemma papply_depth ρ v u ρ' :
-  papply ρ v = inr (u, ρ') -> ndepth (padj_n ρ') < ndepth (padj_n ρ).
+Lemma rpapply_depth ρ v u ρ' :
+  rpapply ρ v = inr (u, ρ') -> ndepth (rpadj_n ρ') < ndepth (rpadj_n ρ).
 Proof.
-  intros H; pose proof (f_equal lower H) as H'; unfold papply in H'.
-  rewrite lower_apply in H'; cbn [lower adj_n padj_adj fst snd] in H'.
-  destruct (padj_n ρ) as [m] eqn:E.
-  apply (ndepth_binds m (u, padj_n ρ')), (Slots.binds_in_apply m v), H'.
+  intros H; pose proof (f_equal lower H) as H'; unfold rpapply in H'.
+  rewrite lower_rapply in H'; cbn [lower radj_n rpadj_adj fst snd] in H'.
+  destruct (rpadj_n ρ) as [m] eqn:E.
+  apply (ndepth_binds m (u, rpadj_n ρ')), (Slots.binds_in_apply m v), H'.
 Qed.
 
-Lemma papply_pcompose a ρ v :
+Lemma rpapply_pcompose a ρ v :
   v_label v <> None ->
-  papply (pcompose a ρ) v
-  = match papply ρ v with
-    | inl w => apply a w
-    | inr p => inr (fst p, pcompose a (snd p))
+  rpapply (rpcompose a ρ) v
+  = match rpapply ρ v with
+    | inl w => rapply a w
+    | inr p => inr (fst p, rpcompose a (snd p))
     end.
 Proof.
-  intros Hv; unfold papply.
-  rewrite <- apply_compose; apply lower_inj; rewrite !lower_apply.
-  cbn [adj_n padj_adj pcompose padj_n compose].
+  intros Hv; unfold rpapply.
+  rewrite <- rapply_compose; apply lower_inj; rewrite !lower_rapply.
+  cbn [radj_n rpadj_adj rpcompose rpadj_n rcompose].
   apply napply_prestrict; [|exact Hv].
-  apply nnormal_ncompose; [apply adj_ok_true|apply padj_nnormal].
+  apply nnormal_ncompose; [apply radj_ok_true|apply rpadj_nnormal].
 Qed.
 
-Lemma papply_pshift h ρ v :
+Lemma rpapply_pshift h ρ v :
   v_label v <> None ->
-  papply (pshift_p h ρ) v
-  = match papply ρ v with
-    | inl w => inl (shift_var (mk_var h 0) w)
-    | inr p => inr (fst p, pshift_p h (snd p))
+  rpapply (rpshift h ρ) v
+  = match rpapply ρ v with
+    | inl w => inl (shift_rvar (mk_rvar h 0) w)
+    | inr p => inr (fst p, rpshift h (snd p))
     end.
 Proof.
-  intros Hv; unfold papply; apply lower_inj; rewrite lower_apply.
-  cbn [adj_n padj_adj pshift_p padj_n].
-  rewrite napply_pshift by (try apply (nnormal_normal _ (padj_nnormal ρ)); exact Hv).
-  pose proof (lower_apply (padj_adj ρ) v) as L; cbn [adj_n padj_adj] in L; rewrite <- L.
-  destruct (apply (padj_adj ρ) v) as [w|[u ρ']]; reflexivity.
+  intros Hv; unfold rpapply; apply lower_inj; rewrite lower_rapply.
+  cbn [radj_n rpadj_adj rpshift rpadj_n].
+  rewrite napply_pshift by (try apply (nnormal_normal _ (rpadj_nnormal ρ)); exact Hv).
+  pose proof (lower_rapply (rpadj_adj ρ) v) as L; cbn [radj_n rpadj_adj] in L; rewrite <- L.
+  destruct (rapply (rpadj_adj ρ) v) as [w|[u ρ']]; reflexivity.
 Qed.
 
-Lemma pshift_as_pcompose_depth h n :
-  forall ρ, ndepth (padj_n ρ) <= n -> pshift_p h ρ = pcompose (shift h) ρ.
+Lemma rpshift_as_pcompose_depth h n :
+  forall ρ, ndepth (rpadj_n ρ) <= n -> rpshift h ρ = rpcompose (rshift h) ρ.
 Proof.
-  induction n as [|n IH]; intros ρ Hd; [pose proof (ndepth_pos (padj_n ρ)); lia|].
-  apply pextensionality; intros v Hv.
-  rewrite papply_pshift, papply_pcompose by exact Hv.
-  destruct (papply ρ v) as [w|[u ρ']] eqn:E.
-  - rewrite apply_shift; reflexivity.
-  - pose proof (papply_depth _ _ _ _ E); cbn [fst snd].
+  induction n as [|n IH]; intros ρ Hd; [pose proof (ndepth_pos (rpadj_n ρ)); lia|].
+  apply rpextensionality; intros v Hv.
+  rewrite rpapply_pshift, rpapply_pcompose by exact Hv.
+  destruct (rpapply ρ v) as [w|[u ρ']] eqn:E.
+  - rewrite rapply_shift; reflexivity.
+  - pose proof (rpapply_depth _ _ _ _ E); cbn [fst snd].
     rewrite (IH ρ') by lia; reflexivity.
 Qed.
 
-Theorem pshift_as_pcompose h ρ : pshift_p h ρ = pcompose (shift h) ρ.
-Proof. apply (pshift_as_pcompose_depth h (ndepth (padj_n ρ))); lia. Qed.
+Theorem rpshift_as_pcompose h ρ : rpshift h ρ = rpcompose (rshift h) ρ.
+Proof. apply (rpshift_as_pcompose_depth h (ndepth (rpadj_n ρ))); lia. Qed.
 
-Theorem push_outer_as_compose h a : push_outer h a = compose (shift h) a.
+Theorem rpush_outer_as_compose h a : rpush_outer h a = rcompose (rshift h) a.
 Proof.
-  apply extensionality; intro v.
-  rewrite apply_push_outer, apply_compose.
-  destruct (apply a v) as [w|[u ρ]].
-  - rewrite apply_shift; reflexivity.
-  - rewrite pshift_as_pcompose; reflexivity.
+  apply rextensionality; intro v.
+  rewrite rapply_push_outer, rapply_compose.
+  destruct (rapply a v) as [w|[u ρ]].
+  - rewrite rapply_shift; reflexivity.
+  - rewrite rpshift_as_pcompose; reflexivity.
 Qed.
 
 (** ** Reordering entries *)
 
-Lemma unshift_var_comm h1 h2 v :
+Lemma unshift_rvar_comm h1 h2 v :
   h1 <> h2 ->
-  unshift_var (mk_var h1 0) (unshift_var (mk_var h2 0) v)
-  = unshift_var (mk_var h2 0) (unshift_var (mk_var h1 0) v).
-Proof. destruct v as [h i]; unfold unshift_var; intro; case_vars. Qed.
+  unshift_rvar (mk_rvar h1 0) (unshift_rvar (mk_rvar h2 0) v)
+  = unshift_rvar (mk_rvar h2 0) (unshift_rvar (mk_rvar h1 0) v).
+Proof. destruct v as [h i]; unfold unshift_rvar; intro; case_vars. Qed.
 
-Lemma shift_var_comm h1 h2 v :
-  shift_var (mk_var h1 0) (shift_var (mk_var h2 0) v)
-  = shift_var (mk_var h2 0) (shift_var (mk_var h1 0) v).
+Lemma shift_rvar_comm h1 h2 v :
+  shift_rvar (mk_rvar h1 0) (shift_rvar (mk_rvar h2 0) v)
+  = shift_rvar (mk_rvar h2 0) (shift_rvar (mk_rvar h1 0) v).
 Proof.
   destruct (label_eq_dec h1 h2) as [->|Hne]; [reflexivity|].
-  destruct v as [h i]; unfold shift_var; case_vars.
+  destruct v as [h i]; unfold shift_rvar; case_vars.
 Qed.
 
-Theorem push_inner_comm h1 h2 t1 t2 a :
+Theorem rpush_inner_comm h1 h2 t1 t2 a :
   h1 <> h2 ->
-  push_inner h1 t1 (push_inner h2 t2 a) = push_inner h2 t2 (push_inner h1 t1 a).
+  rpush_inner h1 t1 (rpush_inner h2 t2 a) = rpush_inner h2 t2 (rpush_inner h1 t1 a).
 Proof.
-  intros Hne; apply extensionality; intro v.
-  rewrite !apply_push_inner.
-  destruct v as [h i]; unfold var_eqb, unshift_var; cbn [v_label v_index].
-  case_vars; rewrite ?apply_push_inner; unfold var_eqb, unshift_var;
+  intros Hne; apply rextensionality; intro v.
+  rewrite !rapply_push_inner.
+  destruct v as [h i]; unfold rvar_eqb, unshift_rvar; cbn [v_label v_index].
+  case_vars; rewrite ?rapply_push_inner; unfold rvar_eqb, unshift_rvar;
     cbn [v_label v_index]; case_vars.
 Qed.
 
-Lemma compose_shift_comm h1 h2 :
-  compose (shift h1) (shift h2) = compose (shift h2) (shift h1).
+Lemma rcompose_shift_comm h1 h2 :
+  rcompose (rshift h1) (rshift h2) = rcompose (rshift h2) (rshift h1).
 Proof.
-  apply extensionality; intro v.
-  rewrite !apply_compose, !apply_shift; f_equal; apply shift_var_comm.
+  apply rextensionality; intro v.
+  rewrite !rapply_compose, !rapply_shift; f_equal; apply shift_rvar_comm.
 Qed.
 
-Theorem push_outer_comm h1 h2 a :
-  push_outer h1 (push_outer h2 a) = push_outer h2 (push_outer h1 a).
+Theorem rpush_outer_comm h1 h2 a :
+  rpush_outer h1 (rpush_outer h2 a) = rpush_outer h2 (rpush_outer h1 a).
 Proof.
-  rewrite !(push_outer_as_compose _ (push_outer _ a)), !(push_outer_as_compose _ a).
-  rewrite !compose_assoc, compose_shift_comm; reflexivity.
+  rewrite !(rpush_outer_as_compose _ (rpush_outer _ a)), !(rpush_outer_as_compose _ a).
+  rewrite !rcompose_assoc, rcompose_shift_comm; reflexivity.
 Qed.
 
 (** Moving a target past a new output entry [h]. *)
-Definition shift_target h t : target T :=
+Definition rshift_target h t : rtarget T :=
   match t with
-  | Rename w => Rename (shift_var (mk_var h 0) w)
-  | Bind u ρ => Bind u (pshift_p h ρ)
+  | RRename w => RRename (shift_rvar (mk_rvar h 0) w)
+  | RBind u ρ => RBind u (rpshift h ρ)
   end.
 
 (** Output entries move inside input entries; the target is shifted past the
     output entry. *)
-Theorem push_outer_inner h h' t a :
-  push_outer h (push_inner h' t a) = push_inner h' (shift_target h t) (push_outer h a).
+Theorem rpush_outer_inner h h' t a :
+  rpush_outer h (rpush_inner h' t a) = rpush_inner h' (rshift_target h t) (rpush_outer h a).
 Proof.
-  apply extensionality; intro v.
-  rewrite apply_push_outer, !apply_push_inner.
-  destruct (var_eqb v (mk_var h' 0)).
+  apply rextensionality; intro v.
+  rewrite rapply_push_outer, !rapply_push_inner.
+  destruct (rvar_eqb v (mk_rvar h' 0)).
   - destruct t; reflexivity.
-  - rewrite apply_push_outer; reflexivity.
+  - rewrite rapply_push_outer; reflexivity.
 Qed.
 
 (** ** Composition *)
 
 (** Sending a target through an adjustment. *)
-Definition apply_target a t : target T :=
+Definition rapply_target a t : rtarget T :=
   match t with
-  | Rename w =>
-      match apply a w with
-      | inl u => Rename u
-      | inr p => Bind (fst p) (snd p)
+  | RRename w =>
+      match rapply a w with
+      | inl u => RRename u
+      | inr p => RBind (fst p) (snd p)
       end
-  | Bind u ρ => Bind u (pcompose a ρ)
+  | RBind u ρ => RBind u (rpcompose a ρ)
   end.
 
-Theorem compose_push_inner_r a h t b :
-  compose a (push_inner h t b) = push_inner h (apply_target a t) (compose a b).
+Theorem rcompose_push_inner_r a h t b :
+  rcompose a (rpush_inner h t b) = rpush_inner h (rapply_target a t) (rcompose a b).
 Proof.
-  apply extensionality; intro v.
-  rewrite apply_compose, !apply_push_inner.
-  destruct (var_eqb v (mk_var h 0)).
+  apply rextensionality; intro v.
+  rewrite rapply_compose, !rapply_push_inner.
+  destruct (rvar_eqb v (mk_rvar h 0)).
   - destruct t as [w|u ρ]; cbn; [|reflexivity].
-    destruct (apply a w) as [u|[u ρ]]; reflexivity.
-  - rewrite apply_compose; reflexivity.
+    destruct (rapply a w) as [u|[u ρ]]; reflexivity.
+  - rewrite rapply_compose; reflexivity.
 Qed.
 
-Theorem compose_push_outer_l h a b :
-  compose (push_outer h a) b = push_outer h (compose a b).
-Proof. rewrite !push_outer_as_compose, compose_assoc; reflexivity. Qed.
+Theorem rcompose_push_outer_l h a b :
+  rcompose (rpush_outer h a) b = rpush_outer h (rcompose a b).
+Proof. rewrite !rpush_outer_as_compose, rcompose_assoc; reflexivity. Qed.
 
-Lemma compose_push_inner_shift h t a : compose (push_inner h t a) (shift h) = a.
+Lemma rcompose_push_inner_shift h t a : rcompose (rpush_inner h t a) (rshift h) = a.
 Proof.
-  apply extensionality; intro v.
-  rewrite apply_compose, apply_shift, apply_push_inner.
-  destruct (var_eqb_spec (shift_var (mk_var h 0) v) (mk_var h 0)) as [E|E].
-  - exfalso; destruct v as [h' i]; unfold shift_var in E; revert E; case_vars.
-  - rewrite unshift_shift_var; reflexivity.
+  apply rextensionality; intro v.
+  rewrite rapply_compose, rapply_shift, rapply_push_inner.
+  destruct (rvar_eqb_spec (shift_rvar (mk_rvar h 0) v) (mk_rvar h 0)) as [E|E].
+  - exfalso; destruct v as [h' i]; unfold shift_rvar in E; revert E; case_vars.
+  - rewrite unshift_shift_rvar; reflexivity.
 Qed.
 
 (** An output entry is cancelled by an input entry with the same label. *)
-Theorem compose_cancel h t a b :
-  compose (push_inner h t a) (push_outer h b) = compose a b.
+Theorem rcompose_cancel h t a b :
+  rcompose (rpush_inner h t a) (rpush_outer h b) = rcompose a b.
 Proof.
-  rewrite push_outer_as_compose, compose_assoc, compose_push_inner_shift; reflexivity.
+  rewrite rpush_outer_as_compose, rcompose_assoc, rcompose_push_inner_shift; reflexivity.
 Qed.
 
-Theorem compose_identity_push_outer h b :
-  compose (push_outer h identity) b = push_outer h b.
-Proof. rewrite compose_push_outer_l, compose_identity_l; reflexivity. Qed.
+Theorem rcompose_identity_push_outer h b :
+  rcompose (rpush_outer h ridentity) b = rpush_outer h b.
+Proof. rewrite rcompose_push_outer_l, rcompose_identity_l; reflexivity. Qed.
 
 (** ** Lifting *)
 
-Theorem lift_identity l : lift l (@identity T) = identity.
+Theorem rlift_identity l : rlift l (@ridentity T) = ridentity.
 Proof.
-  apply extensionality; intro v.
-  rewrite apply_lift, apply_identity.
-  destruct (var_eqb_spec v (mk_var l 0)) as [->|Hne]; [reflexivity|].
-  rewrite apply_identity, shift_unshift_var by exact Hne; reflexivity.
+  apply rextensionality; intro v.
+  rewrite rapply_lift, rapply_identity.
+  destruct (rvar_eqb_spec v (mk_rvar l 0)) as [->|Hne]; [reflexivity|].
+  rewrite rapply_identity, shift_unshift_rvar by exact Hne; reflexivity.
 Qed.
 
-Lemma compose_lift_shift l a : compose (lift l a) (shift l) = compose (shift l) a.
+Lemma rcompose_lift_shift l a : rcompose (rlift l a) (rshift l) = rcompose (rshift l) a.
 Proof.
-  unfold lift; rewrite compose_push_inner_shift, push_outer_as_compose; reflexivity.
+  unfold rlift; rewrite rcompose_push_inner_shift, rpush_outer_as_compose; reflexivity.
 Qed.
 
-Theorem lift_compose l a b : compose (lift l a) (lift l b) = lift l (compose a b).
+Theorem rlift_compose l a b : rcompose (rlift l a) (rlift l b) = rlift l (rcompose a b).
 Proof.
-  apply extensionality; intro v.
-  rewrite apply_compose, !apply_lift.
-  destruct (var_eqb_spec v (mk_var l 0)) as [->|Hne].
-  - rewrite apply_lift, var_eqb_refl; reflexivity.
-  - rewrite apply_compose.
-    destruct (apply b (unshift_var (mk_var l 0) v)) as [w|[u ρ]].
-    + rewrite apply_lift.
-      destruct (var_eqb_spec (shift_var (mk_var l 0) w) (mk_var l 0)) as [Heq|Hw].
-      * exfalso; destruct w as [h i]; unfold shift_var in Heq; cbn in Heq.
+  apply rextensionality; intro v.
+  rewrite rapply_compose, !rapply_lift.
+  destruct (rvar_eqb_spec v (mk_rvar l 0)) as [->|Hne].
+  - rewrite rapply_lift, rvar_eqb_refl; reflexivity.
+  - rewrite rapply_compose.
+    destruct (rapply b (unshift_rvar (mk_rvar l 0) v)) as [w|[u ρ]].
+    + rewrite rapply_lift.
+      destruct (rvar_eqb_spec (shift_rvar (mk_rvar l 0) w) (mk_rvar l 0)) as [Heq|Hw].
+      * exfalso; destruct w as [h i]; unfold shift_rvar in Heq; cbn in Heq.
         revert Heq; case_vars.
-      * rewrite unshift_shift_var; reflexivity.
-    + cbn [fst snd]; rewrite !pshift_as_pcompose, !pcompose_compose, compose_lift_shift.
+      * rewrite unshift_shift_rvar; reflexivity.
+    + cbn [fst snd]; rewrite !rpshift_as_pcompose, !rpcompose_compose, rcompose_lift_shift.
       reflexivity.
 Qed.
 
 (** Going under a binder is free when the adjustment does not touch the
     binder's label: no entry for [l], no result labelled [l] from another
     label, and payloads unchanged by the shift.  The indexed layer uses this
-    to skip [lift] when the indices guarantee these conditions. *)
-Theorem lift_free l a :
-  (forall i, apply a (mk_var l i) = inl (mk_var l i)) ->
-  (forall v w, v_label v <> l -> apply a v = inl w -> v_label w <> l) ->
-  (forall v p, apply a v = inr p -> pshift_p l (snd p) = snd p) ->
-  lift l a = a.
+    to skip [rlift] when the indices guarantee these conditions. *)
+Theorem rlift_free l a :
+  (forall i, rapply a (mk_rvar l i) = inl (mk_rvar l i)) ->
+  (forall v w, v_label v <> l -> rapply a v = inl w -> v_label w <> l) ->
+  (forall v p, rapply a v = inr p -> rpshift l (snd p) = snd p) ->
+  rlift l a = a.
 Proof.
-  intros Hl Hw Hp; apply extensionality; intro v.
-  rewrite apply_lift.
-  destruct (var_eqb_spec v (mk_var l 0)) as [->|Hne]; [symmetry; apply Hl|].
+  intros Hl Hw Hp; apply rextensionality; intro v.
+  rewrite rapply_lift.
+  destruct (rvar_eqb_spec v (mk_rvar l 0)) as [->|Hne]; [symmetry; apply Hl|].
   destruct v as [h i]; destruct (label_eq_dec h l) as [->|Hhl].
   - destruct i as [|i]; [exfalso; apply Hne; reflexivity|].
-    unfold unshift_var; cbn [v_label v_index]; rewrite label_eqb_refl.
+    unfold unshift_rvar; cbn [v_label v_index]; rewrite label_eqb_refl.
     cbn [andb Nat.ltb Nat.leb]; replace (S i - 1) with i by lia.
-    rewrite !Hl; unfold shift_var; cbn [v_label v_index].
+    rewrite !Hl; unfold shift_rvar; cbn [v_label v_index].
     rewrite label_eqb_refl; reflexivity.
-  - unfold unshift_var; cbn [v_label v_index].
+  - unfold unshift_rvar; cbn [v_label v_index].
     rewrite (proj2 (label_eqb_neq l h)) by congruence; cbn [andb].
-    destruct (apply a (mk_var h i)) as [w|p] eqn:E.
-    + unfold shift_var; cbn [v_label v_index].
+    destruct (rapply a (mk_rvar h i)) as [w|p] eqn:E.
+    + unfold shift_rvar; cbn [v_label v_index].
       rewrite (proj2 (label_eqb_neq l (v_label w)))
-        by (intro H; apply (Hw (mk_var h i) w Hhl E); symmetry; exact H).
+        by (intro H; apply (Hw (mk_rvar h i) w Hhl E); symmetry; exact H).
       reflexivity.
     + rewrite (Hp _ _ E); destruct p; reflexivity.
 Qed.
 
 (** ** The primitives as context forms *)
 
-Theorem shift_as_push_outer l : shift l = push_outer l (@identity T).
+Theorem rshift_as_push_outer l : rshift l = rpush_outer l (@ridentity T).
 Proof. reflexivity. Qed.
 
-Theorem rename1_as_context l1 l2 :
-  rename1 l1 l2 = push_inner l1 (Rename (mk_var l2 0)) (push_outer l2 (@identity T)).
+Theorem rrename1_as_context l1 l2 :
+  rrename1 l1 l2 = rpush_inner l1 (RRename (mk_rvar l2 0)) (rpush_outer l2 (@ridentity T)).
 Proof. reflexivity. Qed.
 
-Theorem subst1_as_context l u ρ : subst1 l u ρ = push_inner l (Bind u ρ) (@identity T).
+Theorem rsubst1_as_context l u ρ : rsubst1 l u ρ = rpush_inner l (RBind u ρ) (@ridentity T).
 Proof. reflexivity. Qed.
 
 (** ** Opening and closing *)
 
-Theorem compose_open_close x : compose (open x) (close x) = @identity T.
+Theorem rcompose_open_close x : rcompose (ropen x) (rclose x) = @ridentity T.
 Proof.
-  apply extensionality; intro v.
-  rewrite apply_compose, apply_identity; unfold open, close; rewrite !apply_rename1.
-  destruct v as [h i]; unfold var_eqb, shift_var, unshift_var; cbn [v_label v_index].
-  case_vars; rewrite ?apply_rename1; unfold var_eqb, shift_var, unshift_var;
+  apply rextensionality; intro v.
+  rewrite rapply_compose, rapply_identity; unfold ropen, rclose; rewrite !rapply_rename1.
+  destruct v as [h i]; unfold rvar_eqb, shift_rvar, unshift_rvar; cbn [v_label v_index].
+  case_vars; rewrite ?rapply_rename1; unfold rvar_eqb, shift_rvar, unshift_rvar;
     cbn [v_label v_index]; case_vars.
 Qed.
 
-Theorem compose_close_open x : compose (close x) (open x) = @identity T.
+Theorem rcompose_close_open x : rcompose (rclose x) (ropen x) = @ridentity T.
 Proof.
-  apply extensionality; intro v.
-  rewrite apply_compose, apply_identity; unfold open, close; rewrite !apply_rename1.
-  destruct v as [h i]; unfold var_eqb, shift_var, unshift_var; cbn [v_label v_index].
-  case_vars; rewrite ?apply_rename1; unfold var_eqb, shift_var, unshift_var;
+  apply rextensionality; intro v.
+  rewrite rapply_compose, rapply_identity; unfold ropen, rclose; rewrite !rapply_rename1.
+  destruct v as [h i]; unfold rvar_eqb, shift_rvar, unshift_rvar; cbn [v_label v_index].
+  case_vars; rewrite ?rapply_rename1; unfold rvar_eqb, shift_rvar, unshift_rvar;
     cbn [v_label v_index]; case_vars.
 Qed.
 

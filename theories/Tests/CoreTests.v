@@ -8,68 +8,65 @@ From ShiftedNames.Core Require Import Trie Label Var Adjustment Laws.
 Import ListNotations.
 Open Scope string_scope.
 
-Definition renaming := adjustment Empty_set.
-
-Definition rcompose (a b : renaming) : renaming := compose a b.
-Definition rlift (l : option label) (a : renaming) : renaming := lift l a.
+Definition renaming := radj Empty_set.
 
 (** Closed equalities are decided by computing the representation. *)
-Ltac adj_compute := apply adj_eq; vm_compute; reflexivity.
+Ltac adj_compute := apply radj_eq; vm_compute; reflexivity.
 
-Example open_close : rcompose (open "x") (close "x") = identity.
+Example open_close : rcompose (ropen "x") (rclose "x") = ridentity :> renaming.
 Proof. adj_compute. Qed.
 
-Example close_open : rcompose (close "x") (open "x") = identity.
+Example close_open : rcompose (rclose "x") (ropen "x") = ridentity :> renaming.
 Proof. adj_compute. Qed.
 
-Example swap_swap : rcompose (swap (Some "x")) (swap (Some "x")) = identity.
+Example swap_swap : rcompose (rswap (Some "x")) (rswap (Some "x")) = ridentity :> renaming.
 Proof. adj_compute. Qed.
 
-Example swap_bound_swap : rcompose (swap None) (swap None) = identity.
+Example swap_bound_swap : rcompose (rswap None) (rswap None) = ridentity :> renaming.
 Proof. adj_compute. Qed.
 
-Example lift_identity : rlift None identity = identity.
+Example rlift_identity : rlift None ridentity = ridentity :> renaming.
 Proof. adj_compute. Qed.
 
-Example lift_compose :
-  rlift None (rcompose (open "x") (rename1 (Some "y") (Some "z")))
-  = rcompose (rlift None (open "x")) (rlift None (rename1 (Some "y") (Some "z"))).
+Example rlift_compose :
+  rlift None (rcompose (ropen "x") (rrename1 (Some "y") (Some "z")))
+  = rcompose (rlift None (ropen "x")) (rlift None (rrename1 (Some "y") (Some "z"))) :> renaming.
 Proof. adj_compute. Qed.
 
 (** Renaming [x] to [y] and then [y] to [z] is renaming [x] to [z]: the
     shift of the old [y]s by the first renaming is undone by the second
     ([rw_ren_rename_rename] on [master]). *)
 Example rename_rename :
-  rcompose (rename1 (Some "y") (Some "z")) (rename1 (Some "x") (Some "y"))
-  = rename1 (Some "x") (Some "z").
+  rcompose (rrename1 (Some "y") (Some "z")) (rrename1 (Some "x") (Some "y"))
+  = rrename1 (Some "x") (Some "z") :> renaming.
 Proof. adj_compute. Qed.
 
-Example rename_self : rename1 (Some "x") (Some "x") = @identity Empty_set.
+Example rename_self : rrename1 (Some "x") (Some "x") = @ridentity Empty_set :> renaming.
 Proof. adj_compute. Qed.
 
 (** Targets that were stripped are re-materialised: sending [y] to [x₀]
     after [x₀ ↦ x₀] has collapsed to the identity. *)
 Example push_inner_after_strip :
-  apply (push_inner (T:=Empty_set) (Some "y") (Rename (mk_var (Some "x") 0))
-           (push_inner (Some "x") (Rename (mk_var (Some "x") 0)) (shift (Some "x"))))
-        (mk_var (Some "y") 0)
-  = inl (mk_var (Some "x") 0).
+  rapply (rpush_inner (T:=Empty_set) (Some "y") (RRename (mk_rvar (Some "x") 0))
+           (rpush_inner (Some "x") (RRename (mk_rvar (Some "x") 0)) (rshift (Some "x"))))
+        (mk_rvar (Some "y") 0)
+  = inl (mk_rvar (Some "x") 0).
 Proof. vm_compute; reflexivity. Qed.
 
 Example push_inner_after_strip_rest :
-  apply (push_inner (T:=Empty_set) (Some "y") (Rename (mk_var (Some "x") 0))
-           (push_inner (Some "x") (Rename (mk_var (Some "x") 0)) (shift (Some "x"))))
-        (mk_var (Some "x") 3)
-  = inl (mk_var (Some "x") 3).
+  rapply (rpush_inner (T:=Empty_set) (Some "y") (RRename (mk_rvar (Some "x") 0))
+           (rpush_inner (Some "x") (RRename (mk_rvar (Some "x") 0)) (rshift (Some "x"))))
+        (mk_rvar (Some "x") 3)
+  = inl (mk_rvar (Some "x") 3).
 Proof. vm_compute; reflexivity. Qed.
 
 (** Applying an adjustment to concrete variables. *)
 Example apply_open_bound :
-  apply (open (T:=Empty_set) "x") (mk_var None 0) = inl (mk_var (Some "x") 0).
+  rapply (ropen (T:=Empty_set) "x") (mk_rvar None 0) = inl (mk_rvar (Some "x") 0).
 Proof. vm_compute; reflexivity. Qed.
 
 Example apply_open_free :
-  apply (open (T:=Empty_set) "x") (mk_var (Some "x") 2) = inl (mk_var (Some "x") 3).
+  rapply (ropen (T:=Empty_set) "x") (mk_rvar (Some "x") 2) = inl (mk_rvar (Some "x") 3).
 Proof. vm_compute; reflexivity. Qed.
 
 (** ** Trie performance: a few thousand entries under [vm_compute]. *)
