@@ -1,13 +1,22 @@
 (** * Adjustments
 
-    An [adjustment P] is a normal raw adjustment packaged with an SProp proof
-    of normality.  Because the proof is in SProp, two adjustments are equal
-    exactly when their raw data is equal, and by canonicity that happens
-    exactly when they have the same action ([extensionality]).  So all the
-    usual laws hold up to Leibniz equality. *)
+    An [adjustment T] is a normal nested adjustment (Nested.v) packaged with
+    an SProp proof of normality.  [T] is the user's type of terms with no
+    bound variables; the library never looks inside it.
+
+    Because the proof is in SProp, two adjustments are equal exactly when
+    their data is equal, and by canonicity that happens exactly when they
+    act the same ([extensionality]).  So all the usual laws hold up to
+    Leibniz equality.
+
+    A variable is sent either to a variable or to a payload [(u, ρ)]: a term
+    [u] together with a payload adjustment [ρ : padj T] that is still to be
+    applied to it.  Payload adjustments only ever see the free variables of
+    [u], and are canonical for that restricted meaning. *)
 
 From Stdlib Require Import PArith Arith List Lia Bool StrictProp.
-From ShiftedNames.Core Require Import Trie Label Var RawAdjustment.
+From ShiftedNames.Core Require Import Trie Label Var Nested.
+From ShiftedNames.Core Require Slots.
 Import ListNotations.
 
 (** ** Booleans as strict propositions *)
@@ -23,246 +32,261 @@ Definition Is_true_s_intro {b : bool} : b = true -> Is_true_s b :=
 Lemma Is_true_s_elim {b : bool} : Is_true_s b -> b = true.
 Proof. destruct b; [reflexivity|intros []]. Qed.
 
-(** ** The type of adjustments *)
+(** ** The types of adjustments and payload adjustments *)
 
-Record adjustment (P : Type) : Type :=
-  mk_adjustment {
-    adj_raw : raw P;
-    adj_normal : Is_true_s (normal adj_raw)
+Record adjustment (T : Type) : Type :=
+  mk_adj {
+    adj_n : nadj T;
+    adj_ok : Is_true_s (nnormal adj_n)
   }.
 
-Arguments mk_adjustment {P} _ _.
-Arguments adj_raw {P} _.
-Arguments adj_normal {P} _.
+Record padj (T : Type) : Type :=
+  mk_padj {
+    padj_n : nadj T;
+    padj_ok : Is_true_s (nnormal padj_n && pnormal_raw (nraw padj_n))
+  }.
 
-Lemma adjustment_eq {P} (a b : adjustment P) : adj_raw a = adj_raw b -> a = b.
+Arguments mk_adj {T} _ _.
+Arguments adj_n {T} _.
+Arguments adj_ok {T} _.
+Arguments mk_padj {T} _ _.
+Arguments padj_n {T} _.
+Arguments padj_ok {T} _.
+
+Lemma adj_eq {T} (a b : adjustment T) : adj_n a = adj_n b -> a = b.
+Proof. destruct a as [ra Ha], b as [rb Hb]; cbn; intros ->; reflexivity. Qed.
+
+Lemma padj_eq {T} (a b : padj T) : padj_n a = padj_n b -> a = b.
 Proof. destruct a as [ra Ha], b as [rb Hb]; cbn; intros ->; reflexivity. Qed.
 
 Section Adjustment.
 
-Context {P : Type}.
+Context {T : Type}.
 
-Implicit Types (a b c : adjustment P) (v w : var) (l : option label).
+Implicit Types (a b c : adjustment T) (ρ : padj T) (v w : var) (h l : option label).
 
-Definition apply a v : var + P := RawAdjustment.apply (adj_raw a) v.
+Lemma adj_ok_true a : nnormal (adj_n a) = true.
+Proof. apply Is_true_s_elim, adj_ok. Qed.
 
-Lemma adj_normal_true a : normal (adj_raw a) = true.
-Proof. apply Is_true_s_elim, adj_normal. Qed.
+Lemma padj_nnormal ρ : nnormal (padj_n ρ) = true.
+Proof. pose proof (Is_true_s_elim (padj_ok ρ)) as H; apply andb_true_iff in H; apply H. Qed.
 
+Lemma padj_pnormal ρ : pnormal_raw (nraw (padj_n ρ)) = true.
+Proof. pose proof (Is_true_s_elim (padj_ok ρ)) as H; apply andb_true_iff in H; apply H. Qed.
+
+(** A payload adjustment is in particular an adjustment. *)
+Definition padj_adj ρ : adjustment T :=
+  mk_adj (padj_n ρ) (Is_true_s_intro (padj_nnormal ρ)).
+
+(** ** Action *)
+
+(** Packaging a nested payload adjustment; only used on ones that are
+    already normal, the fallback is never reached. *)
+Definition psel (x : nadj T) : nadj T :=
+  if nnormal x && pnormal_raw (nraw x) then x else nidentity.
+
+Lemma psel_ok x : nnormal (psel x) && pnormal_raw (nraw (psel x)) = true.
+Proof. unfold psel; destruct (nnormal x && pnormal_raw (nraw x)) eqn:E; [exact E|reflexivity]. Qed.
+
+Definition to_padj (x : nadj T) : padj T := mk_padj (psel x) (Is_true_s_intro (psel_ok x)).
+
+Lemma padj_n_to_padj x :
+  nnormal x = true -> pnormal_raw (nraw x) = true -> padj_n (to_padj x) = x.
+Proof. intros H1 H2; cbn; unfold psel; rewrite H1, H2; reflexivity. Qed.
+
+Lemma to_padj_padj_n ρ : to_padj (padj_n ρ) = ρ.
+Proof. apply padj_eq, padj_n_to_padj; [apply padj_nnormal|apply padj_pnormal]. Qed.
+
+Definition result : Type := (var + (T * padj T))%type.
+
+Definition apply a v : result :=
+  match napply (adj_n a) v with
+  | inl w => inl w
+  | inr p => inr (fst p, to_padj (snd p))
+  end.
+
+Definition lower (r : result) : var + (T * nadj T) :=
+  match r with
+  | inl w => inl w
+  | inr p => inr (fst p, padj_n (snd p))
+  end.
+
+Lemma lower_inj r1 r2 : lower r1 = lower r2 -> r1 = r2.
+Proof.
+  destruct r1 as [w1|[u1 ρ1]], r2 as [w2|[u2 ρ2]]; cbn; intros H; try discriminate;
+    injection H; intros; subst; [reflexivity|].
+  f_equal; f_equal; apply padj_eq; assumption.
+Qed.
+
+Lemma lower_apply a v : lower (apply a v) = napply (adj_n a) v.
+Proof.
+  unfold apply; destruct (napply (adj_n a) v) as [w|[u x]] eqn:E; [reflexivity|].
+  cbn [lower fst snd]; pose proof (napply_payload _ _ _ (adj_ok_true a) E) as [H1 H2].
+  rewrite padj_n_to_padj by assumption; reflexivity.
+Qed.
+
+(** Adjustments are equal when they act the same. *)
 Theorem extensionality a b : (forall v, apply a v = apply b v) -> a = b.
 Proof.
-  intro H; apply adjustment_eq, canonical; auto using adj_normal_true.
+  intros H; apply adj_eq, nextensionality; try apply adj_ok_true.
+  intros v; rewrite <- !lower_apply, H; reflexivity.
 Qed.
 
-Definition identity : adjustment P := mk_adjustment RawAdjustment.identity stt.
+(** ** Identity and composition *)
+
+Definition identity : adjustment T := mk_adj nidentity (Is_true_s_intro nnormal_identity).
 
 Lemma apply_identity v : apply identity v = inl v.
-Proof. apply RawAdjustment.apply_identity. Qed.
+Proof. apply lower_inj; rewrite lower_apply; apply napply_identity. Qed.
 
-Definition compose (fp : P -> P) a b : adjustment P :=
-  mk_adjustment
-    (RawAdjustment.compose fp (adj_raw a) (adj_raw b))
-    (Is_true_s_intro
-       (normal_compose fp _ _ (adj_normal_true a) (adj_normal_true b))).
+(** [pcompose a ρ]: the payload adjustment [a ∘ ρ]. *)
+Lemma pcompose_ok a ρ :
+  nnormal (prestrict (ncompose (adj_n a) (padj_n ρ)))
+  && pnormal_raw (nraw (prestrict (ncompose (adj_n a) (padj_n ρ)))) = true.
+Proof.
+  apply andb_true_iff, nnormal_prestrict, nnormal_ncompose;
+    [apply adj_ok_true|apply padj_nnormal].
+Qed.
 
-Theorem apply_compose fp a b v :
-  apply (compose fp a b) v
+Definition pcompose a ρ : padj T :=
+  mk_padj (prestrict (ncompose (adj_n a) (padj_n ρ))) (Is_true_s_intro (pcompose_ok a ρ)).
+
+(** [compose a b] first applies [b] and then [a]. *)
+Definition compose a b : adjustment T :=
+  mk_adj (ncompose (adj_n a) (adj_n b))
+    (Is_true_s_intro (nnormal_ncompose _ _ (adj_ok_true a) (adj_ok_true b))).
+
+Theorem apply_compose a b v :
+  apply (compose a b) v
   = match apply b v with
     | inl w => apply a w
-    | inr p => inr (fp p)
+    | inr p => inr (fst p, pcompose a (snd p))
     end.
-Proof. apply RawAdjustment.apply_compose; apply adj_normal_true. Qed.
-
-Theorem compose_identity_l fp b :
-  (forall p, fp p = p) -> compose fp identity b = b.
 Proof.
-  intro Hfp; apply extensionality; intro v.
-  rewrite apply_compose.
-  destruct (apply b v); [apply apply_identity|rewrite Hfp; reflexivity].
+  apply lower_inj; rewrite lower_apply; cbn [adj_n compose].
+  rewrite napply_ncompose by apply adj_ok_true.
+  rewrite <- (lower_apply b v); destruct (apply b v) as [w|[u ρ]]; cbn.
+  - symmetry; apply lower_apply.
+  - reflexivity.
 Qed.
 
-Theorem compose_identity_r fp a : compose fp a identity = a.
+Theorem compose_identity_l b : compose identity b = b.
+Proof. apply adj_eq, ncompose_identity_l, adj_ok_true. Qed.
+
+Theorem compose_identity_r a : compose a identity = a.
+Proof. apply adj_eq, ncompose_identity_r, adj_ok_true. Qed.
+
+Theorem compose_assoc a b c : compose a (compose b c) = compose (compose a b) c.
+Proof. apply adj_eq, ncompose_assoc; apply adj_ok_true. Qed.
+
+Theorem pcompose_identity ρ : pcompose identity ρ = ρ.
 Proof.
-  apply extensionality; intro v.
-  rewrite apply_compose, apply_identity; reflexivity.
+  apply padj_eq; cbn [pcompose padj_n adj_n identity].
+  rewrite ncompose_identity_l by apply padj_nnormal.
+  apply prestrict_pnormal; [apply padj_nnormal|apply padj_pnormal].
 Qed.
 
-Theorem compose_assoc fp1 fp2 fp3 fp4 a b c :
-  (forall p, fp4 p = fp1 p) ->
-  (forall p, fp1 (fp2 p) = fp3 p) ->
-  compose fp1 a (compose fp2 b c) = compose fp3 (compose fp4 a b) c.
+Theorem pcompose_compose a b ρ : pcompose a (pcompose b ρ) = pcompose (compose a b) ρ.
 Proof.
-  intros H4 H12; apply extensionality; intro v.
-  rewrite !apply_compose.
-  destruct (apply c v) as [w|p]; [|rewrite H12; reflexivity].
-  rewrite apply_compose.
-  destruct (apply b w); [reflexivity|rewrite H4; reflexivity].
+  apply padj_eq; cbn [pcompose padj_n adj_n compose].
+  rewrite prestrict_ncompose_prestrict;
+    [|apply adj_ok_true|apply nnormal_ncompose; [apply adj_ok_true|apply padj_nnormal]].
+  rewrite ncompose_assoc; [reflexivity|apply adj_ok_true|apply adj_ok_true|apply padj_nnormal].
 Qed.
 
-(** ** Building adjustments from raw data *)
+(** ** Output entries: [push_outer h a] is [a] followed by weakening past
+    one new outer [h]. *)
 
-Definition of_raw (r : raw P) (H : keys_ok r = true) : adjustment P :=
-  mk_adjustment (normalize r) (Is_true_s_intro (normal_normalize r H)).
+Definition push_outer h a : adjustment T :=
+  mk_adj (npush_outer h (adj_n a)) (Is_true_s_intro (nnormal_npush_outer h _ (adj_ok_true a))).
 
-Lemma apply_of_raw r H v : apply (of_raw r H) v = RawAdjustment.apply r v.
-Proof. apply apply_normalize, H. Qed.
-
-Lemma keys_ok_single l (e : entry P) :
-  e_label e = l -> keys_ok (set (label_key l) e Empty) = true.
+Lemma pshift_ok h ρ :
+  nnormal (pshift h (padj_n ρ)) && pnormal_raw (nraw (pshift h (padj_n ρ))) = true.
 Proof.
-  intros He; unfold keys_ok; apply forallb_spec; intros key e' Hget.
-  rewrite get_set, get_Empty in Hget.
-  destruct (Pos.eqb_spec key (label_key l)) as [->|]; [|discriminate].
-  injection Hget as <-; rewrite He; apply Pos.eqb_refl.
+  apply andb_true_iff; split;
+    [apply nnormal_pshift, padj_nnormal|apply pnormal_pshift'; [apply padj_nnormal|apply padj_pnormal]].
 Qed.
 
-(** A single entry for one label. *)
-Definition single l (ts : list (target P)) (k : nat) : adjustment P :=
-  of_raw (set (label_key l) (mk_entry l ts k) Empty)
-    (keys_ok_single l (mk_entry l ts k) eq_refl).
+(** Weakening a payload adjustment past a new outer [h]. *)
+Definition pshift_p h ρ : padj T := mk_padj (pshift h (padj_n ρ)) (Is_true_s_intro (pshift_ok h ρ)).
 
-Lemma apply_single l ts k v :
-  apply (single l ts k) v
-  = if label_eqb (v_label v) l then apply_entry l ts k (v_index v) else inl v.
+Theorem apply_push_outer h a v :
+  apply (push_outer h a) v
+  = match apply a v with
+    | inl w => inl (shift_var (mk_var h 0) w)
+    | inr p => inr (fst p, pshift_p h (snd p))
+    end.
 Proof.
-  unfold single; rewrite apply_of_raw.
-  unfold RawAdjustment.apply, find.
-  rewrite get_set, get_Empty, label_key_eqb.
-  destruct (label_eqb_spec (v_label v) l) as [->|Hne]; [reflexivity|].
-  unfold apply_entry; cbn [fst snd length].
-  rewrite nth_error_nil, Nat.sub_0_r, Nat.add_0_r; reflexivity.
+  apply lower_inj; rewrite lower_apply; cbn [adj_n push_outer].
+  rewrite napply_npush_outer by apply (nnormal_normal _ (adj_ok_true a)).
+  rewrite <- (lower_apply a v); destruct (apply a v) as [w|[u ρ]]; reflexivity.
 Qed.
 
-End Adjustment.
+(** ** Input entries: [push_inner h t a] sends the innermost [h] to [t] and
+    passes everything else to [a].  A variable target may be any variable. *)
 
-(** ** Changing the payload type *)
+Inductive target : Type :=
+| Rename (w : var)
+| Bind (u : T) (ρ : padj T).
 
-Definition map_payload {P Q} (f : P -> Q) (a : adjustment P) : adjustment Q :=
-  mk_adjustment (map_payload_raw f (adj_raw a))
-    (Is_true_s_intro (normal_map_payload_raw f _ (adj_normal_true a))).
+Definition target_result (t : target) : result :=
+  match t with
+  | Rename w => inl w
+  | Bind u ρ => inr (u, ρ)
+  end.
 
-Theorem apply_map_payload {P Q} (f : P -> Q) (a : adjustment P) (v : var) :
-  apply (map_payload f a) v
-  = match apply a v with inl w => inl w | inr p => inr (f p) end.
-Proof. apply apply_map_payload_raw. Qed.
+Definition push_inner_n h t a : nadj T :=
+  match t with
+  | Rename w => npush_inner_var h w (adj_n a)
+  | Bind u ρ => npush_inner h (Slots.Bind (u, padj_n ρ)) (adj_n a)
+  end.
 
-
-(** ** Primitive adjustments *)
-
-Section Primitives.
-
-Context {P : Type}.
-
-Definition no_payload (p : P) : P := p.
-
-(** [shift l]: weaken by one [l]; every [l₍ᵢ₎] becomes [l₍ᵢ₊₁₎]. *)
-Definition shift l : adjustment P := single l [] 1.
-
-(** [rename1 l1 l2]: the innermost [l1] becomes a new innermost [l2]. *)
-Definition rename1 l1 l2 : adjustment P :=
-  compose no_payload (single l1 [Rename (mk_var l2 0)] 0) (single l2 [] 1).
-
-(** Opening a bound variable as [x], and closing [x] into a bound variable. *)
-Definition open (x : label) : adjustment P := rename1 None (Some x).
-Definition close (x : label) : adjustment P := rename1 (Some x) None.
-
-(** [swap l] exchanges the two innermost [l]s. *)
-Definition swap l : adjustment P :=
-  single l [Rename (mk_var l 1); Rename (mk_var l 0)] 2.
-
-(** [subst1 l p]: the innermost [l] is replaced by the payload [p]. *)
-Definition subst1 l (p : P) : adjustment P := single l [Bind p] 0.
-
-Lemma apply_shift l v : apply (shift l) v = inl (shift_var (mk_var l 0) v).
+Lemma push_inner_n_ok h t a : nnormal (push_inner_n h t a) = true.
 Proof.
-  unfold shift; rewrite apply_single.
-  destruct v as [h i]; unfold shift_var, apply_entry; cbn [v_label v_index length].
-  rewrite nth_error_nil; case_vars.
+  destruct t as [w|u ρ]; cbn [push_inner_n].
+  - apply nnormal_npush_inner_var, adj_ok_true.
+  - apply nnormal_npush_inner; [apply adj_ok_true|discriminate|].
+    cbn; rewrite padj_nnormal, padj_pnormal; reflexivity.
 Qed.
 
-Lemma apply_capture l (t : target P) v :
-  apply (single l [t] 0) v
-  = if var_eqb v (mk_var l 0) then target_result t
-    else inl (unshift_var (mk_var l 0) v).
-Proof.
-  rewrite apply_single.
-  destruct v as [h [|i]]; unfold var_eqb, unshift_var, apply_entry;
-    cbn [v_label v_index nth_error length].
-  - case_vars.
-  - rewrite nth_error_nil; case_vars.
-Qed.
-
-Lemma apply_rename1 l1 l2 v :
-  apply (rename1 l1 l2) v
-  = inl (if var_eqb v (mk_var l1 0) then mk_var l2 0
-         else shift_var (mk_var l2 0) (unshift_var (mk_var l1 0) v)).
-Proof.
-  unfold rename1; rewrite apply_compose.
-  change (single l2 [] 1) with (shift l2); rewrite apply_shift.
-  rewrite apply_capture; cbn [target_result].
-  destruct v as [h i]; unfold var_eqb, shift_var, unshift_var; case_vars.
-Qed.
-
-End Primitives.
-
-(** ** Context-form operations
-
-    An adjustment can be presented as an input context [I], an output
-    context [O] and a tail [σ]: input entries are resolved first, any other
-    variable is moved past [I] and given to [σ], and [σ]'s result is moved
-    past [O].  That presentation is built with two operations that work
-    directly on the trie form:
-
-    - [push_inner h t a] adds an input entry [h ↦ t] in front of [a];
-    - [push_outer sp h a] adds an output entry [h] in front of [a] ([sp]
-      moves payloads past the new [h]).
-
-    Lifting under a binder is the special case [push_inner l l₍₀₎ (push_outer
-    sp l a)]. *)
-
-Section ContextForm.
-
-Context {P : Type}.
-
-Implicit Types (a : adjustment P) (v : var) (l h : option label).
-
-Definition push_inner h (t : target P) a : adjustment P :=
-  mk_adjustment (push_inner_raw h t (adj_raw a))
-    (Is_true_s_intro (normal_push_inner_raw h t _ (adj_normal_true a))).
+Definition push_inner h t a : adjustment T :=
+  mk_adj (push_inner_n h t a) (Is_true_s_intro (push_inner_n_ok h t a)).
 
 Theorem apply_push_inner h t a v :
   apply (push_inner h t a) v
   = if var_eqb v (mk_var h 0) then target_result t
     else apply a (unshift_var (mk_var h 0) v).
-Proof. apply apply_push_inner_raw. Qed.
-
-Definition push_outer (sp : P -> P) h a : adjustment P := compose sp (shift h) a.
-
-Theorem apply_push_outer sp h a v :
-  apply (push_outer sp h a) v
-  = match apply a v with
-    | inl w => inl (shift_var (mk_var h 0) w)
-    | inr p => inr (sp p)
-    end.
 Proof.
-  unfold push_outer; rewrite apply_compose.
-  destruct (apply a v); [apply apply_shift|reflexivity].
+  apply lower_inj; rewrite lower_apply; cbn [adj_n push_inner].
+  pose proof (nnormal_normal _ (adj_ok_true a)) as Ha.
+  destruct t as [w|u ρ]; cbn [push_inner_n].
+  - rewrite napply_npush_inner_var by exact Ha.
+    destruct (var_eqb v (mk_var h 0)); [reflexivity|symmetry; apply lower_apply].
+  - rewrite napply_npush_inner by (try discriminate; exact Ha).
+    destruct (var_eqb v (mk_var h 0)); [reflexivity|symmetry; apply lower_apply].
 Qed.
 
-(** [lift sp l a] is [a] moved under a binder labelled [l]. *)
-Definition lift (sp : P -> P) l a : adjustment P :=
-  push_inner l (Rename (mk_var l 0)) (push_outer sp l a).
+(** The number of [h] output slots of [a]'s canonical form. *)
+Definition out_count a h : nat := Slots.count (nraw (adj_n a)) h.
 
-Theorem apply_lift sp l a v :
-  apply (lift sp l a) v
-  = if var_eqb v (mk_var l 0) then inl v
-    else match apply a (unshift_var (mk_var l 0) v) with
-         | inl w => inl (shift_var (mk_var l 0) w)
-         | inr p => inr (sp p)
+(** ** Going under a binder *)
+
+(** [lift h a] is [a] moved under a binder labelled [h]. *)
+Definition lift h a : adjustment T := push_inner h (Rename (mk_var h 0)) (push_outer h a).
+
+Theorem apply_lift h a v :
+  apply (lift h a) v
+  = if var_eqb v (mk_var h 0) then inl v
+    else match apply a (unshift_var (mk_var h 0) v) with
+         | inl w => inl (shift_var (mk_var h 0) w)
+         | inr p => inr (fst p, pshift_p h (snd p))
          end.
 Proof.
   unfold lift; rewrite apply_push_inner, apply_push_outer.
-  destruct (var_eqb_spec v (mk_var l 0)) as [->|]; reflexivity.
+  destruct (var_eqb_spec v (mk_var h 0)) as [->|]; reflexivity.
 Qed.
 
-End ContextForm.
+End Adjustment.
+
+Arguments target T : clear implicits.
+Arguments result T : clear implicits.

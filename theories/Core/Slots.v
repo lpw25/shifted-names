@@ -1569,4 +1569,302 @@ Proof.
   rewrite (H _ (binds_in_apply b v _ E)); reflexivity.
 Qed.
 
+(** ** Expansion: the inverse of stripping
+
+    [expand1 h a] represents the same adjustment with one more [h] output
+    slot: every [h] slot reference moves one step outwards and the first
+    pass-through [h] input becomes an explicit reference to the new
+    innermost slot.  It lets an input entry refer to any output variable,
+    including one that [a] only reaches by passing through. *)
+
+Definition up_target h t : target P :=
+  match t with
+  | Slot h' n => if label_eqb h' h then Slot h' (S n) else t
+  | Bind _ => t
+  end.
+
+Definition renumber_up h a : raw P :=
+  map_filter (fun _ e => Some (mk_entry (e_label e) (map (up_target h) (e_targets e))
+                                        (e_out e))) a.
+
+Lemma find_renumber_up h a h' :
+  find (renumber_up h a) h' = (map (up_target h) (fst (find a h')), snd (find a h')).
+Proof.
+  unfold find, renumber_up; rewrite get_map_filter.
+  destruct (get (label_key h') a); reflexivity.
+Qed.
+
+Lemma keys_ok_renumber_up h a : keys_ok a = true -> keys_ok (renumber_up h a) = true.
+Proof.
+  unfold keys_ok; rewrite !forallb_spec; intros Ha key e He.
+  unfold renumber_up in He; rewrite get_map_filter in He.
+  destruct (get key a) as [e0|] eqn:E0; [|discriminate]; injection He as <-; apply (Ha _ _ E0).
+Qed.
+
+Definition expand1 h a : raw P :=
+  set_entry h (map (up_target h) (fst (find a h)) ++ [Slot h 0]) (S (count a h))
+    (renumber_up h a).
+
+Lemma find_expand1 h a h' :
+  find (expand1 h a) h'
+  = if label_eqb h' h then (map (up_target h) (fst (find a h)) ++ [Slot h 0], S (count a h))
+    else (map (up_target h) (fst (find a h')), count a h').
+Proof.
+  unfold expand1; rewrite find_set_entry, find_renumber_up.
+  destruct (label_eqb h' h); reflexivity.
+Qed.
+
+Lemma count_expand1 h a h' :
+  count (expand1 h a) h' = if label_eqb h' h then S (count a h) else count a h'.
+Proof. unfold count at 1; rewrite find_expand1; destruct (label_eqb h' h); reflexivity. Qed.
+
+Lemma resolve_up h a t : resolve (expand1 h a) (up_target h t) = resolve a t.
+Proof.
+  destruct t as [h' n|p]; cbn [up_target]; [|reflexivity].
+  destruct (label_eqb_spec h' h) as [->|Hne]; cbn [resolve]; rewrite count_expand1.
+  - rewrite label_eqb_refl; do 2 f_equal; lia.
+  - rewrite (proj2 (label_eqb_neq h' h) Hne); reflexivity.
+Qed.
+
+Theorem apply_expand1 h a v : apply (expand1 h a) v = apply a v.
+Proof.
+  unfold apply at 1; rewrite find_expand1, count_expand1.
+  destruct v as [hv i]; cbn [v_label v_index].
+  destruct (label_eqb_spec hv h) as [->|Hl]; cbn [fst].
+  - unfold apply; cbn [v_label v_index].
+    destruct (Nat.lt_ge_cases i (length (fst (find a h)))) as [Hi|Hi].
+    + rewrite nth_error_app1 by (rewrite length_map; exact Hi).
+      rewrite nth_error_map.
+      destruct (nth_error (fst (find a h)) i) eqn:E; [|apply nth_error_None in E; lia].
+      apply resolve_up.
+    + rewrite nth_error_app2 by (rewrite length_map; exact Hi).
+      rewrite (proj2 (nth_error_None (fst (find a h)) i)) by exact Hi.
+      rewrite length_map, length_app, length_map; cbn [length].
+      destruct (i - length (fst (find a h))) as [|j] eqn:Ej; cbn [nth_error].
+      * cbn [resolve]; rewrite count_expand1, label_eqb_refl; do 2 f_equal; lia.
+      * rewrite nth_error_nil; do 2 f_equal; lia.
+  - unfold apply; cbn [v_label v_index].
+    rewrite nth_error_map, length_map.
+    destruct (nth_error (fst (find a hv)) i); cbn [option_map]; [apply resolve_up|reflexivity].
+Qed.
+
+Theorem pre_normal_expand1 a Q h : pre_normal a Q -> Q h -> pre_normal (expand1 h a) Q.
+Proof.
+  intros [Hk [Hnt [Hwf Hs]]] HQh.
+  assert (Hk' : keys_ok (expand1 h a) = true)
+    by apply keys_ok_set_entry, keys_ok_renumber_up, Hk.
+  repeat split.
+  - exact Hk'.
+  - intros key e He; unfold expand1, set_entry in He; rewrite get_update in He.
+    destruct (Pos.eqb key (label_key h)).
+    + destruct (nontrivial _ _) eqn:E; [injection He as <-; exact E|discriminate].
+    + unfold renumber_up in He; rewrite get_map_filter in He.
+      destruct (get key a) as [e0|] eqn:E0; [|discriminate]; injection He as <-; cbn.
+      specialize (Hnt _ _ E0); destruct (e_targets e0), (e_out e0); auto.
+  - intros v h' n Hn; rewrite count_expand1; rewrite find_expand1 in Hn.
+    destruct v as [hv i]; cbn [v_label v_index] in *.
+    destruct (label_eqb_spec hv h) as [->|Hl]; cbn [fst] in Hn.
+    + destruct (Nat.lt_ge_cases i (length (fst (find a h)))) as [Hi|Hi].
+      * rewrite nth_error_app1 in Hn by (rewrite length_map; exact Hi).
+        rewrite nth_error_map in Hn.
+        destruct (nth_error (fst (find a h)) i) as [t0|] eqn:E; [|discriminate].
+        injection Hn as Hn.
+        destruct t0 as [h0 n0|p]; cbn [up_target] in Hn; [|discriminate].
+        pose proof (Hwf (mk_var h i) h0 n0 E) as Hw.
+        destruct (label_eqb_spec h0 h) as [->|Hh]; injection Hn as <- <-.
+        -- rewrite label_eqb_refl; lia.
+        -- rewrite (proj2 (label_eqb_neq h0 h) Hh); exact Hw.
+      * rewrite nth_error_app2 in Hn by (rewrite length_map; exact Hi).
+        rewrite length_map in Hn.
+        destruct (i - length (fst (find a h))) as [|j]; cbn [nth_error] in Hn;
+          [|rewrite nth_error_nil in Hn; discriminate].
+        injection Hn as <- <-; rewrite label_eqb_refl; lia.
+    + rewrite nth_error_map in Hn.
+      destruct (nth_error (fst (find a hv)) i) as [t0|] eqn:E; [|discriminate].
+      injection Hn as Hn.
+      destruct t0 as [h0 n0|p]; cbn [up_target] in Hn; [|discriminate].
+      pose proof (Hwf (mk_var hv i) h0 n0 E) as Hw.
+      destruct (label_eqb_spec h0 h) as [->|Hh]; injection Hn as <- <-.
+      * rewrite label_eqb_refl; lia.
+      * rewrite (proj2 (label_eqb_neq h0 h) Hh); exact Hw.
+  - intros h' HQ.
+    assert (Hne : h' <> h) by (intro E; subst; contradiction).
+    apply (strip_ok_spec _ _ _ Hk'); intros Hl'.
+    pose proof (Hs h' HQ) as Hs'; rewrite (strip_ok_spec _ _ _ Hk) in Hs'.
+    assert (Ef : fst (find (expand1 h a) h') = map (up_target h) (fst (find a h'))).
+    { rewrite find_expand1, (proj2 (label_eqb_neq h' h) Hne); reflexivity. }
+    rewrite Ef in Hl' |- *.
+    unfold last_target in Hl'; rewrite length_map, nth_error_map in Hl'.
+    destruct (nth_error (fst (find a h')) (pred (length (fst (find a h'))))) as [[h0 n0|p]|] eqn:El;
+      cbn [option_map up_target] in Hl'; [|discriminate|discriminate].
+    destruct (label_eqb_spec h0 h) as [->|Hh]; injection Hl' as E1 E2; [congruence|].
+    subst h0 n0.
+    destruct (Hs' El) as [w [Hw Hwne]].
+    exists w; split; [|rewrite length_map; exact Hwne].
+    rewrite find_expand1.
+    destruct w as [hw iw]; cbn [v_label v_index] in *.
+    destruct (label_eqb_spec hw h) as [->|Hwl]; cbn [fst].
+    + assert (Hwi : iw < length (fst (find a h))) by (apply nth_error_Some; congruence).
+      rewrite nth_error_app1 by (rewrite length_map; exact Hwi).
+      rewrite nth_error_map, Hw; cbn [option_map up_target].
+      rewrite (proj2 (label_eqb_neq h' h) Hne); reflexivity.
+    + rewrite nth_error_map, Hw; cbn [option_map up_target].
+      rewrite (proj2 (label_eqb_neq h' h) Hne); reflexivity.
+Qed.
+
+Fixpoint expand_n (d : nat) h a : raw P :=
+  match d with
+  | 0 => a
+  | S d' => expand1 h (expand_n d' h a)
+  end.
+
+Lemma apply_expand_n d h a v : apply (expand_n d h a) v = apply a v.
+Proof. induction d as [|d IH]; cbn [expand_n]; [reflexivity|rewrite apply_expand1; exact IH]. Qed.
+
+Lemma count_expand_n d h a : count (expand_n d h a) h = d + count a h.
+Proof.
+  induction d as [|d IH]; cbn [expand_n]; [reflexivity|].
+  rewrite count_expand1, label_eqb_refl, IH; reflexivity.
+Qed.
+
+Lemma pre_normal_expand_n d a Q h : pre_normal a Q -> Q h -> pre_normal (expand_n d h a) Q.
+Proof.
+  intros Ha HQ; induction d as [|d IH]; cbn [expand_n]; [exact Ha|].
+  apply pre_normal_expand1; assumption.
+Qed.
+
+(** ** Input entries with arbitrary variable targets *)
+
+Theorem pre_normal_cons_entry h t a Q :
+  pre_normal a Q ->
+  (forall h' n, t = Slot h' n -> n < count a h') ->
+  pre_normal (cons_entry h t a) (fun l => Q l \/ l = h).
+Proof.
+  intros [Hk [Hnt [Hwf Hs]]] Ht.
+  assert (Hk' : keys_ok (cons_entry h t a) = true) by apply keys_ok_set_entry, Hk.
+  repeat split.
+  - exact Hk'.
+  - intros key e He; unfold cons_entry, set_entry in He; rewrite get_update in He.
+    destruct (Pos.eqb_spec key (label_key h)) as [->|]; [|apply (Hnt _ _ He)].
+    injection He as <-; reflexivity.
+  - intros v h' n Hn; rewrite count_cons_entry.
+    rewrite find_cons_entry in Hn.
+    destruct v as [hv i]; cbn [v_label v_index] in Hn.
+    destruct (label_eqb_spec hv h) as [->|]; cbn [fst] in Hn.
+    + destruct i as [|i]; cbn [nth_error] in Hn; [injection Hn as ->; apply Ht; reflexivity|].
+      apply (Hwf (mk_var h i)), Hn.
+    + apply (Hwf (mk_var hv i)), Hn.
+  - intros h' Hn'.
+    assert (HQ : ~ Q h') by (intro; apply Hn'; left; assumption).
+    assert (Hne : h' <> h) by (intro; apply Hn'; right; assumption).
+    apply (strip_ok_spec _ _ _ Hk'); intros Hl.
+    pose proof (Hs h' HQ) as Hs'; rewrite (strip_ok_spec _ _ _ Hk) in Hs'.
+    assert (Ef : fst (find (cons_entry h t a) h') = fst (find a h')).
+    { rewrite find_cons_entry, (proj2 (label_eqb_neq h' h) Hne); reflexivity. }
+    rewrite Ef in Hl |- *.
+    destruct (Hs' Hl) as [w [Hw Hwne]].
+    destruct (label_eq_dec (v_label w) h) as [Hwl|Hwl].
+    + exists (mk_var h (S (v_index w))); split.
+      * rewrite find_cons_entry; cbn [v_label v_index]; rewrite label_eqb_refl; cbn [fst nth_error].
+        rewrite <- Hwl; exact Hw.
+      * intro E; injection E as E1 _; congruence.
+    + exists w; split; [|exact Hwne].
+      rewrite find_cons_entry, (proj2 (label_eqb_neq _ h) Hwl); exact Hw.
+Qed.
+
+Lemma pre_normal_fix a Q x :
+  pre_normal a Q -> strip_ok a x (fst (find a x)) = true ->
+  pre_normal a (fun l => Q l /\ l <> x).
+Proof.
+  intros [Hk [Hnt [Hwf Hs]]] Hx; repeat split; auto.
+  intros h' H; destruct (label_eq_dec h' x) as [->|Hne]; [exact Hx|].
+  apply Hs; intro; apply H; split; assumption.
+Qed.
+
+Lemma strip_ok_cons_ref h h' a :
+  keys_ok a = true -> h' <> h ->
+  strip_ok (cons_entry h (Slot h' 0) a) h' (fst (find (cons_entry h (Slot h' 0) a) h')) = true.
+Proof.
+  intros Hk Hne; apply strip_ok_spec; [apply keys_ok_set_entry, Hk|].
+  intros _; exists (mk_var h 0); split.
+  - rewrite find_cons_entry; cbn [v_label v_index]; rewrite label_eqb_refl; reflexivity.
+  - intro E; injection E as E _; congruence.
+Qed.
+
+(** [push_inner_var h w a] sends the innermost [h] to the variable [w] and
+    passes everything else to [a]; [w] may be any variable. *)
+Definition push_inner_var h (w : var) a : raw P :=
+  let a' := expand_n (S (v_index w) - count a (v_label w)) (v_label w) a in
+  push_inner h (Slot (v_label w) (count a' (v_label w) - S (v_index w))) a'.
+
+Theorem push_inner_var_spec h w a :
+  normal a = true ->
+  normal (push_inner_var h w a) = true
+  /\ (forall v, apply (push_inner_var h w a) v
+                = if var_eqb v (mk_var h 0) then inl w
+                  else apply a (unshift_var (mk_var h 0) v)).
+Proof.
+  intros Ha; destruct w as [h' i]; unfold push_inner_var; cbn [v_label v_index].
+  set (d := S i - count a h'); set (a' := expand_n d h' a).
+  assert (Hc : count a' h' = d + count a h') by apply count_expand_n.
+  set (t := Slot h' (count a' h' - S i)).
+  assert (Hpre : pre_normal (cons_entry h t a') (fun l => l = h)).
+  { pose proof (proj1 (normal_iff a h') Ha) as [Han _].
+    destruct d as [|d'] eqn:Ed.
+    - assert (Hi : i < count a h') by lia.
+      subst a'; cbn [expand_n] in *.
+      apply almost_normal_cons_entry; [exact Ha|].
+      intros h0 n0 [= <- <-]; lia.
+    - assert (Ht : t = Slot h' 0) by (unfold t; f_equal; lia).
+      pose proof (pre_normal_expand_n (S d') a _ h' Han eq_refl) as Ha'.
+      fold a' in Ha'.
+      pose proof (pre_normal_cons_entry h t a' _ Ha') as Hc'.
+      assert (Hb : forall h0 n0, t = Slot h0 n0 -> n0 < count a' h0)
+        by (rewrite Ht; intros h0 n0 [= <- <-]; lia).
+      specialize (Hc' Hb).
+      destruct (label_eq_dec h' h) as [->|Hne].
+      + apply (pre_normal_mono _ _ _ Hc'); intros x Hx [H|H]; apply Hx; exact H.
+      + rewrite Ht in Hc' |- *.
+        pose proof (pre_normal_fix _ _ h' Hc') as Hf.
+        assert (Hk' : keys_ok a' = true) by (destruct Ha' as [X _]; exact X).
+        specialize (Hf (strip_ok_cons_ref h h' a' Hk' Hne)).
+        apply (pre_normal_mono _ _ _ Hf); intros x Hx [[H|H] Hx']; [contradiction|apply Hx, H]. }
+  assert (Hlen : jlen (cons_entry h t a') h < S (S (jlen a' h)))
+    by (unfold jlen; rewrite find_cons_entry, label_eqb_refl; cbn; lia).
+  destruct (strip_loop_spec_gen _ _ h _ Hpre eq_refl Hlen) as [Hn Happ].
+  split.
+  - apply (normal_of_pre_normal _ _ Hn); intros l [H1 H2]; contradiction.
+  - intros v; unfold push_inner; rewrite Happ, apply_cons_entry.
+    destruct (var_eqb v (mk_var h 0)); [|apply apply_expand_n].
+    unfold t; cbn [resolve]; do 2 f_equal; lia.
+Qed.
+
+Lemma binds_in_expand1 h (m : raw P) p : binds_in (expand1 h m) p -> binds_in m p.
+Proof.
+  intros H; unfold expand1 in H; apply binds_in_set_entry in H as [H|H].
+  - destruct H as [k [e [He Hin]]]; unfold renumber_up in He; rewrite get_map_filter in He.
+    destruct (get k m) as [e0|] eqn:E0; [|discriminate]; injection He as <-.
+    cbn [e_targets] in Hin; apply in_map_iff in Hin as [t [Ht Hin]].
+    exists k, e0; split; [exact E0|].
+    destruct t as [h' n|p']; cbn in Ht; [destruct (label_eqb h' h); discriminate|].
+    injection Ht as ->; exact Hin.
+  - apply in_app_or in H as [H|[H|[]]]; [|discriminate].
+    apply in_map_iff in H as [t [Ht Hin]].
+    destruct t as [h' n|p']; cbn in Ht; [destruct (label_eqb h' h); discriminate|].
+    injection Ht as ->; apply (binds_in_find m h), Hin.
+Qed.
+
+Lemma binds_in_expand_n d h (m : raw P) p : binds_in (expand_n d h m) p -> binds_in m p.
+Proof.
+  induction d as [|d IH]; cbn [expand_n]; [auto|].
+  intros H; apply IH, (binds_in_expand1 h), H.
+Qed.
+
+Lemma binds_in_push_inner_var h w (m : raw P) p :
+  binds_in (push_inner_var h w m) p -> binds_in m p.
+Proof.
+  unfold push_inner_var; intros H.
+  apply binds_in_push_inner in H as [H|H]; [apply binds_in_expand_n in H; exact H|discriminate].
+Qed.
+
 End Slots.

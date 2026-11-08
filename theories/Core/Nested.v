@@ -363,6 +363,27 @@ Proof.
   - intros H k e p He Hin; apply H; exists k, e; auto.
 Qed.
 
+(** ** Nested [push_inner] with a variable target *)
+
+Definition npush_inner_var (h : option label) (w : var) (a : nadj T) : nadj T :=
+  match a with NAdj m => NAdj (push_inner_var h w m) end.
+
+Theorem napply_npush_inner_var h w a v :
+  normal (nraw a) = true ->
+  napply (npush_inner_var h w a) v
+  = if var_eqb v (mk_var h 0) then inl w else napply a (unshift_var (mk_var h 0) v).
+Proof. destruct a as [m]; intros Hm; apply (push_inner_var_spec h w m Hm). Qed.
+
+Theorem nnormal_npush_inner_var h w a :
+  nnormal a = true -> nnormal (npush_inner_var h w a) = true.
+Proof.
+  destruct a as [m]; cbn [npush_inner_var]; rewrite !nnormal_NAdj.
+  intros Hn; apply andb_true_iff in Hn as [Hm Hq]; apply andb_true_iff; split.
+  - apply push_inner_var_spec, Hm.
+  - apply payloads_ok_binds; intros p Hb.
+    apply (proj1 (payloads_ok_binds m) Hq p), (binds_in_push_inner_var h w m p Hb).
+Qed.
+
 (** ** Nested [push_inner]: payloads live in the output scope, so they are
     untouched. *)
 
