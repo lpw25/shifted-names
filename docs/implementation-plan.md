@@ -370,16 +370,32 @@ O(1) lifting and canonicity.
   convenience layer.
 
 **A thinning front for the anonymous label.**
-- An adjustment is `(θ, core)`. `θ` is a canonical keep/drop string (an
-  order-preserving embedding on bound-variable indices) applied after
-  `core`.
-- `lift` is keep, and `push_outer None` (weakening by a bound variable) is
-  drop. Both are O(1), and payloads are untouched.
+- An adjustment is `θ ⊕ core`. `θ` is a keep/drop string read from the
+  outside in; a keep wraps with `lift(·)` and a drop wraps with `shift ∘ ·`.
+- So `θ` is *not* composed after `core`. Lifting a composite lifts both
+  parts, so the front has to be a word of wrappers.
+- Meaning, on bound variables:
+  - the inputs `None₍ᵢ₎`, for `i` below the number of keeps, go to the
+    positions of the keeps;
+  - the drops are output slots nothing maps to;
+  - `core`'s bound inputs and outputs are moved past the `θ` region;
+  - `core`'s payloads are shifted by `|θ|`, whatever the keep/drop pattern.
+- `lift` conses a keep and `push_outer None` conses a drop. Both are O(1),
+  and payloads are untouched.
 - `push_inner None None₀` on a drop-headed front turns the drop into a keep,
   so a lift built from constructors equals `lift`, in O(1).
-- Canonical form: absorb as much of `core` into `θ` as possible. Whether a
-  payload blocks absorption is decided structurally from its `ρ`'s targets,
-  because `u` has no bound variables.
+- **Canonical form:**
+  - absorb into the inner end of `θ` while `core` is `lift(core')` or
+    `shift ∘ core'`, and `core` is not bound-free;
+  - for a bound-free `core`, `θ` has no trailing keeps;
+  - a payload `(u, ρ)` allows absorption exactly when `ρ` is itself
+    drop-headed or mentions no bound variables. That is a structural check,
+    since `u` has none.
+- Payload adjustments `ρ` only ever act on free names, so their canonical
+  form keeps only their total bound-variable shift and their free-name
+  entries.
+- Thinnings should be run-length encoded, so that "shift by `|θ|`" in a
+  lookup is O(1).
 
 **Structure.** Adjustments are nested (payloads contain adjustments), so
 operations are nested fixpoints and canonicity is proved by nested

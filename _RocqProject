@@ -6,6 +6,7 @@ theories/Core/Var.v
 theories/Core/RawAdjustment.v
 theories/Core/Adjustment.v
 theories/Core/Laws.v
+theories/Core/Thinning.v
 theories/Core/CForm.v
 theories/Examples/LambdaCore.v
 theories/Examples/LambdaScope.v
