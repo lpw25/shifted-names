@@ -1,0 +1,362 @@
+(** * Adjustments with slot references (the final core, design D9)
+
+    For each label [h] an entry holds:
+    - [e_targets]: where the inner [h₍₀₎, h₍₁₎, …] go (head = innermost, so
+      adding an input entry is a cons);
+    - [e_out]: the number of output slots for [h].
+
+    A target is [Slot h' l], the [l]-th output slot for [h'] counted from
+    the innermost constructor (it denotes [h'₍ₖ₋₁₋ₗ₎] when [h'] has [k]
+    slots), or a payload [Bind p].  Explicit targets only ever land in
+    slots: a contraction with a passed-through variable is written by giving
+    that variable an explicit entry too.  Inner [h₍ᵢ₎] with
+    [i ≥ |e_targets|] pass through to [h₍ᵢ₋|e_targets|+e_out₎].
+
+    Because references count from the innermost constructor, adding an
+    output slot ([push_outer]) changes no reference.
+
+    This file treats payloads as opaque; nested payload adjustments are
+    added on top later. *)
+
+From Stdlib Require Import PArith Arith List Lia Bool.
+From ShiftedNames.Core Require Import Trie Label Var.
+Import ListNotations.
+
+Inductive target (P : Type) : Type :=
+| Slot : option label -> nat -> target P
+| Bind : P -> target P.
+
+Arguments Slot {P} _ _.
+Arguments Bind {P} _.
+
+Record entry (P : Type) : Type :=
+  mk_entry { e_label : option label; e_targets : list (target P); e_out : nat }.
+
+Arguments mk_entry {P} _ _ _.
+Arguments e_label {P} _.
+Arguments e_targets {P} _.
+Arguments e_out {P} _.
+
+Definition raw (P : Type) : Type := tree (entry P).
+
+Section Slots.
+
+Context {P : Type}.
+
+Implicit Types (a b : raw P) (h l : option label) (v w : var) (t : target P)
+  (ts : list (target P)).
+
+(** ** Semantics *)
+
+Definition find a h : list (target P) * nat :=
+  match get (label_key h) a with
+  | Some e => (e_targets e, e_out e)
+  | None => ([], 0)
+  end.
+
+Definition count a h : nat := snd (find a h).
+
+Definition resolve a t : var + P :=
+  match t with
+  | Slot h l => inl (mk_var h (count a h - S l))
+  | Bind p => inr p
+  end.
+
+Definition apply a v : var + P :=
+  match nth_error (fst (find a (v_label v))) (v_index v) with
+  | Some t => resolve a t
+  | None => inl (mk_var (v_label v)
+                   (v_index v - length (fst (find a (v_label v))) + count a (v_label v)))
+  end.
+
+(** ** Normal forms *)
+
+Definition is_slot h (n : nat) t : bool :=
+  match t with
+  | Slot h' n' => label_eqb h' h && Nat.eqb n' n
+  | Bind _ => false
+  end.
+
+(** All slot references, with the input variable they belong to. *)
+Definition refs_of_entry (e : entry P) : list (var * option label * nat) :=
+  let fix go (ts : list (target P)) (i : nat) :=
+    match ts with
+    | [] => []
+    | Slot h' n :: ts' => (mk_var (e_label e) i, h', n) :: go ts' (S i)
+    | Bind _ :: ts' => go ts' (S i)
+    end in
+  go (e_targets e) 0.
+
+Definition refs a : list (var * option label * nat) :=
+  flat_map (fun ke => refs_of_entry (snd ke)) (elements a).
+
+Definition slot_wf a (r : var * option label * nat) : bool :=
+  match r with (_, h, n) => Nat.ltb n (count a h) end.
+
+Definition last_target ts : option (target P) := nth_error ts (pred (length ts)).
+
+(** The strip condition: if the last target of [h] is [h]'s innermost slot,
+    some other input refers to that slot too. *)
+Definition strip_ok a h ts : bool :=
+  match last_target ts with
+  | Some (Slot h' 0) =>
+      if label_eqb h' h then
+        existsb (fun r => match r with
+                          | (v, h'', 0) =>
+                              label_eqb h'' h
+                              && negb (var_eqb v (mk_var h (pred (length ts))))
+                          | _ => false
+                          end) (refs a)
+      else true
+  | _ => true
+  end.
+
+Definition nontrivial ts (k : nat) : bool :=
+  match ts, k with [], 0 => false | _, _ => true end.
+
+Definition entry_ok a (key : positive) (e : entry P) : bool :=
+  Pos.eqb key (label_key (e_label e))
+  && nontrivial (e_targets e) (e_out e)
+  && strip_ok a (e_label e) (e_targets e).
+
+Definition normal a : bool := forallb (entry_ok a) a && List.forallb (slot_wf a) (refs a).
+
+(** ** Basic facts *)
+
+Lemma normal_entries a : normal a = true -> forallb (entry_ok a) a = true.
+Proof. unfold normal; rewrite andb_true_iff; tauto. Qed.
+
+Lemma normal_refs a : normal a = true -> List.forallb (slot_wf a) (refs a) = true.
+Proof. unfold normal; rewrite andb_true_iff; tauto. Qed.
+
+Lemma normal_label a key e :
+  normal a = true -> get key a = Some e -> key = label_key (e_label e).
+Proof.
+  intros Ha He; apply normal_entries in Ha; rewrite forallb_spec in Ha.
+  specialize (Ha _ _ He); unfold entry_ok in Ha; rewrite !andb_true_iff in Ha.
+  apply Pos.eqb_eq; tauto.
+Qed.
+
+Lemma find_label a h e :
+  normal a = true -> get (label_key h) a = Some e -> e_label e = h.
+Proof. intros Ha He; apply label_key_inj; symmetry; apply (normal_label a _ e Ha He). Qed.
+
+Lemma go_refs (e : entry P) ts i v h' n :
+  In (v, h', n)
+    ((fix go (ts : list (target P)) (i : nat) :=
+        match ts with
+        | [] => []
+        | Slot h' n :: ts' => (mk_var (e_label e) i, h', n) :: go ts' (S i)
+        | Bind _ :: ts' => go ts' (S i)
+        end) ts i)
+  <-> v_label v = e_label e /\ i <= v_index v /\ nth_error ts (v_index v - i) = Some (Slot h' n).
+Proof.
+  revert i; induction ts as [|t ts IH]; intro i.
+  - cbn; split; [intros []|intros [_ [_ H]]; rewrite nth_error_nil in H; discriminate].
+  - destruct t as [h'' n'|p]; cbn [In]; rewrite IH.
+    + split.
+      * intros [[= <- <- <-]|[Hl [Hi Hn]]].
+        -- cbn; rewrite Nat.sub_diag; repeat split; auto.
+        -- repeat split; [exact Hl|lia|].
+           replace (v_index v - i) with (S (v_index v - S i)) by lia; exact Hn.
+      * intros [Hl [Hi Hn]].
+        destruct (Nat.eq_dec (v_index v) i) as [Heq|Hne].
+        -- left; rewrite Heq, Nat.sub_diag in Hn; cbn in Hn; injection Hn as -> ->.
+           destruct v; cbn in *; subst; reflexivity.
+        -- right; repeat split; [exact Hl|lia|].
+           replace (v_index v - i) with (S (v_index v - S i)) in Hn by lia; exact Hn.
+    + split.
+      * intros [Hl [Hi Hn]]; repeat split; [exact Hl|lia|].
+        replace (v_index v - i) with (S (v_index v - S i)) by lia; exact Hn.
+      * intros [Hl [Hi Hn]].
+        destruct (Nat.eq_dec (v_index v) i) as [Heq|Hne].
+        -- rewrite Heq, Nat.sub_diag in Hn; discriminate.
+        -- repeat split; [exact Hl|lia|].
+           replace (v_index v - i) with (S (v_index v - S i)) in Hn by lia; exact Hn.
+Qed.
+
+Lemma In_refs a v h' n :
+  normal a = true ->
+  In (v, h', n) (refs a) <-> nth_error (fst (find a (v_label v))) (v_index v) = Some (Slot h' n).
+Proof.
+  intro Ha; unfold refs; rewrite in_flat_map; split.
+  - intros [[key e] [Hin Hr]]; apply In_elements in Hin; cbn [snd] in Hr.
+    unfold refs_of_entry in Hr; apply go_refs in Hr as [Hl [_ Hn]].
+    rewrite Nat.sub_0_r in Hn.
+    unfold find; rewrite Hl, <- (normal_label a key e Ha Hin), Hin; exact Hn.
+  - intro Hn; unfold find in Hn.
+    destruct (get (label_key (v_label v)) a) as [e|] eqn:E; [|rewrite nth_error_nil in Hn; discriminate].
+    exists (label_key (v_label v), e); split; [apply In_elements, E|].
+    cbn [snd]; unfold refs_of_entry; apply go_refs.
+    rewrite Nat.sub_0_r; repeat split; [|lia|exact Hn].
+    symmetry; apply (find_label a _ e Ha E).
+Qed.
+
+Lemma slot_bound a v h' n :
+  normal a = true ->
+  nth_error (fst (find a (v_label v))) (v_index v) = Some (Slot h' n) -> n < count a h'.
+Proof.
+  intros Ha Hn; apply (In_refs a v h' n Ha) in Hn.
+  apply normal_refs in Ha; rewrite List.forallb_forall in Ha.
+  specialize (Ha _ Hn); cbn in Ha; apply Nat.ltb_lt, Ha.
+Qed.
+
+(** ** The pass-through part is characterised by the meaning *)
+
+Definition jlen a h : nat := length (fst (find a h)).
+
+(** In a normal adjustment, every outer [h₍ₘ₎] beyond the slots has exactly
+    one preimage, the pass-through input. *)
+Theorem tail_passthrough a h m :
+  normal a = true -> count a h <= m ->
+  forall v, apply a v = inl (mk_var h m) <-> v = mk_var h (m + jlen a h - count a h).
+Proof.
+  intros Ha Hm v; unfold apply, jlen; split.
+  - destruct (nth_error (fst (find a (v_label v))) (v_index v)) as [t|] eqn:E.
+    + destruct t as [h' n|p]; cbn [resolve]; [|discriminate].
+      intros [= Hh Hi].
+      pose proof (slot_bound a v h' n Ha E); subst h'; lia.
+    + intros [= Hh Hi]; apply nth_error_None in E.
+      destruct v as [hv iv]; cbn in *; subst hv; f_equal; lia.
+  - intros ->; cbn [v_label v_index].
+    rewrite (proj2 (nth_error_None _ _)) by lia.
+    f_equal; f_equal; lia.
+Qed.
+
+Lemma resolve_slot_inv a t h k :
+  resolve a t = inl (mk_var h k) ->
+  exists n, t = Slot h n /\ k = count a h - S n.
+Proof.
+  destruct t as [h' n|p]; cbn [resolve]; [|discriminate].
+  intros [= <- <-]; exists n; split; reflexivity.
+Qed.
+
+(** In a normal adjustment the innermost slot for [h] is never
+    pass-through-like: it is either unreferenced, or referenced by
+    something other than a lone last target. *)
+Theorem innermost_slot_not_passthrough a h :
+  normal a = true -> 0 < count a h ->
+  ~ (forall v, apply a v = inl (mk_var h (count a h - 1))
+               <-> v = mk_var h (count a h - 1 + jlen a h - count a h)).
+Proof.
+  intros Ha Hk H.
+  unfold jlen in H.
+  destruct (find a h) as [ts k] eqn:Ef.
+  unfold count in *; rewrite Ef in *; cbn [fst snd] in *.
+  destruct ts as [|t0 ts0] eqn:Ets.
+  - (* no input entries: the candidate preimage passes through elsewhere *)
+    cbn [length] in H; replace (k - 1 + 0 - k) with 0 in H by lia.
+    specialize (proj2 (H (mk_var h 0)) eq_refl) as Happ.
+    unfold apply in Happ; cbn [v_label v_index] in Happ.
+    rewrite Ef in Happ; cbn [fst nth_error length] in Happ.
+    unfold count in Happ; rewrite Ef in Happ; cbn in Happ.
+    injection Happ; lia.
+  - rewrite <- Ets in *.
+    set (jj := length ts) in *.
+    assert (Hj : 0 < jj) by (subst jj ts; cbn; lia).
+    replace (k - 1 + jj - k) with (pred jj) in H by lia.
+    specialize (proj2 (H (mk_var h (pred jj))) eq_refl) as Happ.
+    unfold apply in Happ; cbn [v_label v_index] in Happ; rewrite Ef in Happ; cbn [fst] in Happ.
+    destruct (nth_error ts (pred jj)) as [t|] eqn:Et;
+      [|apply nth_error_None in Et; subst jj; lia].
+    apply resolve_slot_inv in Happ as [n [-> Hn]].
+    unfold count in Hn; rewrite Ef in Hn; cbn [snd] in Hn.
+    assert (Hb : n < k).
+    { pose proof (slot_bound a (mk_var h (pred jj)) h n Ha) as Hsb.
+      cbn [v_label v_index] in Hsb; rewrite Ef in Hsb; unfold count in Hsb.
+      rewrite Ef in Hsb; apply Hsb, Et. }
+    assert (n = 0) as -> by lia.
+    (* the strip condition provides another reference to the innermost slot *)
+    unfold find in Ef.
+    destruct (get (label_key h) a) as [e|] eqn:Ee; [|injection Ef as Hts _; rewrite <- Hts in Ets; discriminate].
+    injection Ef as Ets' Hk'.
+    pose proof (normal_entries a Ha) as He; rewrite forallb_spec in He.
+    specialize (He _ _ Ee); unfold entry_ok in He; rewrite !andb_true_iff in He.
+    destruct He as [_ Hstrip].
+    rewrite (find_label a h e Ha Ee), Ets' in Hstrip.
+    unfold strip_ok, last_target in Hstrip; fold jj in Hstrip; rewrite Et in Hstrip.
+    rewrite label_eqb_refl, existsb_exists in Hstrip.
+    destruct Hstrip as [[[v' h''] n''] [Hin Hr]].
+    destruct n'' as [|n'']; [|discriminate].
+    rewrite andb_true_iff, negb_true_iff in Hr; destruct Hr as [Hh'' Hv'].
+    apply label_eqb_eq in Hh''; subst h''.
+    apply (In_refs a v' h 0 Ha) in Hin.
+    assert (Happ' : apply a v' = inl (mk_var h (k - 1))).
+    { unfold apply; rewrite Hin; cbn [resolve].
+      unfold count, find; rewrite Ee; cbn [snd]; rewrite Hk'; do 2 f_equal; lia. }
+    apply H in Happ'; rewrite Happ', var_eqb_refl in Hv'; discriminate.
+Qed.
+
+Lemma resolve_inj a b t1 t2 :
+  normal a = true -> normal b = true ->
+  (forall h, count a h = count b h) ->
+  (forall h n, t1 = Slot h n -> n < count a h) ->
+  (forall h n, t2 = Slot h n -> n < count b h) ->
+  resolve a t1 = resolve b t2 -> t1 = t2.
+Proof.
+  intros Ha Hb Hc H1 H2 Heq.
+  destruct t1 as [h1 n1|p1], t2 as [h2 n2|p2]; cbn [resolve] in Heq; try discriminate.
+  - injection Heq as <- Hn.
+    specialize (H1 _ _ eq_refl); specialize (H2 _ _ eq_refl).
+    rewrite Hc in H1, Hn; f_equal; lia.
+  - injection Heq as ->; reflexivity.
+Qed.
+
+Theorem canonical a b :
+  normal a = true -> normal b = true ->
+  (forall v, apply a v = apply b v) -> a = b.
+Proof.
+  intros Ha Hb Heq.
+  (* the pass-through offsets agree *)
+  assert (Hoff : forall h, jlen a h + count b h = jlen b h + count a h).
+  { intro h; set (M := count a h + count b h).
+    pose proof (proj2 (tail_passthrough a h M Ha ltac:(lia) _) eq_refl) as Hm.
+    rewrite Heq in Hm; apply (tail_passthrough b h M Hb ltac:(lia)) in Hm.
+    injection Hm; lia. }
+  (* the slot counts agree *)
+  assert (Hcnt : forall h, count a h = count b h).
+  { intro h; destruct (Nat.lt_trichotomy (count a h) (count b h)) as [Hlt|[Heq'|Hlt]];
+      [exfalso| exact Heq' | exfalso].
+    - apply (innermost_slot_not_passthrough b h Hb ltac:(lia)); intro v.
+      rewrite <- Heq, (tail_passthrough a h (count b h - 1) Ha ltac:(lia)).
+      specialize (Hoff h); split; intros ->; f_equal; lia.
+    - apply (innermost_slot_not_passthrough a h Ha ltac:(lia)); intro v.
+      rewrite Heq, (tail_passthrough b h (count a h - 1) Hb ltac:(lia)).
+      specialize (Hoff h); split; intros ->; f_equal; lia. }
+  assert (Hlen : forall h, jlen a h = jlen b h) by (intro h; specialize (Hoff h); rewrite Hcnt in Hoff; lia).
+  (* the targets agree *)
+  assert (Hfind : forall h, find a h = find b h).
+  { intro h; destruct (find a h) as [tsa ka] eqn:Ea, (find b h) as [tsb kb] eqn:Eb.
+    pose proof (Hcnt h) as Hk; pose proof (Hlen h) as Hj.
+    unfold count, jlen in Hk, Hj; rewrite Ea, Eb in Hk, Hj; cbn in Hk, Hj; subst kb.
+    f_equal; apply nth_error_ext; intro i.
+    destruct (nth_error tsa i) as [ta|] eqn:Ta, (nth_error tsb i) as [tb|] eqn:Tb.
+    - f_equal; specialize (Heq (mk_var h i)); unfold apply in Heq; cbn [v_label v_index] in Heq.
+      rewrite Ea, Eb in Heq; cbn [fst] in Heq; rewrite Ta, Tb in Heq.
+      apply (resolve_inj a b ta tb Ha Hb Hcnt); [| |exact Heq].
+      + intros h' n ->; apply (slot_bound a (mk_var h i) h' n Ha); cbn; rewrite Ea; exact Ta.
+      + intros h' n ->; apply (slot_bound b (mk_var h i) h' n Hb); cbn; rewrite Eb; exact Tb.
+    - apply nth_error_None in Tb; assert (i < length tsa) by (apply nth_error_Some; congruence); lia.
+    - apply nth_error_None in Ta; assert (i < length tsb) by (apply nth_error_Some; congruence); lia.
+    - reflexivity. }
+  apply extensionality; intro key.
+  destruct (get key a) as [ea|] eqn:Ea, (get key b) as [eb|] eqn:Eb.
+  - pose proof (normal_label a _ _ Ha Ea) as Ka; pose proof (normal_label b _ _ Hb Eb) as Kb.
+    rewrite Ka in Kb; apply label_key_inj in Kb.
+    specialize (Hfind (e_label ea)); unfold find in Hfind.
+    rewrite <- Ka, Ea, Eb in Hfind; injection Hfind as Ht Ho.
+    destruct ea, eb; cbn in *; subst; reflexivity.
+  - exfalso; pose proof (normal_label a _ _ Ha Ea) as Ka.
+    specialize (Hfind (e_label ea)); unfold find in Hfind; rewrite <- Ka, Ea, Eb in Hfind.
+    injection Hfind as Ht Ho.
+    pose proof (normal_entries a Ha) as He; rewrite forallb_spec in He; specialize (He _ _ Ea).
+    unfold entry_ok in He; rewrite Ht, Ho in He; cbn in He; rewrite andb_false_r in He; discriminate.
+  - exfalso; pose proof (normal_label b _ _ Hb Eb) as Kb.
+    specialize (Hfind (e_label eb)); unfold find in Hfind; rewrite <- Kb, Ea, Eb in Hfind.
+    injection Hfind as Ht Ho.
+    pose proof (normal_entries b Hb) as He; rewrite forallb_spec in He; specialize (He _ _ Eb).
+    unfold entry_ok in He; rewrite <- Ht, <- Ho in He; cbn in He; rewrite andb_false_r in He; discriminate.
+  - reflexivity.
+Qed.
+
+End Slots.
