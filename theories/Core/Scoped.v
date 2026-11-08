@@ -223,4 +223,141 @@ Proof. reflexivity. Qed.
 Lemma result_wf_inr M (u : T) ρ : result_wf M (inr (u, ρ)) = pscoped M ρ.
 Proof. reflexivity. Qed.
 
+(** ** Scoping is preserved by the constructors *)
+
+Implicit Types (a b : adjustment T) (ρ : padj T).
+
+Lemma wf_var_none M i : wf_var M (mk_var None i) = Nat.ltb i M.
+Proof. reflexivity. Qed.
+
+Lemma wf_var_some M x i : wf_var M (mk_var (Some x) i) = true.
+Proof. reflexivity. Qed.
+
+Theorem scoped_identity N : scoped N N (@identity T) = true.
+Proof.
+  apply scoped_spec; split.
+  - intros i Hi; rewrite apply_identity; do 2 f_equal; lia.
+  - intros v Hv; rewrite apply_identity; exact Hv.
+Qed.
+
+Lemma pscoped_pcompose_depth M K a n :
+  scoped M K a = true ->
+  forall ρ, ndepth (padj_n ρ) <= n -> pscoped M ρ = true -> pscoped K (pcompose a ρ) = true.
+Proof.
+  intros Ha; apply scoped_spec in Ha as [_ Ha].
+  induction n as [|n IH]; intros ρ Hd Hρ; [pose proof (ndepth_pos (padj_n ρ)); lia|].
+  apply pscoped_spec; intros v Hv; rewrite papply_pcompose by exact Hv.
+  pose proof (proj1 (pscoped_spec M ρ) Hρ v Hv) as Hr.
+  destruct (papply ρ v) as [w|[u ρ']] eqn:E.
+  - apply Ha, Hr.
+  - cbn [fst snd]; rewrite result_wf_inr; rewrite result_wf_inr in Hr.
+    pose proof (papply_depth _ _ _ _ E); apply IH; [lia|exact Hr].
+Qed.
+
+Theorem pscoped_pcompose M K a ρ :
+  scoped M K a = true -> pscoped M ρ = true -> pscoped K (pcompose a ρ) = true.
+Proof. intros Ha; apply (pscoped_pcompose_depth M K a (ndepth (padj_n ρ)) Ha); lia. Qed.
+
+Theorem scoped_compose N M K a b :
+  scoped M K a = true -> scoped N M b = true -> scoped N K (compose a b) = true.
+Proof.
+  intros Ha Hb; pose proof Ha as Ha'.
+  apply scoped_spec in Ha as [Hat Har]; apply scoped_spec in Hb as [Hbt Hbr].
+  apply scoped_spec; split.
+  - intros i Hi; rewrite apply_compose, Hbt by exact Hi.
+    rewrite Hat by lia; do 2 f_equal; lia.
+  - intros v Hv; rewrite apply_compose; specialize (Hbr v Hv).
+    destruct (apply b v) as [w|[u ρ]].
+    + apply Har, Hbr.
+    + cbn [fst snd]; rewrite result_wf_inr in *; apply (pscoped_pcompose M); assumption.
+Qed.
+
+Theorem scoped_shift_none M : scoped M (S M) (@shift T None) = true.
+Proof.
+  apply scoped_spec; split.
+  - intros i Hi; rewrite apply_shift; unfold shift_var; cbn.
+    do 2 f_equal; lia.
+  - intros [[x|] i] Hv; rewrite apply_shift; unfold shift_var; cbn in *; [reflexivity|].
+    apply Nat.ltb_lt in Hv; apply Nat.ltb_lt; lia.
+Qed.
+
+Theorem scoped_shift_some x M : scoped M M (@shift T (Some x)) = true.
+Proof.
+  apply scoped_spec; split.
+  - intros i Hi; rewrite apply_shift; unfold shift_var; cbn.
+    do 2 f_equal; lia.
+  - intros [[y|] i] Hv; rewrite apply_shift; unfold shift_var; cbn in *;
+      [destruct (_ && _); reflexivity|exact Hv].
+Qed.
+
+Theorem scoped_push_outer_none N M a :
+  scoped N M a = true -> scoped N (S M) (push_outer None a) = true.
+Proof.
+  intros Ha; rewrite push_outer_as_compose.
+  apply (scoped_compose _ M); [apply scoped_shift_none|exact Ha].
+Qed.
+
+Theorem scoped_push_outer_some x N M a :
+  scoped N M a = true -> scoped N M (push_outer (Some x) a) = true.
+Proof.
+  intros Ha; rewrite push_outer_as_compose.
+  apply (scoped_compose _ M); [apply scoped_shift_some|exact Ha].
+Qed.
+
+Theorem scoped_push_inner_none N M t a :
+  scoped N M a = true -> result_wf M (target_result t) = true ->
+  scoped (S N) M (push_inner None t a) = true.
+Proof.
+  intros Ha Ht; apply scoped_spec in Ha as [Hat Har]; apply scoped_spec; split.
+  - intros i Hi; rewrite apply_push_inner.
+    destruct i as [|i]; [lia|]; cbn.
+    unfold unshift_var; cbn; replace (i - 0) with i by lia.
+    rewrite Hat by lia; do 2 f_equal; lia.
+  - intros [[x|] i] Hv; rewrite apply_push_inner; cbn [var_eqb v_label v_index].
+    + unfold var_eqb; cbn; apply Har; reflexivity.
+    + destruct i as [|i]; unfold var_eqb; cbn; [exact Ht|].
+      unfold unshift_var; cbn; replace (i - 0) with i by lia.
+      apply Har; cbn in *; apply Nat.ltb_lt in Hv; apply Nat.ltb_lt; lia.
+Qed.
+
+Theorem scoped_push_inner_some x N M t a :
+  scoped N M a = true -> result_wf M (target_result t) = true ->
+  scoped N M (push_inner (Some x) t a) = true.
+Proof.
+  intros Ha Ht; apply scoped_spec in Ha as [Hat Har]; apply scoped_spec; split.
+  - intros i Hi; rewrite apply_push_inner; unfold var_eqb, unshift_var; cbn.
+    apply Hat, Hi.
+  - intros [h i] Hv; rewrite apply_push_inner.
+    destruct (var_eqb_spec (mk_var h i) (mk_var (Some x) 0)) as [E|E]; [exact Ht|].
+    apply Har; destruct h as [y|]; unfold unshift_var; cbn in *.
+    + destruct (_ && _); reflexivity.
+    + exact Hv.
+Qed.
+
+Theorem scoped_lift_none N M a :
+  scoped N M a = true -> scoped (S N) (S M) (lift None a) = true.
+Proof.
+  intros Ha; unfold lift; apply scoped_push_inner_none;
+    [apply scoped_push_outer_none, Ha|reflexivity].
+Qed.
+
+Theorem scoped_lift_some x N M a :
+  scoped N M a = true -> scoped N M (lift (Some x) a) = true.
+Proof.
+  intros Ha; unfold lift; apply scoped_push_inner_some;
+    [apply scoped_push_outer_some, Ha|reflexivity].
+Qed.
+
+(** Scoped adjustments are determined by what they do in scope. *)
+Theorem scoped_ext N M a b :
+  scoped N M a = true -> scoped N M b = true ->
+  (forall v, wf_var N v = true -> apply a v = apply b v) -> a = b.
+Proof.
+  intros Ha Hb H; apply scoped_spec in Ha as [Hat _]; apply scoped_spec in Hb as [Hbt _].
+  apply extensionality; intros [[x|] i]; [apply H; reflexivity|].
+  destruct (Nat.lt_ge_cases i N) as [Hi|Hi].
+  - apply H; apply Nat.ltb_lt, Hi.
+  - rewrite Hat, Hbt by exact Hi; reflexivity.
+Qed.
+
 End Scoped.
