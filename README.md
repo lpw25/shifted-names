@@ -17,19 +17,22 @@ condition.
   - `Trie.v`: canonical binary tries (Appel & Leroy), with extensionality.
   - `Label.v`: labels, their strict order and trie keys.
   - `Var.v`: variables (a label plus a shift index).
-  - `RawAdjustment.v`: per-label adjustments (renamings and substitutions):
-    composition, normalisation and canonicity.
-  - `Adjustment.v`: normal adjustments as a record with an SProp proof, so the
-    laws hold up to Leibniz equality; the context-form constructors
-    (`identity`, `push_inner`, `push_outer`); the primitive adjustments;
-    lifting under a binder.
-  - `Laws.v`: the equational laws of the constructors.
-  - `CForm.v`: a concrete context-form datatype (groundwork for the
-    normaliser).
+  - `Slots.v`: the flat canonical representation (per-label input targets
+    and output slot counts), with `push_outer`, `push_inner` (any variable
+    target), composition, restriction and the canonicity theorem; generic in
+    the payload type.
+  - `Nested.v`: payloads `(u, ρ)` of a closed term and a lazily applied
+    adjustment; nested composition, payload canonicity, depth bounds.
+  - `Adjustment.v`: the user-facing records (SProp normality, so equality is
+    Leibniz), `apply`, extensionality and the context-form constructors
+    (`identity`, `compose`, `push_inner`, `push_outer`, `lift`).
+  - `Laws.v`: the equational laws of the constructors and the primitive
+    adjustments (`shift`, `rename1`, `open`, `close`, `swap`, `subst1`).
 - `theories/Examples/`: a concrete λ-calculus built on the core (a test
   instance; the library itself does not fix a term language):
-  `LambdaCore.v` (unindexed terms and the substitution laws),
-  `LambdaScope.v` (scoping), `Lambda.v` (scoped terms and substitutions).
+  `LambdaCore.v` (unindexed terms and the substitution laws).
+  `LambdaScope.v` and `Lambda.v` are the scoped layer on the previous core,
+  not yet ported and not built.
 - `theories/Tests/`: executable tests.
 - `src/`, `examples/`, `TyDE-2019/`: the original 2019 development, kept for
   reference.
