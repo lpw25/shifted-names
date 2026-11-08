@@ -115,3 +115,33 @@ Proof. apply subst_identity. Qed.
 Theorem subst_subst {N M P} (a : adj (tm 0) M P) (b : adj (tm 0) N M) (t : tm N) :
   subst a (subst b t) = subst (compose a b) t.
 Proof. apply subst_compose. Qed.
+
+(** ** Locally nameless operations *)
+
+(** Open the innermost bound variable as the name [x]; close [x] into a new
+    innermost bound variable. *)
+Definition open_sub {N} (x : label) : sub (S N) N :=
+  extend (Rename (fvar x 0)) (weaken_free x identity).
+Definition close_sub {N} (x : label) : sub N (S N) :=
+  extend_free x (Rename bvar0) (weaken identity).
+
+Definition topen {N} (x : label) (t : tm (S N)) : tm N := subst (open_sub x) t.
+Definition tclose {N} (x : label) (t : tm N) : tm (S N) := subst (close_sub x) t.
+
+Theorem topen_tclose {N} x (t : tm N) : topen x (tclose x t) = t.
+Proof.
+  unfold topen, tclose; rewrite subst_compose.
+  transitivity (subst identity t); [f_equal|apply subst_identity].
+  apply adj_eq; apply rcompose_open_close.
+Qed.
+
+Theorem tclose_topen {N} x (t : tm (S N)) : tclose x (topen x t) = t.
+Proof.
+  unfold topen, tclose; rewrite subst_compose.
+  transitivity (subst identity t); [f_equal|apply subst_identity].
+  apply adj_eq; apply rcompose_close_open.
+Qed.
+
+(** Instantiating the innermost bound variable with a closed term. *)
+Definition pidentity {M} : padj (tm 0) M := mk_padj (rto_padj nidentity) stt.
+Definition inst {N} (u : tm 0) : sub (S N) N := extend (Bind u pidentity) identity.
