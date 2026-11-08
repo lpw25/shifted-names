@@ -1,0 +1,6 @@
+-R theories ShiftedNames
+
+theories/Core/Trie.v
+theories/Core/Label.v
+theories/Core/Var.v
+theories/Core/RawAdjustment.v
