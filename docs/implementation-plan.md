@@ -427,9 +427,10 @@ contraction with a variable that would otherwise pass through is written by
 giving that variable an explicit entry too. So references never point
 beyond the slots.
 
-**Payloads.** References inside a payload's `ρ`, to slots of the top-level
-adjustment, use the same `Slot` form, counted against the top-level slot
-counts. `ρ`'s own pass-through counts, for the named labels of `u`, are
+**Payloads.** *(Superseded by D10: payload adjustments are now ordinary
+absolute adjustments.)* References inside a payload's `ρ`, to slots of the
+top-level adjustment, use the same `Slot` form, counted against the
+top-level slot counts. `ρ`'s own pass-through counts, for the named labels of `u`, are
 stored as offsets (`Z`) from the top-level counts. `ρ` has no entry for
 `None`, since `u` has no bound variables. Consequently `push_outer`, and so
 `lift`, changes nothing inside any target or payload.
@@ -472,6 +473,57 @@ of the semantics, not a representation layer.
   slots (`l ↦ l − 1`) and adjusts payload offsets for `h`. For `None`, the
   positions index lists exactly those references; named labels are scanned.
 - Composition is defined directly on this form.
+
+### D10. Nested payloads and the implemented core (supersedes D9's payload encoding)
+
+Implemented in `Slots.v` (flat core, generic payload type), `Nested.v`
+(payloads), `Adjustment.v` (user-facing records) and `Laws.v`.
+
+**Payloads are absolute (option A).** A payload is `(u, ρ)`: `u : T` is the
+user's term with no bound variables, opaque to the library, and `ρ` is an
+ordinary canonical adjustment into the *outer* scope, with its own slots.
+- `nadj T` is the nested inductive `NAdj : tree (entry (T * nadj T))`.
+- *Payload-normal*: `ρ` has no `None` input entry, and if it has `None`
+  output slots its innermost one is referenced. Payload adjustments are
+  canonical for their *restricted* meaning, on free variables only
+  (`pcanonical`).
+- `restrict h a` (Slots.v) forgets `h` inputs: clear the entry, renormalise,
+  then trim unreferenced innermost `h` slots. Payloads of a composite are
+  restricted at `None`.
+- Cost: named `push_outer` touches every payload (`pshift`, O(log n) each);
+  `push_outer None` skips payloads with no `None` slots.
+
+**Total `push_inner` (expansion).** Stripping can remove a slot that a later
+`push_inner` wants to target (e.g. after `x₀ ↦ x₀` collapses to the
+identity, `y₀ ↦ x₀` needs `x₀`'s slot back). `expand1 h a`, the inverse of
+`strip_once`, re-materialises slots without changing meaning, so
+`push_inner_var h w a` accepts *any* variable `w`. The representation rule
+"explicit targets only land in slots" still holds; the user-facing
+constructor has no side condition and no junk case.
+
+**Composition.** `ncompose a b` maps `b`'s payload `(u, ρ)` to
+`(u, restrict None (a ∘ ρ))`; recursion is by fuel set to the nesting depth
+(`ndepth`), with `compose_ext` (by canonicity) giving fuel independence.
+Proved: normality, semantics, identity laws, associativity.
+
+**User-facing API** (`Adjustment.v`): `adjustment T` and `padj T` are
+records of nested data plus an SProp normality proof, so equality is Leibniz.
+`apply a v : var + (T * padj T)`; `extensionality`; `identity`, `compose`,
+`push_outer`, `push_inner h (Rename w | Bind u ρ)`, `lift`; payload
+operations `pcompose`, `pshift_p`.
+
+**Laws** (`Laws.v`) need no payload side conditions, because weakening a
+payload is composition with `shift` (`pshift_as_pcompose`), so
+`push_outer h a = compose (shift h) a`. Proved: entry commutation,
+`push_outer_inner`, `compose_push_inner_r`, `compose_push_outer_l`,
+`compose_cancel`, `lift_identity`, `lift_compose`, `lift_free`, and the
+primitives (`shift`, `rename1`, `open`, `close`, `swap`, `subst1`) as
+context forms.
+
+**What terms must provide.** Nothing, for the core. Materialising a lookup
+result `(u, ρ)` (applying `ρ` to `u`) is the term layer's job: a term-level
+`act : adjustment T → term → term` recursing on terms and, at payloads, on
+the strictly smaller nesting depth of `ρ`.
 
 ### D6. Users see only the indexed form
 
