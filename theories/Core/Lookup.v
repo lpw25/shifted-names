@@ -16,131 +16,122 @@ From Stdlib Require Import PArith List StrictProp.
 From ShiftedNames.Core Require Import Trie.
 Import ListNotations.
 
-Section Lookup.
+Lemma sq_sym {X} {a b : X} : Squash (a = b) -> Squash (b = a).
+Proof. intros [H]; exact (squash (eq_sym H)). Qed.
 
-Context {A R : Type}.
+Section GetWith.
 
-Fixpoint get_with' (i : positive) (m : tree' A) {struct m} :
-  (forall x, Squash (get' i m = Some x) -> R) -> (Squash (get' i m = None) -> R) -> R :=
-  match m as m0
-        return (forall x, Squash (get' i m0 = Some x) -> R) -> (Squash (get' i m0 = None) -> R) -> R
-  with
-  | Node001 r =>
-      match i as i0
-            return (forall x, Squash (get' i0 (Node001 r) = Some x) -> R) ->
-                   (Squash (get' i0 (Node001 r) = None) -> R) -> R with
-      | xI j => fun k n => get_with' j r k n
-      | xO _ => fun _ n => n (squash eq_refl)
-      | xH => fun _ n => n (squash eq_refl)
-      end
-  | Node010 x =>
-      match i as i0
-            return (forall y, Squash (get' i0 (Node010 x) = Some y) -> R) ->
-                   (Squash (get' i0 (Node010 x) = None) -> R) -> R with
-      | xH => fun k _ => k x (squash eq_refl)
-      | xO _ => fun _ n => n (squash eq_refl)
-      | xI _ => fun _ n => n (squash eq_refl)
-      end
-  | Node011 x r =>
-      match i as i0
-            return (forall y, Squash (get' i0 (Node011 x r) = Some y) -> R) ->
-                   (Squash (get' i0 (Node011 x r) = None) -> R) -> R with
-      | xH => fun k _ => k x (squash eq_refl)
-      | xI j => fun k n => get_with' j r k n
-      | xO _ => fun _ n => n (squash eq_refl)
-      end
-  | Node100 l =>
-      match i as i0
-            return (forall y, Squash (get' i0 (Node100 l) = Some y) -> R) ->
-                   (Squash (get' i0 (Node100 l) = None) -> R) -> R with
-      | xO j => fun k n => get_with' j l k n
-      | xH => fun _ n => n (squash eq_refl)
-      | xI _ => fun _ n => n (squash eq_refl)
-      end
-  | Node101 l r =>
-      match i as i0
-            return (forall y, Squash (get' i0 (Node101 l r) = Some y) -> R) ->
-                   (Squash (get' i0 (Node101 l r) = None) -> R) -> R with
-      | xO j => fun k n => get_with' j l k n
-      | xI j => fun k n => get_with' j r k n
-      | xH => fun _ n => n (squash eq_refl)
-      end
-  | Node110 l x =>
-      match i as i0
-            return (forall y, Squash (get' i0 (Node110 l x) = Some y) -> R) ->
-                   (Squash (get' i0 (Node110 l x) = None) -> R) -> R with
-      | xO j => fun k n => get_with' j l k n
-      | xH => fun k _ => k x (squash eq_refl)
-      | xI _ => fun _ n => n (squash eq_refl)
-      end
-  | Node111 l x r =>
-      match i as i0
-            return (forall y, Squash (get' i0 (Node111 l x r) = Some y) -> R) ->
-                   (Squash (get' i0 (Node111 l x r) = None) -> R) -> R with
-      | xO j => fun k n => get_with' j l k n
-      | xH => fun k _ => k x (squash eq_refl)
-      | xI j => fun k n => get_with' j r k n
-      end
+Context {A R : Type} (i0 : positive) (m0 : tree A)
+  (k : forall x, Squash (get i0 m0 = Some x) -> R) (n : Squash (get i0 m0 = None) -> R).
+
+(** The continuation is a fixed parameter; only the (strict) location proof
+    is carried down: the subtree being searched answers as [m0] would. *)
+Fixpoint get_with' (i : positive) (m : tree' A) {struct m} : Squash (get' i m = get i0 m0) -> R :=
+  match m as m1, i as i1 return Squash (get' i1 m1 = get i0 m0) -> R with
+  | Node001 r, xI j => fun H => get_with' j r H
+  | Node010 x, xH => fun H => k x (sq_sym H)
+  | Node011 x _, xH => fun H => k x (sq_sym H)
+  | Node011 _ r, xI j => fun H => get_with' j r H
+  | Node100 l, xO j => fun H => get_with' j l H
+  | Node101 l _, xO j => fun H => get_with' j l H
+  | Node101 _ r, xI j => fun H => get_with' j r H
+  | Node110 l _, xO j => fun H => get_with' j l H
+  | Node110 _ x, xH => fun H => k x (sq_sym H)
+  | Node111 l _ _, xO j => fun H => get_with' j l H
+  | Node111 _ x _, xH => fun H => k x (sq_sym H)
+  | Node111 _ _ r, xI j => fun H => get_with' j r H
+  | _, _ => fun H => n (sq_sym H)
   end.
 
-Definition get_with (i : positive) (m : tree A)
-  (k : forall x, Squash (get i m = Some x) -> R) (n : Squash (get i m = None) -> R) : R :=
-  match m as m0
-        return (forall x, Squash (get i m0 = Some x) -> R) -> (Squash (get i m0 = None) -> R) -> R
-  with
-  | Empty => fun _ n => n (squash eq_refl)
-  | Nodes m' => fun k n => get_with' i m' k n
-  end k n.
+Definition get_with : R :=
+  match m0 as m1 return Squash (get i0 m1 = get i0 m0) -> R with
+  | Empty => fun H => n (sq_sym H)
+  | Nodes m' => fun H => get_with' i0 m' H
+  end (squash eq_refl).
 
-Fixpoint nth_with (i : nat) (l : list A) {struct l} :
-  (forall x, Squash (nth_error l i = Some x) -> R) -> (Squash (nth_error l i = None) -> R) -> R :=
-  match l as l0
-        return (forall x, Squash (nth_error l0 i = Some x) -> R) ->
-               (Squash (nth_error l0 i = None) -> R) -> R
-  with
-  | [] => fun _ n => n (squash (nth_error_nil A i))
-  | x :: l' =>
-      match i as i0
-            return (forall y, Squash (nth_error (x :: l') i0 = Some y) -> R) ->
-                   (Squash (nth_error (x :: l') i0 = None) -> R) -> R with
-      | 0 => fun k _ => k x (squash eq_refl)
-      | S i' => fun k n => nth_with i' l' k n
-      end
+End GetWith.
+
+Section NthWith.
+
+Context {A R : Type} (i0 : nat) (l0 : list A)
+  (k : forall x, Squash (nth_error l0 i0 = Some x) -> R) (n : Squash (nth_error l0 i0 = None) -> R).
+
+Fixpoint nth_with' (i : nat) (l : list A) {struct l} : Squash (nth_error l i = nth_error l0 i0) -> R :=
+  match l as l1, i as i1 return Squash (nth_error l1 i1 = nth_error l0 i0) -> R with
+  | x :: _, 0 => fun H => k x (sq_sym H)
+  | _ :: l', S i' => fun H => nth_with' i' l' H
+  | [], 0 => fun H => n (sq_sym H)
+  | [], S _ => fun H => n (sq_sym H)
   end.
+
+Definition nth_with : R := nth_with' i0 l0 (squash eq_refl).
+
+End NthWith.
 
 (** ** Specifications
 
     The location proofs are strict propositions, so the continuation cannot
     tell which proof it was given. *)
 
-Lemma get_with'_some i m k n x (H : get' i m = Some x) : get_with' i m k n = k x (squash H).
+Section Specs.
+
+Context {A R : Type}.
+
+Lemma get_with'_some i0 (m0 : tree A) (k : forall x, Squash (get i0 m0 = Some x) -> R) n i m H
+  (E : get' i m = get i0 m0) x (X : get i0 m0 = Some x) :
+  get_with' i0 m0 k n i m H = k x (squash X).
 Proof.
-  revert i k n H; induction m; intros [j|j|] k n H; cbn in H |- *; try discriminate;
-    try (injection H as <-; reflexivity); auto.
+  revert i H E; induction m; intros [j|j|] H E; cbn [get_with'];
+    try (apply IHm || apply IHm1 || apply IHm2; exact E); cbn in E; rewrite X in E;
+    try discriminate; injection E as ->; reflexivity.
 Qed.
 
-Lemma get_with'_none i m k n (H : get' i m = None) : get_with' i m k n = n (squash H).
+Lemma get_with'_none i0 (m0 : tree A) (k : forall x, Squash (get i0 m0 = Some x) -> R) n i m H
+  (E : get' i m = get i0 m0) (X : get i0 m0 = None) :
+  get_with' i0 m0 k n i m H = n (squash X).
 Proof.
-  revert i k n H; induction m; intros [j|j|] k n H; cbn in H |- *; try discriminate;
-    try reflexivity; auto.
+  revert i H E; induction m; intros [j|j|] H E; cbn [get_with'];
+    try (apply IHm || apply IHm1 || apply IHm2; exact E); cbn in E; rewrite X in E;
+    try discriminate; reflexivity.
 Qed.
 
-Lemma get_with_some i m k n x (H : get i m = Some x) : get_with i m k n = k x (squash H).
-Proof. destruct m as [|m]; [discriminate|apply get_with'_some]. Qed.
-
-Lemma get_with_none i m k n (H : get i m = None) : get_with i m k n = n (squash H).
-Proof. destruct m as [|m]; [reflexivity|apply get_with'_none]. Qed.
-
-Lemma nth_with_some i l k n x (H : nth_error l i = Some x) : nth_with i l k n = k x (squash H).
+Lemma get_with_some i (m : tree A) (k : forall x, Squash (get i m = Some x) -> R) n x
+  (H : get i m = Some x) : get_with i m k n = k x (squash H).
 Proof.
-  revert i k n H; induction l as [|y l IH]; intros [|i] k n H; cbn in H |- *;
-    try discriminate; [injection H as <-; reflexivity|apply IH].
+  unfold get_with; destruct m as [|m]; [discriminate|].
+  exact (get_with'_some i (Nodes m) k n i m _ eq_refl x H).
 Qed.
 
-Lemma nth_with_none i l k n (H : nth_error l i = None) : nth_with i l k n = n (squash H).
+Lemma get_with_none i (m : tree A) (k : forall x, Squash (get i m = Some x) -> R) n
+  (H : get i m = None) : get_with i m k n = n (squash H).
 Proof.
-  revert i k n H; induction l as [|y l IH]; intros [|i] k n H; cbn in H |- *;
-    try discriminate; [reflexivity|reflexivity|apply IH].
+  unfold get_with; destruct m as [|m]; [reflexivity|].
+  exact (get_with'_none i (Nodes m) k n i m _ eq_refl H).
 Qed.
 
-End Lookup.
+Lemma nth_with'_some i0 (l0 : list A) (k : forall x, Squash (nth_error l0 i0 = Some x) -> R) n i l H
+  (E : nth_error l i = nth_error l0 i0) x (X : nth_error l0 i0 = Some x) :
+  nth_with' i0 l0 k n i l H = k x (squash X).
+Proof.
+  revert i H E; induction l as [|y l IH]; intros [|i] H E; cbn [nth_with'];
+    try (apply IH; exact E); cbn in E; rewrite X in E; try discriminate;
+    injection E as ->; reflexivity.
+Qed.
+
+Lemma nth_with'_none i0 (l0 : list A) (k : forall x, Squash (nth_error l0 i0 = Some x) -> R) n i l H
+  (E : nth_error l i = nth_error l0 i0) (X : nth_error l0 i0 = None) :
+  nth_with' i0 l0 k n i l H = n (squash X).
+Proof.
+  revert i H E; induction l as [|y l IH]; intros [|i] H E; cbn [nth_with'];
+    try (apply IH; exact E); cbn in E; rewrite X in E; try discriminate; reflexivity.
+Qed.
+
+Lemma nth_with_some i (l : list A) (k : forall x, Squash (nth_error l i = Some x) -> R) n x
+  (H : nth_error l i = Some x) : nth_with i l k n = k x (squash H).
+Proof. exact (nth_with'_some i l k n i l _ eq_refl x H). Qed.
+
+Lemma nth_with_none i (l : list A) (k : forall x, Squash (nth_error l i = Some x) -> R) n
+  (H : nth_error l i = None) : nth_with i l k n = n (squash H).
+Proof. exact (nth_with'_none i l k n i l _ eq_refl H). Qed.
+
+End Specs.
