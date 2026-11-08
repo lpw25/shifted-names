@@ -279,4 +279,156 @@ Proof.
   apply enc_normal_encode, normal_compose; assumption.
 Qed.
 
+(** ** Adding an output slot: O(log n), no reference changes *)
+
+Definition push_outer_enc h a : eraw P :=
+  update (label_key h)
+    (fun o => Some (match o with
+                    | Some e => mk_eentry h (ee_targets e) (S (ee_out e))
+                    | None => mk_eentry h [] 1
+                    end)) a.
+
+Lemma out_count_push_outer h a h' :
+  out_count (push_outer_enc h a) h'
+  = if label_eqb h' h then S (out_count a h) else out_count a h'.
+Proof.
+  unfold out_count, push_outer_enc; rewrite get_update, label_key_eqb.
+  destruct (label_eqb_spec h' h) as [->|]; [|reflexivity].
+  destruct (get (label_key h) a); reflexivity.
+Qed.
+
+Lemma efind_push_outer h a h' :
+  efind (push_outer_enc h a) h'
+  = if label_eqb h' h then (fst (efind a h), S (snd (efind a h))) else efind a h'.
+Proof.
+  unfold efind, push_outer_enc; rewrite get_update, label_key_eqb.
+  destruct (label_eqb_spec h' h) as [->|]; [|reflexivity].
+  destruct (get (label_key h) a); reflexivity.
+Qed.
+
+Definition shift_t h (t : target P) : target P :=
+  match t with
+  | Rename w => Rename (shift_var (mk_var h 0) w)
+  | Bind p => Bind p
+  end.
+
+Lemma dec_push_outer h a et :
+  wf_target (out_count a) et = true ->
+  dec (out_count (push_outer_enc h a)) et = shift_t h (dec (out_count a) et).
+Proof.
+  destruct et as [h' l|h' m|p]; cbn [wf_target dec shift_t]; intro Hwf; [| |reflexivity];
+    rewrite out_count_push_outer; unfold shift_var; cbn [v_label v_index];
+    rewrite (label_eqb_sym h h').
+  - apply Nat.ltb_lt in Hwf.
+    destruct (label_eqb_spec h' h) as [->|]; cbn [andb Nat.leb]; [|reflexivity].
+    do 2 f_equal; lia.
+  - destruct (label_eqb_spec h' h) as [->|]; cbn [andb Nat.leb]; [|reflexivity].
+    do 2 f_equal; lia.
+Qed.
+
+Lemma wf_targets_efind a h et :
+  enc_wf a = true -> In et (fst (efind a h)) -> wf_target (out_count a) et = true.
+Proof.
+  unfold enc_wf, efind; rewrite forallb_spec; intros Ha Hin.
+  destruct (get (label_key h) a) as [e|] eqn:E; [|destruct Hin].
+  specialize (Ha _ _ E); rewrite List.forallb_forall in Ha; apply Ha, Hin.
+Qed.
+
+Theorem apply_enc_push_outer h a v :
+  enc_wf a = true ->
+  apply_enc (push_outer_enc h a) v
+  = match apply_enc a v with
+    | inl w => inl (shift_var (mk_var h 0) w)
+    | inr p => inr p
+    end.
+Proof.
+  intros Ha; unfold apply_enc.
+  rewrite efind_push_outer.
+  destruct v as [h' i]; cbn [v_label v_index].
+  destruct (label_eqb_spec h' h) as [->|Hne]; cbn [fst snd].
+  - destruct (nth_error (fst (efind a h)) i) as [et|] eqn:E.
+    + rewrite dec_push_outer by (apply (wf_targets_efind a h), (nth_error_In _ _ E); exact Ha).
+      destruct (dec _ et); reflexivity.
+    + unfold shift_var; cbn [v_label v_index]; rewrite label_eqb_refl; cbn [andb Nat.leb].
+      do 2 f_equal; apply nth_error_None in E; lia.
+  - destruct (nth_error (fst (efind a h')) i) as [et|] eqn:E.
+    + rewrite dec_push_outer by (apply (wf_targets_efind a h'), (nth_error_In _ _ E); exact Ha).
+      destruct (dec _ et); reflexivity.
+    + unfold shift_var; cbn [v_label v_index].
+      rewrite (proj2 (label_eqb_neq h h')) by congruence; reflexivity.
+Qed.
+
+Lemma minimal_map_shift h h1 ts k k' :
+  (h1 = h -> k' = S k) -> (h1 <> h -> k' = k) ->
+  minimal h1 (map (shift_t h) ts) k' = minimal h1 ts k.
+Proof.
+  intros Heq Hne; unfold minimal, last_target; rewrite length_map, nth_error_map.
+  destruct (nth_error ts _) as [[[l i]|p]|]; cbn [option_map shift_t]; [|reflexivity..].
+  f_equal; unfold transparent, shift_var; cbn [v_label v_index].
+  destruct (label_eqb_spec h1 h) as [->|Hh];
+    [rewrite (Heq eq_refl)|rewrite (Hne Hh)]; case_vars.
+Qed.
+
+Lemma wf_target_mono cnt1 cnt2 et :
+  (forall h, cnt1 h <= cnt2 h) -> wf_target cnt1 et = true -> wf_target cnt2 et = true.
+Proof.
+  intro H; destruct et as [h l| |]; cbn [wf_target]; rewrite ?Nat.ltb_lt; [|auto..].
+  specialize (H h); lia.
+Qed.
+
+Lemma out_count_push_outer_ge h a h' : out_count a h' <= out_count (push_outer_enc h a) h'.
+Proof. rewrite out_count_push_outer; destruct (label_eqb_spec h' h) as [->|]; lia. Qed.
+
+Lemma trivial_map (f : target P -> target P) (ts : list (target P)) k :
+  trivial (map f ts) k = trivial ts k.
+Proof. destruct ts, k; reflexivity. Qed.
+
+Theorem enc_normal_push_outer h a :
+  enc_normal a = true -> enc_normal (push_outer_enc h a) = true.
+Proof.
+  unfold enc_normal; rewrite !andb_true_iff; intros [Wa Na]; split.
+  - unfold enc_wf in *; rewrite forallb_spec in *; intros key e He.
+    unfold push_outer_enc in He; rewrite get_update in He.
+    apply List.forallb_forall; intros et Hin.
+    apply (wf_target_mono (out_count a)); [apply out_count_push_outer_ge|].
+    destruct (Pos.eqb_spec key (label_key h)) as [->|].
+    + injection He as <-.
+      destruct (get (label_key h) a) as [e0|] eqn:E0; cbn [ee_targets] in Hin; [|destruct Hin].
+      specialize (Wa _ _ E0); rewrite List.forallb_forall in Wa; apply Wa, Hin.
+    + specialize (Wa _ _ He); rewrite List.forallb_forall in Wa; apply Wa, Hin.
+  - unfold normal; apply forallb_spec; intros key e' He'.
+    rewrite get_decode in He'.
+    destruct (get key (push_outer_enc h a)) as [e|] eqn:He; [|discriminate].
+    injection He' as <-.
+    assert (Hdec : forall et, wf_target (out_count a) et = true ->
+              dec (out_count (push_outer_enc h a)) et = shift_t h (dec (out_count a) et))
+      by (intros; apply dec_push_outer; assumption).
+    unfold push_outer_enc in He; rewrite get_update in He.
+    destruct (Pos.eqb_spec key (label_key h)) as [->|Hkey].
+    + injection He as <-.
+      pose proof (find_minimal (decode a) h Na) as Hmin; rewrite find_decode in Hmin.
+      unfold efind in Hmin.
+      destruct (get (label_key h) a) as [e0|] eqn:E0; cbn [fst snd] in Hmin |- *;
+        unfold decode_entry; cbn [ee_label ee_targets ee_out];
+        rewrite entry_ok_mk_entry; cbn [trivial negb]; [|reflexivity].
+      rewrite (map_ext_in _ (fun et => shift_t h (dec (out_count a) et))).
+      * rewrite <- map_map, (minimal_map_shift h h _ (ee_out e0)), Hmin;
+          [destruct (ee_targets e0), (ee_out e0); reflexivity|reflexivity|congruence].
+      * intros et Hin; apply Hdec.
+        unfold enc_wf in Wa; rewrite forallb_spec in Wa; specialize (Wa _ _ E0).
+        rewrite List.forallb_forall in Wa; apply Wa, Hin.
+    + pose proof (normal_get _ _ _ Na (eq_trans (get_decode a key) (f_equal _ He))) as Hok.
+      cbn [option_map] in Hok.
+      unfold entry_ok, decode_entry in *; cbn [e_label e_targets e_out ee_label ee_targets ee_out] in *.
+      rewrite !andb_true_iff in *; destruct Hok as [[Hk Hm] Ht].
+      assert (Hl : ee_label e <> h)
+        by (intro Hl; apply Hkey; apply Pos.eqb_eq in Hk; rewrite Hk, Hl; reflexivity).
+      rewrite (map_ext_in _ (fun et => shift_t h (dec (out_count a) et))).
+      * rewrite <- map_map, (minimal_map_shift h (ee_label e) _ (ee_out e)) by (congruence || auto).
+        rewrite trivial_map; auto.
+      * intros et Hin; apply Hdec.
+        unfold enc_wf in Wa; rewrite forallb_spec in Wa; specialize (Wa _ _ He).
+        rewrite List.forallb_forall in Wa; apply Wa, Hin.
+Qed.
+
 End Encoded.
