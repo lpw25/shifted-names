@@ -12,6 +12,5 @@ theories/Core/Scoped.v
 theories/Core/Indexed.v
 theories/Core/Syntax.v
 theories/Core/Subst.v
-theories/Examples/LambdaCore.v
 theories/Examples/Lambda.v
 theories/Tests/CoreTests.v

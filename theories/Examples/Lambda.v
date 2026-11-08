@@ -1,169 +1,117 @@
-(** * Scoped λ-terms and substitutions (public layer)
+(** * The λ-calculus as a client of the library
 
-    [term N] is the type of λ-terms with at most [N] bound variables in scope
-    and any free names.  [sub N M] is the type of substitutions from scope
-    [N] to scope [M]: the library's scoped adjustments, with closed terms as
-    payloads.  Users work only with these types, their constructors and the
-    laws below.
-
-    Terms:          [tfvar x i], [tbvar i], [tapp t1 t2], [tlam b], [tconst n].
-    Substitutions:  [identity], [extend t σ], [extend_free x t σ], [weaken σ],
-                    [weaken_free x σ], [compose σ τ], [lift σ], and the
-                    derived [open_sub x], [close_sub x], [inst u].
-
-    A substitution sends a variable to a variable in scope or to a closed
-    term (with a lazily applied payload adjustment).
-
-    Equality on both types is Leibniz equality. *)
+    The user's side is this file's first two sections: an indexed
+    inductive, one Kleisli-extension function, and its laws, each a routine
+    induction.  Everything about substitution then comes from the library's
+    [Subst] functor. *)
 
 From Stdlib Require Import Arith List Lia Bool StrictProp.
-From ShiftedNames.Core Require Import Label Var Nested Adjustment Laws Scoped Indexed.
-From ShiftedNames.Examples Require LambdaCore.
+From ShiftedNames.Core Require Import Label Var Nested Adjustment Laws Scoped Indexed Syntax Subst.
 
-Module L := ShiftedNames.Examples.LambdaCore.
+(** ** The syntax *)
 
-(** ** Terms *)
+Inductive tm : nat -> Type :=
+| tvar {N} (v : var N) : tm N
+| tconst {N} (n : nat) : tm N
+| tapp {N} (t1 t2 : tm N) : tm N
+| tlam {N} (b : tm (S N)) : tm N.
 
-Record term (N : nat) : Type :=
-  mk_term { term_raw : L.rterm; term_wf : Is_true_s (L.wf_term N term_raw) }.
+Module LambdaSyntax <: SYNTAX.
 
-Arguments mk_term {N} _ _.
-Arguments term_raw {N} _.
-Arguments term_wf {N} _.
+  Definition term := tm.
+  Definition tvar {N} : var N -> term N := @tvar N.
 
-Lemma term_eq {N} (t1 t2 : term N) : term_raw t1 = term_raw t2 -> t1 = t2.
-Proof. destruct t1, t2; cbn; intros ->; reflexivity. Qed.
+  Definition morph (N M : nat) : Type := forall K L, ext N M K L -> var K -> term L.
 
-Lemma term_wf_true {N} (t : term N) : L.wf_term N (term_raw t) = true.
-Proof. apply Is_true_s_elim, term_wf. Qed.
+  (** The one function: Kleisli extension, structural on terms. *)
+  Fixpoint kleisli {N M} (f : morph N M) {K L} (e : ext N M K L) (t : term K) : term L :=
+    match t in tm K' return ext N M K' L -> term L with
+    | Lambda.tvar v => fun e => f _ _ e v
+    | tconst n => fun _ => tconst n
+    | tapp t1 t2 => fun e => tapp (kleisli f e t1) (kleisli f e t2)
+    | tlam b => fun e => tlam (kleisli f (ext_under e) b)
+    end e.
 
-Definition tvar {N} (v : var N) : term N := mk_term (L.rtvar (var_raw v)) (var_ok v).
-Definition tfvar {N} (x : label) (i : nat) : term N := tvar (fvar x i).
-Definition tbvar {N} (i : nat) (H : Is_true_s (Nat.ltb i N)) : term N := tvar (bvar i H).
-Definition tbvar0 {N} : term (S N) := tvar bvar0.
+  Definition unit_m {N} : morph N N := fun K L e v => tvar (ext_var e v).
 
-Definition tapp {N} (t1 t2 : term N) : term N :=
-  mk_term (L.rtapp (term_raw t1) (term_raw t2))
-    (Is_true_s_intro (proj2 (andb_true_iff _ _) (conj (term_wf_true t1) (term_wf_true t2)))).
+  Definition comp_m {N M P} (g : morph M P) (f : morph N M) : morph N P :=
+    fun K L e v => kleisli g (ext_right M e) (f K (ext_mid M e) (ext_left M e) v).
 
-Definition tlam {N} (b : term (S N)) : term N := mk_term (L.rtlam (term_raw b)) (term_wf b).
+  Definition rebase_m {N M K L} (e1 : ext N M K L) (f : morph N M) : morph K L :=
+    fun K' L' e v => f K' L' (ext_app e1 e) v.
 
-Definition tconst {N} (n : nat) : term N := mk_term (L.rtconst n) stt.
+  (** ** The laws *)
 
-(** Closed terms, the payloads of substitutions. *)
-Definition to_cterm (u : term 0) : L.cterm := L.mk_ct (term_raw u) (term_wf u).
+  Lemma kleisli_var N M (f : morph N M) K L (e : ext N M K L) (v : var K) :
+    kleisli f e (tvar v) = f K L e v.
+  Proof. reflexivity. Qed.
 
-(** A closed term in any scope. *)
-Definition weaken0 {N} (u : term 0) : term N :=
-  mk_term (term_raw u) (Is_true_s_intro (L.wf_term_mono _ 0 N (Nat.le_0_l N) (term_wf_true u))).
+  Lemma kleisli_ext N M (f g : morph N M) :
+    (forall K L (e : ext N M K L) v, f K L e v = g K L e v) ->
+    forall K L (e : ext N M K L) t, kleisli f e t = kleisli g e t.
+  Proof.
+    intros H K L e t; revert L e; induction t; intros L e; cbn;
+      try rewrite IHt1, IHt2; try rewrite IHt; auto.
+  Qed.
 
-(** ** Substitutions *)
+  Lemma kleisli_rebase N M (f : morph N M) K L K' L' (e1 : ext N M K L) (e2 : ext K L K' L') t :
+    kleisli f (ext_app e1 e2) t = kleisli (rebase_m e1 f) e2 t.
+  Proof.
+    revert L' e2; induction t; intros L' e2; cbn;
+      try rewrite IHt1, IHt2; try rewrite <- IHt; reflexivity.
+  Qed.
 
-Notation sub N M := (adj L.cterm N M).
+  Lemma kleisli_unit N K (e : ext N N K K) t : kleisli unit_m e t = t.
+  Proof.
+    induction t; cbn; try rewrite IHt1, IHt2; try rewrite IHt; try reflexivity.
+    unfold unit_m; rewrite ext_var_same; reflexivity.
+  Qed.
 
-Definition subst {N M} (s : sub N M) (t : term N) : term M :=
-  mk_term (L.rsubst (adj_raw s) (term_raw t))
-    (Is_true_s_intro (L.wf_rsubst N M _ _ (adj_scoped s) (term_wf_true t))).
+  Lemma kleisli_assoc N M P (g : morph M P) (f : morph N M) K L (e : ext N P K L) t :
+    kleisli (comp_m g f) e t = kleisli g (ext_right M e) (kleisli f (ext_left M e) t).
+  Proof.
+    revert L e; induction t; intros L e; cbn;
+      try rewrite IHt1, IHt2; try rewrite IHt; reflexivity.
+  Qed.
 
-Notation "⟦ s ⟧ t" := (subst s t) (at level 9, s at level 200, right associativity).
+End LambdaSyntax.
 
-(** A payload [(u, ρ)] as a term. *)
-Definition payload_term {M} (u : L.cterm) (ρ : padj L.cterm M) : term M :=
-  mk_term (L.rsubst (rpadj_adj (padj_raw ρ)) (L.ct u))
-    (Is_true_s_intro (L.wf_payload M _ u (Is_true_s_elim (padj_ok ρ)))).
+(** ** Substitution, from the library *)
 
-(** The trivial payload adjustment. *)
-Definition pidentity {M} : padj L.cterm M := mk_padj (rto_padj nidentity) stt.
+Module LS := Subst LambdaSyntax.
+Import LS.
 
-(** Targets: a variable in scope, or a closed term. *)
-Definition tvar_target {M} (w : var M) : target L.cterm M := Rename w.
-Definition closed_target {M} (u : term 0) : target L.cterm M := Bind (to_cterm u) pidentity.
+(** Substitutions: scoped adjustments whose payloads are closed terms. *)
+Notation sub N M := (adj (tm 0) N M).
 
-(** Opening the innermost bound variable as [x], closing [x] into a new
-    innermost bound variable, and instantiating it with a closed term. *)
-Definition open_sub {N} (x : label) : sub (S N) N :=
-  extend (tvar_target (fvar x 0)) (weaken_free x identity).
-Definition close_sub {N} (x : label) : sub N (S N) :=
-  extend_free x (tvar_target bvar0) (weaken identity).
-Definition inst {N} (u : term 0) : sub (S N) N := extend (closed_target u) identity.
-
-(** ** Substitution on terms *)
-
-Theorem subst_app {N M} (s : sub N M) t1 t2 : ⟦s⟧ (tapp t1 t2) = tapp (⟦s⟧ t1) (⟦s⟧ t2).
-Proof. apply term_eq, L.rsubst_app. Qed.
-
-Theorem subst_const {N M} (s : sub N M) n : ⟦s⟧ (tconst n) = tconst n.
-Proof. apply term_eq, L.rsubst_const. Qed.
-
-Theorem subst_lam {N M} (s : sub N M) b : ⟦s⟧ (tlam b) = tlam (⟦lift s⟧ b).
-Proof. apply term_eq, L.rsubst_lam. Qed.
-
-Theorem subst_var {N M} (s : sub N M) (v : var N) :
-  term_raw (⟦s⟧ (tvar v))
-  = match apply s v with
-    | inl w => L.rtvar w
-    | inr p => L.rsubst (rpadj_adj (snd p)) (L.ct (fst p))
-    end.
-Proof. apply L.rsubst_var. Qed.
-
-Theorem subst_sid {N} (t : term N) : ⟦identity⟧ t = t.
-Proof. apply term_eq, L.rsubst_identity. Qed.
-
-Theorem subst_comp {N M K} (s : sub M K) (r : sub N M) t : ⟦s⟧ (⟦r⟧ t) = ⟦compose s r⟧ t.
-Proof. apply term_eq, L.rsubst_subst. Qed.
-
-Theorem subst_cons_var0 {N M} (w : var M) (s : sub N M) :
-  ⟦extend (tvar_target w) s⟧ tbvar0 = tvar w.
+(** Going under a binder: by the library's rewrite rules. *)
+Theorem subst_tlam {N M} (a : adj (tm 0) N M) (b : tm (S N)) :
+  subst a (tlam b) = tlam (subst (lift a) b).
 Proof.
-  apply term_eq; cbn [term_raw subst tbvar0 tvar var_raw bvar0].
-  rewrite L.rsubst_var; cbn [adj_raw extend to_target tvar_target].
-  rewrite rapply_push_inner, rvar_eqb_refl; reflexivity.
+  unfold subst; cbn [LambdaSyntax.kleisli].
+  rewrite (kleisli_apply_under a ext_here b); reflexivity.
 Qed.
 
-Theorem subst_cons_bind0 {N M} u (ρ : padj L.cterm M) (s : sub N M) :
-  ⟦extend (Bind u ρ) s⟧ tbvar0 = payload_term u ρ.
+Theorem subst_tapp {N M} (a : adj (tm 0) N M) t1 t2 :
+  subst a (tapp t1 t2) = tapp (subst a t1) (subst a t2).
+Proof. reflexivity. Qed.
+
+Theorem subst_tconst {N M} (a : adj (tm 0) N M) n : subst a (tconst n) = tconst n.
+Proof. reflexivity. Qed.
+
+(** Two binders, with no per-binder rule. *)
+Example subst_two_binders {N M} (a : adj (tm 0) N M) (b c : tm (S (S N))) :
+  subst a (tlam (tlam (tapp b c)))
+  = tlam (tlam (tapp (subst (lift (lift a)) b) (subst (lift (lift a)) c))).
 Proof.
-  apply term_eq; cbn [term_raw subst tbvar0 tvar var_raw bvar0].
-  rewrite L.rsubst_var; cbn [adj_raw extend to_target].
-  rewrite rapply_push_inner, rvar_eqb_refl; reflexivity.
+  unfold subst; cbn [LambdaSyntax.kleisli].
+  rewrite !kleisli_apply_under; cbn [ext_shift]; rewrite !kleisli_apply_under.
+  reflexivity.
 Qed.
 
-Theorem subst_cons_S {N M} (t : target L.cterm M) (s : sub N M) i H :
-  ⟦extend t s⟧ (tbvar (S i) H) = ⟦s⟧ (tbvar i H).
-Proof.
-  apply term_eq; cbn [term_raw subst tbvar tvar var_raw bvar].
-  rewrite !L.rsubst_var; cbn [adj_raw extend].
-  rewrite rapply_push_inner; unfold rvar_eqb, unshift_rvar; cbn.
-  replace (i - 0) with i by lia; reflexivity.
-Qed.
+Theorem subst_id {N} (t : tm N) : subst identity t = t.
+Proof. apply subst_identity. Qed.
 
-Theorem subst_cons_fvar {N M} (t : target L.cterm M) (s : sub N M) x i :
-  ⟦extend t s⟧ (tfvar x i) = ⟦s⟧ (tfvar x i).
-Proof.
-  apply term_eq; cbn [term_raw subst tfvar tvar var_raw fvar].
-  rewrite !L.rsubst_var; cbn [adj_raw extend].
-  rewrite rapply_push_inner; reflexivity.
-Qed.
-
-Theorem subst_inst_bvar0 {N} (u : term 0) : ⟦@inst N u⟧ tbvar0 = weaken0 u.
-Proof.
-  unfold inst, closed_target; rewrite subst_cons_bind0.
-  apply term_eq; cbn [term_raw payload_term weaken0 padj_raw pidentity L.ct to_cterm].
-  replace (rpadj_adj (rto_padj (@nidentity L.cterm))) with (@ridentity L.cterm)
-    by (apply radj_eq; reflexivity).
-  apply L.rsubst_identity.
-Qed.
-
-(** ** Locally nameless laws *)
-
-Theorem open_close {N} x : compose (@open_sub N x) (close_sub x) = identity.
-Proof. apply adj_eq, rcompose_open_close. Qed.
-
-Theorem close_open {N} x : compose (@close_sub N x) (open_sub x) = identity.
-Proof. apply adj_eq, rcompose_close_open. Qed.
-
-(** ** Closed substitutions go under binders for free *)
-
-Theorem subst_closed_lam {N} (s : sub 0 0) (b : term (S N)) :
-  ⟦at_scope s⟧ (tlam b) = tlam (⟦at_scope s⟧ b).
-Proof. rewrite subst_lam, lift_at_scope; reflexivity. Qed.
+Theorem subst_subst {N M P} (a : adj (tm 0) M P) (b : adj (tm 0) N M) (t : tm N) :
+  subst a (subst b t) = subst (compose a b) t.
+Proof. apply subst_compose. Qed.
