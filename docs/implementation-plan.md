@@ -345,6 +345,52 @@ required. That makes "terms" anything with such an action:
   `as_var` and `wf` from a small number of user proofs. Building terms by
   hand without it must remain easy.
 
+### D8. Revised representation: abstract closed payloads and a thinning front
+
+This supersedes the payload parts of D7. It came out of the discussion on
+O(1) lifting and canonicity.
+
+**The goals:**
+- `lift` and weakening by a bound variable are O(1) for every adjustment;
+- a lift built from constructors is the same value as `lift`;
+- canonicity is structural;
+- the core needs nothing from terms.
+
+**Payloads are closed terms with a lazily applied adjustment.**
+- A substitution target is `Rename v` or `Bind u ρ`. Here `u` is a term
+  with no bound variables, opaque to the core, and `ρ` is an adjustment
+  meaning "apply `ρ` to `u`".
+- `ρ` is normalised to ignore its action on bound-variable inputs, since `u`
+  has none.
+- Equality compares `u` and `ρ` as data. Two payloads denoting equal terms
+  through different representations are different values.
+- The core never applies an adjustment to a term. Composition maps `b`'s
+  payloads `(u, ρ)` to `(u, a ∘ ρ)`.
+- Materialising a lookup result (applying `ρ` to `u`) is the business of the
+  convenience layer.
+
+**A thinning front for the anonymous label.**
+- An adjustment is `(θ, core)`. `θ` is a canonical keep/drop string (an
+  order-preserving embedding on bound-variable indices) applied after
+  `core`.
+- `lift` is keep, and `push_outer None` (weakening by a bound variable) is
+  drop. Both are O(1), and payloads are untouched.
+- `push_inner None None₀` on a drop-headed front turns the drop into a keep,
+  so a lift built from constructors equals `lift`, in O(1).
+- Canonical form: absorb as much of `core` into `θ` as possible. Whether a
+  payload blocks absorption is decided structurally from its `ρ`'s targets,
+  because `u` has no bound variables.
+
+**Structure.** Adjustments are nested (payloads contain adjustments), so
+operations are nested fixpoints and canonicity is proved by nested
+induction. The existing per-label trie core is reused as `core`.
+
+**Stages:**
+1. Thinnings.
+2. The nested adjustment type and its structural operations.
+3. The `(θ, core)` normal form, with pushing a thinning through an
+   adjustment for composition, and the canonicity proof.
+
 ### D6. Users see only the indexed form
 
 Scoped terms and adjustments (indexed by the number of bound names), built as
