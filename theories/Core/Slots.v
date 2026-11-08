@@ -15,6 +15,13 @@
     Because references count from the innermost constructor, adding an
     output slot ([push_outer]) changes no reference.
 
+    Each entry also keeps back-links ([e_back]): for each output slot, the
+    inputs that refer to it.  They are determined by the targets, so they do
+    not affect canonicity; [normal] constrains the targets and [linked] says
+    the back-links are correct.  [push_inner] uses them to decide in
+    O(log n) whether the new input makes a slot transparent, and to renumber
+    only the inputs that refer to a stripped label's slots.
+
     This file treats payloads as opaque; nested payload adjustments are
     added on top later. *)
 

@@ -147,15 +147,29 @@ Each stage ends with a green build, a commit and a push.
   by its effect on the denoted lists. `Subst.apply` looks targets up with a
   Braun continuation lookup (`Lookup.nth_with`), O(log n), and `Extraction.v`
   realizes `Nat.even`/`Nat.div2` on Zarith.
-- **Remaining runtime costs seen in the extraction:** `push_inner` still runs
-  `strip_ok`, which scans all references (`refs`), under a fuel bound
-  computed at runtime; back-links remove both. `rto_padj` still tests
-  normality at runtime (`psel`); it goes when `Bind` takes a closed term.
-- **Back-links.** Each label's entry also records, for each of its output
-  slots (innermost first), the set of inputs referring to it, as positions
-  counted from the back of the referring label's sequence (stable under
-  cons). They are a function of the targets, so canonicity is unaffected;
-  normality includes their consistency. The strip check reads the innermost
-  slot's set; stripping updates only the referring inputs.
+- **Back-links (done).** Each entry records, for each of its output slots
+  (innermost first), the inputs referring to it: a trie from the referring
+  label's key to the set of positions counted from the back of that label's
+  targets (stable under cons). They are determined by the targets
+  ([refers]); [relink] computes them from scratch and [linked] checks them
+  (by comparing with [relink]); [canonical] takes [linked] for both sides
+  and compares back-links through [backs_unique]. Operations:
+  - `push_outer` appends an empty set for the new slot: O(log n);
+  - `push_inner` (`cons_linked`) adds one back-link, then checks the
+    innermost slot's set against the singleton of the new input
+    (`strip_check`, O(log n)). If `a` is normal at most one strip is needed,
+    and only when `h` had no inputs (`push_inner_spec`), so `strip_sole`
+    removes the input and the slot and retargets exactly the inputs listed
+    in the remaining slots' back-links. Cost: O(log n + k_h + r_h log n)
+    for `k_h` slots of `h` and `r_h` references to them;
+  - `compose`, `restrict` and the expanding case of `push_inner_var` (a
+    variable beyond the explicit slots) rebuild back-links with `relink`,
+    O(S log S). Making expansion incremental would need the positions of
+    the expanded label's inputs to shift, O(len); not done yet.
+- **Remaining runtime costs seen in the extraction:** compose's
+  normalisation still runs the reference-scanning `strip_ok` under a fuel
+  bound (per-slot back-links could replace it); `rto_padj` tests normality
+  and back-links at runtime (`psel`), which goes when `Bind` takes a closed
+  term; `npush_outer` maps `pshift` over every payload (stage 5).
 - **Cheap fixes to fold in:** `comp_entry` maps over the targets instead of
   indexing them; identity payloads are returned without traversal.
