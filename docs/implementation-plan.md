@@ -150,6 +150,37 @@ is no canonical choice. Knowing `x < y` picks one. So side conditions and
 hypotheses throughout the library are stated with the strict order `<` on
 labels, a total order that computes on concrete labels, rather than with `≠`.
 
+**Adjustment variables as tails.** Goals also mention adjustments that are
+themselves variables (`∀ σ, …`). The context form must allow an adjustment
+atom `σ` as the tail, and still have a normal form:
+
+- `(I, O, σ)` means:
+  - an input variable that matches an entry of `I` is resolved by that entry;
+  - any other input variable is *unshifted* past `I` and given to `σ`;
+  - `σ`'s result is *shifted* past `O`.
+
+  With the implicit identity tail, this is the form above.
+- **The binder case.** Moving an adjustment under a binder gives
+  `⇑σ = ([None ↦ out₀], [None], σ)`: one input entry mapping to the one output
+  entry, with the same label on both, which in practice is usually the
+  anonymous label. Many proofs live entirely in this fragment, so it must
+  normalise well. For example, `⇑σ ∘ ⇑τ` must normalise to `⇑(σ ∘ τ)`, since
+  the output entry of `⇑τ` cancels exactly against the input entry of `⇑σ`.
+- **In general**, composing two context forms cancels the inner one's output
+  context against the outer one's input context. Entries that do not cancel
+  cannot be pushed through an atom, because nothing is known about it. So the
+  general normal form is a **word**: context segments alternating with atoms,
+  `C₀ · σ₁ · C₁ · σ₂ · … · Cₙ`.
+  - Each segment `Cᵢ` is itself normalised, with ordering only under known
+    `<`.
+  - Adjacent segments are cancelled as far as possible.
+  - Atoms are opaque.
+- **The uniqueness target extends to atoms:** equal under every instantiation of
+  the label *and* adjustment variables (consistent with the known `<` facts)
+  implies syntactically equal. The binder fragment (`⇑ⁿσ` and compositions of
+  such) is the first case to get right, even if the general word case lags
+  behind.
+
 **Roles.**
 
 - The context form is **not** the underlying representation: it is less
@@ -167,12 +198,53 @@ labels, a total order that computes on concrete labels, rather than with `≠`.
   corresponds one-to-one with a normal D1 adjustment. `to_context` and
   `of_context` are proved inverse there.
 
-### D4. Per-label entry lists stay lists
+### Why two representations
 
-The number of indices of one label touched by an adjustment is small, so `inc l`
-stays a `list`. Lists are canonical with no extra work, and the trailing
-transparent-entry condition is easy to state on them. Revisit only if profiling
-says otherwise.
+- **Proofs use the context form.** In proofs, adjustments tend to be small, or
+  at least their non-symbolic part is: a few opened names, a lift or two around
+  symbolic `σ`s. The context form handles those directly, symbolic labels and
+  atoms included, and gives readable, canonical goals.
+- **Extracted code uses the per-label map form.** Code extracted from the
+  development (for example a compiler or type checker built on it) will meet
+  adjustments of any size. Those need the right asymptotics, which the
+  canonical trie representation (D1, D2) provides and a context list would not.
+
+The two forms are related by `to_context` and `of_context`, proved inverse on
+normal forms with concrete labels (Stage 5).
+
+### D4. Per-label entries: lists for now, revisit for extraction
+
+For now `inc l` is a `list`. Lists are canonical with no extra work, and the
+trailing transparent-entry condition is easy to state on them. This is fine
+while the development is driven by proofs.
+
+**It is provisional.** A program that uses only a few labels, in the extreme
+only the anonymous one, should get the same asymptotics as working directly
+with de Bruijn indices. With lists:
+
+- looking up `None₍ᵢ₎` is O(*i*);
+- **lifting under a binder** (`⇑σ`, the hottest operation) is O(size of σ),
+  because it adds an entry and shifts every target that refers to the
+  anonymous label.
+
+Options to revisit once Stages 3–4 are done and there is extracted code to
+benchmark:
+
+- **Canonical random access by index.** Per-label entries could be an
+  extensional trie keyed by index (plus the length), or skew-binary
+  random-access lists, which have a unique shape for each length. Either keeps
+  canonicity and makes lookup logarithmic.
+- **Cheap lifting.** For example, a per-label count of leading identity
+  entries kept as a separate field, so `⇑` is O(1) or O(log). This changes the
+  normality conditions: the core must not itself start with an identity entry
+  for that label, so it needs to be designed together with canonicity.
+- **Composition cost.** It should be compared with de Bruijn substitution
+  composition, which is linear in the size of the substitution being mapped
+  over.
+
+Keep the per-label entry type behind a small interface from the start (`get`,
+`length`, `push_front`, `map`, `last`/`drop_last`), so that this change is
+local.
 
 ### D5. Users see only the indexed form
 
@@ -323,10 +395,14 @@ client file that imports only public modules can state and prove them.
 ### Stage 9: the reflective normaliser
 
 - **Reification** of indexed goal expressions (adjustments, compositions,
-  term operations) into a syntax with label atoms and the `<` facts found in
-  the context.
-- **Normalisation** in context form (D3): compute compositions by context
-  manipulation, reorder only under known `<`, drop transparent entries.
+  lifts, term operations) into a syntax with label atoms, **adjustment atoms**,
+  and the `<` facts found in the context.
+- **Normalisation** in context form (D3): compute compositions by cancelling
+  output contexts against input contexts, reorder only under known `<`, drop
+  transparent entries, and keep uncancellable parts as words around
+  adjustment atoms.
+- The binder fragment (`⇑ⁿσ`, with `⇑σ ∘ ⇑τ = ⇑(σ ∘ τ)` and friends) is the
+  first milestone. The proofs in Stages 7–10 rely on it most.
 - **Soundness:** `denote (normalize e) = denote e`.
 - **Uniqueness of normal forms**, as stated in D3. This is the target theorem.
 - **Tactic:** a `names` tactic for users that reifies, normalises both sides
@@ -357,6 +433,12 @@ client file that imports only public modules can state and prove them.
   knowledge is the main theoretical risk. Prove it first in the concrete case
   (Stage 5), then generalise (Stage 9). If it fails, soundness plus a useful
   normal-ish form is the fallback.
+- **Normal forms with adjustment atoms.** Uniqueness for words of segments and
+  atoms is harder than for a single context. Get the binder fragment fully
+  right first.
+- **Asymptotics of extracted code (D4):** lifting and index lookup with
+  per-label lists are linear. Revisit the per-label entry representation
+  before anyone builds a real program on the library.
 - **Canonicity might need extra conditions** that the OCaml code never needed,
   because it never proved anything. The paper proof in Stage 4 resolves this
   early.
