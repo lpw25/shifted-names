@@ -608,3 +608,54 @@ Proof.
 Qed.
 
 End Raw.
+
+(** ** Changing the payload type *)
+
+Section MapPayload.
+
+Context {P Q : Type} (f : P -> Q).
+
+Definition map_target_payload (t : target P) : target Q :=
+  match t with
+  | Rename v => Rename v
+  | Bind p => Bind (f p)
+  end.
+
+Definition map_entry_payload (e : entry P) : entry Q :=
+  mk_entry (e_label e) (map map_target_payload (e_targets e)) (e_out e).
+
+Definition map_payload_raw (r : raw P) : raw Q :=
+  map_filter (fun _ e => Some (map_entry_payload e)) r.
+
+Lemma find_map_payload_raw r h :
+  find (map_payload_raw r) h
+  = (map map_target_payload (fst (find r h)), snd (find r h)).
+Proof.
+  unfold find, map_payload_raw; rewrite get_map_filter.
+  destruct (get (label_key h) r); reflexivity.
+Qed.
+
+Theorem apply_map_payload_raw r v :
+  apply (map_payload_raw r) v
+  = match apply r v with inl w => inl w | inr p => inr (f p) end.
+Proof.
+  unfold apply; rewrite find_map_payload_raw; cbn [fst snd].
+  unfold apply_entry; rewrite nth_error_map, length_map.
+  destruct (nth_error _ _) as [[w|p]|]; reflexivity.
+Qed.
+
+Theorem normal_map_payload_raw r : normal r = true -> normal (map_payload_raw r) = true.
+Proof.
+  unfold normal; rewrite !forallb_spec; intros Hr key e He.
+  unfold map_payload_raw in He; rewrite get_map_filter in He.
+  destruct (get key r) as [e0|] eqn:E0; [|discriminate].
+  injection He as <-; specialize (Hr _ _ E0).
+  unfold entry_ok, map_entry_payload in *; cbn [e_label e_targets e_out].
+  rewrite !andb_true_iff in *; destruct Hr as [[Hk Hm] Ht]; repeat split.
+  - exact Hk.
+  - unfold minimal, last_target in *; rewrite length_map, nth_error_map.
+    destruct (nth_error (e_targets e0) _) as [[w|p]|]; exact Hm.
+  - destruct (e_targets e0), (e_out e0); exact Ht.
+Qed.
+
+End MapPayload.

@@ -135,6 +135,18 @@ Qed.
 
 End Adjustment.
 
+(** ** Changing the payload type *)
+
+Definition map_payload {P Q} (f : P -> Q) (a : adjustment P) : adjustment Q :=
+  mk_adjustment (map_payload_raw f (adj_raw a))
+    (Is_true_s_intro (normal_map_payload_raw f _ (adj_normal_true a))).
+
+Theorem apply_map_payload {P Q} (f : P -> Q) (a : adjustment P) (v : var) :
+  apply (map_payload f a) v
+  = match apply a v with inl w => inl w | inr p => inr (f p) end.
+Proof. apply apply_map_payload_raw. Qed.
+
+
 (** ** Primitive adjustments *)
 
 Section Primitives.

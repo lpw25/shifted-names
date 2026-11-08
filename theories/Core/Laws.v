@@ -151,9 +151,9 @@ Proof.
   rewrite apply_identity, shift_unshift_var by exact Hne; reflexivity.
 Qed.
 
-Theorem lift_compose fp sp l a b :
-  (forall p, sp (fp p) = fp (sp p)) ->
-  compose fp (lift sp l a) (lift sp l b) = lift sp l (compose fp a b).
+Theorem lift_compose fp fp' sp l a b :
+  (forall p, fp' (sp p) = sp (fp p)) ->
+  compose fp' (lift sp l a) (lift sp l b) = lift sp l (compose fp a b).
 Proof.
   intros Hsp; apply extensionality; intro v.
   rewrite apply_compose, !apply_lift.
@@ -167,6 +167,17 @@ Proof.
         revert Heq; case_vars.
       * rewrite unshift_shift_var; reflexivity.
     + rewrite Hsp; reflexivity.
+Qed.
+
+Theorem map_payload_lift {Q} (f : P -> Q) sp sq l a :
+  (forall p, f (sp p) = sq (f p)) ->
+  map_payload f (lift sp l a) = lift sq l (map_payload f a).
+Proof.
+  intros Hf; apply extensionality; intro v.
+  rewrite apply_map_payload, !apply_lift.
+  destruct (var_eqb v (mk_var l 0)); [reflexivity|].
+  rewrite apply_map_payload.
+  destruct (apply a _); [reflexivity|rewrite Hf; reflexivity].
 Qed.
 
 (** ** The primitives as context forms *)

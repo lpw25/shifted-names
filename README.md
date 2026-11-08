@@ -20,8 +20,14 @@ condition.
   - `RawAdjustment.v`: per-label adjustments (renamings and substitutions):
     composition, normalisation and canonicity.
   - `Adjustment.v`: normal adjustments as a record with an SProp proof, so the
-    laws hold up to Leibniz equality; the primitive adjustments; lifting under
-    a binder.
+    laws hold up to Leibniz equality; the context-form constructors
+    (`identity`, `push_inner`, `push_outer`); the primitive adjustments;
+    lifting under a binder.
+  - `Laws.v`: the equational laws of the constructors.
+  - `Lambda.v`: a concrete λ-calculus with renaming and substitution by
+    adjustments, and the substitution-calculus laws.
+  - `CForm.v`: a concrete context-form datatype (groundwork for the
+    normaliser).
 - `theories/Tests/`: executable tests.
 - `src/`, `examples/`, `TyDE-2019/`: the original 2019 development, kept for
   reference.
