@@ -295,6 +295,46 @@ Proof.
     + intros Hk; exists k; split; [reflexivity|exact Hk].
 Qed.
 
+Lemma in_keys' kf m k :
+  In k (map fst (elements' kf m)) -> exists i, k = kf i.
+Proof.
+  rewrite in_map_iff; intros [[k' x] [<- Hin]].
+  apply elements'_sound in Hin as [i [-> _]]; exists i; reflexivity.
+Qed.
+
+Lemma elements'_nodup kf m :
+  (forall p q, kf p = kf q -> p = q) -> NoDup (map fst (elements' kf m)).
+Proof.
+  revert kf; induction m as [r IHr|y|y r IHr|l IHl|l IHl r IHr
+                            |l IHl y|l IHl y r IHr]; intros kf Hinj.
+  all: assert (HO : forall p q, kf (xO p) = kf (xO q) -> p = q)
+         by (intros p q H; apply Hinj in H; injection H; auto).
+  all: assert (HI : forall p q, kf (xI p) = kf (xI q) -> p = q)
+         by (intros p q H; apply Hinj in H; injection H; auto).
+  all: cbn [elements']; rewrite ?map_app; cbn [map fst].
+  - apply IHr, HI.
+  - repeat constructor; intros [].
+  - constructor; [|apply IHr, HI].
+    intros Hin; apply in_keys' in Hin as [i Hi]; apply Hinj in Hi; discriminate.
+  - apply IHl, HO.
+  - apply NoDup_app; [apply IHl, HO|apply IHr, HI|].
+    intros k Hl Hr; apply in_keys' in Hl as [i ->]; apply in_keys' in Hr as [j Hj].
+    apply Hinj in Hj; discriminate.
+  - apply NoDup_app; [apply IHl, HO|repeat constructor; intros []|].
+    intros k Hl [<-|[]]; apply in_keys' in Hl as [i Hi]; apply Hinj in Hi; discriminate.
+  - apply NoDup_app; [apply IHl, HO| |].
+    + constructor; [|apply IHr, HI].
+      intros Hin; apply in_keys' in Hin as [i Hi]; apply Hinj in Hi; discriminate.
+    + intros k Hl [<-|Hr]; apply in_keys' in Hl as [i Hi].
+      * apply Hinj in Hi; discriminate.
+      * apply in_keys' in Hr as [j Hj]; rewrite Hi in Hj; apply Hinj in Hj; discriminate.
+Qed.
+
+Lemma elements_nodup m : NoDup (map fst (elements m)).
+Proof.
+  destruct m as [|m]; [constructor|apply elements'_nodup; auto].
+Qed.
+
 Definition forallb (f : positive -> A -> bool) (m : tree A) : bool :=
   List.forallb (fun kx => f (fst kx) (snd kx)) (elements m).
 

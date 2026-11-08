@@ -555,4 +555,56 @@ Proof.
   - reflexivity.
 Qed.
 
+(** ** Adding an input entry in front
+
+    [push_inner h t r] makes the innermost [h₍₀₎] go to [t], and every other
+    variable go through [r] (with the remaining [h]s moved down by one).  It
+    only touches the entry for [h]. *)
+
+Definition push_inner_raw h t a : raw P :=
+  update (label_key h)
+    (fun _ => make_entry h (t :: fst (find a h)) (snd (find a h))) a.
+
+Lemma find_push_inner_raw h t a h' :
+  find (push_inner_raw h t a) h'
+  = if label_eqb h' h then strip h (t :: fst (find a h)) (snd (find a h))
+    else find a h'.
+Proof.
+  unfold find at 1, push_inner_raw.
+  rewrite get_update, label_key_eqb.
+  destruct (label_eqb_spec h' h) as [->|]; [|reflexivity].
+  rewrite <- make_entry_parts; unfold entry_parts.
+  destruct (make_entry _ _ _); reflexivity.
+Qed.
+
+Theorem normal_push_inner_raw h t a :
+  normal a = true -> normal (push_inner_raw h t a) = true.
+Proof.
+  intros Ha; unfold normal; apply forallb_spec; intros key e He.
+  unfold push_inner_raw in He; rewrite get_update in He.
+  destruct (Pos.eqb_spec key (label_key h)) as [->|].
+  - apply (make_entry_ok _ _ _ _ He).
+  - apply (normal_get a key e Ha He).
+Qed.
+
+Theorem apply_push_inner_raw h t a v :
+  apply (push_inner_raw h t a) v
+  = if var_eqb v (mk_var h 0) then target_result t
+    else apply a (unshift_var (mk_var h 0) v).
+Proof.
+  destruct v as [h' i]; unfold apply at 1; cbn [v_label v_index].
+  rewrite find_push_inner_raw.
+  unfold var_eqb, unshift_var; cbn [v_label v_index].
+  destruct (label_eqb_spec h' h) as [->|Hne].
+  - rewrite apply_entry_strip, label_eqb_refl; cbn [andb].
+    destruct i as [|i]; cbn [Nat.eqb Nat.ltb Nat.leb]; [reflexivity|].
+    unfold apply; cbn [v_label v_index].
+    replace (S i - 1) with i by lia.
+    unfold apply_entry; cbn [nth_error length].
+    destruct (nth_error (fst (find a h)) i); [reflexivity|].
+    f_equal; f_equal; lia.
+  - rewrite (proj2 (label_eqb_neq h h')) by congruence; cbn [andb].
+    reflexivity.
+Qed.
+
 End Raw.

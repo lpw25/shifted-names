@@ -5,4 +5,5 @@ theories/Core/Label.v
 theories/Core/Var.v
 theories/Core/RawAdjustment.v
 theories/Core/Adjustment.v
+theories/Core/CForm.v
 theories/Tests/CoreTests.v

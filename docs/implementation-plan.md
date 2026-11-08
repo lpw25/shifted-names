@@ -246,7 +246,24 @@ Keep the per-label entry type behind a small interface from the start (`get`,
 `length`, `push_front`, `map`, `last`/`drop_last`), so that this change is
 local.
 
-### D5. Users see only the indexed form
+### D5. Users see context forms, never tries
+
+Users work with adjustments through context-form constructors (`identity`,
+`push_inner`, `push_outer`, with any adjustment as the tail) and their
+equational laws. These should feel like the fundamental data structure.
+
+They are implemented as functions on the trie form, which is efficient and
+has proved extensional equality, and the trie form is never visible. The
+normaliser reflects goals into a concrete context-form syntax (with symbolic
+labels and adjustment variables), normalises there, and turns the result into
+equalities between constructor terms.
+
+**Typing contexts get the same treatment.** Their constructors make them look
+like ordered lists (empty, extend with `x : A`), with lookup by shifted name.
+Underneath, they are an efficient canonical map: per label, the list of
+types, in a trie. Stage 10 builds them on the same infrastructure.
+
+### D6. Users see only the indexed form
 
 Scoped terms and adjustments (indexed by the number of bound names), built as
 the unindexed core plus SProp well-scopedness proofs, are the only thing in
@@ -335,20 +352,31 @@ splits on `<`/`=`/`>`.
 **Exit:** the identity and associativity laws, and `apply_compose`, are proved
 with `=`. This is the first milestone.
 
-### Stage 5: context form, printing and parsing (`theories/Core/Context.v`)
+### Stage 5: context-form constructors (`theories/Core/Adjustment.v`)
 
-- The context-form syntax (D3), first with concrete labels, and its semantics
-  as a function on variables.
-- `to_context` (per-label → sorted context form) and `of_context`. Prove them
-  inverse on normal forms, and prove that both preserve semantics.
-- Notations: parse adjustment literals written as input/output contexts, and
-  print adjustments back in that form. Design the concrete syntax here,
-  perhaps modelled on the OCaml `outer`/`inner` lists.
-- Context-form normalisation with *concrete* labels, as a first test of the
-  normal-form proof structure that Stage 9 generalises.
+- Users see adjustments only through three **constructors**, all implemented
+  as functions on the trie form:
+  - `identity`, the empty context form with the identity tail;
+  - `push_inner h t a`, which adds an input entry `h ↦ t` in front;
+  - `push_outer h a`, which adds an output entry `h` in front.
 
-**Exit:** `Check`/`Compute` on adjustments prints in context form, and literals
-parse.
+  Any adjustment, in particular a variable, can be the tail. Lifting under a
+  binder is `push_inner l l₍₀₎ (push_outer l σ)`.
+- **The equational laws of the constructors**, stated with `=`. These are the
+  rules the normaliser implements:
+  - adjacent entries of different labels commute, stated with `<`;
+  - `push_outer` moves inside `push_inner` (shifting the target);
+  - composition cancels an output entry against an input entry;
+  - composition distributes over the constructors;
+  - transparent entries vanish.
+- Notations and printing for the constructors, so goals read as contexts.
+  Modelled on the OCaml `outer`/`inner` lists.
+- The concrete context-form datatype (`CForm.v`) is **not** user-facing: it
+  is the target syntax of the normaliser (Stage 9). The concrete-label
+  version, with conversions to and from tries, is its first piece.
+
+**Exit:** the constructor laws are proved, and goals built from constructors
+print as contexts.
 
 ### Stage 6: the equational theory of renamings (internal)
 
@@ -413,8 +441,10 @@ client file that imports only public modules can state and prove them.
 
 ### Stage 10: contexts and the client
 
-- Port `Context.v` (typing contexts keyed by shifted names, context morphisms
-  `Γ =[σ]=> Δ`) onto the indexed layer.
+- Typing contexts per D5: list-like constructors (empty, `Γ & x ~ A`) over a
+  per-label trie, with lookup by shifted name, extensional equality, and
+  context morphisms `Γ =[σ]=> Δ` on the indexed layer. Port the lemmas of
+  `master`'s `Context.v`.
 - Port `examples/Lambda.v`: STLC with universal `LAM`, weakening, substitution,
   Barendregt's lemma and CPS type preservation, using only public modules.
   **This is the acceptance test.**

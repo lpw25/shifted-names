@@ -133,104 +133,6 @@ Proof.
   rewrite nth_error_nil, Nat.sub_0_r, Nat.add_0_r; reflexivity.
 Qed.
 
-(** ** Lifting under a binder
-
-    [lift sp l a] is [a] moved under a binder labelled [l]: the new
-    innermost [l₍₀₎] maps to itself, and everything else goes through [a]
-    with [l] shifted past the new binder.  [sp] shifts payloads past the
-    binder. *)
-
-Definition lift_target (sp : P -> P) l (t : target P) : target P :=
-  match t with
-  | Rename w => Rename (shift_var (mk_var l 0) w)
-  | Bind p => Bind (sp p)
-  end.
-
-Definition lift_raw (sp : P -> P) l (r : raw P) : raw P :=
-  set (label_key l)
-    (mk_entry l (Rename (mk_var l 0) :: map (lift_target sp l) (fst (find r l)))
-       (S (snd (find r l))))
-    (map_filter
-       (fun _ e => Some (mk_entry (e_label e) (map (lift_target sp l) (e_targets e))
-                                  (e_out e)))
-       r).
-
-Lemma keys_ok_lift_raw sp l r : keys_ok r = true -> keys_ok (lift_raw sp l r) = true.
-Proof.
-  unfold keys_ok; rewrite !forallb_spec; intros Hr key e He.
-  unfold lift_raw in He; rewrite get_set in He.
-  destruct (Pos.eqb_spec key (label_key l)) as [->|Hne].
-  - injection He as <-; apply Pos.eqb_refl.
-  - rewrite get_map_filter in He.
-    destruct (get key r) as [e0|] eqn:E0; [|discriminate].
-    injection He as <-; apply (Hr _ _ E0).
-Qed.
-
-Definition lift (sp : P -> P) l a : adjustment P :=
-  of_raw (lift_raw sp l (adj_raw a))
-    (keys_ok_lift_raw sp l _ (normal_keys_ok _ (adj_normal_true a))).
-
-Lemma find_lift_raw sp l r h :
-  keys_ok r = true ->
-  find (lift_raw sp l r) h
-  = if label_eqb h l
-    then (Rename (mk_var l 0) :: map (lift_target sp l) (fst (find r l)),
-          S (snd (find r l)))
-    else (map (lift_target sp l) (fst (find r h)), snd (find r h)).
-Proof.
-  intros Hr; unfold find at 1; unfold lift_raw.
-  rewrite get_set, label_key_eqb.
-  destruct (label_eqb h l); [reflexivity|].
-  rewrite get_map_filter; unfold find.
-  destruct (get (label_key h) r); reflexivity.
-Qed.
-
-Lemma apply_entry_map_lift_target sp l h ts k i :
-  h <> l ->
-  apply_entry h (map (lift_target sp l) ts) k i
-  = match apply_entry h ts k i with
-    | inl w => inl (shift_var (mk_var l 0) w)
-    | inr p => inr (sp p)
-    end.
-Proof.
-  intros Hne; unfold apply_entry.
-  rewrite nth_error_map, length_map.
-  destruct (nth_error ts i) as [[w|p]|]; cbn; try reflexivity.
-  f_equal; unfold shift_var; cbn.
-  destruct (label_eqb_spec l h); [congruence|reflexivity].
-Qed.
-
-Theorem apply_lift sp l a v :
-  apply (lift sp l a) v
-  = if var_eqb v (mk_var l 0) then inl v
-    else match apply a (unshift_var (mk_var l 0) v) with
-         | inl w => inl (shift_var (mk_var l 0) w)
-         | inr p => inr (sp p)
-         end.
-Proof.
-  pose proof (normal_keys_ok _ (adj_normal_true a)) as Hk.
-  unfold lift; rewrite apply_of_raw.
-  unfold RawAdjustment.apply at 1; rewrite find_lift_raw by exact Hk.
-  unfold apply, RawAdjustment.apply.
-  destruct v as [h i]; cbn [v_label v_index].
-  unfold var_eqb, unshift_var; cbn [v_label v_index].
-  destruct (label_eqb_spec h l) as [->|Hne]; cbn [andb fst snd].
-  - destruct i as [|i]; cbn [Nat.eqb Nat.ltb Nat.leb].
-    + reflexivity.
-    + rewrite label_eqb_refl; cbn [andb pred v_label v_index].
-      replace (S i - 1) with i by lia.
-      unfold apply_entry; cbn [nth_error length].
-      rewrite nth_error_map, length_map.
-      destruct (nth_error (fst (find (adj_raw a) l)) i) as [[w|p]|] eqn:E;
-        cbn [option_map lift_target target_result]; try reflexivity.
-      unfold shift_var; cbn [v_label v_index].
-      rewrite label_eqb_refl; cbn [andb Nat.leb].
-      f_equal; f_equal; lia.
-  - assert (Hlh : label_eqb l h = false) by (apply label_eqb_neq; congruence).
-    rewrite Hlh; cbn [andb v_label v_index].
-    apply apply_entry_map_lift_target; exact Hne.
-Qed.
-
 End Adjustment.
 
 (** ** Primitive adjustments *)
@@ -290,3 +192,65 @@ Proof.
 Qed.
 
 End Primitives.
+
+(** ** Context-form operations
+
+    An adjustment can be presented as an input context [I], an output
+    context [O] and a tail [σ]: input entries are resolved first, any other
+    variable is moved past [I] and given to [σ], and [σ]'s result is moved
+    past [O].  That presentation is built with two operations that work
+    directly on the trie form:
+
+    - [push_inner h t a] adds an input entry [h ↦ t] in front of [a];
+    - [push_outer sp h a] adds an output entry [h] in front of [a] ([sp]
+      moves payloads past the new [h]).
+
+    Lifting under a binder is the special case [push_inner l l₍₀₎ (push_outer
+    sp l a)]. *)
+
+Section ContextForm.
+
+Context {P : Type}.
+
+Implicit Types (a : adjustment P) (v : var) (l h : option label).
+
+Definition push_inner h (t : target P) a : adjustment P :=
+  mk_adjustment (push_inner_raw h t (adj_raw a))
+    (Is_true_s_intro (normal_push_inner_raw h t _ (adj_normal_true a))).
+
+Theorem apply_push_inner h t a v :
+  apply (push_inner h t a) v
+  = if var_eqb v (mk_var h 0) then target_result t
+    else apply a (unshift_var (mk_var h 0) v).
+Proof. apply apply_push_inner_raw. Qed.
+
+Definition push_outer (sp : P -> P) h a : adjustment P := compose sp (shift h) a.
+
+Theorem apply_push_outer sp h a v :
+  apply (push_outer sp h a) v
+  = match apply a v with
+    | inl w => inl (shift_var (mk_var h 0) w)
+    | inr p => inr (sp p)
+    end.
+Proof.
+  unfold push_outer; rewrite apply_compose.
+  destruct (apply a v); [apply apply_shift|reflexivity].
+Qed.
+
+(** [lift sp l a] is [a] moved under a binder labelled [l]. *)
+Definition lift (sp : P -> P) l a : adjustment P :=
+  push_inner l (Rename (mk_var l 0)) (push_outer sp l a).
+
+Theorem apply_lift sp l a v :
+  apply (lift sp l a) v
+  = if var_eqb v (mk_var l 0) then inl v
+    else match apply a (unshift_var (mk_var l 0) v) with
+         | inl w => inl (shift_var (mk_var l 0) w)
+         | inr p => inr (sp p)
+         end.
+Proof.
+  unfold lift; rewrite apply_push_inner, apply_push_outer.
+  destruct (var_eqb_spec v (mk_var l 0)) as [->|]; reflexivity.
+Qed.
+
+End ContextForm.

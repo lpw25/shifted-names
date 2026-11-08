@@ -341,3 +341,39 @@ Proof.
   - apply Pos.eqb_refl.
   - apply Pos.eqb_neq; intro H; apply Hne, label_key_inj, H.
 Qed.
+
+Lemma label_eqb_sym l1 l2 : label_eqb l1 l2 = label_eqb l2 l1.
+Proof.
+  destruct (label_eqb_spec l1 l2) as [<-|H]; [rewrite label_eqb_refl; reflexivity|].
+  symmetry; apply label_eqb_neq; intro; apply H; symmetry; assumption.
+Qed.
+
+(** The reflexive closure of [label_lt]. *)
+Definition label_leb (l1 l2 : option label) : bool := label_eqb l1 l2 || label_ltb l1 l2.
+
+Lemma label_leb_trans l1 l2 l3 :
+  label_leb l1 l2 = true -> label_leb l2 l3 = true -> label_leb l1 l3 = true.
+Proof.
+  unfold label_leb; rewrite !orb_true_iff, !label_eqb_eq.
+  intros [<-|H12] [<-|H23]; auto.
+  right; apply (label_lt_trans _ _ _ H12 H23).
+Qed.
+
+Lemma label_leb_lt_trans l1 l2 l3 :
+  label_leb l1 l2 = true -> label_lt l2 l3 -> label_lt l1 l3.
+Proof.
+  unfold label_leb; rewrite orb_true_iff, label_eqb_eq.
+  intros [<-|H12] H23; [exact H23|apply (label_lt_trans _ _ _ H12 H23)].
+Qed.
+
+Lemma label_leb_total l1 l2 : label_leb l1 l2 = true \/ label_lt l2 l1.
+Proof.
+  unfold label_leb; rewrite orb_true_iff, label_eqb_eq.
+  destruct (label_trichotomy l1 l2) as [H|[H|H]]; auto.
+Qed.
+
+Lemma label_leb_lt_false l1 l2 : label_leb l1 l2 = true -> ~ label_lt l2 l1.
+Proof.
+  unfold label_leb; rewrite orb_true_iff, label_eqb_eq.
+  intros [<-|H] H'; [apply (label_lt_irrefl _ H')|apply (label_lt_asym _ _ H H')].
+Qed.
