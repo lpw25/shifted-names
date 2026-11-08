@@ -767,12 +767,11 @@ Proof.
 Qed.
 
 Lemma find_strip_once_nth h a v i t :
-  strippable a h ->
   nth_error (fst (find (strip_once h a) (v_label v))) i = Some t ->
   exists t0, nth_error (fst (find a (v_label v))) i = Some t0 /\ t = renumber_target h t0
              /\ (v_label v = h -> i < pred (length (fst (find a h)))).
 Proof.
-  intros _ Ht; rewrite find_strip_once in Ht; cbn [fst] in Ht.
+  intros Ht; rewrite find_strip_once in Ht; cbn [fst] in Ht.
   rewrite nth_error_map in Ht.
   destruct (label_eqb_spec (v_label v) h) as [Hl|Hl].
   - destruct (Nat.lt_ge_cases i (pred (length (fst (find a h))))) as [Hi|Hi].
@@ -801,7 +800,7 @@ Proof.
       destruct (removelast _), (pred _); cbn in *; auto.
     + specialize (Hnt _ _ E0); destruct (e_targets e0), (e_out e0); auto.
   - intros v h' n Hn.
-    destruct (find_strip_once_nth h a v (v_index v) _ Hst Hn) as [t0 [Ht0 [Heq Hlt]]].
+    destruct (find_strip_once_nth h a v (v_index v) _ Hn) as [t0 [Ht0 [Heq Hlt]]].
     destruct t0 as [h0 n0|p]; cbn [renumber_target] in Heq; [|discriminate].
     pose proof (Hwf _ _ _ Ht0) as Hb.
     rewrite count_strip_once.
@@ -1241,5 +1240,208 @@ Proof.
   apply apply_compose_pre; assumption.
 Qed.
 
+
+(** ** Restriction: forgetting the inputs of one label
+
+    [restrict h a] agrees with [a] on every variable not labelled [h], has
+    no input entries for [h], and drops the innermost [h] output slots that
+    nothing refers to.  Payload adjustments are restricted at [None]: their
+    inputs are the free variables of a closed term, so bound inputs never
+    occur. *)
+
+Definition has_ref0 a h : bool :=
+  existsb (fun r => match r with (_, h', 0) => label_eqb h' h | _ => false end) (refs a).
+
+Lemma has_ref0_spec a h :
+  normal a = true ->
+  has_ref0 a h = true
+  <-> exists v, nth_error (fst (find a (v_label v))) (v_index v) = Some (Slot h 0).
+Proof.
+  intros Ha; unfold has_ref0; rewrite existsb_exists; split.
+  - intros [[[v h'] [|n]] [Hin Hr]]; [|discriminate].
+    apply label_eqb_eq in Hr; subst h'; exists v; apply In_refs; assumption.
+  - intros [v Hv]; exists (v, h, 0); split; [apply In_refs; assumption|apply label_eqb_refl].
+Qed.
+
+Definition clear h a : raw P := set_entry h [] (count a h) a.
+
+Lemma find_clear h a h' :
+  find (clear h a) h' = if label_eqb h' h then ([], count a h) else find a h'.
+Proof. apply find_set_entry. Qed.
+
+Lemma count_clear h a h' : count (clear h a) h' = count a h'.
+Proof.
+  unfold count at 1; rewrite find_clear.
+  destruct (label_eqb_spec h' h) as [->|]; reflexivity.
+Qed.
+
+Lemma resolve_same_count a b t :
+  (forall h, count a h = count b h) -> resolve a t = resolve b t.
+Proof. intros H; destruct t; cbn [resolve]; [rewrite H|]; reflexivity. Qed.
+
+Lemma apply_clear h a v : v_label v <> h -> apply (clear h a) v = apply a v.
+Proof.
+  intros Hv; unfold apply; rewrite find_clear, (proj2 (label_eqb_neq _ _) Hv), count_clear.
+  destruct (nth_error _ _); [apply resolve_same_count, count_clear|reflexivity].
+Qed.
+
+Lemma pre_normal_clear h a :
+  normal a = true -> pre_normal (clear h a) (fun l => In l (labels (clear h a))).
+Proof.
+  intros Ha; pose proof (proj1 (normal_iff a h) Ha) as [[Hk [Hnt [Hwf _]]] _].
+  assert (Hk' : keys_ok (clear h a) = true) by apply keys_ok_set_entry, Hk.
+  repeat split.
+  - exact Hk'.
+  - intros key e He; unfold clear, set_entry in He; rewrite get_update in He.
+    destruct (Pos.eqb key (label_key h)); [|apply (Hnt _ _ He)].
+    destruct (nontrivial _ _) eqn:E; [injection He as <-; exact E|discriminate].
+  - intros v h' n Hn; rewrite count_clear; rewrite find_clear in Hn.
+    destruct (label_eqb (v_label v) h); [destruct (v_index v); discriminate|].
+    apply (Hwf _ _ _ Hn).
+  - intros l Hl; apply not_in_labels in Hl; [|exact Hk'].
+    rewrite (find_none_trivial _ _ Hl); reflexivity.
+Qed.
+
+Lemma find_nil_strip_once l h a :
+  fst (find a h) = [] -> fst (find (strip_once l a) h) = [].
+Proof.
+  intros H; rewrite find_strip_once; cbn [fst].
+  destruct (label_eqb_spec h l) as [->|]; rewrite ?H; reflexivity.
+Qed.
+
+Lemma find_nil_strip_loop fuel l h a :
+  fst (find a h) = [] -> fst (find (strip_loop fuel l a) h) = [].
+Proof.
+  revert a; induction fuel as [|f IH]; intros a H; cbn [strip_loop]; [exact H|].
+  destruct (strip_ok _ _ _); [exact H|apply IH, find_nil_strip_once, H].
+Qed.
+
+Lemma find_nil_normalize_list L h a :
+  fst (find a h) = [] -> fst (find (normalize_list L a) h) = [].
+Proof.
+  revert a; induction L as [|l L IH]; intros a H; cbn [normalize_list]; [exact H|].
+  apply IH, find_nil_strip_loop, H.
+Qed.
+
+Lemma normal_trim h a :
+  normal a = true -> fst (find a h) = [] -> has_ref0 a h = false ->
+  normal (strip_once h a) = true.
+Proof.
+  intros Ha Hnil Hr.
+  pose proof (proj1 (normal_iff a h) Ha) as [[Hk [Hnt [Hwf Hs]]] _].
+  assert (Hno : forall v, nth_error (fst (find a (v_label v))) (v_index v) <> Some (Slot h 0)).
+  { intros v Hv; rewrite (proj2 (has_ref0_spec a h Ha) (ex_intro _ v Hv)) in Hr; discriminate. }
+  assert (Hk' : keys_ok (strip_once h a) = true)
+    by apply keys_ok_renumber, keys_ok_set_entry, Hk.
+  apply (normal_of_pre_normal _ (fun _ => False)); [|auto].
+  repeat split.
+  - exact Hk'.
+  - intros key e He; unfold strip_once, renumber in He; rewrite get_map_filter in He.
+    destruct (get key (set_entry h _ _ a)) as [e0|] eqn:E0; [|discriminate].
+    injection He as <-; cbn [e_targets e_out].
+    unfold set_entry in E0; rewrite get_update in E0.
+    destruct (Pos.eqb_spec key (label_key h)) as [->|].
+    + destruct (nontrivial _ _) eqn:Hn; [|discriminate]; injection E0 as <-; cbn in *.
+      destruct (removelast _), (pred _); cbn in *; auto.
+    + specialize (Hnt _ _ E0); destruct (e_targets e0), (e_out e0); auto.
+  - intros v h' n Hn.
+    destruct (find_strip_once_nth h a v (v_index v) _ Hn) as [t0 [Ht0 [Heq _]]].
+    destruct t0 as [h0 n0|p]; cbn [renumber_target] in Heq; [|discriminate].
+    pose proof (Hwf _ _ _ Ht0) as Hb.
+    rewrite count_strip_once.
+    destruct (label_eqb_spec h0 h) as [->|Hh]; injection Heq as -> ->.
+    + rewrite label_eqb_refl.
+      destruct n0 as [|n0]; [exfalso; apply (Hno v Ht0)|cbn [pred]; lia].
+    + rewrite (proj2 (label_eqb_neq h0 h) Hh); exact Hb.
+  - intros h' _.
+    destruct (label_eq_dec h' h) as [->|Hne].
+    { rewrite (find_nil_strip_once h h a Hnil); reflexivity. }
+    apply (strip_ok_spec _ _ _ Hk'); intros Hl'.
+    pose proof (Hs h') as Hs'.
+    assert (Ef : fst (find (strip_once h a) h') = map (renumber_target h) (fst (find a h'))).
+    { rewrite find_strip_once; cbn [fst]; rewrite (proj2 (label_eqb_neq h' h) Hne); reflexivity. }
+    assert (Hs'' : strip_ok a h' (fst (find a h')) = true).
+    { pose proof (proj1 (normal_iff a h') Ha) as [_ X]; exact X. }
+    rewrite (strip_ok_spec _ _ _ Hk) in Hs''.
+    rewrite Ef in Hl' |- *.
+    unfold last_target in Hl'; rewrite length_map, nth_error_map in Hl'.
+    destruct (nth_error (fst (find a h')) (pred (length (fst (find a h'))))) as [[h0 n0|p]|] eqn:El;
+      cbn [option_map renumber_target] in Hl'; [|discriminate|discriminate].
+    destruct (label_eqb_spec h0 h) as [->|Hh]; injection Hl' as E1 E2; [congruence|].
+    subst h0 n0.
+    destruct (Hs'' El) as [w [Hw Hwne]].
+    exists w; split; [|rewrite length_map; exact Hwne].
+    destruct (label_eq_dec (v_label w) h) as [Hwl|Hwl].
+    + exfalso; rewrite Hwl, Hnil in Hw; destruct (v_index w); discriminate.
+    + rewrite find_strip_once; cbn [fst]; rewrite (proj2 (label_eqb_neq _ h) Hwl).
+      rewrite nth_error_map, Hw; cbn [option_map renumber_target].
+      rewrite (proj2 (label_eqb_neq h' h) Hne); reflexivity.
+Qed.
+
+Lemma apply_trim h a v :
+  normal a = true -> fst (find a h) = [] -> has_ref0 a h = false -> v_label v <> h ->
+  apply (strip_once h a) v = apply a v.
+Proof.
+  intros Ha Hnil Hr Hv.
+  assert (Hno : forall v, nth_error (fst (find a (v_label v))) (v_index v) <> Some (Slot h 0)).
+  { intros w Hw; rewrite (proj2 (has_ref0_spec a h Ha) (ex_intro _ w Hw)) in Hr; discriminate. }
+  unfold apply; rewrite find_strip_once, count_strip_once; cbn [fst].
+  rewrite (proj2 (label_eqb_neq _ h) Hv), nth_error_map, length_map.
+  destruct (nth_error (fst (find a (v_label v))) (v_index v)) as [[h0 n0|p]|] eqn:E;
+    cbn [option_map renumber_target]; [|reflexivity|reflexivity].
+  destruct (label_eqb_spec h0 h) as [->|Hh]; cbn [resolve]; rewrite count_strip_once.
+  - rewrite label_eqb_refl.
+    destruct n0 as [|n0]; [exfalso; apply (Hno v E)|].
+    pose proof (slot_bound a v h (S n0) Ha E); cbn [pred]; do 2 f_equal; lia.
+  - rewrite (proj2 (label_eqb_neq h0 h) Hh); reflexivity.
+Qed.
+
+Fixpoint trim_loop (fuel : nat) h a : raw P :=
+  match fuel with
+  | 0 => a
+  | S f => if Nat.eqb (count a h) 0 || has_ref0 a h then a else trim_loop f h (strip_once h a)
+  end.
+
+Lemma trim_loop_spec fuel h a :
+  normal a = true -> fst (find a h) = [] -> count a h < fuel ->
+  normal (trim_loop fuel h a) = true
+  /\ fst (find (trim_loop fuel h a) h) = []
+  /\ (count (trim_loop fuel h a) h = 0 \/ has_ref0 (trim_loop fuel h a) h = true)
+  /\ (forall v, v_label v <> h -> apply (trim_loop fuel h a) v = apply a v).
+Proof.
+  revert a; induction fuel as [|f IH]; intros a Ha Hnil Hc; [lia|cbn [trim_loop]].
+  destruct (Nat.eqb_spec (count a h) 0) as [H0|H0]; cbn [orb].
+  { repeat split; auto. }
+  destruct (has_ref0 a h) eqn:Hr.
+  { repeat split; auto. }
+  destruct (IH (strip_once h a)) as [H1 [H2 [H3 H4]]].
+  - apply normal_trim; assumption.
+  - apply find_nil_strip_once, Hnil.
+  - rewrite count_strip_once, label_eqb_refl; lia.
+  - repeat split; auto.
+    intros v Hv; rewrite H4 by exact Hv; apply apply_trim; assumption.
+Qed.
+
+Definition restrict h a : raw P :=
+  let c := clear h a in
+  let n := normalize_list (labels c) c in
+  trim_loop (S (count n h)) h n.
+
+Theorem restrict_spec h a :
+  normal a = true ->
+  normal (restrict h a) = true
+  /\ fst (find (restrict h a) h) = []
+  /\ (count (restrict h a) h = 0 \/ has_ref0 (restrict h a) h = true)
+  /\ (forall v, v_label v <> h -> apply (restrict h a) v = apply a v).
+Proof.
+  intros Ha; unfold restrict.
+  destruct (normalize_list_spec _ _ (pre_normal_clear h a Ha)) as [Hn Happ].
+  assert (Hnil : fst (find (normalize_list (labels (clear h a)) (clear h a)) h) = []).
+  { apply find_nil_normalize_list; rewrite find_clear, label_eqb_refl; reflexivity. }
+  destruct (trim_loop_spec (S (count (normalize_list (labels (clear h a)) (clear h a)) h)) h _
+              Hn Hnil (Nat.lt_succ_diag_r _)) as [H1 [H2 [H3 H4]]].
+  repeat split; auto.
+  intros v Hv; rewrite H4, Happ by exact Hv; apply apply_clear, Hv.
+Qed.
 
 End Slots.
