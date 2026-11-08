@@ -289,3 +289,10 @@ Definition apply_rotation_incoming_item r (inc : incoming_item) :=
 Definition apply_rotation_incoming r (inc : incoming) :=
   List.map (apply_rotation_incoming_item r) inc.
 
+(* TODO:
+   - Define composition
+   - Prove composition with identity
+   - Prove associativity of composition
+   - Define normalized predicate and normalization
+   - Prove extentiality of normalized case *)
+   
