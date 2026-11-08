@@ -17,7 +17,8 @@
     in-scope variables. *)
 
 From Stdlib Require Import Arith List Lia Bool.
-From ShiftedNames.Core Require Import Trie Label Var RawAdjustment Adjustment Laws Lambda.
+From ShiftedNames.Core Require Import Trie Label Var RawAdjustment Adjustment Laws.
+From ShiftedNames.Examples Require Import LambdaCore.
 Import ListNotations.
 
 Definition wf_var (N : nat) (v : var) : bool :=

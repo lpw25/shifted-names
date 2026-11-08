@@ -24,10 +24,12 @@ condition.
     (`identity`, `push_inner`, `push_outer`); the primitive adjustments;
     lifting under a binder.
   - `Laws.v`: the equational laws of the constructors.
-  - `Lambda.v`: a concrete λ-calculus with renaming and substitution by
-    adjustments, and the substitution-calculus laws.
   - `CForm.v`: a concrete context-form datatype (groundwork for the
     normaliser).
+- `theories/Examples/`: a concrete λ-calculus built on the core (a test
+  instance; the library itself does not fix a term language):
+  `LambdaCore.v` (unindexed terms and the substitution laws),
+  `LambdaScope.v` (scoping), `Lambda.v` (scoped terms and substitutions).
 - `theories/Tests/`: executable tests.
 - `src/`, `examples/`, `TyDE-2019/`: the original 2019 development, kept for
   reference.
