@@ -691,4 +691,119 @@ Proof.
   apply kleisli_unit.
 Qed.
 
+(** ** Composition *)
+
+Lemma kleisli_rebase_here {N M K L} (f : morph N M) (e : ext N M K L) (t : term K) :
+  kleisli f e t = kleisli (rebase_m e f) ext_here t.
+Proof. exact (kleisli_rebase _ _ f _ _ _ _ e ext_here t). Qed.
+
+Lemma kleisli_comp_here {N M P'} (g : morph M P') (f : morph N M) (t : term N) :
+  kleisli g ext_here (kleisli f ext_here t) = kleisli (comp_m g f) ext_here t.
+Proof. symmetry; exact (kleisli_assoc _ _ _ g f _ _ ext_here t). Qed.
+
+Lemma pok_prestrict_compose {M P'} (a : adj P M P') ρ :
+  pok M ρ = true -> nnormal (prestrict (ncompose (radj_n (adj_raw a)) ρ)) = true.
+Proof.
+  intros H; unfold pok in H; apply andb_true_iff in H as [H _]; apply andb_true_iff in H as [H _].
+  apply nnormal_prestrict, nnormal_ncompose; [apply radj_ok_true|exact H].
+Qed.
+
+Lemma napply_pcompose {M P'} (a : adj P M P') ρ v :
+  pok M ρ = true -> v_label v <> None ->
+  napply (prestrict (ncompose (radj_n (adj_raw a)) ρ)) v
+  = match napply ρ v with
+    | inl w => napply (radj_n (adj_raw a)) w
+    | inr p => inr (fst p, prestrict (ncompose (radj_n (adj_raw a)) (snd p)))
+    end.
+Proof.
+  intros H Hv; unfold pok in H; apply andb_true_iff in H as [H _]; apply andb_true_iff in H as [H _].
+  rewrite napply_prestrict by (try apply nnormal_ncompose; auto using radj_ok_true).
+  apply napply_ncompose; [apply radj_ok_true|exact H].
+Qed.
+
+Ltac sqa := apply Is_true_s_intro.
+
+Lemma papply_compose_depth n :
+  forall ρ, ndepth ρ <= n ->
+  forall M P' Mid L (a : adj P M P') (e' : ext M P' Mid L) HL1 Hx1 HL2 Hx2 (u : P),
+  kleisli (apply a) e' (kleisli (papply ρ M (ext_depth e') Mid HL1 Hx1) ext_here u)
+  = kleisli (papply (prestrict (ncompose (radj_n (adj_raw a)) ρ)) P' (ext_depth e') L HL2 Hx2)
+            ext_here u.
+Proof.
+  induction n as [|n IH]; intros ρ Hdep M P' Mid L a e' HL1 Hx1 HL2 Hx2 u;
+    [pose proof (ndepth_pos ρ); lia|].
+  set (d := ext_depth e') in *.
+  set (ρ'' := prestrict (ncompose (radj_n (adj_raw a)) ρ)) in *.
+  rewrite kleisli_rebase_here, kleisli_comp_here.
+  apply kleisli_ext; intros K2 L2 e2 w.
+  unfold comp_m; rewrite <- kleisli_rebase.
+  pose proof (Is_true_s_elim Hx1) as Hx1b; pose proof (Is_true_s_elim Hx2) as Hx2b.
+  pose proof (ext_depth_left Mid e2) as DL; pose proof (ext_depth_right Mid e2) as DR.
+  pose proof (ext_depth_app e' (ext_right Mid e2)) as DA; fold d in DA.
+  set (e3 := ext_app e' (ext_right Mid e2)) in *.
+  destruct (v_label (var_raw w)) as [y|] eqn:El.
+  2: { pose proof (W_pinner (ext_left Mid e2) _ (var_ok w) El) as H1.
+       rewrite (papply_inner _ _ _ _ _ _ _ w H1 El), kleisli_var.
+       assert (Hi : v_index (var_raw w) < ext_depth e3).
+       { pose proof (Is_true_s_elim (var_ok w)) as Hw; pose proof (ext_depth_K e2).
+         destruct (var_raw w) as [h i]; cbn in El, Hw |- *; subst h.
+         apply Nat.ltb_lt in Hw; cbn in Hw; lia. }
+       rewrite (apply_inner a e3 (mk_var (var_raw w) H1) (W_tinner e3 _ El Hi) El Hi).
+       rewrite (papply_inner _ _ _ _ _ _ e2 w (W_pinner e2 _ (var_ok w) El) El).
+       f_equal; apply var_eq; reflexivity. }
+  assert (Hl : v_label (var_raw w) <> None) by congruence.
+  pose proof (napply_pcompose a ρ (var_raw w) Hx1b Hl) as Hc; fold ρ'' in Hc.
+  destruct (napply ρ (var_raw w)) as [w'|[u3 ρ3]] eqn:E.
+  - (* a variable of the payload *)
+    assert (H1 : Is_true_s (wf_var (ext_mid Mid e2) (up (d + ext_depth (ext_left Mid e2)) w'))).
+    { sqa; apply (pay_var_wf ρ M d Mid (ext_left Mid e2) (var_raw w)); auto.
+      apply Nat.eqb_eq, Is_true_s_elim, HL1. }
+    rewrite (papply_var _ _ _ _ _ _ _ w w' H1 Hl E), kleisli_var.
+    set (wv := {| var_raw := up (d + ext_depth (ext_left Mid e2)) w'; var_ok := H1 |}).
+    assert (Hr : v_label (var_raw wv) = None -> ext_depth e3 <= v_index (var_raw wv)).
+    { cbn; destruct w' as [[y'|] j]; cbn; [discriminate|intros _; lia]. }
+    assert (Hdn : down (ext_depth e3) (var_raw wv) = w').
+    { cbn; rewrite DA, DR, DL, (Nat.add_comm (ext_depth e2) d); apply down_up. }
+    destruct (napply (radj_n (adj_raw a)) w') as [z|[u2 ρ2]] eqn:E2.
+    + assert (H2 : Is_true_s (wf_var L2 (up (ext_depth e3) z))).
+      { sqa; apply (top_var_wf a e3 w' z); [|first [exact E2|reflexivity]].
+        apply (pay_var_wf ρ M 0 M ext_here (var_raw w) w') in Hx1b; auto; cbn in Hx1b.
+        destruct w' as [[y'|] j]; cbn in *; [reflexivity|exact Hx1b]. }
+      rewrite (apply_var a e3 wv z H2 Hr) by (rewrite Hdn; first [exact E2|reflexivity]).
+      assert (H3 : Is_true_s (wf_var L2 (up (d + ext_depth e2) z))).
+      { rewrite DA, DR, Nat.add_comm in H2; exact H2. }
+      rewrite (papply_var _ _ _ _ _ _ e2 w z H3 Hl) by (rewrite Hc; first [exact E2|reflexivity]).
+      f_equal; apply var_eq; cbn; rewrite DA, DR, Nat.add_comm; reflexivity.
+    + assert (Hρ2 : pok P' ρ2 = true).
+      { apply (top_payload_ok a w' u2 ρ2); [|exact E2].
+        apply (pay_var_wf ρ M 0 M ext_here (var_raw w) w') in Hx1b; auto; cbn in Hx1b.
+        destruct w' as [[y'|] j]; cbn in *; [reflexivity|exact Hx1b]. }
+      rewrite (apply_pay a e3 wv u2 ρ2 (W_tHL e3) (Is_true_s_intro Hρ2) Hr)
+        by (rewrite Hdn; first [exact E2|reflexivity]).
+      assert (HL3 : Is_true_s (Nat.eqb L2 ((d + ext_depth e2) + P'))).
+      { sqa; apply Nat.eqb_eq; pose proof (ext_depth_L e2); apply Is_true_s_elim, Nat.eqb_eq in HL2; lia. }
+      rewrite (papply_pay _ _ _ _ _ _ e2 w u2 ρ2 HL3 (Is_true_s_intro Hρ2) Hl)
+        by (rewrite Hc; first [exact E2|reflexivity]).
+      rewrite (papply_s_eq ρ2 P' L2 (ext_depth e3) (d + ext_depth e2) ltac:(lia) (W_tHL e3) HL3).
+      reflexivity.
+  - (* a nested payload *)
+    pose proof (napply_depth _ _ _ _ E) as Hd3.
+    assert (Hρ3 : pok M ρ3 = true) by (apply (pay_payload_ok ρ M (var_raw w) u3); auto).
+    assert (Hρ3' : pok P' (prestrict (ncompose (radj_n (adj_raw a)) ρ3)) = true).
+    { apply (pay_payload_ok ρ'' P' (var_raw w) u3); auto. }
+    assert (HLa : Is_true_s (Nat.eqb (ext_mid Mid e2) ((d + ext_depth (ext_left Mid e2)) + M))).
+    { apply (W_pHL M d (ext_left Mid e2) HL1). }
+    rewrite (papply_pay _ _ _ _ _ _ _ w u3 ρ3 HLa (Is_true_s_intro Hρ3) Hl E).
+    assert (HLb : Is_true_s (Nat.eqb (ext_mid Mid e2) (ext_depth e3 + M))).
+    { sqa; apply Is_true_s_elim, Nat.eqb_eq in HLa; apply Nat.eqb_eq; lia. }
+    rewrite (papply_s_eq ρ3 M (ext_mid Mid e2) (d + ext_depth (ext_left Mid e2)) (ext_depth e3) ltac:(lia) HLa HLb).
+    assert (HL3 : Is_true_s (Nat.eqb L2 ((d + ext_depth e2) + P'))).
+    { sqa; apply Nat.eqb_eq; pose proof (ext_depth_L e2); apply Is_true_s_elim, Nat.eqb_eq in HL2; lia. }
+    rewrite (papply_pay _ _ _ _ _ _ e2 w u3 _ HL3 (Is_true_s_intro Hρ3') Hl Hc).
+    assert (HL4 : Is_true_s (Nat.eqb L2 (ext_depth e3 + P'))).
+    { sqa; apply Is_true_s_elim, Nat.eqb_eq in HL3; apply Nat.eqb_eq; lia. }
+    rewrite (papply_s_eq (prestrict (ncompose (radj_n (adj_raw a)) ρ3)) P' L2 (d + ext_depth e2) (ext_depth e3) ltac:(lia) HL3 HL4).
+    apply IH; lia.
+Qed.
+
 End Subst.
