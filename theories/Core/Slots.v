@@ -629,4 +629,104 @@ Proof.
     apply (Hr (mk_var hv i) h' n E); intro H; injection H; congruence.
 Qed.
 
+(** ** Normal forms in terms of [find] *)
+
+Definition keys_ok a : bool :=
+  forallb (fun key e => Pos.eqb key (label_key (e_label e))) a.
+
+Lemma normal_keys_ok a : normal a = true -> keys_ok a = true.
+Proof.
+  intros Ha; unfold keys_ok; apply forallb_spec; intros key e He.
+  apply Pos.eqb_eq, (normal_label a key e Ha He).
+Qed.
+
+Lemma keys_ok_label a h e : keys_ok a = true -> get (label_key h) a = Some e -> e_label e = h.
+Proof.
+  unfold keys_ok; rewrite forallb_spec; intros Ha He.
+  apply label_key_inj; symmetry; apply Pos.eqb_eq, (Ha _ _ He).
+Qed.
+
+Lemma In_refs_keys a v h' n :
+  keys_ok a = true ->
+  In (v, h', n) (refs a) <-> nth_error (fst (find a (v_label v))) (v_index v) = Some (Slot h' n).
+Proof.
+  intros Ha; rewrite In_refs_gen; split.
+  - intros [key [e [He [Hl Hn]]]].
+    unfold keys_ok in Ha; rewrite forallb_spec in Ha.
+    pose proof (Ha _ _ He) as Hk; apply Pos.eqb_eq in Hk.
+    unfold find; rewrite Hl, <- Hk, He; exact Hn.
+  - intros Hn; unfold find in Hn.
+    destruct (get (label_key (v_label v)) a) as [e|] eqn:E; [|rewrite nth_error_nil in Hn; discriminate].
+    exists (label_key (v_label v)), e; repeat split; [exact E| |exact Hn].
+    symmetry; apply (keys_ok_label a _ e Ha E).
+Qed.
+
+Definition other_ref a h (ts : list (target P)) : Prop :=
+  exists v, nth_error (fst (find a (v_label v))) (v_index v) = Some (Slot h 0)
+            /\ v <> mk_var h (pred (length ts)).
+
+Lemma strip_ok_spec a h ts :
+  keys_ok a = true ->
+  strip_ok a h ts = true <-> (last_target ts = Some (Slot h 0) -> other_ref a h ts).
+Proof.
+  intros Ha; unfold strip_ok.
+  destruct (last_target ts) as [[h' n|p]|].
+  2,3: split; [intros _ H; discriminate|reflexivity].
+  destruct n as [|n]; [|split; [intros _ H; discriminate|reflexivity]].
+  destruct (label_eqb_spec h' h) as [->|Hne].
+  - rewrite existsb_exists; split.
+    + intros [[[v h''] n''] [Hin Hr]] _.
+      destruct n''; [|discriminate].
+      rewrite andb_true_iff, negb_true_iff in Hr; destruct Hr as [Hh Hv].
+      apply label_eqb_eq in Hh; subst h''.
+      exists v; split; [apply (In_refs_keys a v h 0 Ha), Hin|].
+      intro Heq; rewrite Heq, var_eqb_refl in Hv; discriminate.
+    + intros H; destruct (H eq_refl) as [v [Hn Hv]].
+      exists (v, h, 0); split; [apply (In_refs_keys a v h 0 Ha), Hn|].
+      rewrite label_eqb_refl; cbn [andb].
+      destruct (var_eqb_spec v (mk_var h (pred (length ts)))); [contradiction|reflexivity].
+  - split; [intros _ H; injection H; congruence|reflexivity].
+Qed.
+
+(** Everything in [normal] except the strip condition for [h]. *)
+Definition almost_normal a h : Prop :=
+  keys_ok a = true
+  /\ (forall key e, get key a = Some e -> nontrivial (e_targets e) (e_out e) = true)
+  /\ (forall v h' n, nth_error (fst (find a (v_label v))) (v_index v) = Some (Slot h' n) ->
+                     n < count a h')
+  /\ (forall h', h' <> h -> strip_ok a h' (fst (find a h')) = true).
+
+Lemma find_entry_targets a h e :
+  keys_ok a = true -> get (label_key h) a = Some e -> find a h = (e_targets e, e_out e).
+Proof. intros _ He; unfold find; rewrite He; reflexivity. Qed.
+
+Theorem normal_iff a h :
+  normal a = true <-> almost_normal a h /\ strip_ok a h (fst (find a h)) = true.
+Proof.
+  split.
+  - intros Ha; pose proof (normal_keys_ok a Ha) as Hk.
+    pose proof (normal_entries a Ha) as He; rewrite forallb_spec in He.
+    assert (Hs : forall h', strip_ok a h' (fst (find a h')) = true).
+    { intro h'; unfold find; destruct (get (label_key h') a) as [e|] eqn:E; [|reflexivity].
+      specialize (He _ _ E); unfold entry_ok in He; rewrite !andb_true_iff in He.
+      rewrite <- (keys_ok_label a h' e Hk E); apply He. }
+    repeat split; auto.
+    + intros key e E; specialize (He _ _ E); unfold entry_ok in He.
+      rewrite !andb_true_iff in He; apply He.
+    + intros v h' n Hn; apply (slot_bound a v h' n Ha Hn).
+  - intros [[Hk [Hnt [Hwf Hs]]] Hsh].
+    unfold normal; apply andb_true_iff; split.
+    + apply forallb_spec; intros key e E.
+      unfold keys_ok in Hk; rewrite forallb_spec in Hk.
+      pose proof (Hk _ _ E) as Hkey; apply Pos.eqb_eq in Hkey.
+      unfold entry_ok; rewrite Hkey, Pos.eqb_refl, (Hnt _ _ E); cbn [andb].
+      assert (Ef : fst (find a (e_label e)) = e_targets e)
+        by (unfold find; rewrite <- Hkey, E; reflexivity).
+      destruct (label_eq_dec (e_label e) h) as [Heq|Hne].
+      * rewrite <- Ef, Heq; exact Hsh.
+      * rewrite <- Ef; apply Hs, Hne.
+    + apply List.forallb_forall; intros [[v h'] n] Hin; cbn [slot_wf].
+      apply Nat.ltb_lt, (Hwf v), (In_refs_keys a v h' n Hk), Hin.
+Qed.
+
 End Slots.
