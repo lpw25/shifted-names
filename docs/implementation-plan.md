@@ -263,6 +263,72 @@ like ordered lists (empty, extend with `x : A`), with lookup by shifted name.
 Underneath, they are an efficient canonical map: per label, the list of
 types, in a trie. Stage 10 builds them on the same infrastructure.
 
+### D7. Substitutions in the trie form, and what the core needs from terms
+
+**Representation (as implemented).** A substitution is an adjustment whose
+targets are either `Rename w` or `Bind p`. A payload `p` is stored **already
+in the outer scope**: it has had everything outside its entry applied to it.
+This is your "after the rest of the adjustment".
+
+- `apply a v` is a trie lookup plus a list index, with no work on payloads.
+- `push_inner h t a` is O(log n + |entry for h|) and touches no payloads.
+- Composition `compose a b` maps every target of `b` through `a`. For a
+  `Bind p` that means applying `a` to `p` (`act a p` below).
+- `push_outer h a` is composition with `shift h`, so it applies
+  `act (shift h)` to **every payload** of `a`.
+
+Because payloads are stored in normal form in the outer scope, the
+representation stays canonical, and Leibniz equality is extensional equality.
+
+**Asymptotics.** The expensive case is lifting under a binder,
+`⇑σ = push_inner l l₀ (push_outer l σ)`. It costs O(#entries) trie work plus
+one payload shift per payload. A traversal of depth `d` with a substitution
+of `m` payloads therefore does `d·m` payload shifts.
+- **Plain de Bruijn substitution** (σ as a function, `⇑σ` as a closure)
+  instead pays only at variable occurrences.
+- **Making payload shifts cheap** is in the term type's hands: for example,
+  terms with a delayed top-level renaming make `act (shift h)` O(1).
+- **The remaining O(m) per lift** in the trie is the D4 issue: a lazy
+  "pending outer pushes" field or a per-entry stamp would help.
+- **Canonicity is the catch.** Any lazy representation of payloads, such as
+  storing `(p, pending)` pairs, breaks canonicity unless something
+  normalises it. So laziness has to live either inside the payload type,
+  behind `act`, or in a normalisation step that is not part of the
+  canonical data. Open question.
+
+**Minimal requirements on terms (what the core actually uses).** None for
+renamings (payload type `Empty_set`). For substitutions, the payload type
+`P` needs only a **right action of adjustments**:
+
+- `act : adjustment P → P → P`;
+- `act_id : act identity p = p`;
+- `act_comp : act a (act b p) = act (compose a b) p`, where `compose` uses
+  `act a` on `b`'s payloads.
+
+Every payload side condition in the constructor laws (`Laws.v`) follows from
+these two. Examples:
+- `compose_cancel` needs `act a p = act (push_inner h t a) (act (shift h) p)`;
+- `lift_compose` needs `act` to commute with shifts.
+
+No variable embedding, binders, induction principle or decidable equality is
+required. That makes "terms" anything with such an action:
+- a user's own inductive type with a hand-written substitution;
+- a closure or environment representation;
+- a type of types, for typing contexts;
+- or even another adjustment.
+
+**Optional extras, for the layers above:**
+- `as_var : P → option var`. Used to normalise `Bind (var w)` into
+  `Rename w`, so that two substitutions with the same action on terms are
+  equal (the λ example needs this).
+- `wf : nat → P → bool`, with `act` preserving it under scoped adjustments.
+  This is needed by the indexed layer (D6).
+- A Relative.v-style structure (var embedding, Kleisli extension over the
+  user's own inductive type, monad laws). This is a convenience layer at the
+  end of the dependency chain. It derives `act`, `act_id`, `act_comp`,
+  `as_var` and `wf` from a small number of user proofs. Building terms by
+  hand without it must remain easy.
+
 ### D6. Users see only the indexed form
 
 Scoped terms and adjustments (indexed by the number of bound names), built as
@@ -391,6 +457,10 @@ print as contexts.
 setoids.
 
 ### Stage 7: substitutions and terms (internal)
+
+*Revised:* the core assumes only the payload action of D7. The λ-calculus in
+`theories/Examples/` is a test instance, not part of the library. The
+Relative.v-style convenience layer comes last.
 
 - Fix the internal term interface:
   - unindexed syntax with binders;
