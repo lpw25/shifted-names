@@ -729,4 +729,115 @@ Proof.
       apply Nat.ltb_lt, (Hwf v), (In_refs_keys a v h' n Hk), Hin.
 Qed.
 
+(** ** The strip step preserves the invariant *)
+
+Lemma keys_ok_set_entry h ts k a :
+  keys_ok a = true -> keys_ok (set_entry h ts k a) = true.
+Proof.
+  unfold keys_ok; rewrite !forallb_spec; intros Ha key e He.
+  unfold set_entry in He; rewrite get_update in He.
+  destruct (Pos.eqb_spec key (label_key h)) as [->|]; [|apply (Ha _ _ He)].
+  destruct (nontrivial ts k); [injection He as <-; apply Pos.eqb_refl|discriminate].
+Qed.
+
+Lemma keys_ok_renumber h a : keys_ok a = true -> keys_ok (renumber h a) = true.
+Proof.
+  unfold keys_ok; rewrite !forallb_spec; intros Ha key e He.
+  unfold renumber in He; rewrite get_map_filter in He.
+  destruct (get key a) as [e0|] eqn:E0; [|discriminate]; injection He as <-; apply (Ha _ _ E0).
+Qed.
+
+Lemma strip_ok_false_strippable a h :
+  almost_normal a h -> strip_ok a h (fst (find a h)) = false -> strippable a h.
+Proof.
+  intros [Hk [Hnt [Hwf Hs]]] Hf.
+  assert (Hn : ~ (last_target (fst (find a h)) = Some (Slot h 0) -> other_ref a h (fst (find a h)))).
+  { rewrite <- (strip_ok_spec a h _ Hk), Hf; discriminate. }
+  destruct (last_target (fst (find a h))) as [[h' [|n]|p]|] eqn:El;
+    try (exfalso; apply Hn; intro H; discriminate).
+  destruct (label_eq_dec h' h) as [->|Hne]; [|exfalso; apply Hn; intro H; injection H; congruence].
+  repeat split; [exact El| |exact Hwf].
+  intros v Hv; destruct (var_eq_dec v (mk_var h (pred (length (fst (find a h)))))) as [E|E];
+    [exact E|].
+  exfalso; apply Hn; intros _; exists v; auto.
+Qed.
+
+Lemma find_strip_once_nth h a v i t :
+  strippable a h ->
+  nth_error (fst (find (strip_once h a) (v_label v))) i = Some t ->
+  exists t0, nth_error (fst (find a (v_label v))) i = Some t0 /\ t = renumber_target h t0
+             /\ (v_label v = h -> i < pred (length (fst (find a h)))).
+Proof.
+  intros _ Ht; rewrite find_strip_once in Ht; cbn [fst] in Ht.
+  rewrite nth_error_map in Ht.
+  destruct (label_eqb_spec (v_label v) h) as [Hl|Hl].
+  - destruct (Nat.lt_ge_cases i (pred (length (fst (find a h))))) as [Hi|Hi].
+    + rewrite removelast_nth in Ht by exact Hi.
+      rewrite Hl; destruct (nth_error (fst (find a h)) i) as [t0|]; [|discriminate].
+      injection Ht as <-; exists t0; auto.
+    + rewrite (proj2 (nth_error_None _ i)) in Ht by (rewrite length_removelast; exact Hi).
+      discriminate.
+  - destruct (nth_error (fst (find a (v_label v))) i) as [t0|]; [|discriminate].
+    injection Ht as <-; exists t0; repeat split; auto; intro; contradiction.
+Qed.
+
+Theorem almost_normal_strip_once a h :
+  almost_normal a h -> strippable a h -> almost_normal (strip_once h a) h.
+Proof.
+  intros [Hk [Hnt [Hwf Hs]]] Hst.
+  pose proof Hst as [Hlast [Huniq _]].
+  repeat split.
+  - apply keys_ok_renumber, keys_ok_set_entry, Hk.
+  - intros key e He; unfold strip_once, renumber in He; rewrite get_map_filter in He.
+    destruct (get key (set_entry h _ _ a)) as [e0|] eqn:E0; [|discriminate].
+    injection He as <-; cbn [e_targets e_out].
+    unfold set_entry in E0; rewrite get_update in E0.
+    destruct (Pos.eqb_spec key (label_key h)) as [->|].
+    + destruct (nontrivial _ _) eqn:Hn; [|discriminate]; injection E0 as <-; cbn in *.
+      destruct (removelast _), (pred _); cbn in *; auto.
+    + specialize (Hnt _ _ E0); destruct (e_targets e0), (e_out e0); auto.
+  - intros v h' n Hn.
+    destruct (find_strip_once_nth h a v (v_index v) _ Hst Hn) as [t0 [Ht0 [Heq Hlt]]].
+    destruct t0 as [h0 n0|p]; cbn [renumber_target] in Heq; [|discriminate].
+    pose proof (Hwf _ _ _ Ht0) as Hb.
+    rewrite count_strip_once.
+    destruct (label_eqb_spec h0 h) as [->|Hh]; injection Heq as -> ->.
+    + rewrite label_eqb_refl.
+      destruct n0 as [|n0]; [|cbn [pred]; lia].
+      exfalso; specialize (Huniq _ Ht0).
+      destruct v as [hv iv]; injection Huniq as -> ->; cbn in Hlt; specialize (Hlt eq_refl); lia.
+    + rewrite (proj2 (label_eqb_neq h0 h) Hh); exact Hb.
+  - intros h' Hne.
+    pose proof (keys_ok_renumber h _ (keys_ok_set_entry h (removelast (fst (find a h)))
+                                         (pred (count a h)) a Hk)) as Hk'.
+    apply (strip_ok_spec _ _ _ Hk'); intros Hl'.
+    pose proof (Hs h' Hne) as Hs'; rewrite (strip_ok_spec _ _ _ Hk) in Hs'.
+    assert (Ef : fst (find (strip_once h a) h') = map (renumber_target h) (fst (find a h'))).
+    { rewrite find_strip_once; cbn [fst]; rewrite (proj2 (label_eqb_neq h' h) Hne); reflexivity. }
+    rewrite Ef in Hl' |- *.
+    unfold last_target in Hl'; rewrite length_map, nth_error_map in Hl'.
+    destruct (nth_error (fst (find a h')) (pred (length (fst (find a h'))))) as [[h0 n0|p]|] eqn:El;
+      cbn [option_map renumber_target] in Hl'; [|discriminate|discriminate].
+    destruct (label_eqb_spec h0 h) as [->|Hh]; injection Hl' as E1 E2; [congruence|].
+    subst h0 n0.
+    destruct (Hs' El) as [w [Hw Hwne]].
+    exists w; split; [|rewrite length_map; exact Hwne].
+    fold (strip_once h a).
+    destruct (label_eq_dec (v_label w) h) as [Hwl|Hwl].
+    + assert (Hwi : v_index w < pred (length (fst (find a h)))).
+      { assert (v_index w < length (fst (find a h)))
+          by (rewrite <- Hwl; apply nth_error_Some; congruence).
+        destruct (Nat.eq_dec (v_index w) (pred (length (fst (find a h))))) as [E|E]; [|lia].
+        exfalso; rewrite Hwl, E in Hw.
+        unfold last_target in Hlast; rewrite Hlast in Hw; injection Hw; congruence. }
+      rewrite find_strip_once; cbn [fst]; rewrite Hwl, label_eqb_refl.
+      rewrite nth_error_map, removelast_nth by exact Hwi.
+      rewrite Hwl in Hw; rewrite Hw; cbn [option_map renumber_target].
+      rewrite (proj2 (label_eqb_neq h' h) Hne); reflexivity.
+    + rewrite find_strip_once; cbn [fst]; rewrite (proj2 (label_eqb_neq _ h) Hwl).
+      rewrite nth_error_map, Hw; cbn [option_map renumber_target].
+      rewrite (proj2 (label_eqb_neq h' h) Hne); reflexivity.
+Qed.
+
+
 End Slots.
