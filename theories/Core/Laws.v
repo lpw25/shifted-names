@@ -321,4 +321,24 @@ Proof. reflexivity. Qed.
 Theorem subst1_as_context l u ρ : subst1 l u ρ = push_inner l (Bind u ρ) (@identity T).
 Proof. reflexivity. Qed.
 
+(** ** Opening and closing *)
+
+Theorem compose_open_close x : compose (open x) (close x) = @identity T.
+Proof.
+  apply extensionality; intro v.
+  rewrite apply_compose, apply_identity; unfold open, close; rewrite !apply_rename1.
+  destruct v as [h i]; unfold var_eqb, shift_var, unshift_var; cbn [v_label v_index].
+  case_vars; rewrite ?apply_rename1; unfold var_eqb, shift_var, unshift_var;
+    cbn [v_label v_index]; case_vars.
+Qed.
+
+Theorem compose_close_open x : compose (close x) (open x) = @identity T.
+Proof.
+  apply extensionality; intro v.
+  rewrite apply_compose, apply_identity; unfold open, close; rewrite !apply_rename1.
+  destruct v as [h i]; unfold var_eqb, shift_var, unshift_var; cbn [v_label v_index].
+  case_vars; rewrite ?apply_rename1; unfold var_eqb, shift_var, unshift_var;
+    cbn [v_label v_index]; case_vars.
+Qed.
+
 End Laws.
