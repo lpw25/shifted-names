@@ -557,4 +557,113 @@ Proof.
   - cbn [nraw] in *; rewrite !pnormal_none, Hc by assumption; reflexivity.
 Qed.
 
+(** ** Laws of composition *)
+
+Definition nidentity : nadj T := NAdj identity.
+
+Lemma nnormal_identity : nnormal nidentity = true.
+Proof. reflexivity. Qed.
+
+Lemma napply_identity v : napply nidentity v = inl v.
+Proof. apply apply_identity. Qed.
+
+Lemma pnormal_identity : pnormal_raw (nraw nidentity) = true.
+Proof. reflexivity. Qed.
+
+Lemma napply_prestrict ρ v :
+  nnormal ρ = true -> v_label v <> None -> napply (prestrict ρ) v = napply ρ v.
+Proof.
+  destruct ρ as [m]; intros Hn Hv; unfold napply; cbn [prestrict nraw].
+  apply (restrict_spec None m (nnormal_normal (NAdj m) Hn)), Hv.
+Qed.
+
+Lemma payload_normal m p :
+  nnormal (NAdj m) = true -> binds_in m p ->
+  nnormal (snd p) = true /\ pnormal_raw (nraw (snd p)) = true.
+Proof. intros Hn Hb; apply (proj1 (payloads_ok_binds m) (nnormal_payloads m Hn) p Hb). Qed.
+
+Lemma napply_payload a v p :
+  nnormal a = true -> napply a v = inr p ->
+  nnormal (snd p) = true /\ pnormal_raw (nraw (snd p)) = true.
+Proof.
+  destruct a as [m]; intros Hn Hv; apply (payload_normal m p Hn).
+  apply (binds_in_apply m v p Hv).
+Qed.
+
+(** Adjustments are equal when they act the same. *)
+Theorem nextensionality a b :
+  nnormal a = true -> nnormal b = true -> (forall v, napply a v = napply b v) -> a = b.
+Proof.
+  destruct a as [ma], b as [mb]; intros Ha Hb H; f_equal.
+  apply canonical; [apply (nnormal_normal (NAdj ma) Ha)|apply (nnormal_normal (NAdj mb) Hb)|].
+  exact H.
+Qed.
+
+Lemma prestrict_pnormal ρ :
+  nnormal ρ = true -> pnormal_raw (nraw ρ) = true -> prestrict ρ = ρ.
+Proof.
+  intros Hn Hp; apply pcanonical; try apply nnormal_prestrict; auto.
+  intros v Hv; apply napply_prestrict; assumption.
+Qed.
+
+Lemma prestrict_ncompose_prestrict a x :
+  nnormal a = true -> nnormal x = true ->
+  prestrict (ncompose a (prestrict x)) = prestrict (ncompose a x).
+Proof.
+  intros Ha Hx.
+  pose proof (proj1 (nnormal_prestrict x Hx)) as Hrx.
+  apply pcanonical; try apply nnormal_prestrict; try apply nnormal_ncompose; auto.
+  intros v Hv.
+  rewrite !napply_prestrict by (try apply nnormal_ncompose; auto).
+  rewrite !napply_ncompose by auto.
+  rewrite napply_prestrict by auto; reflexivity.
+Qed.
+
+Theorem ncompose_identity_r a :
+  nnormal a = true -> ncompose a nidentity = a.
+Proof.
+  intros Ha; apply nextensionality; [apply nnormal_ncompose; auto|exact Ha|].
+  intros v; rewrite napply_ncompose, napply_identity by auto; reflexivity.
+Qed.
+
+Lemma ncompose_identity_l_depth n :
+  forall b, ndepth b <= n -> nnormal b = true -> ncompose nidentity b = b.
+Proof.
+  induction n as [|n IH]; intros b Hd Hb; [pose proof (ndepth_pos b); lia|].
+  apply nextensionality; [apply nnormal_ncompose; auto|exact Hb|].
+  intros v; rewrite napply_ncompose by auto.
+  destruct (napply b v) as [w|[u ρ]] eqn:E; [apply napply_identity|].
+  pose proof (napply_payload b v _ Hb E) as [Hn Hp]; cbn [fst snd] in *.
+  assert (ndepth ρ < ndepth b).
+  { destruct b as [m]; apply (ndepth_binds m (u, ρ)), (binds_in_apply m v), E. }
+  rewrite (IH ρ) by (auto; lia).
+  rewrite prestrict_pnormal by assumption; reflexivity.
+Qed.
+
+Theorem ncompose_identity_l b : nnormal b = true -> ncompose nidentity b = b.
+Proof. apply (ncompose_identity_l_depth (ndepth b)); lia. Qed.
+
+Lemma ncompose_assoc_depth a b n :
+  nnormal a = true -> nnormal b = true ->
+  forall c, ndepth c <= n -> nnormal c = true ->
+  ncompose a (ncompose b c) = ncompose (ncompose a b) c.
+Proof.
+  intros Ha Hb; induction n as [|n IH]; intros c Hd Hc; [pose proof (ndepth_pos c); lia|].
+  apply nextensionality; try (repeat apply nnormal_ncompose; auto).
+  intros v; rewrite !napply_ncompose by (try apply nnormal_ncompose; auto).
+  destruct (napply c v) as [w|[u ρ]] eqn:E.
+  - rewrite napply_ncompose by auto; reflexivity.
+  - cbn [fst snd].
+    pose proof (napply_payload c v _ Hc E) as [Hn _]; cbn [snd] in Hn.
+    assert (ndepth ρ < ndepth c).
+    { destruct c as [m]; apply (ndepth_binds m (u, ρ)), (binds_in_apply m v), E. }
+    rewrite prestrict_ncompose_prestrict by (try apply nnormal_ncompose; auto).
+    rewrite (IH ρ) by (auto; lia); reflexivity.
+Qed.
+
+Theorem ncompose_assoc a b c :
+  nnormal a = true -> nnormal b = true -> nnormal c = true ->
+  ncompose a (ncompose b c) = ncompose (ncompose a b) c.
+Proof. intros Ha Hb Hc; apply (ncompose_assoc_depth a b (ndepth c)); auto. Qed.
+
 End Nested.
