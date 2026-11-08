@@ -69,6 +69,9 @@ Proof. pose proof (Is_true_s_elim (rpadj_ok ρ)) as H; apply andb_true_iff in H;
 Definition rpadj_adj ρ : radj T :=
   mk_radj (rpadj_n ρ) (Is_true_s_intro (rpadj_nnormal ρ)).
 
+(** The identity payload adjustment: a payload that is just its term. *)
+Definition rpidentity : rpadj T := mk_rpadj nidentity (Is_true_s_intro eq_refl).
+
 (** ** Action *)
 
 (** Packaging a nested payload adjustment; only used on ones that are

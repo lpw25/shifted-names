@@ -150,5 +150,4 @@ Proof.
 Qed.
 
 (** Instantiating the innermost bound variable with a closed term. *)
-Definition pidentity {M} : padj (tm 0) M := mk_padj (rto_padj nidentity) stt.
-Definition inst {N} (u : tm 0) : sub (S N) N := extend (Bind u pidentity) identity.
+Definition inst {N} (u : tm 0) : sub (S N) N := extend (Bind u) identity.

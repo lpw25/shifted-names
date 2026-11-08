@@ -168,8 +168,12 @@ Each stage ends with a green build, a commit and a push.
     the expanded label's inputs to shift, O(len); not done yet.
 - **Remaining runtime costs seen in the extraction:** compose's
   normalisation still runs the reference-scanning `strip_ok` under a fuel
-  bound (per-slot back-links could replace it); `rto_padj` tests normality
-  and back-links at runtime (`psel`), which goes when `Bind` takes a closed
-  term; `npush_outer` maps `pshift` over every payload (stage 5).
+  bound (per-slot back-links could replace it); `npush_outer` maps `pshift`
+  over every payload (stage 5).
+- **Public `Bind` takes a closed term (done).** The indexed `target` is
+  `Rename w | Bind u`; `Bind u` stands for the payload `(u, identity)`.
+  Payload adjustments no longer appear in what users write, and nothing on
+  the computational path tests normality at runtime (`psel` is no longer
+  extracted).
 - **Cheap fixes to fold in:** `comp_entry` maps over the targets instead of
   indexing them; identity payloads are returned without traversal.

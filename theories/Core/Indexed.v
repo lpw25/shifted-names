@@ -44,24 +44,26 @@ Arguments padj_ok {T M} _.
 Lemma padj_eq {T M} (ρ1 ρ2 : padj T M) : padj_raw ρ1 = padj_raw ρ2 -> ρ1 = ρ2.
 Proof. destruct ρ1, ρ2; cbn; intros ->; reflexivity. Qed.
 
+(** Where an input goes: a variable, or a closed term.  (Payloads with a
+    pending adjustment arise inside the library, never from users.) *)
 Inductive target (T : Type) (M : nat) : Type :=
 | Rename (w : var M)
-| Bind (u : T) (ρ : padj T M).
+| Bind (u : T).
 
 Arguments Rename {T M} _.
-Arguments Bind {T M} _ _.
+Arguments Bind {T M} _.
 
 Definition to_target {T M} (t : target T M) : rtarget T :=
   match t with
   | Rename w => RRename (var_raw w)
-  | Bind u ρ => RBind u (padj_raw ρ)
+  | Bind u => RBind u rpidentity
   end.
 
 Lemma to_target_wf {T M} (t : target T M) : result_wf M (rtarget_result (to_target t)) = true.
 Proof.
-  destruct t as [w|u ρ]; cbn [to_target rtarget_result].
+  destruct t as [w|u]; cbn [to_target rtarget_result].
   - rewrite result_wf_inl; apply Is_true_s_elim, var_ok.
-  - rewrite result_wf_inr; apply Is_true_s_elim, padj_ok.
+  - rewrite result_wf_inr; reflexivity.
 Qed.
 
 (** ** Scoped adjustments *)
