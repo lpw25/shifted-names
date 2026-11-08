@@ -4,17 +4,17 @@
     expressions are proved by [vm_compute] on the raw data. *)
 
 From Stdlib Require Import String List PArith.
-From ShiftedNames.Core Require Import Trie Label Var RawAdjustment Adjustment.
+From ShiftedNames.Core Require Import Trie Label Var Adjustment Laws.
 Import ListNotations.
 Open Scope string_scope.
 
 Definition renaming := adjustment Empty_set.
 
-Definition rcompose (a b : renaming) : renaming := compose no_payload a b.
-Definition rlift (l : option label) (a : renaming) : renaming := lift no_payload l a.
+Definition rcompose (a b : renaming) : renaming := compose a b.
+Definition rlift (l : option label) (a : renaming) : renaming := lift l a.
 
-(** Closed equalities are decided by computing the raw representation. *)
-Ltac adj_compute := apply adjustment_eq; vm_compute; reflexivity.
+(** Closed equalities are decided by computing the representation. *)
+Ltac adj_compute := apply adj_eq; vm_compute; reflexivity.
 
 Example open_close : rcompose (open "x") (close "x") = identity.
 Proof. adj_compute. Qed.
@@ -47,13 +47,29 @@ Proof. adj_compute. Qed.
 Example rename_self : rename1 (Some "x") (Some "x") = @identity Empty_set.
 Proof. adj_compute. Qed.
 
+(** Targets that were stripped are re-materialised: sending [y] to [x₀]
+    after [x₀ ↦ x₀] has collapsed to the identity. *)
+Example push_inner_after_strip :
+  apply (push_inner (T:=Empty_set) (Some "y") (Rename (mk_var (Some "x") 0))
+           (push_inner (Some "x") (Rename (mk_var (Some "x") 0)) (shift (Some "x"))))
+        (mk_var (Some "y") 0)
+  = inl (mk_var (Some "x") 0).
+Proof. vm_compute; reflexivity. Qed.
+
+Example push_inner_after_strip_rest :
+  apply (push_inner (T:=Empty_set) (Some "y") (Rename (mk_var (Some "x") 0))
+           (push_inner (Some "x") (Rename (mk_var (Some "x") 0)) (shift (Some "x"))))
+        (mk_var (Some "x") 3)
+  = inl (mk_var (Some "x") 3).
+Proof. vm_compute; reflexivity. Qed.
+
 (** Applying an adjustment to concrete variables. *)
 Example apply_open_bound :
-  apply (open (P:=Empty_set) "x") (mk_var None 0) = inl (mk_var (Some "x") 0).
+  apply (open (T:=Empty_set) "x") (mk_var None 0) = inl (mk_var (Some "x") 0).
 Proof. vm_compute; reflexivity. Qed.
 
 Example apply_open_free :
-  apply (open (P:=Empty_set) "x") (mk_var (Some "x") 2) = inl (mk_var (Some "x") 3).
+  apply (open (T:=Empty_set) "x") (mk_var (Some "x") 2) = inl (mk_var (Some "x") 3).
 Proof. vm_compute; reflexivity. Qed.
 
 (** ** Trie performance: a few thousand entries under [vm_compute]. *)
