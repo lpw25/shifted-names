@@ -13,9 +13,14 @@ because decisions made earlier will reshape them.
   plain `rewrite` and `reflexivity` work and setoid rewriting is not needed.
 - Good asymptotics for the core operations (apply, compose, normalise,
   equality), using canonical persistent maps instead of lists.
-- A reflective normaliser for expressions built from these operations.
-- On top of that, terms, an indexed (scoped) layer, contexts, and the
-  `examples/Lambda.v` client from `master` as the acceptance test.
+- A **context form** for adjustments that has a normal form even when the
+  relationship between some labels is unknown. It is the basis for printing,
+  parsing and the reflective normaliser.
+- A reflective normaliser, ideally proved to produce an actual normal form.
+- **An indexed (scoped) user-facing library.** The unindexed core exists only to
+  make our own proofs easier and must not leak into the public API.
+- Terms, contexts, and the `examples/Lambda.v` client from `master` as the
+  acceptance test.
 
 **Non-goals for now:** the effect-system extras from the OCaml variant
 (`Unknown`/`Top`, `Meet`, residuals, factors), and backwards compatibility with
@@ -26,6 +31,8 @@ any old branch.
 - **Toolchain:** Rocq 9.x (stdlib as a separate package); see
   [Environment](#environment). Build with `dune` (`rocq` stanzas) or
   `_RocqProject` + `rocq makefile`; whichever we pick, CI runs it.
+- **No dependencies** beyond Rocq and its stdlib. In particular, we write our
+  own canonical trie rather than using CompCert or stdpp.
 - **Where the work lives:**
   - a new branch started from `adjustments`;
   - new code under `theories/` with logical path `ShiftedNames`;
@@ -40,12 +47,18 @@ any old branch.
 - **Executable from the start:** every operation is a Gallina function that
   computes with `cbn`/`vm_compute` on closed data, with `Example … :=
   eq_refl` tests alongside.
+- **Encapsulation:**
+  - The unindexed core lives in internal modules.
+  - Public modules expose only indexed types, operations, lemmas and tactics.
+  - Users never need to unfold through the public layer to the core. The
+    sealing mechanism (sealed `Module Type`s, opaque definitions, or private
+    namespaces) is fixed in Stage 8 and then applied everywhere.
 
 ---
 
 ## Key design decisions
 
-### D1. Per-label adjustments
+### D1. Per-label adjustments (the underlying representation)
 
 This is the representation from design history §7.4. For each label `l`
 (an `option label`, where `None` is the anonymous de Bruijn label):
@@ -64,7 +77,10 @@ Normality means:
 
 Renamings are adjustments whose payload type is `Empty_set`.
 
-### D2. Canonical maps: Appel & Leroy's extensional binary tries
+This representation is efficient and easy to prove things about. It needs
+concrete labels to compute.
+
+### D2. Our own canonical maps: Appel & Leroy's extensional binary tries
 
 The paper is **Andrew W. Appel and Xavier Leroy, "Efficient Extensional Binary
 Tries", Journal of Automated Reasoning 67 (2023)**, also arXiv 2110.05063. It
@@ -82,57 +98,74 @@ Inductive tree (A : Type) := Empty | Nodes (m : tree' A).
 
 Empty subtrees are unrepresentable, so
 `(∀ k, get k m₁ = get k m₂) → m₁ = m₂` holds without any well-formedness
-invariant. That is the property we want: an adjustment's canonicity then
-reduces to canonicity of its per-label entries. Operations are logarithmic in
-the key size, and `combine`/`map_filter` are linear and preserve
-canonicity. This is the representation behind CompCert's `lib/Maps.v`
-(`PTree`) since about 2021.
+invariant. An adjustment's canonicity then reduces to canonicity of its
+per-label entries. Operations are logarithmic in the key size, and
+`combine`/`map_filter` are linear and preserve canonicity.
 
-Options, in order of preference:
+**We write our own module** (a few hundred lines) following the paper, behind
+a small interface: `get`, `set`, `remove`, `combine`, `map_filter`, `fold`,
+`elements`, `extensionality`. It must compute well with `cbn` and `vm_compute`
+on concrete keys. CompCert's `lib/Maps.v` (`PTree`, LGPL 2.1+) is the paper's
+implementation and is useful as a reading reference; we do not depend on it.
 
-1. **Write our own** small module (a few hundred lines) following the paper,
-   behind a module interface: `get`, `set`, `remove`, `combine`, `map_filter`,
-   `fold`, `elements`, `extensionality`. It has no dependencies and we can tune
-   its computational behaviour; for example, it can be made to reduce with `cbn`
-   on concrete keys.
-2. **Vendor CompCert's `lib/Maps.v`.** Its `PTree` module is the
-   paper's implementation, with `PTree.extensionality` at line 626 of the
-   current file. Unlike most of CompCert, files in `lib/` are dual-licensed
-   under the INRIA non-commercial licence and **LGPL 2.1+**, so copying and
-   adapting it is fine. The file is CompCert-flavoured (its own `Coqlib`,
-   `ZMap`/`IMap`/`PMap` variants), so it would need trimming. It is a good
-   reference even if we take option 1.
-3. **Use stdpp's `gmap`/`Pmap`.** I believe stdpp's `Pmap` was rewritten on the
-   same canonical representation around 2022, but verify this. It brings a
-   large dependency and its own tactic conventions.
+**Keys:** an injective encoding `option label → positive`: `None ↦ 1`, and a
+string goes bitwise into a positive behind a tag bit.
 
-**Keys.** Use an injective encoding `option label → positive`: `None ↦ 1`, and
-a string goes bitwise into a positive behind a tag bit. This makes the
-hand-written ascii order in `Label.v` unnecessary. The map's key order replaces
-the sorted lists that phase 5 struggled with.
+### D3. Symbolic labels: the context form
 
-### D3. Symbolic labels (the main risk)
+Real proofs mention labels that are variables (`∀ x y, …`), and the per-label
+representation cannot compute with them. Instead of forcing symbolic goals
+through it, we add a second representation of the *same* adjustments.
 
-Real proofs mention labels that are variables (`∀ x y, x ≠ y → …`).
-`get (enc x) m` does not compute when `x` is abstract, and the sorted lists
-had the same problem. Neither gives normalisation of symbolic expressions for
-free. The plan:
+**Context form.** An adjustment is written as:
 
-- **Closed data** computes: tests, concrete examples, and the normaliser's
-  internal workings.
-- **Symbolic data** is handled in two ways:
-  - by a small set of rewrite lemmas with `≠`/`=` side conditions on labels,
-    with a `case_labels` tactic for the splits. This is the approach of
-    `master` and `VarEquations.v`.
-  - later, by the reflective normaliser (Stage 8). It reifies labels to atoms,
-    computes with them as symbolic keys, and emits label-disequality side
-    conditions.
+- an **input context**: an ordered list of entries `(l, b)`, innermost first,
+  where `b` is either a reference to an entry of the output context (renaming)
+  or a payload term (substitution);
+- an **output context**: an ordered list of labels;
+- an **implicit tail**: everything beyond the input context maps to everything
+  beyond the output context.
 
-**Spike this in Stage 2.** Before building on tries, check that a goal like
-`apply (compose (open x) (close y)) z = …` with symbolic `x y z` can be driven
-to a normal form by rewriting with side conditions. If the trie layer makes
-that painful, consider exposing per-label *views* (`get_label l a`) as the only
-interface the rewriting layer sees.
+`x₍ᵢ₎` resolves by counting the entries labelled `x`:
+
+- if the input context has more than `i` entries labelled `x`, it is the
+  `(i+1)`-th of them;
+- otherwise it is in the tail, shifted by the number of `x`s in each context.
+
+This is how the OCaml `parse ~outer ~inner` already presents adjustments.
+
+**Reordering needs ordering facts.** Two adjacent input entries with labels
+`x` and `y` can be swapped only if `x ≠ y` is known, because swapping changes
+which entry `x₍₀₎` refers to. The same holds for output entries.
+
+**Normal form with partial knowledge.**
+
+- Reorder adjacent entries only when their labels are related by a *known*
+  strict order `x < y`, and then always into ascending order.
+- Leave entries whose labels have no known relation in place.
+- Also drop transparent entries, the D1 condition read in context form.
+
+**Why `<` and not `≠`.** Knowing only `x ≠ y` makes both orders legal, so there
+is no canonical choice. Knowing `x < y` picks one. So side conditions and
+hypotheses throughout the library are stated with the strict order `<` on
+labels, a total order that computes on concrete labels, rather than with `≠`.
+
+**Roles.**
+
+- The context form is **not** the underlying representation: it is less
+  efficient and harder to prove things about.
+- It is the basis for **printing and parsing**. Notations parse to it, and
+  results print from it, so users see contexts, not tries.
+- It is the basis for the **reflective normaliser** (Stage 9): reified
+  expressions with label atoms are normalised in context form under the
+  hypotheses `x < y` available in the goal.
+- **Target theorem:** normalised context forms are unique. If two normal forms
+  denote the same adjustment under every instantiation of the atoms consistent
+  with the known `<` facts, they are syntactically equal. Soundness alone is
+  the fallback, but we aim for this.
+- **Bridge:** for concrete labels, a fully sorted normal context form
+  corresponds one-to-one with a normal D1 adjustment. `to_context` and
+  `of_context` are proved inverse there.
 
 ### D4. Per-label entry lists stay lists
 
@@ -140,6 +173,19 @@ The number of indices of one label touched by an adjustment is small, so `inc l`
 stays a `list`. Lists are canonical with no extra work, and the trailing
 transparent-entry condition is easy to state on them. Revisit only if profiling
 says otherwise.
+
+### D5. Users see only the indexed form
+
+Scoped terms and adjustments (indexed by the number of bound names), built as
+the unindexed core plus SProp well-scopedness proofs, are the only thing in
+the public API. The unindexed core is an implementation device for our proofs.
+Consequences:
+
+- Every public lemma is stated on indexed types.
+- The normaliser tactic works on indexed goals and goes through the core
+  internally.
+- Printing shows indexed objects in context form.
+- Stages 5–7 build internal theory; Stage 8 builds the public surface.
 
 ---
 
@@ -151,41 +197,39 @@ milestone. Together they discharge the whole TODO list on `adjustments`
 
 ### Stage 0: environment and skeleton
 
-- Rocq toolchain installed and reproducible; see [Environment](#environment).
-- Build files, `theories/` layout, CI building on push, and a `README` stating
-  the goal and pointing at the docs.
-- Smoke test: build `Label.v` and `Var.v` from `adjustments`, plus the
-  "probably builds" files from `next-unindexed`. This also confirms the claims
-  in design history §9.
+- The Rocq toolchain is set up; see [Environment](#environment).
+- Build files, `theories/` layout (separate `Core/` (internal) and public
+  directories from the start), CI building on push, and a `README` stating the
+  goal and pointing at the docs.
 
-**Exit:** `make`/`dune build` of an empty `theories/` succeeds locally and in
-CI.
+**Exit:** the build of an empty `theories/` succeeds locally and in CI.
 
-### Stage 1: canonical maps (`theories/Map/`)
+### Stage 1: canonical maps (`theories/Core/Trie.v`)
 
-- `PTree`-style tries per D2, with the core lemmas: gss, gso, gempty, `combine`,
-  `map_filter`, `extensionality`, and `fold`/`elements` with their specs.
+- Our own Appel–Leroy trie per D2, with the core lemmas: gss, gso, gempty,
+  `combine`, `map_filter`, `extensionality`, and `fold`/`elements` with their
+  specs.
 - Key encodings: `positive` ↔ `option label` (injective, with a decoder or at
-  least `enc_inj`), plus a `label_eq_dec` that computes.
+  least `enc_inj`).
 - Tests: `Example`s by `vm_compute` / `reflexivity`.
 
-**Exit:** `extensionality` is proved, and a benchmark-style `Example` with a few
-thousand entries evaluates quickly under `vm_compute`.
+**Exit:** `extensionality` is proved, and an `Example` with a few thousand
+entries evaluates quickly under `vm_compute`.
 
-### Stage 2: variables and the symbolic-label spike (`theories/Var.v`)
+### Stage 2: labels and variables (`theories/Core/Label.v`, `Var.v`)
 
-- Port `var := {v_label_opt; v_nat}`, `shift_var`/`unshift_var` and
-  push/pop from `adjustments`/`next-unindexed`.
-- Port only the `VarEquations.v` lemmas we need: the `case_vars` reductions
-  and maybe the transpositions. The Coxeter material is probably unnecessary
-  with composition by lookup.
-- **Spike for D3:** prototype the rewrite-with-side-conditions workflow on a
-  handful of symbolic goals before committing to the trie interface.
+- **Labels:** a decidable strict total order `<` that computes on concrete
+  labels, with its order lemmas. It is the vocabulary for all symbolic side
+  conditions (D3). `Label.v` from `adjustments` is the starting point.
+- **Variables:** port `var := {v_label_opt; v_nat}`, `shift_var`/`unshift_var`
+  and push/pop from `adjustments`/`next-unindexed`. Port only the
+  `VarEquations.v` lemmas we need, restating `≠` side conditions with `<` where
+  that is the natural form.
 
-**Exit:** the spike's example goals are solved by a short tactic, or we have
-a revised D3.
+**Exit:** the ported var lemmas are proved, with a `case_labels` tactic that
+splits on `<`/`=`/`>`.
 
-### Stage 3: raw renamings, computationally (`theories/RawAdjustment.v`)
+### Stage 3: raw adjustments, computationally (`theories/Core/RawAdjustment.v`)
 
 - The raw data per D1, with payload type `P` (instantiated to `Empty_set` for
   now).
@@ -203,85 +247,101 @@ a revised D3.
 
 **Exit:** all functions are defined and computing, and the tests pass.
 
-### Stage 4: canonicity and the user-facing type (`theories/Adjustment.v`)
+### Stage 4: canonicity and the core type (`theories/Core/Adjustment.v`)
 
 - Write a **paper proof of canonicity first** (design history §7.3), then
   formalise it.
 - Lemmas:
-  - `apply_normalize : apply (normalize a) = apply a` (pointwise);
+  - `apply_normalize`;
   - `normalize_normal`;
-  - `apply_compose : apply (compose a b) v = apply a ∘ apply b` (pointwise,
-    `Rename` case);
+  - `apply_compose` (pointwise);
   - **canonicity**: `normal a → normal b → (∀ v, apply a v = apply b v) → a = b`.
 - The type: `Record adjustment P := { raw : raw P; normal : is_normal raw }`,
-  where `is_normal` is SProp-valued via `if … then sUnit else sEmpty`.
-- From these, identity and associativity follow by canonicity, with no
-  structural induction needed. Also derive "rewrite with any pointwise equation"
-  lemmas.
+  where `is_normal` is SProp-valued.
+- Identity and associativity follow by canonicity.
 
 **Exit:** the identity and associativity laws, and `apply_compose`, are proved
 with `=`. This is the first milestone.
 
-### Stage 5: the equational theory of renamings
+### Stage 5: context form, printing and parsing (`theories/Core/Context.v`)
+
+- The context-form syntax (D3), first with concrete labels, and its semantics
+  as a function on variables.
+- `to_context` (per-label → sorted context form) and `of_context`. Prove them
+  inverse on normal forms, and prove that both preserve semantics.
+- Notations: parse adjustment literals written as input/output contexts, and
+  print adjustments back in that form. Design the concrete syntax here,
+  perhaps modelled on the OCaml `outer`/`inner` lists.
+- Context-form normalisation with *concrete* labels, as a first test of the
+  normal-form proof structure that Stage 9 generalises.
+
+**Exit:** `Check`/`Compute` on adjustments prints in context form, and literals
+parse.
+
+### Stage 6: the equational theory of renamings (internal)
 
 - Express open, close, shift, rename, swap and weaken as adjustments, and
   state the classic laws from `master`'s `Var.v` and `Relative.v` (the
-  `rw_ren_*` family, `swap_*`) as Leibniz equations. Most become
-  `canonicity + case analysis`.
-- Hint database and a `simpl_adjustments` tactic; the D3 workflow made robust.
-- Optional: per-label view lemmas so users never see tries.
+  `rw_ren_*` family, `swap_*`) as Leibniz equations with `<` side conditions.
+  Most become `canonicity + case analysis`.
+- A hint database and a provisional `simpl_adjustments` tactic. It is a
+  stopgap until the normaliser exists.
 
 **Exit:** the renaming fragment of `master`'s lemma set is reproved, with no
 setoids.
 
-### Stage 6: substitutions
+### Stage 7: substitutions and terms (internal)
 
-- Fix the term interface:
+- Fix the internal term interface:
   - unindexed syntax with binders;
   - variables are `var`;
-  - a `subst : adjustment term → term → term` with relative-monad-like laws.
+  - `subst : adjustment term → term → term` with relative-monad-like laws.
 
-  `Relative.v` on `master` and `Term.v` on `next` are the prior art. Probably
-  start with a concrete λ-calculus, then generalise to a module type or
-  typeclass.
+  `Relative.v` on `master` and `Term.v` on `next` are the prior art. Start with
+  a concrete λ-calculus, then generalise.
 - Composition for `Bind` payloads: `compose a b` must apply `a` to `b`'s
-  payloads. This is the one structural difference from the OCaml version
-  (design history §7.4 item 5).
-- Redo Stage 4's laws for substitutions; canonicity carries over pointwise.
+  payloads (design history §7.4 item 5). Redo Stage 4's laws for
+  substitutions.
+- Term-level operations `[σ] t`, `open x t`, `close x t` and bind, with the
+  Leibniz versions of `master`'s term lemmas and `next`'s
+  `combine_open_renaming_close` family.
 
-### Stage 7: term-level operations
+### Stage 8: the indexed public layer
 
-- `[σ] t`, `open x t`, `close x t` and bind on terms, with the Leibniz versions
-  of `master`'s term lemmas (`rw_push_open`, `rw_apply_comp`, …) and
-  `next`'s `combine_open_renaming_close` family.
+- SProp well-scopedness predicates on vars, terms and adjustments. Scoped
+  types such as `term N` (primitive-projection records of core data plus SProp
+  proof), so that equality stays Leibniz.
+- Show that every operation preserves scoping, and give the public API
+  (`open : term (S N) → term N`, `[σ] : term N → term M`, …) with all lemmas
+  restated on indexed types.
+- Fix the encapsulation mechanism (ground rules) and audit that nothing
+  unindexed is reachable from the public modules.
 
-### Stage 8: the reflective normaliser
+**Exit:** the Stage 6 and 7 lemma sets are available in indexed form, and a
+client file that imports only public modules can state and prove them.
 
-- A syntax of expressions over adjustments and term operations, with label and
-  variable atoms; `denote`; `normalize` computing over symbolic keys; and
-  soundness `denote (normalize e) = denote e` under generated label
-  disequalities.
-- A tactic `names` that reifies, normalises, and leaves side conditions for
-  `congruence`/`easy`.
+### Stage 9: the reflective normaliser
+
+- **Reification** of indexed goal expressions (adjustments, compositions,
+  term operations) into a syntax with label atoms and the `<` facts found in
+  the context.
+- **Normalisation** in context form (D3): compute compositions by context
+  manipulation, reorder only under known `<`, drop transparent entries.
+- **Soundness:** `denote (normalize e) = denote e`.
+- **Uniqueness of normal forms**, as stated in D3. This is the target theorem.
+- **Tactic:** a `names` tactic for users that reifies, normalises both sides
+  and closes or simplifies the goal, reporting missing `<` facts it would have
+  needed.
 - Measure it against `master`'s `autorewrite`-based tactic on the same
   examples.
 
-### Stage 9: the indexed layer
-
-- SProp predicates for "uses at most *N* bound variables" on vars, terms and
-  adjustments. Scoped types such as `term N := {t : term & wf N t}` (or a
-  primitive-projection record), with equality still Leibniz because the proof
-  component is SProp.
-- Show that the operations preserve scoping, and give the indexed API
-  (`open : term (S N) → term N`, …) as thin wrappers.
-
 ### Stage 10: contexts and the client
 
-- Port `Context.v` (contexts keyed by shifted names, context morphisms
-  `Γ =[σ]=> Δ`).
+- Port `Context.v` (typing contexts keyed by shifted names, context morphisms
+  `Γ =[σ]=> Δ`) onto the indexed layer.
 - Port `examples/Lambda.v`: STLC with universal `LAM`, weakening, substitution,
-  Barendregt's lemma and CPS type preservation. **This is the acceptance
-  test.**
+  Barendregt's lemma and CPS type preservation, using only public modules.
+  **This is the acceptance test.**
 - Port the TyDE examples, and compare proof size and run time with `master`.
 
 ### Stage 11: write-up
@@ -293,24 +353,29 @@ setoids.
 
 ## Risks and open questions
 
-- **Symbolic labels (D3)** are the main technical risk. They decide how much
-  of Stages 5 and 8 is pleasant.
+- **Uniqueness of context-form normal forms (D3)** under partial order
+  knowledge is the main theoretical risk. Prove it first in the concrete case
+  (Stage 5), then generalise (Stage 9). If it fails, soundness plus a useful
+  normal-ish form is the fallback.
 - **Canonicity might need extra conditions** that the OCaml code never needed,
   because it never proved anything. The paper proof in Stage 4 resolves this
   early.
-- **The term interface (Stage 6):** whether to go generic too early or stay
+- **The term interface (Stage 7):** whether to go generic too early or stay
   concrete. Prefer concrete first.
-- **Indexed vs unindexed for the user:** whether users mostly see the indexed
-  layer (Stage 9) or the unindexed one. This decides how much polish each gets.
+- **Leakage:** keeping the unindexed core fully hidden while letting the
+  normaliser and printing work on indexed goals may need care with reduction
+  behaviour (opaque vs transparent definitions under `vm_compute`).
 
 ## What to reuse from the old branches
 
 | Need | Source |
 |---|---|
-| `var`, labels, push/pop | `adjustments`: `src/Var.v`, `src/Label.v`; `next-unindexed`: `src/Var.v` |
+| `var`, labels, label order, push/pop | `adjustments`: `src/Var.v`, `src/Label.v`; `next-unindexed`: `src/Var.v` |
 | Case-split and reduction tactics on vars | `next-unindexed`: `src/VarEquations.v` (`case_vars`, `reduce_*`) |
 | SProp-normalised record pattern, canonicity proof style | `next-unindexed`: `src/Renaming.v` (`is_normalized_equivalence_equal`), `src/ClosingEquations.v` |
 | Composition and normalisation algorithms | `lpw25/ocaml` 4ae82a85: `typing/effect.ml`, `Adjustment.Simplified` |
+| Context-form syntax (outer/inner) | `lpw25/ocaml` tip: `typing/effect.mli`, `Adjustment.parse`, `Adjustment.Desc` |
+| Trie reference implementation (reading only) | CompCert `lib/Maps.v`, `PTree` |
 | Lemma statements to reprove | `master`: `src/Var.v`, `src/Relative.v`, `TyDE-2019/Names.v` |
 | Term interface | `master`: `src/Relative.v`; `next`: `src/Term.v` |
 | Client and acceptance test | `master`: `examples/Lambda.v`, `src/Context.v` |
