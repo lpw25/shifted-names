@@ -840,4 +840,127 @@ Proof.
 Qed.
 
 
+(** ** Adding an input entry *)
+
+Definition cons_entry h t a : raw P :=
+  set_entry h (t :: fst (find a h)) (count a h) a.
+
+Lemma find_cons_entry h t a h' :
+  find (cons_entry h t a) h'
+  = if label_eqb h' h then (t :: fst (find a h), count a h) else find a h'.
+Proof. apply find_set_entry. Qed.
+
+Lemma count_cons_entry h t a h' : count (cons_entry h t a) h' = count a h'.
+Proof.
+  unfold count at 1; rewrite find_cons_entry.
+  destruct (label_eqb_spec h' h) as [->|]; reflexivity.
+Qed.
+
+Lemma resolve_cons_entry h t a t' : resolve (cons_entry h t a) t' = resolve a t'.
+Proof. destruct t'; cbn [resolve]; rewrite ?count_cons_entry; reflexivity. Qed.
+
+Theorem apply_cons_entry h t a v :
+  apply (cons_entry h t a) v
+  = if var_eqb v (mk_var h 0) then resolve a t else apply a (unshift_var (mk_var h 0) v).
+Proof.
+  unfold apply; rewrite !find_cons_entry, count_cons_entry.
+  destruct v as [hv i]; unfold var_eqb, unshift_var; cbn [v_label v_index].
+  rewrite (label_eqb_sym h hv).
+  destruct (label_eqb_spec hv h) as [->|Hne]; cbn [andb fst snd].
+  - destruct i as [|i]; cbn [Nat.eqb Nat.ltb Nat.leb nth_error]; [apply resolve_cons_entry|].
+    replace (S i - 1) with i by lia; cbn [v_label v_index].
+    destruct (nth_error (fst (find a h)) i); [apply resolve_cons_entry|].
+    cbn [length]; do 2 f_equal; lia.
+  - cbn [v_label v_index].
+    destruct (nth_error (fst (find a hv)) i); [apply resolve_cons_entry|reflexivity].
+Qed.
+
+Theorem almost_normal_cons_entry h t a :
+  normal a = true ->
+  (forall h' n, t = Slot h' n -> n < count a h') ->
+  almost_normal (cons_entry h t a) h.
+Proof.
+  intros Ha Ht.
+  pose proof (normal_keys_ok a Ha) as Hk.
+  pose proof (proj1 (normal_iff a h) Ha) as [[_ [Hnt [Hwf Hs]]] _].
+  assert (Hk' : keys_ok (cons_entry h t a) = true) by apply keys_ok_set_entry, Hk.
+  repeat split.
+  - exact Hk'.
+  - intros key e He; unfold cons_entry, set_entry in He; rewrite get_update in He.
+    destruct (Pos.eqb_spec key (label_key h)) as [->|]; [|apply (Hnt _ _ He)].
+    injection He as <-; reflexivity.
+  - intros v h' n Hn; rewrite count_cons_entry.
+    rewrite find_cons_entry in Hn.
+    destruct v as [hv i]; cbn [v_label v_index] in Hn.
+    destruct (label_eqb_spec hv h) as [->|]; cbn [fst] in Hn.
+    + destruct i as [|i]; cbn [nth_error] in Hn; [injection Hn as ->; apply Ht; reflexivity|].
+      apply (Hwf (mk_var h i)), Hn.
+    + apply (Hwf (mk_var hv i)), Hn.
+  - intros h' Hne.
+    apply (strip_ok_spec _ _ _ Hk'); intros Hl.
+    pose proof (Hs h' Hne) as Hs'; rewrite (strip_ok_spec _ _ _ Hk) in Hs'.
+    assert (Ef : fst (find (cons_entry h t a) h') = fst (find a h')).
+    { rewrite find_cons_entry, (proj2 (label_eqb_neq h' h) Hne); reflexivity. }
+    rewrite Ef in Hl |- *.
+    destruct (Hs' Hl) as [w [Hw Hwne]].
+    destruct (label_eq_dec (v_label w) h) as [Hwl|Hwl].
+    + exists (mk_var h (S (v_index w))); split.
+      * rewrite find_cons_entry; cbn [v_label v_index]; rewrite label_eqb_refl; cbn [fst nth_error].
+        rewrite <- Hwl; exact Hw.
+      * intro E; injection E as E1 _; congruence.
+    + exists w; split; [|exact Hwne].
+      rewrite find_cons_entry, (proj2 (label_eqb_neq _ h) Hwl); exact Hw.
+Qed.
+
+Fixpoint strip_loop (fuel : nat) h a : raw P :=
+  match fuel with
+  | 0 => a
+  | S f => if strip_ok a h (fst (find a h)) then a else strip_loop f h (strip_once h a)
+  end.
+
+Theorem strip_loop_spec fuel h a :
+  almost_normal a h -> jlen a h < fuel ->
+  normal (strip_loop fuel h a) = true /\ (forall v, apply (strip_loop fuel h a) v = apply a v).
+Proof.
+  revert a; induction fuel as [|f IH]; intros a Ha Hlen; [lia|].
+  cbn [strip_loop].
+  destruct (strip_ok a h (fst (find a h))) eqn:Hs.
+  - split; [apply (normal_iff a h); auto|reflexivity].
+  - pose proof (strip_ok_false_strippable a h Ha Hs) as Hst.
+    destruct (IH (strip_once h a)) as [Hn Happ].
+    + apply almost_normal_strip_once; assumption.
+    + unfold jlen in *; rewrite find_strip_once, label_eqb_refl; cbn [fst].
+      rewrite length_map, length_removelast.
+      destruct Hst as [Hl _]; unfold last_target in Hl.
+      assert (0 < length (fst (find a h))) by (destruct (fst (find a h)); [discriminate|cbn; lia]).
+      lia.
+    + split; [exact Hn|]; intro v; rewrite Happ; apply apply_strip_once, Hst.
+Qed.
+
+(** [push_inner h t a] adds the input entry [h ↦ t] in front of [a]; [t]
+    refers to a slot of [a] or is a payload. *)
+Definition push_inner h t a : raw P :=
+  strip_loop (S (S (jlen a h))) h (cons_entry h t a).
+
+Theorem normal_push_inner h t a :
+  normal a = true -> (forall h' n, t = Slot h' n -> n < count a h') ->
+  normal (push_inner h t a) = true.
+Proof.
+  intros Ha Ht; unfold push_inner.
+  apply strip_loop_spec; [apply almost_normal_cons_entry; assumption|].
+  unfold jlen; rewrite find_cons_entry, label_eqb_refl; cbn; lia.
+Qed.
+
+Theorem apply_push_inner h t a v :
+  normal a = true -> (forall h' n, t = Slot h' n -> n < count a h') ->
+  apply (push_inner h t a) v
+  = if var_eqb v (mk_var h 0) then resolve a t else apply a (unshift_var (mk_var h 0) v).
+Proof.
+  intros Ha Ht; unfold push_inner.
+  assert (Hlen : jlen (cons_entry h t a) h < S (S (jlen a h)))
+    by (unfold jlen; rewrite find_cons_entry, label_eqb_refl; cbn; lia).
+  rewrite (proj2 (strip_loop_spec _ h _ (almost_normal_cons_entry h t a Ha Ht) Hlen)).
+  apply apply_cons_entry.
+Qed.
+
 End Slots.
