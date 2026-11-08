@@ -504,4 +504,129 @@ Proof.
     rewrite count_push_outer by exact Ha; destruct (label_eqb_spec h' h) as [->|]; lia.
 Qed.
 
+(** ** Stripping the innermost slot of [h]
+
+    When the last target of [h] is [h]'s innermost slot and nothing else
+    refers to that slot, the pair is transparent: remove it, decrement the
+    slot count, and renumber the remaining references to [h]'s slots. *)
+
+Definition renumber_target h t : target P :=
+  match t with
+  | Slot h' n => if label_eqb h' h then Slot h' (pred n) else t
+  | Bind _ => t
+  end.
+
+Definition renumber h a : raw P :=
+  map_filter (fun _ e => Some (mk_entry (e_label e) (map (renumber_target h) (e_targets e))
+                                        (e_out e))) a.
+
+Definition set_entry h ts (k : nat) a : raw P :=
+  update (label_key h)
+    (fun _ => if nontrivial ts k then Some (mk_entry h ts k) else None) a.
+
+Definition strip_once h a : raw P :=
+  renumber h (set_entry h (removelast (fst (find a h))) (pred (count a h)) a).
+
+Lemma find_set_entry h ts k a h' :
+  find (set_entry h ts k a) h' = if label_eqb h' h then (ts, k) else find a h'.
+Proof.
+  unfold find at 1, set_entry; rewrite get_update, label_key_eqb.
+  destruct (label_eqb h' h); [|reflexivity].
+  destruct ts, k; reflexivity.
+Qed.
+
+Lemma find_renumber h a h' :
+  find (renumber h a) h' = (map (renumber_target h) (fst (find a h')), snd (find a h')).
+Proof.
+  unfold find, renumber; rewrite get_map_filter.
+  destruct (get (label_key h') a); reflexivity.
+Qed.
+
+Lemma count_strip_once h a h' :
+  count (strip_once h a) h' = if label_eqb h' h then pred (count a h) else count a h'.
+Proof.
+  unfold count at 1, strip_once; rewrite find_renumber, find_set_entry; cbn [snd].
+  destruct (label_eqb h' h); reflexivity.
+Qed.
+
+Lemma find_strip_once h a h' :
+  find (strip_once h a) h'
+  = (map (renumber_target h)
+         (if label_eqb h' h then removelast (fst (find a h)) else fst (find a h')),
+     if label_eqb h' h then pred (count a h) else count a h').
+Proof.
+  unfold strip_once; rewrite find_renumber, find_set_entry.
+  destruct (label_eqb h' h); reflexivity.
+Qed.
+
+(** The condition under which [strip_once] is applied. *)
+Definition strippable a h : Prop :=
+  last_target (fst (find a h)) = Some (Slot h 0)
+  /\ (forall v, nth_error (fst (find a (v_label v))) (v_index v) = Some (Slot h 0) ->
+                v = mk_var h (pred (length (fst (find a h)))))
+  /\ (forall v h' n, nth_error (fst (find a (v_label v))) (v_index v) = Some (Slot h' n) ->
+                     n < count a h').
+
+Lemma removelast_nth {A} (l : list A) i :
+  i < pred (length l) -> nth_error (removelast l) i = nth_error l i.
+Proof.
+  revert i; induction l as [|x l IH]; intros i Hi; [reflexivity|].
+  destruct l as [|y l]; [cbn in Hi; lia|].
+  change (removelast (x :: y :: l)) with (x :: removelast (y :: l)).
+  destruct i; [reflexivity|cbn [nth_error]; apply IH; cbn in *; lia].
+Qed.
+
+Lemma length_removelast {A} (l : list A) : length (removelast l) = pred (length l).
+Proof.
+  induction l as [|x l IH]; [reflexivity|].
+  destruct l as [|y l]; [reflexivity|].
+  change (removelast (x :: y :: l)) with (x :: removelast (y :: l)).
+  cbn [length] in *; rewrite IH; reflexivity.
+Qed.
+
+Theorem apply_strip_once h a v :
+  strippable a h -> apply (strip_once h a) v = apply a v.
+Proof.
+  intros [Hlast [Huniq Hwf]].
+  unfold last_target in Hlast.
+  set (ts := fst (find a h)) in *; set (k := count a h).
+  assert (Hk : 0 < k).
+  { pose proof (Hwf (mk_var h (pred (length ts))) h 0) as Hw; cbn in Hw.
+    apply Hw, Hlast. }
+  assert (Hlen : 0 < length ts) by (destruct ts; [discriminate|cbn; lia]).
+  unfold apply; destruct v as [hv i]; cbn [v_label v_index].
+  rewrite find_strip_once, count_strip_once; cbn [fst snd].
+  assert (Hres : forall h' n, (forall v, nth_error (fst (find a (v_label v))) (v_index v)
+                                           = Some (Slot h' n) -> True) ->
+                 True) by auto.
+  clear Hres.
+  (* resolution of a renumbered slot reference that is not the stripped one *)
+  assert (Hr : forall w h' n,
+             nth_error (fst (find a (v_label w))) (v_index w) = Some (Slot h' n) ->
+             w <> mk_var h (pred (length ts)) ->
+             resolve (strip_once h a) (renumber_target h (Slot h' n))
+             = resolve a (Slot h' n)).
+  { intros w h' n Hw Hne; cbn [renumber_target].
+    destruct (label_eqb_spec h' h) as [->|Hh]; cbn [resolve]; rewrite count_strip_once.
+    - rewrite label_eqb_refl.
+      destruct n as [|n]; [exfalso; apply Hne, Huniq, Hw|].
+      pose proof (Hwf _ _ _ Hw) as Hn'; fold k in Hn' |- *; cbn [pred]; do 2 f_equal; lia.
+    - rewrite (proj2 (label_eqb_neq h' h) Hh); reflexivity. }
+  destruct (label_eqb_spec hv h) as [->|Hne].
+  - rewrite nth_error_map, length_map, length_removelast; fold ts k.
+    destruct (Nat.lt_ge_cases i (pred (length ts))) as [Hi|Hi].
+    + rewrite removelast_nth by exact Hi.
+      destruct (nth_error ts i) as [[h' n|p]|] eqn:E; cbn [option_map];
+        [| reflexivity | apply nth_error_None in E; lia].
+      apply (Hr (mk_var h i) h' n E); intro H; injection H; lia.
+    + rewrite (proj2 (nth_error_None (removelast ts) i)) by (rewrite length_removelast; lia).
+      destruct (Nat.eq_dec i (pred (length ts))) as [->|Hi'].
+      * rewrite Hlast; cbn [resolve option_map]; fold k; do 2 f_equal; lia.
+      * rewrite (proj2 (nth_error_None ts i)) by lia; cbn [option_map]; do 2 f_equal; lia.
+  - rewrite nth_error_map, length_map.
+    destruct (nth_error (fst (find a hv)) i) as [[h' n|p]|] eqn:E; cbn [option_map];
+      [| reflexivity | reflexivity].
+    apply (Hr (mk_var hv i) h' n E); intro H; injection H; congruence.
+Qed.
+
 End Slots.
