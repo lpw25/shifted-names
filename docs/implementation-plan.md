@@ -407,6 +407,72 @@ induction. The existing per-label trie core is reused as `core`.
 3. The `(θ, core)` normal form, with pushing a thinning through an
    adjustment for composition, and the canonicity proof.
 
+### D9. The final core representation (supersedes D8 and Encoded.v)
+
+**Data.** For each label `h`, an entry with:
+- `targets : list target`, where `targets[i]` says where the inner `h₍ᵢ₎`
+  goes, and the head is the innermost variable, so `push_inner` is a cons;
+- `out : nat`, the number of output slots for `h`.
+
+A target is one of:
+- `Slot h' l`: the `l`-th output slot for `h'`, counted from the innermost
+  constructor, so it denotes `h'₍ₖ₋₁₋ₗ₎`, where `k` is `h'`'s slot count;
+- `Bind u ρ`: a closed term `u` (opaque) with the adjustment `ρ` applied
+  lazily.
+
+The inner `h₍ᵢ₎` with `i ≥ |targets|` pass through to `h₍ᵢ₋|targets|+out₎`.
+
+**Rule: explicit targets only land in slots.** As in the OCaml design, a
+contraction with a variable that would otherwise pass through is written by
+giving that variable an explicit entry too. So references never point
+beyond the slots.
+
+**Payloads.** References inside a payload's `ρ`, to slots of the top-level
+adjustment, use the same `Slot` form, counted against the top-level slot
+counts. `ρ`'s own pass-through counts, for the named labels of `u`, are
+stored as offsets (`Z`) from the top-level counts. `ρ` has no entry for
+`None`, since `u` has no bound variables. Consequently `push_outer`, and so
+`lift`, changes nothing inside any target or payload.
+
+**Normal form**, for each entry `h`:
+- it is stored at its own label's key;
+- it is non-trivial;
+- every `Slot h' l` anywhere, including inside payloads, has `l < out(h')`;
+- *strip condition*: if the last target is `Slot h 0` (the innermost slot
+  for `h`), then `Slot h 0` occurs at least once more somewhere else,
+  including inside payloads. Otherwise the pair is transparent and is
+  stripped.
+
+**Semantics for canonicity.** Lookup returns a variable, or a payload with
+its internal references resolved to absolute variables using the top-level
+counts. The meaning of a payload depends on the counts, so resolving is part
+of the semantics, not a representation layer.
+
+**Why the normal form is canonical.**
+- Call an outer `h₍ₘ₎` *pass-through-like* if exactly one inner variable maps
+  to it, namely `h₍ₘ₋out₊|targets|₎`, and nothing inside a payload refers to
+  it.
+- **The tail is pass-through-like.** In a normal adjustment every `h₍ₘ₎`
+  with `m ≥ out(h)` is pass-through-like: explicit targets and payload
+  references only reach slots.
+- **The innermost slot is not.** `h₍out₋₁₎` is not pass-through-like: it is
+  either unreferenced, or referenced by something other than a lone last
+  target (the strip condition).
+- **So the counts are determined by the meaning:** `out(h)` is the least
+  `M` such that every `h₍ₘ₎` with `m ≥ M` is pass-through-like, and
+  `|targets|` follows from the pass-through offset.
+- **And so is the rest:** the targets are the encodings of the lookup
+  results under those counts, so two normal adjustments with the same
+  meaning are equal entry by entry, and then by trie extensionality.
+
+**Operations:**
+- `push_outer h` is `out + 1`, O(log n).
+- `push_inner h t` conses, then strips while the strip condition fails.
+- Stripping `h`'s innermost slot renumbers the other references to `h`'s
+  slots (`l ↦ l − 1`) and adjusts payload offsets for `h`. For `None`, the
+  positions index lists exactly those references; named labels are scanned.
+- Composition is defined directly on this form.
+
 ### D6. Users see only the indexed form
 
 Scoped terms and adjustments (indexed by the number of bound names), built as
