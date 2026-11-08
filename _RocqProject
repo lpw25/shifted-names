@@ -4,3 +4,5 @@ theories/Core/Trie.v
 theories/Core/Label.v
 theories/Core/Var.v
 theories/Core/RawAdjustment.v
+theories/Core/Adjustment.v
+theories/Tests/CoreTests.v

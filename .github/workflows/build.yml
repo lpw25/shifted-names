@@ -1,0 +1,15 @@
+name: build
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build and install Rocq 9.2 (about 4 minutes)
+        run: sudo bash scripts/install-rocq.sh
+      - name: Build
+        run: make
