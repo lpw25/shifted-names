@@ -503,8 +503,10 @@ Proof.
   rewrite <- klength_weights; exact Hc.
 Qed.
 
-(** Building from a list. *)
-Definition kof_list (l : list X) : kseq := fold_right kcons KNil l.
+(** Putting a list in front of a sequence, and building from a list. *)
+Definition kapp (l : list X) (s : kseq) : kseq := fold_right kcons s l.
+
+Definition kof_list (l : list X) : kseq := kapp l KNil.
 
 (** Taking a shift off the top of a sequence keeps it well formed. *)
 Lemma kgood_unlift d s : kgood (klift d s) -> cwf (ksann s) -> kgood s.
@@ -521,13 +523,207 @@ Proof.
     destruct (cget d k); discriminate.
 Qed.
 
+Theorem kgood_kapp l s : (forall e, In e l -> eok e) -> kgood s ->
+  kgood (kapp l s) /\ klist (kapp l s) = l ++ klist s.
+Proof.
+  intros Hok G; induction l as [|x l IH]; [split; [exact G|reflexivity]|].
+  destruct IH as [G1 E]; [intros e He; apply Hok; right; exact He|].
+  cbn [kapp fold_right]; fold (kapp l s).
+  destruct (kgood_kcons x (kapp l s) (Hok x (or_introl eq_refl)) G1) as [G' E'].
+  split; [exact G'|rewrite E', E; reflexivity].
+Qed.
+
 Theorem kgood_of_list l : (forall e, In e l -> eok e) -> kgood (kof_list l) /\ klist (kof_list l) = l.
 Proof.
-  induction l as [|x l IH]; intros Hok; [split; [apply kgood_nil|reflexivity]|].
-  destruct IH as [G E]; [intros e He; apply Hok; right; exact He|].
-  cbn [kof_list fold_right]; fold (kof_list l).
-  destruct (kgood_kcons x (kof_list l) (Hok x (or_introl eq_refl)) G) as [G' E'].
-  split; [exact G'|rewrite E', E; reflexivity].
+  intros Hok; destruct (kgood_kapp l KNil Hok kgood_nil) as [G E].
+  split; [exact G|unfold kof_list; rewrite E, app_nil_r; reflexivity].
+Qed.
+
+(** ** Dropping a prefix
+
+    [kdrop s i] is [s] without its first [i] elements, in O(log n): the
+    cells before the one holding index [i] are skipped, and inside that
+    cell's tree the path to [i] is followed, keeping the right subtrees it
+    passes as new cells.  The result is the sequence [kcons] builds. *)
+
+Fixpoint ktdrop (w : nat) (t : ktree) (i : nat) (acc : kseq) : kseq :=
+  match t with
+  | KLeaf _ => match i with 0 => kcell 1 t acc | S _ => acc end
+  | KNode a x l r =>
+      match i with
+      | 0 => kcell w t acc
+      | S j =>
+          let w' := Nat.div2 w in
+          if Nat.ltb j w' then ktdrop w' (ktlift a l) j (kcell w' (ktlift a r) acc)
+          else ktdrop w' (ktlift a r) (j - w') acc
+      end
+  end.
+
+Fixpoint kdrop (s : kseq) (i : nat) : kseq :=
+  match s with
+  | KNil => KNil
+  | KCons a w t s' =>
+      if Nat.ltb i w then klift a (ktdrop w t i s') else klift a (kdrop s' (i - w))
+  end.
+
+Lemma ktdrop_spec w t : ktshape w t -> ktinv t -> forall i acc, i < w -> kinv acc ->
+  kinv (ktdrop w t i acc) /\ klist (ktdrop w t i acc) = skipn i (ktlist t) ++ klist acc.
+Proof.
+  revert t; induction w as [w IH] using (well_founded_induction lt_wf).
+  intros [x|a x l r] Hw Ht i acc Hi Hacc.
+  - cbn in Hw; subst w; destruct i as [|i]; [|lia]; cbn [ktdrop].
+    split; [apply kinv_kcell|apply klist_kcell]; assumption.
+  - destruct Hw as [w' [-> [Hl Hr]]]; destruct i as [|j].
+    + cbn [ktdrop]; split; [apply kinv_kcell|apply klist_kcell]; assumption.
+    + destruct Ht as [_ [_ [_ [Tl Tr]]]].
+      assert (Tl' : ktinv (ktlift a l)) by (apply ktinv_ktlift, Tl).
+      assert (Tr' : ktinv (ktlift a r)) by (apply ktinv_ktlift, Tr).
+      cbn [ktdrop ktlist]; rewrite div2_succ_double, skipn_map; cbn [skipn].
+      destruct (Nat.ltb_spec j w') as [Hj|Hj].
+      * assert (Hc : kinv (kcell w' (ktlift a r) acc)) by (apply kinv_kcell; assumption).
+        destruct (IH w' ltac:(lia) _ (ktshape_ktlift a w' l Hl) Tl' j _ Hj Hc) as [I E].
+        split; [exact I|]; rewrite E, klist_kcell, !ktlist_ktlift by assumption.
+        rewrite skipn_app, (ktlength _ _ Hl), skipn_map, !map_app, <- app_assoc.
+        replace (j - w') with 0 by lia; reflexivity.
+      * destruct (IH w' ltac:(lia) _ (ktshape_ktlift a w' r Hr) Tr' (j - w') acc ltac:(lia) Hacc) as [I E].
+        split; [exact I|]; rewrite E, ktlist_ktlift by assumption.
+        rewrite skipn_app, (ktlength _ _ Hl), (skipn_all2 (ktlist l)) by (rewrite (ktlength _ _ Hl); lia).
+        rewrite skipn_map; reflexivity.
+Qed.
+
+Lemma kdrop_spec s : kinv s -> kshape s -> forall i,
+  kinv (kdrop s i) /\ klist (kdrop s i) = skipn i (klist s).
+Proof.
+  induction s as [|a w t s IH]; intros Hs Hsh i; [split; [exact Hs|destruct i; reflexivity]|].
+  destruct Hs as [_ [_ [Ht Hs]]], Hsh as [Hw Hsh]; cbn [kdrop klist].
+  destruct (Nat.ltb_spec i w) as [Hi|Hi].
+  - destruct (ktdrop_spec w t Hw Ht i s Hi Hs) as [I E].
+    split; [apply kinv_klift, I|rewrite klist_klift, E, skipn_map, skipn_app by exact I].
+    rewrite (ktlength _ _ Hw); replace (i - w) with 0 by lia; cbn [skipn]; rewrite map_app; reflexivity.
+  - destruct (IH Hs Hsh (i - w)) as [I E].
+    split; [apply kinv_klift, I|rewrite klist_klift, E, skipn_map, skipn_app by exact I].
+    rewrite (ktlength _ _ Hw), (skipn_all2 (ktlist t)) by (rewrite (ktlength _ _ Hw); exact Hi); reflexivity.
+Qed.
+
+Lemma ktdrop_shape w t : ktshape w t -> forall i acc, i < w -> kshape acc -> kshape (ktdrop w t i acc).
+Proof.
+  revert t; induction w as [w IH] using (well_founded_induction lt_wf).
+  intros [x|a x l r] Hw i acc Hi Hacc.
+  - cbn in Hw; subst w; destruct i as [|i]; [|lia]; split; [reflexivity|apply kshape_krebase, Hacc].
+  - destruct i as [|j]; [split; [apply ktshape_ktrebase, Hw|apply kshape_krebase, Hacc]|].
+    destruct Hw as [w' [-> [Hl Hr]]]; cbn [ktdrop]; rewrite div2_succ_double.
+    destruct (Nat.ltb_spec j w') as [Hj|Hj].
+    + apply IH; [lia|apply ktshape_ktlift, Hl|exact Hj|].
+      split; [apply ktshape_ktrebase, ktshape_ktlift, Hr|apply kshape_krebase, Hacc].
+    + apply IH; [lia|apply ktshape_ktlift, Hr|lia|exact Hacc].
+Qed.
+
+Lemma kdrop_shape s : kshape s -> forall i, kshape (kdrop s i).
+Proof.
+  induction s as [|a w t s IH]; intros Hsh i; [exact I|].
+  destruct Hsh as [Hw Hsh]; cbn [kdrop]; destruct (Nat.ltb_spec i w) as [Hi|Hi];
+    apply kshape_klift; [apply ktdrop_shape; assumption|apply IH, Hsh].
+Qed.
+
+(** Weights: dropping one element undoes [wcons]. *)
+Definition wtail (ws : list nat) : list nat :=
+  match ws with
+  | [] => []
+  | 1 :: ws' => ws'
+  | S w :: ws' => Nat.div2 w :: Nat.div2 w :: ws'
+  | 0 :: ws' => ws'
+  end.
+
+Lemma wcons_pos ws : (forall w, In w ws -> 1 <= w) -> forall w, In w (wcons ws) -> 1 <= w.
+Proof.
+  intros H; destruct ws as [|w1 [|w2 ws]]; cbn [wcons].
+  - intros w [<-|[]]; lia.
+  - intros w [<-|Hin]; [lia|apply H, Hin].
+  - destruct (Nat.eqb w1 w2); intros w [<-|Hin]; try lia; apply H; [right; right; exact Hin|exact Hin].
+Qed.
+
+Lemma cweights_pos n : forall w, In w (cweights n) -> 1 <= w.
+Proof.
+  induction n as [|n IH]; [intros w []|].
+  unfold cweights; cbn [Nat.iter]; apply wcons_pos, IH.
+Qed.
+
+Lemma iter_add {A} (f : A -> A) i j x : Nat.iter (i + j) f x = Nat.iter i f (Nat.iter j f x).
+Proof.
+  induction i as [|i IH]; [reflexivity|].
+  change (f (Nat.iter (i + j) f x) = f (Nat.iter i f (Nat.iter j f x))); rewrite IH; reflexivity.
+Qed.
+
+Lemma iter_succ_r {A} (f : A -> A) n x : Nat.iter (S n) f x = Nat.iter n f (f x).
+Proof. rewrite <- Nat.add_1_r, iter_add; reflexivity. Qed.
+
+Lemma wtail_node v ws : 1 <= v -> wtail (S (v + v) :: ws) = v :: v :: ws.
+Proof.
+  intros Hv; destruct v as [|v]; [lia|].
+  change (wtail (S (S v + S v) :: ws)) with (Nat.div2 (S v + S v) :: Nat.div2 (S v + S v) :: ws).
+  replace (S v + S v) with (2 * S v) by lia; rewrite Nat.div2_double; reflexivity.
+Qed.
+
+Lemma wtail_wcons ws : (forall w, In w ws -> 1 <= w) -> wtail (wcons ws) = ws.
+Proof.
+  intros H; destruct ws as [|w1 [|w2 ws]]; cbn [wcons]; try reflexivity.
+  destruct (Nat.eqb_spec w1 w2) as [<-|]; [|reflexivity].
+  assert (1 <= w1) by (apply H; left; reflexivity).
+  apply wtail_node; assumption.
+Qed.
+
+Lemma wtail_cweights n : wtail (cweights (S n)) = cweights n.
+Proof. unfold cweights; cbn [Nat.iter]; apply wtail_wcons, cweights_pos. Qed.
+
+Lemma wtail_iter_cweights i n : Nat.iter i wtail (cweights n) = cweights (n - i).
+Proof.
+  induction i as [|i IH]; [rewrite Nat.sub_0_r; reflexivity|].
+  change (wtail (Nat.iter i wtail (cweights n)) = cweights (n - S i)).
+  rewrite IH; destruct (n - i) as [|m] eqn:E; [replace (n - S i) with 0 by lia; reflexivity|].
+  rewrite wtail_cweights; f_equal; lia.
+Qed.
+
+Lemma wtail_tree w t ws : ktshape w t -> Nat.iter w wtail (w :: ws) = ws.
+Proof.
+  revert w ws; induction t as [x|a x l IHl r IHr]; intros w ws Hw; [cbn in Hw; subst w; reflexivity|].
+  destruct Hw as [w' [-> [Hl Hr]]].
+  rewrite iter_succ_r, wtail_node, iter_add by apply (ktshape_pos _ _ Hl).
+  rewrite (IHl _ _ Hl); apply (IHr _ _ Hr).
+Qed.
+
+Lemma ktdrop_weights w t : ktshape w t -> forall i acc, i < w ->
+  kweights (ktdrop w t i acc) = Nat.iter i wtail (w :: kweights acc).
+Proof.
+  revert t; induction w as [w IH] using (well_founded_induction lt_wf).
+  intros [x|a x l r] Hw i acc Hi.
+  - cbn in Hw; subst w; destruct i as [|i]; [apply kweights_kcell|lia].
+  - destruct i as [|j]; [apply kweights_kcell|].
+    destruct Hw as [w' [-> [Hl Hr]]]; cbn [ktdrop]; rewrite div2_succ_double.
+    rewrite iter_succ_r, wtail_node by apply (ktshape_pos _ _ Hl).
+    destruct (Nat.ltb_spec j w') as [Hj|Hj].
+    + rewrite (IH w' ltac:(lia) _ (ktshape_ktlift a _ l Hl) j _ Hj), kweights_kcell; reflexivity.
+    + rewrite (IH w' ltac:(lia) _ (ktshape_ktlift a _ r Hr) (j - w') _ ltac:(lia)).
+      rewrite <- (wtail_tree _ _ (w' :: kweights acc) Hl) at 1; rewrite <- iter_add; f_equal; lia.
+Qed.
+
+Lemma kdrop_weights s : kshape s -> forall i, kweights (kdrop s i) = Nat.iter i wtail (kweights s).
+Proof.
+  induction s as [|a w t s IH]; intros Hsh i.
+  - cbn [kdrop kweights]; induction i as [|i IHi]; [reflexivity|].
+    change (Nat.iter (S i) wtail []) with (wtail (Nat.iter i wtail [])); rewrite <- IHi; reflexivity.
+  - destruct Hsh as [Hw Hsh]; cbn [kdrop kweights].
+    destruct (Nat.ltb_spec i w) as [Hi|Hi]; rewrite kweights_klift;
+      [apply ktdrop_weights; assumption|].
+    rewrite IH by exact Hsh; rewrite <- (wtail_tree _ _ (kweights s) Hw) at 1.
+    rewrite <- iter_add; f_equal; lia.
+Qed.
+
+Theorem kgood_kdrop s i : kgood s -> kgood (kdrop s i) /\ klist (kdrop s i) = skipn i (klist s).
+Proof.
+  intros [Hs [Hsh Hc]]; destruct (kdrop_spec s Hs Hsh i) as [I E].
+  split; [|exact E]; split; [exact I|split; [apply kdrop_shape, Hsh|]].
+  unfold kcanon in *; rewrite kdrop_weights, Hc, wtail_iter_cweights by exact Hsh.
+  rewrite !klength_spec, E, length_skipn by (exact Hsh || apply kdrop_shape, Hsh); reflexivity.
 Qed.
 
 (** ** Deciding well-formedness *)

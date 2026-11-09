@@ -69,21 +69,19 @@ Definition tau : counts :=
 Definition thv (h : option label) : nat := dval th (label_key h).
 Definition tauv (h : option label) : nat := dval tau (label_key h).
 
-(** [a]'s explicit targets for [h] from absolute input [s] on, absolute. *)
-Definition aextra (h : option label) (s : nat) : list target :=
+(** [a]'s explicit targets for [h] from absolute input [s] on, absolute
+    (O(log n)). *)
+Definition aextra (h : option label) (s : nat) : kseq target :=
   match aget (label_key h) esa with
-  | Some (Entry _ tsa _ _) => map (tunshift wa) (skipn s (klist tsa))
-  | None => []
+  | Some (Entry _ tsa _ _) => klift wa (kdrop tsa s)
+  | None => KNil
   end.
 
 (** [a]'s entry for [h] with its first [n] inputs dropped, absolute. *)
 Definition adrop (h : option label) (n : nat) : option entry :=
   match aget (label_key h) esa with
   | Some (Entry _ tsa lena pa) =>
-      let p := dval wa (label_key h) + pa in
-      if Nat.ltb n lena
-      then Some (Entry h (kof_list (map (tunshift wa) (skipn n (klist tsa)))) (lena - n) p)
-      else Some (Entry h KNil 0 (p + (n - lena)))
+      Some (Entry h (klift wa (kdrop tsa n)) (lena - n) (dval wa (label_key h) + pa + (n - lena)))
   | None => None
   end.
 
@@ -121,7 +119,7 @@ Definition ecomp (h : option label) (ts1 : kseq target) (len s : nat) : entry :=
   if Nat.leb (thv h) s
   then estrip h ts1 len (s - thv h + tauv h)
   else let ex := aextra h s in
-       estrip h (kof_list (klist ts1 ++ ex)) (len + length ex) (tauv h).
+       estrip h (kapp (klist ts1) ex) (len + klength ex) (tauv h).
 
 (** ** Putting the result in normal form *)
 
@@ -514,10 +512,26 @@ Proof.
   - unfold lapp; cbn [length]; destruct (Nat.ltb_spec j 0); [lia|]; f_equal; f_equal; unfold dval; lia.
 Qed.
 
-Lemma aextra_alist h s : aextra h s = skipn s (alist h).
+Lemma aextra_spec h s : kgood (aextra h s) /\ klist (aextra h s) = skipn s (alist h).
 Proof.
-  unfold aextra, alist; destruct (aget (label_key h) esa) as [[]|]; [|destruct s]; try reflexivity.
-  rewrite skipn_map; reflexivity.
+  unfold aextra, alist; destruct (aget (label_key h) esa) as [[h' tsa len p]|] eqn:E;
+    [|split; [apply kgood_nil|destruct s; reflexivity]].
+  destruct (esa_ok _ _ E) as [_ [G _]]; destruct (kgood_kdrop tsa s G) as [G' E'].
+  split; [apply kgood_klift, G'|].
+  rewrite klist_klift, E', skipn_map by apply (kgood_inv _ G'); reflexivity.
+Qed.
+
+(** The targets of an entry, then [a]'s from [s] on. *)
+Lemma ecat_good h ts1 s :
+  kgood ts1 ->
+  kgood (kapp (klist ts1) (aextra h s))
+  /\ klist (kapp (klist ts1) (aextra h s)) = klist ts1 ++ skipn s (alist h)
+  /\ klength (kapp (klist ts1) (aextra h s)) = klength ts1 + klength (aextra h s).
+Proof.
+  intros G; destruct (aextra_spec h s) as [Gx Ex].
+  destruct (kgood_kapp (klist ts1) (aextra h s) (kgood_targets_ok _ G) Gx) as [G2 E2].
+  split; [exact G2|split; [rewrite E2, Ex; reflexivity|]].
+  rewrite !klength_spec, E2, length_app by (apply kgood_shape; assumption); reflexivity.
 Qed.
 
 (** The composite of one entry: its mapped targets, then where [a] sends
@@ -536,25 +550,17 @@ Proof.
     rewrite Hm; unfold lapp; rewrite <- HL.
     destruct (Nat.ltb_spec i (klength ts1)); [reflexivity|].
     rewrite napply_a_shift by lia; f_equal; f_equal; lia.
-  - set (ex := aextra h s).
-    assert (Hex : ex = skipn s (alist h)) by apply aextra_alist.
-    assert (Hlex : length ex = thv h - s) by (rewrite Hex, length_skipn, length_alist; reflexivity).
-    assert (Hok : forall t, In t (klist ts1 ++ ex) -> eok t).
-    { intros t Ht; apply in_app_or in Ht as [Ht|Ht]; [apply (kgood_targets_ok _ G _ Ht)|].
-      rewrite Hex in Ht; apply (alist_ok h).
-      rewrite <- (firstn_skipn s (alist h)); apply in_or_app; right; exact Ht. }
-    destruct (kof_list_good (klist ts1 ++ ex) Hok) as [G2 [E2 L2]].
-    assert (Hlen : klength ts1 + length ex = klength (kof_list (klist ts1 ++ ex)))
-      by (rewrite L2, length_app, HL; reflexivity).
-    rewrite Hlen; destruct (estrip_spec h _ (tauv h) G2) as [Hg Hm]; split; [exact Hg|intro i].
+  - destruct (ecat_good h ts1 s G) as [G2 [E2 L2]]; rewrite <- L2.
+    assert (Hlex : length (skipn s (alist h)) = thv h - s) by (rewrite length_skipn, length_alist; reflexivity).
+    destruct (estrip_spec h _ (tauv h) G2) as [Hg Hm]; split; [exact Hg|intro i].
     rewrite Hm, E2; unfold lapp; rewrite length_app, <- HL.
     destruct (Nat.ltb_spec i (klength ts1)) as [Hi|Hi].
-    + destruct (Nat.ltb_spec i (klength ts1 + length ex)); [|lia].
+    + destruct (Nat.ltb_spec i (klength ts1 + length (skipn s (alist h)))); [|lia].
       rewrite nth_error_app1 by lia; reflexivity.
     + rewrite napply_a_lapp; unfold lapp; rewrite length_alist.
-      destruct (Nat.ltb_spec i (klength ts1 + length ex)), (Nat.ltb_spec (s + (i - klength ts1)) (thv h));
+      destruct (Nat.ltb_spec i (klength ts1 + length (skipn s (alist h)))), (Nat.ltb_spec (s + (i - klength ts1)) (thv h));
         try lia.
-      * rewrite nth_error_app2 by lia; rewrite <- HL, Hex, nth_error_skipn.
+      * rewrite nth_error_app2 by lia; rewrite <- HL, nth_error_skipn.
         destruct (nth_error (alist h) _) eqn:En; [reflexivity|apply nth_error_None in En; rewrite length_alist in En; lia].
       * f_equal; f_equal; lia.
 Qed.
@@ -562,41 +568,36 @@ Qed.
 (** An entry of [a] with its first [n] inputs dropped. *)
 Theorem adrop_spec h n e :
   adrop h n = Some e ->
-  entry_good h e /\ forall i, eabs e i = napply a (mk_rvar h (n + i)).
+  entry_good h e /\ klist (etargets e) = skipn n (alist h)
+  /\ forall i, eabs e i = napply a (mk_rvar h (n + i)).
 Proof.
   unfold adrop; destruct (aget (label_key h) esa) as [[h' tsa lena pa]|] eqn:E; [|discriminate].
-  destruct (esa_ok _ _ E) as [Hk [G [Hl [_ Hs]]]]; apply label_key_inj in Hk; subst h'.
+  intros [= <-]; destruct (esa_ok _ _ E) as [Hk [G [Hl [_ Hs]]]]; apply label_key_inj in Hk; subst h'.
   assert (HL : length (klist tsa) = lena) by (rewrite <- Hl; symmetry; apply klength_spec, kgood_shape, G).
   assert (Hal : alist h = map (tunshift wa) (klist tsa)) by (unfold alist; rewrite E; reflexivity).
   assert (Hta : tauv h = dval wa (label_key h) + pa) by (unfold tauv, dval; rewrite cget_tau, E; reflexivity).
-  destruct (Nat.ltb_spec n lena) as [Hn|Hn]; intros [= <-].
-  - set (L := map (tunshift wa) (skipn n (klist tsa))).
-    assert (Hok : forall t, In t L -> eok t).
-    { intros t Ht; apply (alist_ok h); rewrite Hal; unfold L in Ht; rewrite <- skipn_map in Ht.
-      rewrite <- (firstn_skipn n (map (tunshift wa) (klist tsa))); apply in_or_app; right; exact Ht. }
-    destruct (kof_list_good L Hok) as [G2 [E2 L2]].
-    assert (HLL : length L = lena - n) by (unfold L; rewrite length_map, length_skipn, HL; reflexivity).
-    split.
-    + split; [reflexivity|split; [exact G2|split; [rewrite L2; exact HLL|]]].
-      cbn [strip_ok]; intros [Hlen [Hp Hlast]]; apply Hs; split; [lia|].
-      rewrite knth_spec in Hlast by apply (kgood_shape _ G2); rewrite E2 in Hlast.
-      unfold L in Hlast; rewrite nth_error_map, nth_error_skipn in Hlast.
-      rewrite knth_spec by apply (kgood_shape _ G).
-      replace (n + pred (lena - n)) with (pred lena) in Hlast by lia.
-      destruct (nth_error (klist tsa) (pred lena)) as [[y j|u [r es]]|]; cbn in Hlast; try discriminate.
-      injection Hlast as -> Hj; unfold dval in Hj, Hp.
-      destruct pa as [|pa']; [cbn in Hj; lia|split; [lia|f_equal; f_equal; cbn; lia]].
-    + intro i; cbn [eabs]; rewrite E2, napply_a_lapp, Hal; unfold lapp.
-      rewrite HLL, length_map, HL; unfold L; rewrite nth_error_map, nth_error_skipn, nth_error_map.
-      destruct (Nat.ltb_spec i (lena - n)), (Nat.ltb_spec (n + i) lena); try lia.
-      * destruct (nth_error (klist tsa) (n + i)) eqn:En; [reflexivity|].
-        apply nth_error_None in En; lia.
-      * rewrite Hta; f_equal; f_equal; lia.
-  - split.
-    + split; [reflexivity|split; [apply kgood_nil|split; [reflexivity|cbn; lia]]].
-    + intro i; cbn [eabs klist]; rewrite napply_a_lapp, Hal; unfold lapp.
-      rewrite length_map, HL; cbn [length]; destruct (Nat.ltb_spec i 0); [lia|].
-      destruct (Nat.ltb_spec (n + i) lena); [lia|]; rewrite Hta; f_equal; f_equal; lia.
+  destruct (kgood_kdrop tsa n G) as [G1 E1].
+  assert (G2 : kgood (klift wa (kdrop tsa n))) by apply kgood_klift, G1.
+  assert (E2 : klist (klift wa (kdrop tsa n)) = skipn n (alist h))
+    by (rewrite klist_klift, E1, Hal, skipn_map by apply (kgood_inv _ G1); reflexivity).
+  assert (HLL : klength (klift wa (kdrop tsa n)) = lena - n)
+    by (rewrite klength_spec, E2, length_skipn, Hal, length_map, HL by apply (kgood_shape _ G2); reflexivity).
+  split; [|split; [exact E2|]].
+  - split; [reflexivity|split; [exact G2|split; [exact HLL|]]].
+    cbn [strip_ok]; intros [Hlen [Hp Hlast]]; apply Hs; split; [lia|].
+    replace (n - lena) with 0 in Hp, Hlast by lia; rewrite Nat.add_0_r in Hp, Hlast.
+    rewrite knth_spec, E2, Hal, nth_error_skipn, nth_error_map in Hlast by apply (kgood_shape _ G2).
+    rewrite knth_spec by apply (kgood_shape _ G).
+    replace (n + pred (lena - n)) with (pred lena) in Hlast by lia.
+    destruct (nth_error (klist tsa) (pred lena)) as [[y j|u [r es]]|]; cbn in Hlast; try discriminate.
+    injection Hlast as -> Hj; unfold dval in Hj, Hp.
+    destruct pa as [|pa']; [cbn in Hj; lia|split; [lia|f_equal; f_equal; cbn; lia]].
+  - intro i; cbn [eabs]; rewrite E2, napply_a_lapp; unfold lapp.
+    rewrite length_skipn, Hal, nth_error_skipn, length_map, HL.
+    destruct (Nat.ltb_spec i (lena - n)), (Nat.ltb_spec (n + i) lena); try lia.
+    + destruct (nth_error _ (n + i)) eqn:En; [reflexivity|].
+      apply nth_error_None in En; rewrite length_map in En; lia.
+    + rewrite Hta; f_equal; f_equal; lia.
 Qed.
 
 (** ** Proofs: the steps of [finish] *)
@@ -893,7 +894,7 @@ Proof.
   - destruct (skipN pay k); [discriminate|].
     destruct (aget k esa) as [ea|] eqn:Ea; [|discriminate].
     pose proof (esa_key _ _ Ea) as Hk.
-    destruct (adrop_spec _ _ _ E) as [Hgood Hm].
+    destruct (adrop_spec _ _ _ E) as [Hgood [_ Hm]].
     assert (He : elabel e = elabel ea) by (destruct e; destruct Hgood as [-> _]; reflexivity).
     split; [rewrite He; exact Hk|split; [rewrite He; exact Hgood|]].
     intro i; unfold cf; rewrite He, <- Hk, E0, Hm, Hk; reflexivity.
@@ -999,8 +1000,7 @@ Proof.
   { intros E1; rewrite Hg1 in E1; destruct (aget kh es) as [e0|] eqn:E0; [discriminate|].
     unfold kh in E1; rewrite Hh in E1; fold kh in E1.
     destruct (aget kh esa) as [ea|] eqn:Ea.
-    - exfalso; unfold adrop in E1; rewrite <- (esa_key _ _ Ea), Ea in E1; destruct ea as [h1 tsa lena pa].
-      destruct (Nat.ltb _ _); discriminate.
+    - exfalso; unfold adrop in E1; rewrite <- (esa_key _ _ Ea), Ea in E1; destruct ea as [h1 tsa lena pa]; discriminate.
     - split; [reflexivity|split; [reflexivity|]].
       unfold cf; fold kh; rewrite E0, napply_a_lapp.
       unfold alist, lapp; fold kh; rewrite Ea; cbn [length Nat.ltb].
@@ -1087,18 +1087,13 @@ Proof. unfold wa; destruct a as [w es']; destruct Ha as [_ [_ [Hk _]]]; exact Hk
 
 Lemma keyed_adrop h n e : adrop h n = Some e -> keyed (uses e).
 Proof.
-  intros E; pose proof (adrop_spec h n e E) as [Hg _].
+  intros E; pose proof (adrop_spec h n e E) as [Hg [Et _]].
   unfold adrop in E; destruct (aget (label_key h) esa) as [[h' tsa lena pa]|] eqn:Ea; [|discriminate].
-  destruct (Nat.ltb n lena); injection E as <-; destruct Hg as [_ [G _]]; apply keyed_entry; try exact G.
-  - intros t Ht; set (L := map (tunshift wa) (skipn n (klist tsa))) in *.
-    assert (HokL : forall t, In t L -> eok t).
-    { intros t' Ht'; apply (alist_ok h); unfold alist; rewrite Ea; unfold L in Ht'; rewrite <- skipn_map in Ht'.
-      rewrite <- (firstn_skipn n (map (tunshift wa) (klist tsa))); apply in_or_app; right; exact Ht'. }
-    rewrite (proj1 (proj2 (kof_list_good L HokL))) in Ht.
-    apply in_map_iff in Ht as [t0 [<- Ht0]].
-    apply (HkA _ _ Ea); cbn [etargets].
-    rewrite <- (firstn_skipn n (klist tsa)); apply in_or_app; right; exact Ht0.
-  - intros t [].
+  injection E as <-; destruct Hg as [_ [G _]]; apply keyed_entry; [exact G|].
+  intros t Ht; cbn [etargets] in Et; rewrite Et in Ht; unfold alist in Ht; rewrite Ea in Ht.
+  rewrite skipn_map in Ht; apply in_map_iff in Ht as [t0 [<- Ht0]].
+  apply (HkA _ _ Ea); cbn [etargets].
+  rewrite <- (firstn_skipn n (klist tsa)); apply in_or_app; right; exact Ht0.
 Qed.
 
 Lemma keyed_es1 k e : aget k es1 = Some e -> keyed (uses e).
@@ -1224,8 +1219,7 @@ Proof.
     assert (Ea : aget k esa = None).
     { rewrite Hg1 in E1; destruct (aget k es); [discriminate|]; rewrite Sk in E1.
       destruct (aget k esa) as [ea|] eqn:Ea; [exfalso|reflexivity].
-      unfold adrop in E1; rewrite <- (esa_key _ _ Ea), Ea in E1; destruct ea as [h1 tsa lena pa].
-      destruct (Nat.ltb _ _); discriminate. }
+      unfold adrop in E1; rewrite <- (esa_key _ _ Ea), Ea in E1; destruct ea as [h1 tsa lena pa]; discriminate. }
     assert (HJ : cget (jstarts pay W) k = Some (dval Istart k))
       by (rewrite cget_jstarts, Sk, Ea; unfold Istart, dval; rewrite cget_ctotal; reflexivity).
     unfold R in Hlt; unfold dval at 1 in Hlt; rewrite cget_cmin, HJ in Hlt; rewrite HJ.
@@ -1379,8 +1373,7 @@ Proof.
     + destruct (aget (label_key l) esa) as [ea|] eqn:Ea; [|unfold Istart in HJ; rewrite cget_ctotal in HJ; discriminate].
       assert (E1 : exists e1, aget (label_key l) es1 = Some e1).
       { rewrite Hg1; destruct (aget (label_key l) es) as [e0|]; [eauto|]; rewrite Sk, Ea.
-        unfold adrop; rewrite <- (esa_key _ _ Ea), Ea; destruct ea as [h1 tsa lena pa].
-        destruct (Nat.ltb _ _); eauto. }
+        unfold adrop; rewrite <- (esa_key _ _ Ea), Ea; destruct ea as [h1 tsa lena pa]; eauto. }
       destruct E1 as [e1 E1]; destruct (U_some _ _ E1) as [u ->]; destruct (cget (jstarts pay W) _); discriminate.
   - intros l Hl; unfold Qof in Hl; destruct (Bool.bool_dec pay true) as [Hp|Hp];
       [rewrite Hp in Hl|apply Bool.not_true_iff_false in Hp; rewrite Hp in Hl; discriminate].
@@ -1687,39 +1680,23 @@ Proof.
   pose proof (tauv_ge h) as Htv.
   unfold ecomp; destruct (Nat.leb_spec (thv h) s).
   - apply estrip_ge; [exact G|]; apply (cle_entry_iff wa h ts1 _ _ G); split; [apply cle_wa_cone; lia|exact Ht].
-  - set (ex := aextra h s).
-    assert (Hex : ex = skipn s (alist h)) by apply aextra_alist.
-    assert (Hok : forall t, In t (klist ts1 ++ ex) -> eok t).
-    { intros t Ht'; apply in_app_or in Ht' as [Ht'|Ht']; [apply (kgood_targets_ok _ G _ Ht')|].
-      rewrite Hex in Ht'; apply (alist_ok h).
-      rewrite <- (firstn_skipn s (alist h)); apply in_or_app; right; exact Ht'. }
-    destruct (kof_list_good (klist ts1 ++ ex) Hok) as [G2 [E2 L2]].
-    assert (Hlen : klength ts1 + length ex = klength (kof_list (klist ts1 ++ ex)))
-      by (rewrite L2, length_app, HL; reflexivity).
-    rewrite Hlen; apply estrip_ge; [exact G2|].
+  - destruct (ecat_good h ts1 s G) as [G2 [E2 L2]]; rewrite <- L2.
+    apply estrip_ge; [exact G2|].
     apply (cle_entry_iff wa h _ _ _ G2); rewrite E2; split; [apply cle_wa_cone; exact Htv|].
     intros t Ht'; apply in_app_or in Ht' as [Ht'|Ht']; [apply Ht, Ht'|].
-    rewrite Hex in Ht'; apply (alist_ge h).
+    apply (alist_ge h).
     rewrite <- (firstn_skipn s (alist h)); apply in_or_app; right; exact Ht'.
 Qed.
 
 Lemma adrop_ge h n e : adrop h n = Some e -> cle wa (uses e).
 Proof.
-  intros E; pose proof (adrop_spec h n e E) as [Hg _].
+  intros E; pose proof (adrop_spec h n e E) as [Hg [Et _]].
   unfold adrop in E; destruct (aget (label_key h) esa) as [[h' tsa lena pa]|] eqn:Ea; [|discriminate].
   destruct (esa_ok _ _ Ea) as [Hk _]; apply label_key_inj in Hk; subst h'.
-  assert (Hal : alist h = map (tunshift wa) (klist tsa)) by (unfold alist; rewrite Ea; reflexivity).
-  assert (Hp : dval wa (label_key h) <= dval wa (label_key h) + pa) by lia.
-  destruct (Nat.ltb n lena); injection E as <-; destruct Hg as [_ [G _]];
-    apply (cle_entry_iff wa h _ _ _ G); split; try (apply cle_wa_cone; lia).
-  - set (L := map (tunshift wa) (skipn n (klist tsa))) in *.
-    assert (HokL : forall t, In t L -> eok t).
-    { intros t' Ht'; apply (alist_ok h); rewrite Hal; unfold L in Ht'; rewrite <- skipn_map in Ht'.
-      rewrite <- (firstn_skipn n (map (tunshift wa) (klist tsa))); apply in_or_app; right; exact Ht'. }
-    rewrite (proj1 (proj2 (kof_list_good L HokL))); intros t Ht; apply (alist_ge h).
-    rewrite Hal; unfold L in Ht; rewrite <- skipn_map in Ht.
-    rewrite <- (firstn_skipn n (map (tunshift wa) (klist tsa))); apply in_or_app; right; exact Ht.
-  - intros t [].
+  injection E as <-; destruct Hg as [_ [G _]].
+  apply (cle_entry_iff wa h _ _ _ G); split; [apply cle_wa_cone; lia|].
+  cbn [etargets] in Et; rewrite Et; intros t Ht; apply (alist_ge h).
+  rewrite <- (firstn_skipn n (alist h)); apply in_or_app; right; exact Ht.
 Qed.
 
 Lemma rstrip_sub h R0 q R1 q1 : rstrip h R0 q = (R1, q1) -> forall x, In x R1 -> In x R0.
@@ -1753,18 +1730,10 @@ Proof.
   intros G; assert (HL : klength ts1 = length (klist ts1)) by apply klength_spec, kgood_shape, G.
   unfold ecomp; destruct (Nat.leb (thv h) s).
   - intros Ht; left; apply (estrip_targets h ts1 _ t G Ht).
-  - set (ex := aextra h s).
-    assert (Hex : ex = skipn s (alist h)) by apply aextra_alist.
-    assert (Hok : forall t, In t (klist ts1 ++ ex) -> eok t).
-    { intros t' Ht'; apply in_app_or in Ht' as [Ht'|Ht']; [apply (kgood_targets_ok _ G _ Ht')|].
-      rewrite Hex in Ht'; apply (alist_ok h).
-      rewrite <- (firstn_skipn s (alist h)); apply in_or_app; right; exact Ht'. }
-    destruct (kof_list_good (klist ts1 ++ ex) Hok) as [G2 [E2 L2]].
-    assert (Hlen : klength ts1 + length ex = klength (kof_list (klist ts1 ++ ex)))
-      by (rewrite L2, length_app, HL; reflexivity).
-    rewrite Hlen; intros Ht; apply (estrip_targets h _ _ t G2) in Ht; rewrite E2 in Ht.
+  - destruct (ecat_good h ts1 s G) as [G2 [E2 L2]]; rewrite <- L2.
+    intros Ht; apply (estrip_targets h _ _ t G2) in Ht; rewrite E2 in Ht.
     apply in_app_or in Ht as [Ht|Ht]; [left; exact Ht|right].
-    rewrite Hex in Ht; rewrite <- (firstn_skipn s (alist h)); apply in_or_app; right; exact Ht.
+    rewrite <- (firstn_skipn s (alist h)); apply in_or_app; right; exact Ht.
 Qed.
 
 (** ** Upper bounds on composite uses *)
@@ -1778,16 +1747,8 @@ Proof.
   intros G; assert (HL : klength ts1 = length (klist ts1)) by apply klength_spec, kgood_shape, G.
   unfold ecomp; destruct (Nat.leb_spec (thv h) s) as [Hs|Hs].
   - exists ts1, (s - thv h + tauv h); split; [exact G|split; [reflexivity|split; [auto|auto]]].
-  - set (ex := aextra h s).
-    assert (Hex : ex = skipn s (alist h)) by apply aextra_alist.
-    assert (Hok : forall t, In t (klist ts1 ++ ex) -> eok t).
-    { intros t' Ht'; apply in_app_or in Ht' as [Ht'|Ht']; [apply (kgood_targets_ok _ G _ Ht')|].
-      rewrite Hex in Ht'; apply (alist_ok h).
-      rewrite <- (firstn_skipn s (alist h)); apply in_or_app; right; exact Ht'. }
-    destruct (kof_list_good (klist ts1 ++ ex) Hok) as [G2 [E2 L2]].
-    assert (Hlen : klength ts1 + length ex = klength (kof_list (klist ts1 ++ ex)))
-      by (rewrite L2, length_app, HL; reflexivity).
-    exists (kof_list (klist ts1 ++ ex)), (tauv h); split; [exact G2|split; [rewrite Hlen; reflexivity|split]].
+  - destruct (ecat_good h ts1 s G) as [G2 [E2 L2]].
+    exists (kapp (klist ts1) (aextra h s)), (tauv h); split; [exact G2|split; [rewrite L2; reflexivity|split]].
     + intros t Ht; rewrite E2; apply in_or_app; left; exact Ht.
     + intros H; lia.
 Qed.
