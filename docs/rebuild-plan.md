@@ -315,3 +315,71 @@ version can repeat an expensive merge.
 6. Composition and restriction.
 7. Port `Adjustment`, `Laws`, `Scoped`, `Indexed`, `Subst`, the λ example and
    extraction; delete the slot core, back-links and `Braun.v`.
+
+## Stage 6 (design): pruned eager composition
+
+Stages 1–5 are done (`Counts`, `Skew`, `ATrie`, `Repr`, `Point`), with no
+admits: identity, weaken, extend and lift each have a meaning theorem and
+keep the normal form; lookup is `napply`.
+
+### `a` as a pure shift above thresholds
+
+Write `a`'s entry for `y` as `(len_y, p_y)` over root `w` (no entry:
+`(0, 0)`). For an absolute input `y_j` with `j ≥ θ_y := len_y`,
+`a(y_j) = y_(j − θ_y + τ_y)` where `τ_y := w_y + p_y`. So `a` acts on
+everything at or above the thresholds `θ` as `unshift τ ∘ shift θ`, two
+count maps. `θ` has exceptions only at labels whose entry has targets.
+
+### The traversal
+
+`a ∘ b` recurses structurally over `b`: the label trie, each entry's skew
+sequence, and payloads (no fuel), carrying
+
+- the absolute base of the current node, and
+- the **blocking map**: `θ` restricted to the labels whose minimum use below
+  the node is under its threshold.
+
+At each node the blocking map is filtered by the node's counts. Counts only
+grow downwards, so a label leaves the blocking map at most once per path.
+When the map is empty, the node is **moved**: its absolute counts become
+`M − θ + τ`, and nothing below it is visited. Otherwise leaves are looked up
+in `a`, payloads become `(u, restrict (a ∘ ρ))`, and node counts are
+recomputed bottom-up with the smart constructors. Mapped subtrees come back
+relative to base 0, and the parent rebases them.
+
+Per label `h`:
+
+- **Entry in `b`.** Map its targets. Its pass-through starts at absolute
+  `s = B_h + p`:
+  - if `s ≥ θ_h`, the composite pass-through is `s − θ_h + τ_h`;
+  - otherwise `a`'s targets `s … θ_h − 1` are appended. That rebuilds `h`'s
+    sequence, and the pass-through becomes `τ_h`.
+
+  If the last composite target is now where pass-through would send it, the
+  entry is stripped (check O(log n); rebuild only when it fires). A pure
+  shift is injective, so moved parts never create a new strip.
+- **Entry only in `a`.** `a`'s entry with its first `W_h` targets dropped
+  (skew drop, O(log n)).
+- **Neither.** The identity, relative to `τ + W`. As in `lower`, where the
+  new root drops below that, a gap entry is added.
+
+### Costs
+
+- `|blocking| · |y|` per visited node;
+- one lookup in `a` per visited leaf;
+- a rebuild of `h`'s sequence only for labels whose pass-through reaches
+  `a`'s targets;
+- O(log n) per entry of `a` (drops and merging into the trie).
+
+Composing with a weakening or a lift visits only the paths to uses below the
+thresholds.
+
+### Order of work
+
+1. `Skew.v`: the pruned map over skew sequences (smart constructors with
+   absolute children, the blocking filter, and the spec
+   `klist (map) = map F (klist s)` under a pruning-soundness hypothesis).
+   Also drop and snoc-by-rebuild.
+2. `ATrie.v`: the pruned map and merge over the label trie.
+3. `Compose.v`: composition, `restrict`, the recursive normal form, and the
+   meaning and canonicity theorems.
