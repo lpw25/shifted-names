@@ -920,17 +920,6 @@ Qed.
 
 (** ** Keyed count maps *)
 
-Lemma fresh_label_list {A} (ms : list (tree A)) :
-  exists l, forall m, In m ms -> get (label_key l) m = None.
-Proof.
-  set (n := S (fold_right (fun m acc => tdepth m + acc) 0 ms)).
-  assert (Hlen : String.length (long_label n) = n) by (induction n; cbn; congruence).
-  exists (Some (long_label n)); intros m Hm; apply get_deep; cbn [label_key Pos.size_nat].
-  rewrite size_string_key, Hlen.
-  assert (tdepth m <= fold_right (fun m acc => tdepth m + acc) 0 ms).
-  { clear -Hm; induction ms as [|m' ms IH]; [destruct Hm|cbn; destruct Hm as [->|Hm]; [lia|specialize (IH Hm); lia]]. }
-  unfold n; lia.
-Qed.
 
 (** A count map that is the minimum over elements with keyed uses is keyed. *)
 Lemma keyed_lmin {X} {BX : Based X} (L : list X) c :
@@ -941,7 +930,8 @@ Proof.
   { intro Hn.
     assert (Hnot : forall e, In e L -> get k (c_exc (uses e)) = None)
       by (intros e He; destruct (get k (c_exc (uses e))) as [v'|] eqn:G; [exfalso; apply Hn, (HL e He k v' G)|reflexivity]).
-    destruct (fresh_label_list (c_exc c :: map (fun e => c_exc (uses e)) L)) as [l' Hl'].
+    destruct (fresh_label_list (c_exc c :: map (fun e => c_exc (uses e)) L)) as [s0 Hl'].
+    remember (Some s0) as l' eqn:El'.
     assert (Hc' : get (label_key l') (c_exc c) = None) by (apply Hl'; left; reflexivity).
     assert (Hl2 : forall e, In e L -> get (label_key l') (c_exc (uses e)) = None)
       by (intros e He; apply Hl'; right; apply (in_map (fun e => c_exc (uses e)) L e He)).
@@ -993,10 +983,6 @@ Proof.
     intro i; unfold cf; rewrite He, <- Hk, E0, Hm, Hk; reflexivity.
 Qed.
 
-(** Which labels' inputs matter: all of them at the top, the named ones in
-    a payload. *)
-Definition Qnamed : option label -> bool := fun l => match l with Some _ => true | None => false end.
-Definition Qof (pay : bool) : option label -> bool := if pay then Qnamed else Qall.
 
 Section Finish.
 

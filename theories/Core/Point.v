@@ -17,8 +17,6 @@ Local Notation result := (@result T).
 Local Notation entry := (@entry T).
 Local Notation target := (@target T).
 
-(** Every label matters at the top level. *)
-Definition Qall : option label -> bool := fun _ => true.
 
 (** ** Identity *)
 

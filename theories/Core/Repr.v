@@ -215,6 +215,12 @@ Definition nlocal (Q : option label -> bool) (a : nadj) : Prop :=
                     \/ (cget w (label_key l) <> None /\ cget (aann es) (label_key l) = Some 0))
   end.
 
+(** Which labels' inputs matter: all of them at the top level, the named
+    ones in a payload. *)
+Definition Qall : option label -> bool := fun _ => true.
+Definition Qnamed : option label -> bool := fun l => match l with Some _ => true | None => false end.
+Definition Qof (pay : bool) : option label -> bool := if pay then Qnamed else Qall.
+
 (** ** Canonicity *)
 
 Section Canonical.
@@ -526,6 +532,19 @@ Proof.
   assert (Hlen : String.length (long_label n) = n) by (induction n; cbn; congruence).
   exists (Some (long_label n)); split; apply get_deep; cbn [label_key Pos.size_nat];
     rewrite size_string_key, Hlen; unfold n; lia.
+Qed.
+
+(** A named label outside any finite set of tries. *)
+Lemma fresh_label_list {A} (ms : list (tree A)) :
+  exists s, forall m, In m ms -> get (label_key (Some s)) m = None.
+Proof.
+  set (n := S (fold_right (fun m acc => tdepth m + acc) 0 ms)).
+  assert (Hlen : String.length (long_label n) = n) by (induction n; cbn; congruence).
+  exists (long_label n); intros m Hm; apply get_deep; cbn [label_key Pos.size_nat].
+  rewrite size_string_key, Hlen.
+  assert (tdepth m <= fold_right (fun m acc => tdepth m + acc) 0 ms).
+  { clear -Hm; induction ms as [|m' ms IH]; [destruct Hm|cbn; destruct Hm as [->|Hm]; [lia|specialize (IH Hm); lia]]. }
+  unfold n; lia.
 Qed.
 
 (** *** Canonicity *)
