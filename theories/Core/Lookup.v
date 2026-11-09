@@ -133,23 +133,23 @@ End KnthWith.
     element made absolute. *)
 
 Lemma aget_with'_some k0 t0 B0 found none y (Rv : R)
-  (Hf : forall B x p q, unshift B x = y -> found B x p q = Rv) (Y : option_map (unshift B0) (aget k0 t0) = Some y) :
-  forall t k B I H, option_map (unshift B) (aget k t) = option_map (unshift B0) (aget k0 t0) ->
+  (Hf : forall B x p q, unshift B x = y -> eok x -> found B x p q = Rv) (Y : option_map (unshift B0) (aget k0 t0) = Some y) :
+  forall t k B I H, ainv t -> option_map (unshift B) (aget k t) = option_map (unshift B0) (aget k0 t0) ->
   aget_with' k0 t0 B0 found none k t B I H = Rv.
 Proof.
-  induction t as [|a l IHl o r IHr]; intros k B I H E; cbn [aget_with'].
+  induction t as [|a l IHl o r IHr]; intros k B I H Ht E; cbn [aget_with'].
   - rewrite Y in E; discriminate.
-  - destruct k as [k|k|].
-    + apply IHr; rewrite <- E; cbn [aget]; rewrite omap_unshift2; reflexivity.
-    + apply IHl; rewrite <- E; cbn [aget]; rewrite omap_unshift2; reflexivity.
+  - destruct Ht as [_ [_ [_ [Ho [Hl Hr]]]]]; destruct k as [k|k|].
+    + apply IHr; [exact Hr|]; rewrite <- E; cbn [aget]; rewrite omap_unshift2; reflexivity.
+    + apply IHl; [exact Hl|]; rewrite <- E; cbn [aget]; rewrite omap_unshift2; reflexivity.
     + destruct o as [x|]; cbn in E; rewrite Y in E; [|discriminate].
-      apply Hf; injection E as <-; rewrite unshift_unshift; reflexivity.
+      apply Hf; [injection E as <-; rewrite unshift_unshift; reflexivity|exact Ho].
 Qed.
 
 Lemma aget_with_some k0 t0 B0 found none I y (Rv : R)
-  (Hf : forall B x p q, unshift B x = y -> found B x p q = Rv) :
-  option_map (unshift B0) (aget k0 t0) = Some y -> aget_with k0 t0 B0 found none I = Rv.
-Proof. intros Y; apply (aget_with'_some k0 t0 B0 found none y Rv Hf Y); reflexivity. Qed.
+  (Hf : forall B x p q, unshift B x = y -> eok x -> found B x p q = Rv) :
+  ainv t0 -> option_map (unshift B0) (aget k0 t0) = Some y -> aget_with k0 t0 B0 found none I = Rv.
+Proof. intros Ht Y; apply (aget_with'_some k0 t0 B0 found none y Rv Hf Y); [exact Ht|reflexivity]. Qed.
 
 Lemma aget_with_none k0 t0 B0 found none I (H : aget k0 t0 = None) :
   aget_with k0 t0 B0 found none I = none (squash H).
