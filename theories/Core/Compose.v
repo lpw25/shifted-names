@@ -873,6 +873,11 @@ Proof.
     intro i; unfold cf; rewrite He, <- Hk, E0, Hm, Hk; reflexivity.
 Qed.
 
+(** Which labels' inputs matter: all of them at the top, the named ones in
+    a payload. *)
+Definition Qnamed : option label -> bool := fun l => match l with Some _ => true | None => false end.
+Definition Qof (pay : bool) : option label -> bool := if pay then Qnamed else Qall.
+
 Section Finish.
 
 Variables (pay : bool) (W : counts) (es : atrie entry) (vis : list positive).
@@ -1296,6 +1301,92 @@ Proof.
   assert (dval R0 (label_key h) <= j)
     by (apply (dval_le_cle R0 (label_key h) j); exact Hct).
   split; [exact Hlen|split; [lia|f_equal; f_equal; lia]].
+Qed.
+
+Lemma lmin_none {X} {BX : Based X} (L : list X) k :
+  (forall e, In e L -> cget (uses e) k = None) -> lmin L k = None.
+Proof.
+  induction L as [|e L IH]; intros H; [reflexivity|].
+  unfold lmin; cbn [fold_right]; fold (lmin L k); rewrite H by (left; reflexivity).
+  rewrite IH by (intros; apply H; right; assumption); reflexivity.
+Qed.
+
+Lemma ann_es4 k u :
+  (aget k es3 <> None \/ aget k es1 = None) -> cget (aann es1) k = Some u -> cget R k = Some u ->
+  cget (aann (arebase R es3)) k = Some 0.
+Proof.
+  intros Hk Eu ER; destruct (witness k u Eu Hk) as [k' [e' [E' He']]].
+  assert (Hl : cget (aann es3) k = Some u).
+  { pose proof (HR k u) as H'; rewrite (ainv_ann es3 Hes3) in H' |- *.
+    destruct (lmin_le _ e' k u (aget_in _ _ _ E') He') as [n [En Hn]]; rewrite En.
+    specialize (H' n ER En); f_equal; lia. }
+  destruct es3 as [|c l o r] eqn:Ees3; [cbn in E'; discriminate|].
+  cbn [arebase aann] in Hl |- *; rewrite cget_csub, Hl, ER; cbn; f_equal; lia.
+Qed.
+
+Theorem nlocal_finish : nlocal (Qof pay) (finish pay W es vis).
+Proof.
+  rewrite finish_eq; cbn [nlocal].
+  assert (Hes4 : ainv (arebase R es3)) by (apply ainv_arebase; [exact Hes3|exact HR]).
+  assert (Hget4 : forall k, aget k (arebase R es3) = option_map (shift R) (aget k es3))
+    by (intro k; apply aget_arebase; [exact Hes3|exact HR]).
+  split; [exact Hes4|split; [apply cwf_cmap2|split; [exact keyed_R|split; [|split]]]].
+  - intros k e E; rewrite Hget4 in E.
+    destruct (aget k es3) as [e3|] eqn:E3; [|discriminate]; injection E as <-.
+    destruct (es3_good k e3 E3) as [Hk Hge].
+    pose proof (es3_nontrivial k e3 E3) as Hnt; pose proof (Hcle k e3 E3) as Hc.
+    split; [|split].
+    + destruct e3 as [h ts len p]; cbn [elabel elen epass] in *; destruct Hge as [_ [G [Hl Hs]]].
+      cbn [shift entry_based eshift entry_ok].
+      split; [symmetry; exact Hk|].
+      split; [apply kgood_krebase; [exact G|exact (cle_cmin_inv_r _ _ _ Hc)]|].
+      split; [rewrite <- Hl; destruct ts; reflexivity|].
+      split; [subst k; destruct Hnt as [Hn|Hn]; [left; exact Hn|right; lia]|].
+      apply (strip_shift R h ts len p G Hc Hs).
+    + unfold Qof; destruct (Bool.bool_dec pay true) as [Hp|Hp];
+        [rewrite Hp|apply Bool.not_true_iff_false in Hp; rewrite Hp; reflexivity].
+      pose proof (es3_not_skipped k e3 E3) as Sk; unfold skipN in Sk; rewrite Hk, Hp in Sk.
+      change (Qnamed (elabel (eshift R e3)) = true); replace (elabel (eshift R e3)) with (elabel e3) by (destruct e3; reflexivity).
+      destruct (elabel e3) as [s|]; [reflexivity|]; cbn [andb] in Sk; rewrite Pos.eqb_refl in Sk; discriminate.
+    + destruct (R_eq_U k ltac:(rewrite E3; discriminate)) as [u [Eu ER]].
+      apply (ann_es4 k u); [left; rewrite E3; discriminate|exact Eu|exact ER].
+  - intros l Hl; unfold R; rewrite cget_cmin.
+    destruct (J_cases (label_key l)) as [HJ|[HJ _]]; [|rewrite HJ; destruct (cget (aann es1) _); discriminate].
+    rewrite cget_jstarts in HJ; destruct (skipN pay (label_key l)) eqn:Sk.
+    + exfalso; unfold skipN in Sk; apply andb_prop in Sk as [Hp Hk]; apply Pos.eqb_eq, label_key_inj in Hk; subst l.
+      unfold Qof in Hl; rewrite Hp in Hl; discriminate.
+    + destruct (aget (label_key l) esa) as [ea|] eqn:Ea; [|unfold I in HJ; rewrite cget_ctotal in HJ; discriminate].
+      assert (E1 : exists e1, aget (label_key l) es1 = Some e1).
+      { rewrite Hg1; destruct (aget (label_key l) es) as [e0|]; [eauto|]; rewrite Sk, Ea.
+        unfold adrop; rewrite <- (esa_key _ _ Ea), Ea; destruct ea as [h1 tsa lena pa].
+        destruct (Nat.ltb _ _); eauto. }
+      destruct E1 as [e1 E1]; destruct (U_some _ _ E1) as [u ->]; destruct (cget (jstarts pay W) _); discriminate.
+  - intros l Hl; unfold Qof in Hl; destruct (Bool.bool_dec pay true) as [Hp|Hp];
+      [rewrite Hp in Hl|apply Bool.not_true_iff_false in Hp; rewrite Hp in Hl; discriminate].
+    destruct l as [s|]; [discriminate|].
+    set (kN := label_key None).
+    assert (Sk : skipN pay kN = true) by (unfold skipN; rewrite Hp, Pos.eqb_refl; reflexivity).
+    assert (HJ : cget (jstarts pay W) kN = None) by (rewrite cget_jstarts, Sk; reflexivity).
+    assert (E1 : aget kN es1 = None)
+      by (destruct (aget kN es1) as [e1|] eqn:E1; [rewrite (es1_not_skipped _ _ E1) in Sk; discriminate|reflexivity]).
+    assert (ER : cget R kN = cget (aann es1) kN) by (unfold R; rewrite cget_cmin, HJ; destruct (cget (aann es1) kN); reflexivity).
+    destruct (cget (aann es1) kN) as [u|] eqn:Eu.
+    + right; split; [rewrite ER; discriminate|].
+      apply (ann_es4 kN u); [right; exact E1|exact Eu|rewrite ER; reflexivity].
+    + left; split; [rewrite ER; reflexivity|].
+      assert (H3 : cget (aann es3) kN = None).
+      { rewrite (ainv_ann es3 Hes3); apply lmin_none; intros e He.
+        destruct (aelems_aget es3 e He) as [k E3].
+        destruct (Hsrc k e E3) as [E1'|[_ [_ Ag]]].
+        - destruct (cget (uses e) kN) as [m|] eqn:Em; [|reflexivity]; exfalso.
+          rewrite (ainv_ann es1 Hes1) in Eu.
+          destruct (lmin_le _ e kN m (aget_in _ _ _ E1') Em) as [n [En _]]; congruence.
+        - destruct (Hgap k e Ag) as [He' Hk]; rewrite He'; cbn [uses entry_based euses ksann].
+          rewrite cget_cmin, cget_cnone, cget_cone.
+          destruct (Pos.eqb_spec kN (label_key (elabel e))) as [Ek|]; [|destruct (Some 0); reflexivity].
+          exfalso; rewrite <- Ek in Hk; subst k; rewrite (es3_not_skipped _ _ E3) in Sk; discriminate. }
+      destruct es3 as [|c l o r] eqn:Ees3; [reflexivity|].
+      cbn [arebase aann] in H3 |- *; rewrite cget_csub, H3; reflexivity.
 Qed.
 
 End Finish.
