@@ -14,9 +14,9 @@
       [b]'s root counts;
     - the root counts are recomputed, from the trie's counts and the
       identity starts of the labels with no entry;
-    - an entry that has become the identity relative to the new root is
-      removed, and a label without an entry whose identity start is above
-      the new root gets a gap entry.
+    - a label without an entry whose identity start is above the new root
+      gets a gap entry, and then an entry that has become the identity
+      relative to the new root is removed (the two touch different keys).
 
     Only the entries the traversal visited, and the labels of [a], can need
     removing; only the labels [b]'s root weakens can need a gap. *)
@@ -166,9 +166,9 @@ Definition finish (W : counts) (es : atrie entry) (visited : list positive) : na
   let es1 := add_aonly W es in
   let R := cmin (aann es1) (jstarts W) in
   let keys_a := map (fun e => label_key (elabel e)) aentries in
-  let es2 := fold_left (drop_ident R) (visited ++ keys_a) es1 in
   let I := ctotal wa W in
-  let es3 := fold_left (add_gap_at I R) (map fst (elements (c_exc W))) es2 in
+  let es2 := fold_left (add_gap_at I R) (map fst (elements (c_exc W))) es1 in
+  let es3 := fold_left (drop_ident R) (visited ++ keys_a) es2 in
   NAdj R (arebase R es3).
 
 (** Payloads only care about named labels: drop the bound label. *)
@@ -721,6 +721,24 @@ Proof.
     rewrite E, Ag; reflexivity.
   - change (gapf I R k None) with (if Nat.ltb (dval R k) (dval I k) then agap k (dval I k) else None).
     rewrite E; reflexivity.
+Qed.
+
+(** Rebasing an absolute entry onto counts below its uses. *)
+Lemma eapply_eshift R h e i :
+  entry_good h e -> cle R (uses e) -> eapply R (eshift R e) i = eabs e i.
+Proof.
+  destruct e as [h' ts len p]; intros [-> [G [Hl _]]] Hle; cbn [eshift eapply eabs lapp].
+  pose proof (cle_cmin_inv_l _ _ _ Hle) as Hp; pose proof (cle_cmin_inv_r _ _ _ Hle) as Hts.
+  apply dval_le_cle in Hp.
+  assert (HL : length (klist ts) = len) by (rewrite <- Hl; symmetry; apply klength_spec, kgood_shape, G).
+  unfold lapp; rewrite HL; destruct (Nat.ltb_spec i len) as [Hi|Hi]; [|f_equal; f_equal; lia].
+  rewrite knth_spec by apply kshape_krebase, kgood_shape, G.
+  rewrite klist_krebase by (apply kgood_inv, G || exact Hts).
+  rewrite nth_error_map; destruct (nth_error (klist ts) i) as [t|] eqn:Et; cbn [option_map].
+  - f_equal; change (unshift R (shift R t) = t); apply unshift_shift.
+    + apply (kgood_targets_ok ts G), (nth_error_In _ _ Et).
+    + apply (cle_mem _ (ksann ts) (klist ts)); [exact Hts|intro k; apply ksann_klist, G|apply (nth_error_In _ _ Et)].
+  - apply nth_error_None in Et; lia.
 Qed.
 
 End Compose.
