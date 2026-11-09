@@ -381,6 +381,173 @@ Proof.
   symmetry; exact A.
 Qed.
 
+Lemma nth_map_error {A B} (f : A -> B) (K : list A) i x d :
+  nth_error K i = Some x -> nth i (map f K) d = f x.
+Proof. intros H; apply nth_error_nth, map_nth_error, H. Qed.
+
+(** Per label, an adjustment is explicit targets followed by pass-through. *)
+Lemma view w es l :
+  nlocal Q (NAdj w es) -> Q l = true ->
+  exists len P (L : list result),
+    length L = len
+    /\ (forall i, napply (NAdj w es) (mk_rvar l i)
+                  = if Nat.ltb i len then nth i L (inl (mk_rvar l 0))
+                    else inl (mk_rvar l (i - len + P)))
+    /\ ~ (0 < len /\ 0 < P /\ napply (NAdj w es) (mk_rvar l (pred len)) = inl (mk_rvar l (pred P)))
+    /\ match aget (label_key l) es with
+       | None => len = 0 /\ P = dval w (label_key l)
+       | Some e => elabel e = l /\ elen e = len /\ P = dval w (label_key l) + epass e
+                   /\ L = map (fun t => tresult (tunshift w t)) (klist (etargets e))
+       end.
+Proof.
+  intros Ha HQ; pose proof Ha as [Hes [_ [_ [Hent _]]]].
+  destruct (aget (label_key l) es) as [e|] eqn:E.
+  - destruct (Hent _ _ E) as [Hok _]; destruct e as [h ts len p].
+    destruct Hok as [Hk [Hg [Hlen [_ Hstrip]]]]; apply label_key_inj in Hk; subst h.
+    set (g := fun t => tresult (tunshift w t)).
+    assert (Hn : forall i, i < len -> exists t, knth ts i = Some t /\ nth_error (klist ts) i = Some t).
+    { intros i Hi; rewrite knth_spec by (apply kgood_shape, Hg).
+      destruct (nth_error (klist ts) i) as [t|] eqn:Ei; [eauto|].
+      apply nth_error_None in Ei; rewrite klength_klist in Ei by exact Hg; lia. }
+    exists len, (dval w (label_key l) + p), (map g (klist ts)).
+    split; [rewrite length_map, klength_klist by exact Hg; exact Hlen|split; [|split]].
+    + intros i; unfold napply; cbn [v_label v_index]; rewrite E; cbn [eapply].
+      destruct (Nat.ltb_spec i len) as [Hi|Hi].
+      * destruct (Hn i Hi) as [t [Et Ei]]; rewrite Et; symmetry; apply (nth_map_error g _ _ _ _ Ei).
+      * f_equal; f_equal; lia.
+    + intros [Hl0 [HP Hf]]; destruct (Hn (pred len) ltac:(lia)) as [t [Et _]].
+      unfold napply in Hf; cbn [v_label v_index] in Hf; rewrite E in Hf; cbn [eapply] in Hf.
+      rewrite (proj2 (Nat.ltb_lt _ _)) in Hf by lia; rewrite Et in Hf.
+      destruct t as [y j|u [r es']]; cbn in Hf; [|discriminate].
+      injection Hf as Hy Hj; subst y.
+      destruct p as [|p]; [lia|].
+      apply Hstrip; split; [exact Hl0|split; [lia|]]; rewrite Et; do 2 f_equal; cbn; lia.
+    + cbn; repeat split; reflexivity.
+  - exists 0, (dval w (label_key l)), []; split; [reflexivity|split; [|split]].
+    + intros i; unfold napply; cbn [v_label v_index]; rewrite E; cbn; f_equal; f_equal; lia.
+    + intros [H _]; lia.
+    + split; reflexivity.
+Qed.
+
+Lemma tresult_inj (t1 t2 : target) : tresult t1 = tresult t2 -> t1 = t2.
+Proof. destruct t1, t2; cbn; intros H; try discriminate; injection H; intros; subst; reflexivity. Qed.
+
+Lemma map_inj_ok {A B} (g : A -> B) (P : A -> Prop) l1 l2 :
+  (forall x y, P x -> P y -> g x = g y -> x = y) ->
+  (forall x, In x l1 -> P x) -> (forall x, In x l2 -> P x) -> map g l1 = map g l2 -> l1 = l2.
+Proof.
+  intros Hinj; revert l2; induction l1 as [|x l1 IH]; intros [|y l2] H1 H2 E; try discriminate; [reflexivity|].
+  injection E as Exy E; f_equal.
+  - apply Hinj; [apply H1|apply H2|exact Exy]; left; reflexivity.
+  - apply IH; [intros; apply H1; right; auto|intros; apply H2; right; auto|exact E].
+Qed.
+
+Lemma entry_label w es k e : nlocal Q (NAdj w es) -> aget k es = Some e -> k = label_key (elabel e).
+Proof.
+  intros [_ [_ [_ [Hent _]]]] He; destruct (Hent _ _ He) as [Hok _].
+  destruct e; destruct Hok as [Hk _]; symmetry; exact Hk.
+Qed.
+
+Lemma entry_nontrivial w es k e : nlocal Q (NAdj w es) -> aget k es = Some e -> 0 < elen e \/ 0 < epass e.
+Proof.
+  intros [_ [_ [_ [Hent _]]]] He; destruct (Hent _ _ He) as [Hok _].
+  destruct e; destruct Hok as [_ [_ [_ [H _]]]]; exact H.
+Qed.
+
+Lemma entry_q w es k e : nlocal Q (NAdj w es) -> aget k es = Some e -> Q (elabel e) = true.
+Proof. intros [_ [_ [_ [Hent _]]]] He; apply (Hent _ _ He). Qed.
+
+(** Each label's entry is determined by the meaning, given the root counts. *)
+Theorem entries_determined w es1 es2 :
+  nlocal Q (NAdj w es1) -> nlocal Q (NAdj w es2) ->
+  (forall v, Q (v_label v) = true -> napply (NAdj w es1) v = napply (NAdj w es2) v) ->
+  forall l, aget (label_key l) es1 = aget (label_key l) es2.
+Proof.
+  intros H1 H2 Heq l.
+  destruct (Q l) eqn:HQ.
+  - destruct (view w es1 l H1 HQ) as [len1 [P1 [L1 [HL1 [F1 [S1 V1]]]]]].
+    destruct (view w es2 l H2 HQ) as [len2 [P2 [L2 [HL2 [F2 [S2 V2]]]]]].
+    assert (Hf : forall i, napply (NAdj w es1) (mk_rvar l i) = napply (NAdj w es2) (mk_rvar l i))
+      by (intro i; apply Heq, HQ).
+    destruct (decomp_unique (fun i => napply (NAdj w es1) (mk_rvar l i)) l len1 P1 L1 len2 P2 L2
+                HL1 HL2 F1 (fun i => eq_trans (Hf i) (F2 i)) S1
+                (fun H => S2 ltac:(destruct H as [A [B C]]; split; [exact A|split; [exact B|]];
+                                     rewrite <- Hf; exact C)))
+      as [<- [<- <-]].
+    destruct (aget (label_key l) es1) as [e1|] eqn:E1, (aget (label_key l) es2) as [e2|] eqn:E2.
+    + destruct V1 as [Hl1 [Hn1 [Hp1 HL]]], V2 as [Hl2 [Hn2 [Hp2 HL']]]; f_equal.
+      assert (Hk1 := kgood_entry w es1 _ _ H1 E1); assert (Hk2 := kgood_entry w es2 _ _ H2 E2).
+      destruct e1 as [h1 ts1 n1 p1], e2 as [h2 ts2 n2 p2]; cbn [elabel elen epass etargets] in *.
+      subst h1 h2 n1 n2; assert (p1 = p2) as -> by lia.
+      f_equal; apply kcanonical; [apply Hk1|apply Hk2|].
+      apply (map_inj_ok (fun t => tresult (tunshift w t)) eok);
+        [|apply (kinv_ok ts1 (proj2 Hk1))|apply (kinv_ok ts2 (proj2 Hk2))|congruence].
+      intros x y Hx Hy E; apply tresult_inj in E; apply (unshift_inj w x y Hx Hy E).
+    + exfalso; destruct V1 as [_ [Hn1 [Hp1 _]]], V2 as [Hn2 Hp2].
+      destruct (entry_nontrivial w es1 _ _ H1 E1); lia.
+    + exfalso; destruct V2 as [_ [Hn2 [Hp2 _]]], V1 as [Hn1 Hp1].
+      destruct (entry_nontrivial w es2 _ _ H2 E2); lia.
+    + reflexivity.
+  - destruct (aget (label_key l) es1) as [e1|] eqn:E1.
+    + exfalso; pose proof (entry_label w es1 _ _ H1 E1) as K; apply label_key_inj in K; subst l.
+      rewrite (entry_q w es1 _ _ H1 E1) in HQ; discriminate.
+    + destruct (aget (label_key l) es2) as [e2|] eqn:E2; [|reflexivity].
+      exfalso; pose proof (entry_label w es2 _ _ H2 E2) as K; apply label_key_inj in K; subst l.
+      rewrite (entry_q w es2 _ _ H2 E2) in HQ; discriminate.
+Qed.
+
+(** *** A label whose key is outside any two tries *)
+
+Fixpoint long_label (n : nat) : String.string :=
+  match n with
+  | 0 => String.EmptyString
+  | S n => String.String (Ascii.Ascii false false false false false false false false) (long_label n)
+  end.
+
+Lemma size_push_ascii a p : Pos.size_nat (push_ascii a p) = 8 + Pos.size_nat p.
+Proof. destruct a as [[] [] [] [] [] [] [] []]; reflexivity. Qed.
+
+Lemma size_string_key s : Pos.size_nat (string_key s) = S (8 * String.length s).
+Proof.
+  induction s as [|a s IH]; [reflexivity|]; cbn [string_key String.length].
+  rewrite size_push_ascii, IH; lia.
+Qed.
+
+Lemma fresh_label {A B} (m1 : tree A) (m2 : tree B) :
+  exists l, get (label_key l) m1 = None /\ get (label_key l) m2 = None.
+Proof.
+  set (n := tdepth m1 + tdepth m2).
+  assert (Hlen : String.length (long_label n) = n) by (induction n; cbn; congruence).
+  exists (Some (long_label n)); split; apply get_deep; cbn [label_key Pos.size_nat];
+    rewrite size_string_key, Hlen; unfold n; lia.
+Qed.
+
+(** *** Canonicity *)
+
+Theorem ncanonical a1 a2 :
+  nlocal Q a1 -> nlocal Q a2 ->
+  (forall v, Q (v_label v) = true -> napply a1 v = napply a2 v) -> a1 = a2.
+Proof.
+  intros H1 H2 Heq; pose proof (root_determined a1 a2 H1 H2 Heq) as Hw.
+  destruct a1 as [w1 es1], a2 as [w2 es2]; cbn [nroot] in Hw.
+  assert (W : w1 = w2).
+  { pose proof H1 as [_ [C1 [K1 _]]]; pose proof H2 as [_ [C2 [K2 _]]].
+    apply counts_ext; [exact C1|exact C2|]; intro k.
+    destruct (get k (c_exc w1)) as [v1|] eqn:G1.
+    { destruct (K1 _ _ G1) as [l ->]; apply Hw. }
+    destruct (get k (c_exc w2)) as [v2|] eqn:G2.
+    { destruct (K2 _ _ G2) as [l ->]; apply Hw. }
+    destruct (fresh_label (c_exc w1) (c_exc w2)) as [l [F1 F2]].
+    pose proof (Hw l) as E; unfold cget in E |- *; rewrite F1, F2 in E; rewrite G1, G2; exact E. }
+  subst w2; f_equal; apply acanonical; [apply H1|apply H2|]; intro k.
+  destruct (aget k es1) as [e1|] eqn:E1.
+  - pose proof (entries_determined w1 es1 es2 H1 H2 Heq (elabel e1)) as D.
+    rewrite <- (entry_label w1 es1 _ _ H1 E1), E1 in D; exact D.
+  - destruct (aget k es2) as [e2|] eqn:E2; [|reflexivity].
+    pose proof (entries_determined w1 es1 es2 H1 H2 Heq (elabel e2)) as D.
+    rewrite <- (entry_label w1 es2 _ _ H2 E2), E1, E2 in D; exact D.
+Qed.
+
 End Canonical.
 
 End Repr.
