@@ -258,3 +258,48 @@ Lemma cget_factor_min a b k :
   cget (cmin (csub a (cmin a b)) (csub b (cmin a b))) k
   = match cget (cmin a b) k with Some _ => Some 0 | None => None end.
 Proof. rewrite !cget_cmin, !cget_csub, cget_cmin; apply omin_osub. Qed.
+
+(** ** Counts as deltas
+
+    Moving data between bases uses a count map as a delta: an unused label
+    then counts as 0. *)
+
+Definition oval (a : option nat) : nat := match a with Some n => n | None => 0 end.
+
+Definition dval (d : counts) (k : positive) : nat := oval (cget d k).
+
+(** Adding two deltas. *)
+Definition oplus (a b : option nat) : option nat :=
+  match a, b with None, None => None | _, _ => Some (oval a + oval b) end.
+
+Definition cplus : counts -> counts -> counts := cmap2 oplus.
+
+Lemma cget_cplus a b k : cget (cplus a b) k = oplus (cget a k) (cget b k).
+Proof. apply cget_cmap2. Qed.
+
+Lemma dval_cplus a b k : dval (cplus a b) k = dval a k + dval b k.
+Proof. unfold dval; rewrite cget_cplus; destruct (cget a k), (cget b k); reflexivity. Qed.
+
+(** [d] is below [c] wherever both are used. *)
+Definition cle (d c : counts) : Prop :=
+  forall k n m, cget d k = Some n -> cget c k = Some m -> n <= m.
+
+(** ** Arithmetic on optional counts *)
+
+Lemma oadd_omin d a b : oadd d (omin a b) = omin (oadd d a) (oadd d b).
+Proof. destruct d, a, b; cbn; f_equal; lia. Qed.
+
+Lemma osub_omin a b d : osub (omin a b) d = omin (osub a d) (osub b d).
+Proof. destruct a, b, d; cbn; f_equal; lia. Qed.
+
+Lemma oadd_oadd d1 d2 c : oadd d1 (oadd d2 c) = oadd (oplus d1 d2) c.
+Proof. destruct d1, d2, c; cbn; f_equal; lia. Qed.
+
+Lemma omin_none_l a b : omin a b = None -> a = None.
+Proof. destruct a, b; cbn; congruence. Qed.
+
+Lemma omin_none_r a b : omin a b = None -> b = None.
+Proof. destruct a, b; cbn; congruence. Qed.
+
+Lemma oadd_none d c : oadd d c = None <-> c = None.
+Proof. destruct c; cbn; split; congruence. Qed.
