@@ -114,12 +114,16 @@ Definition estrip (h : option label) (ts : kseq target) (len p : nat) : entry :=
   end.
 
 (** The composite of an entry whose targets [ts1] are already mapped
-    (absolute); [s] is its absolute pass-through start. *)
-Definition ecomp (h : option label) (ts1 : kseq target) (len s : nat) : entry :=
-  if Nat.leb (thv h) s
-  then estrip h ts1 len (s - thv h + tauv h)
+    (absolute); [s] is its absolute pass-through start.  [thc] and [tauc]
+    are [th] and [tau], passed in so that they are computed once per
+    composition rather than once per entry. *)
+Definition ecomp_with (thc tauc : counts) (h : option label) (ts1 : kseq target) (len s : nat) : entry :=
+  if Nat.leb (dval thc (label_key h)) s
+  then estrip h ts1 len (s - dval thc (label_key h) + dval tauc (label_key h))
   else let ex := aextra h s in
-       estrip h (kapp (klist ts1) ex) (len + klength ex) (tauv h).
+       estrip h (kapp (klist ts1) ex) (len + klength ex) (dval tauc (label_key h)).
+
+Definition ecomp : option label -> kseq target -> nat -> nat -> entry := ecomp_with th tau.
 
 (** ** Putting the result in normal form *)
 
@@ -178,22 +182,26 @@ Definition finish (pay : bool) (W : counts) (es : atrie entry) (visited : list p
 
 (** ** The traversal *)
 
-Fixpoint ncomp (pay : bool) (b : nadj) (B : counts) {struct b} : nadj :=
+(** [thc], [tauc] and [bl] are [th], [tau] and [bl0], computed once by
+    [ncomp] below. *)
+Fixpoint ncomp_with (thc tauc : counts) (bl : tree nat) (pay : bool) (b : nadj) (B : counts) {struct b} : nadj :=
   match b with
   | NAdj r es =>
       let tc := fun (B' : counts) (t : target) =>
                   match t with
                   | TVar y j => rtarget (napply a (mk_rvar y (dval B' (label_key y) + j)))
-                  | TBind u rho => TBind u (ncomp true rho B')
+                  | TBind u rho => TBind u (ncomp_with thc tauc bl true rho B')
                   end in
       let ec := fun (B' : counts) (e : entry) =>
                   match e with
                   | Entry h ts len p =>
-                      ecomp h (kmap th tau tc bl0 B' ts) len (dval B' (label_key h) + p)
+                      ecomp_with thc tauc h (kmap thc tauc tc bl B' ts) len (dval B' (label_key h) + p)
                   end in
       let P := cadd B r in
-      finish pay P (atmap th tau ec bl0 P es) (@atvisit entry bl0 P (fun k => k) es)
+      finish pay P (atmap thc tauc ec bl P es) (@atvisit entry bl P (fun k => k) es)
   end.
+
+Definition ncomp (pay : bool) (b : nadj) (B : counts) : nadj := ncomp_with th tau bl0 pay b B.
 
 Definition compose (b : nadj) : nadj := ncomp false b cnone.
 
@@ -545,7 +553,7 @@ Theorem ecomp_spec h ts1 s :
                  else napply a (mk_rvar h (s + (i - klength ts1))).
 Proof.
   intros G; assert (HL : klength ts1 = length (klist ts1)) by apply klength_spec, kgood_shape, G.
-  unfold ecomp; destruct (Nat.leb_spec (thv h) s) as [Hs|Hs].
+  unfold ecomp, ecomp_with; fold (thv h) (tauv h); destruct (Nat.leb_spec (thv h) s) as [Hs|Hs].
   - destruct (estrip_spec h ts1 (s - thv h + tauv h) G) as [Hg Hm]; split; [exact Hg|intro i].
     rewrite Hm; unfold lapp; rewrite <- HL.
     destruct (Nat.ltb_spec i (klength ts1)); [reflexivity|].
@@ -1495,7 +1503,7 @@ Proof.
       rewrite map_map; apply map_ext_in; intros y Hy; rewrite unshift_cnone by apply Hok, Hy.
       rewrite tcF_rebase, unshift_cnone by apply Hok, Hy; apply Ht, Hy. }
   cbn [ecF]; rewrite Hk, cget_cnone_dval; cbn [Nat.add].
-  unfold ecomp; destruct (Nat.leb_spec (thv h) p) as [Hle|Hlt]; [|unfold thv in Hlt; lia].
+  unfold ecomp, ecomp_with; fold (thv h) (tauv h); destruct (Nat.leb_spec (thv h) p) as [Hle|Hlt]; [|unfold thv in Hlt; lia].
   rewrite estrip_noop.
   - cbn [unshift shift entry_based eunshift eshift]; unfold thv, tauv; f_equal; lia.
   - intros t Et Hlen Hpp.
@@ -1678,7 +1686,7 @@ Lemma ecomp_ge h ts1 s :
 Proof.
   intros G Ht; assert (HL : klength ts1 = length (klist ts1)) by apply klength_spec, kgood_shape, G.
   pose proof (tauv_ge h) as Htv.
-  unfold ecomp; destruct (Nat.leb_spec (thv h) s).
+  unfold ecomp, ecomp_with; fold (thv h) (tauv h); destruct (Nat.leb_spec (thv h) s).
   - apply estrip_ge; [exact G|]; apply (cle_entry_iff wa h ts1 _ _ G); split; [apply cle_wa_cone; lia|exact Ht].
   - destruct (ecat_good h ts1 s G) as [G2 [E2 L2]]; rewrite <- L2.
     apply estrip_ge; [exact G2|].
@@ -1728,7 +1736,7 @@ Lemma ecomp_targets h ts1 s t :
   kgood ts1 -> In t (klist (etargets (ecomp h ts1 (klength ts1) s))) -> In t (klist ts1) \/ In t (alist h).
 Proof.
   intros G; assert (HL : klength ts1 = length (klist ts1)) by apply klength_spec, kgood_shape, G.
-  unfold ecomp; destruct (Nat.leb (thv h) s).
+  unfold ecomp, ecomp_with; fold (thv h) (tauv h); destruct (Nat.leb (thv h) s).
   - intros Ht; left; apply (estrip_targets h ts1 _ t G Ht).
   - destruct (ecat_good h ts1 s G) as [G2 [E2 L2]]; rewrite <- L2.
     intros Ht; apply (estrip_targets h _ _ t G2) in Ht; rewrite E2 in Ht.
@@ -1745,7 +1753,7 @@ Lemma ecomp_pre h ts1 s :
                  /\ (thv h <= s -> p' = s - thv h + tauv h).
 Proof.
   intros G; assert (HL : klength ts1 = length (klist ts1)) by apply klength_spec, kgood_shape, G.
-  unfold ecomp; destruct (Nat.leb_spec (thv h) s) as [Hs|Hs].
+  unfold ecomp, ecomp_with; fold (thv h) (tauv h); destruct (Nat.leb_spec (thv h) s) as [Hs|Hs].
   - exists ts1, (s - thv h + tauv h); split; [exact G|split; [reflexivity|split; [auto|auto]]].
   - destruct (ecat_good h ts1 s G) as [G2 [E2 L2]].
     exists (kapp (klist ts1) (aextra h s)), (tauv h); split; [exact G2|split; [rewrite L2; reflexivity|split]].
