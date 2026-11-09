@@ -11,7 +11,7 @@
     - an injective encoding [label_key] of [option label] into [positive],
       used as the key of canonical tries. *)
 
-From Stdlib Require Import Ascii String PArith Bool.
+From Stdlib Require Import Ascii String PArith Arith Bool Lia List.
 
 Definition label := string.
 
@@ -377,3 +377,49 @@ Proof.
   unfold label_leb; rewrite orb_true_iff, label_eqb_eq.
   intros [<-|H] H'; [apply (label_lt_irrefl _ H')|apply (label_lt_asym _ _ H H')].
 Qed.
+
+(** ** Decoding keys *)
+
+Definition ascii_of_bits (bs : list bool) : ascii :=
+  match bs with
+  | (b0 :: b1 :: b2 :: b3 :: b4 :: b5 :: b6 :: b7 :: nil)%list => Ascii b0 b1 b2 b3 b4 b5 b6 b7
+  | _ => Ascii false false false false false false false false
+  end.
+
+(** [decode p acc]: [acc] holds the bits of the current character read so
+    far. *)
+Fixpoint decode (p : positive) (acc : list bool) : option string :=
+  match p with
+  | xH => match acc with nil => Some EmptyString | _ => None end
+  | xO q | xI q =>
+      let acc' := (acc ++ (match p with xI _ => true | _ => false end :: nil))%list in
+      if Nat.eqb (List.length acc') 8
+      then match decode q nil with Some s => Some (String (ascii_of_bits acc') s) | None => None end
+      else decode q acc'
+  end.
+
+Definition key_label (k : positive) : option (option label) :=
+  match k with
+  | xH => Some None
+  | xO q => match decode q nil with Some s => Some (Some s) | None => None end
+  | xI _ => None
+  end.
+
+Lemma decode_push_bit b p acc :
+  List.length acc < 7 -> decode (push_bit b p) acc = decode p (acc ++ (b :: nil))%list.
+Proof.
+  intros H; destruct b; cbn [push_bit decode];
+    rewrite List.length_app; cbn [List.length];
+    rewrite (proj2 (Nat.eqb_neq _ 8)) by lia; reflexivity.
+Qed.
+
+Lemma decode_string_key s : decode (string_key s) nil = Some s.
+Proof.
+  induction s as [|[b0 b1 b2 b3 b4 b5 b6 b7] s IH]; [reflexivity|].
+  cbn [string_key push_ascii].
+  rewrite !decode_push_bit by (cbn; lia).
+  destruct b7; cbn [push_bit decode List.app List.length Nat.eqb]; rewrite IH; reflexivity.
+Qed.
+
+Lemma key_label_spec l : key_label (label_key l) = Some l.
+Proof. destruct l as [s|]; cbn; [rewrite decode_string_key|]; reflexivity. Qed.
