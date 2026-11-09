@@ -428,26 +428,28 @@ Proof. intros k n m Hn Hm; rewrite cget_cmin in Hn; apply (omin_le _ _ _ Hn); le
 Lemma cle_cmin_r a b : cle (cmin a b) b.
 Proof. intros k n m Hn Hm; rewrite cget_cmin in Hn; apply (omin_le _ _ _ Hn); right; exact Hm. Qed.
 
-(** A target's uses are finitely many. *)
-Definition tfinite (t : target) : Prop := c_def (tuses t) = None.
+(** Only finitely many labels are moved: the root counts are 0 by default.
+    Every operation keeps this, and it means lowering the root never has to
+    touch the labels that are not mentioned. *)
+Definition nfin (a : nadj) : Prop := c_def (nroot a) = Some 0.
 
-Lemma lower_cond w t :
-  (forall k, cget w k <> None) -> tfinite t ->
+Lemma lower_cond w (t : target) :
+  (forall k, cget w k <> None) -> c_def w = Some 0 ->
   let w' := cmin w (tuses t) in
   cle w' w /\ (forall k, cget w k = None -> oval (cget w' k) = 0)
   /\ oval (c_def (csub w w')) = 0.
 Proof.
   intros Hw Hf w'; split; [apply cle_cmin_l|split; [intros k E; exfalso; exact (Hw k E)|]].
-  unfold w', csub, cmin, cmap2; cbn [c_def]; unfold tfinite in Hf; rewrite Hf.
-  destruct (c_def w) as [n|]; cbn; [lia|reflexivity].
+  unfold w', csub, cmin, cmap2; cbn [c_def]; rewrite Hf.
+  destruct (c_def (tuses t)); reflexivity.
 Qed.
 
 Theorem napply_extend h t a v :
-  nlocal Qall a -> tok t -> tfinite t ->
+  nlocal Qall a -> nfin a -> tok t ->
   napply (extend h t a) v
   = if rvar_eqb v (mk_rvar h 0) then tresult t else napply a (unshift_rvar (mk_rvar h 0) v).
 Proof.
-  destruct a as [w es]; intros Ha Ht Hf.
+  destruct a as [w es]; intros Ha Hf Ht.
   destruct (lower_cond w t (nlocal_total w es Ha) Hf) as [Hle [H0 Hdef]].
   set (w' := cmin w (tuses t)) in *.
   pose proof Ha as [Hes [_ [_ [Hent _]]]].
@@ -558,9 +560,9 @@ Proof.
 Qed.
 
 Theorem nlocal_extend h t a :
-  nlocal Qall a -> tok t -> tfinite t -> keyed (tuses t) -> nlocal Qall (extend h t a).
+  nlocal Qall a -> nfin a -> tok t -> keyed (tuses t) -> nlocal Qall (extend h t a).
 Proof.
-  destruct a as [w es]; intros Ha Ht Hf Hk.
+  destruct a as [w es]; intros Ha Hf Ht Hk.
   pose proof (nlocal_total w es Ha) as Htot.
   pose proof Ha as [Hes [_ [Hkey [Hent _]]]].
   set (w' := cmin w (tuses t)); set (d := csub w w'); set (es' := add_gaps d (alift d es));
@@ -630,20 +632,35 @@ Qed.
 
 Definition lift (h : option label) (a : nadj) : nadj := extend h (TVar h 0) (weaken h a).
 
+Lemma nfin_identity : nfin nidentity.
+Proof. reflexivity. Qed.
+
+Lemma nfin_weaken h a : nfin a -> nfin (weaken h a).
+Proof. destruct a as [w es]; unfold nfin; cbn; intros ->; reflexivity. Qed.
+
+Lemma nfin_extend h t a : nfin a -> nfin (extend h t a).
+Proof.
+  destruct a as [w es]; unfold nfin, extend; cbn [nroot lower]; intros Hf.
+  cbn; rewrite Hf; destruct (c_def (tuses t)); reflexivity.
+Qed.
+
 Theorem napply_lift h a v :
-  nlocal Qall a ->
+  nlocal Qall a -> nfin a ->
   napply (lift h a) v
   = if rvar_eqb v (mk_rvar h 0) then inl (mk_rvar h 0)
     else rweaken h (napply a (unshift_rvar (mk_rvar h 0) v)).
 Proof.
-  intros Ha; unfold lift.
-  rewrite napply_extend by (apply nlocal_weaken, Ha || exact I || reflexivity).
+  intros Ha Hf; unfold lift.
+  rewrite napply_extend by (apply nlocal_weaken, Ha || apply nfin_weaken, Hf || exact I).
   destruct (rvar_eqb v _); [reflexivity|]; apply napply_weaken, Ha.
 Qed.
 
-Theorem nlocal_lift h a : nlocal Qall a -> nlocal Qall (lift h a).
+Theorem nlocal_lift h a : nlocal Qall a -> nfin a -> nlocal Qall (lift h a).
 Proof.
-  intros Ha; apply nlocal_extend; [apply nlocal_weaken, Ha|exact I|reflexivity|apply keyed_cone].
+  intros Ha Hf; apply nlocal_extend; [apply nlocal_weaken, Ha|apply nfin_weaken, Hf|exact I|apply keyed_cone].
 Qed.
+
+Lemma nfin_lift h a : nfin a -> nfin (lift h a).
+Proof. intros Hf; apply nfin_extend, nfin_weaken, Hf. Qed.
 
 End Point.
