@@ -528,4 +528,44 @@ Proof.
       * f_equal; f_equal; lia.
 Qed.
 
+(** An entry of [a] with its first [n] inputs dropped. *)
+Theorem adrop_spec h n e :
+  adrop h n = Some e ->
+  entry_good h e /\ forall i, eabs e i = napply a (mk_rvar h (n + i)).
+Proof.
+  unfold adrop; destruct (aget (label_key h) esa) as [[h' tsa lena pa]|] eqn:E; [|discriminate].
+  destruct (esa_ok _ _ E) as [Hk [G [Hl [_ Hs]]]]; apply label_key_inj in Hk; subst h'.
+  assert (HL : length (klist tsa) = lena) by (rewrite <- Hl; symmetry; apply klength_spec, kgood_shape, G).
+  assert (Hal : alist h = map (tunshift wa) (klist tsa)) by (unfold alist; rewrite E; reflexivity).
+  assert (Hta : tauv h = dval wa (label_key h) + pa) by (unfold tauv, dval; rewrite cget_tau, E; reflexivity).
+  destruct (Nat.ltb_spec n lena) as [Hn|Hn]; intros [= <-].
+  - set (L := map (tunshift wa) (skipn n (klist tsa))).
+    assert (Hok : forall t, In t L -> eok t).
+    { intros t Ht; apply (alist_ok h); rewrite Hal; unfold L in Ht; rewrite <- skipn_map in Ht.
+      rewrite <- (firstn_skipn n (map (tunshift wa) (klist tsa))); apply in_or_app; right; exact Ht. }
+    destruct (kof_list_good L Hok) as [G2 [E2 L2]].
+    assert (HLL : length L = lena - n) by (unfold L; rewrite length_map, length_skipn, HL; reflexivity).
+    split.
+    + split; [reflexivity|split; [exact G2|split; [rewrite L2; exact HLL|]]].
+      cbn [strip_ok]; intros [Hlen [Hp Hlast]]; apply Hs; split; [lia|].
+      rewrite knth_spec in Hlast by apply (kgood_shape _ G2); rewrite E2 in Hlast.
+      unfold L in Hlast; rewrite nth_error_map, nth_error_skipn in Hlast.
+      rewrite knth_spec by apply (kgood_shape _ G).
+      replace (n + pred (lena - n)) with (pred lena) in Hlast by lia.
+      destruct (nth_error (klist tsa) (pred lena)) as [[y j|u [r es]]|]; cbn in Hlast; try discriminate.
+      injection Hlast as -> Hj; unfold dval in Hj, Hp.
+      destruct pa as [|pa']; [cbn in Hj; lia|split; [lia|f_equal; f_equal; cbn; lia]].
+    + intro i; cbn [eabs]; rewrite E2, napply_a_lapp, Hal; unfold lapp.
+      rewrite HLL, length_map, HL; unfold L; rewrite nth_error_map, nth_error_skipn, nth_error_map.
+      destruct (Nat.ltb_spec i (lena - n)), (Nat.ltb_spec (n + i) lena); try lia.
+      * destruct (nth_error (klist tsa) (n + i)) eqn:En; [reflexivity|].
+        apply nth_error_None in En; lia.
+      * rewrite Hta; f_equal; f_equal; lia.
+  - split.
+    + split; [reflexivity|split; [apply kgood_nil|split; [reflexivity|cbn; lia]]].
+    + intro i; cbn [eabs klist]; rewrite napply_a_lapp, Hal; unfold lapp.
+      rewrite length_map, HL; cbn [length]; destruct (Nat.ltb_spec i 0); [lia|].
+      destruct (Nat.ltb_spec (n + i) lena); [lia|]; rewrite Hta; f_equal; f_equal; lia.
+Qed.
+
 End Compose.
