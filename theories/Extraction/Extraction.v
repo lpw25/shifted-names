@@ -73,4 +73,5 @@ Extract Constant key_label =>
     the types of their location proofs. *)
 Extraction Implicit aget_with' [k0 t0 B0].
 Extraction Implicit ktnth_with' [i0 s0 B0].
+Extraction Implicit spnth_with' [i0 s0 B0].
 Extraction Implicit knth_with' [i0 s0 B0].

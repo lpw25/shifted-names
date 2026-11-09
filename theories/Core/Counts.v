@@ -74,6 +74,9 @@ Definition osub (c base : option nat) : option nat :=
   | Some y => Some (y - match base with Some x => x | None => 0 end)
   end.
 
+(** An optional count as a delta: unused counts as 0. *)
+Definition oval (a : option nat) : nat := match a with Some n => n | None => 0 end.
+
 Definition oeqb (a b : option nat) : bool :=
   match a, b with
   | Some x, Some y => Nat.eqb x y
@@ -338,6 +341,26 @@ Proof.
   destruct (Pos.eqb k' k); [reflexivity|rewrite get_Empty; reflexivity].
 Qed.
 
+(** How far [a] is above [u], where [u] is used: lowering [a] to
+    [cmin a u] moves what is stored relative to [a] up by this much.  It
+    only looks at [u]'s exceptions when both defaults are [None] or
+    [Some 0]. *)
+Definition oexcess (v u : option nat) : option nat :=
+  match u with
+  | None => None
+  | Some y => match oval v - y with 0 => None | n => Some n end
+  end.
+
+Definition cop_excess : cop.
+Proof.
+  refine {| cop_f := oexcess;
+            cop_l := fun d => match d with None => MDrop | _ => MMap end;
+            cop_r := fun d => match d with None | Some 0 => MDrop | _ => MMap end |}; cop_solve.
+Defined.
+
+Definition cexcess : counts -> counts -> counts := cmap2 cop_excess.
+
+
 (** *** From a map of counts *)
 
 Lemma csome_ok_eq (t : tree nat) : cwfr None (map_filter (fun _ n => Some (Some n)) t) = true.
@@ -421,7 +444,6 @@ Proof. rewrite !cget_cmin, !cget_csub, cget_cmin; apply omin_osub. Qed.
     Moving data between bases uses a count map as a delta: an unused label
     then counts as 0. *)
 
-Definition oval (a : option nat) : nat := match a with Some n => n | None => 0 end.
 
 Definition dval (d : counts) (k : positive) : nat := oval (cget d k).
 
@@ -455,6 +477,15 @@ Proof. apply cget_cmap2. Qed.
 
 Lemma dval_cplus a b k : dval (cplus a b) k = dval a k + dval b k.
 Proof. unfold dval; rewrite cget_cplus; destruct (cget a k), (cget b k); reflexivity. Qed.
+
+Lemma dval_cexcess a u k :
+  cget a k <> None -> dval (cmin a u) k + dval (cexcess a u) k = dval a k.
+Proof.
+  unfold dval; rewrite cget_cmin; unfold cexcess; rewrite cget_cmap2; cbn [cop_f cop_excess oexcess].
+  destruct (cget a k) as [x|]; [intros _|intros H; contradiction].
+  destruct (cget u k) as [y|]; cbn; [|lia].
+  destruct (x - y) eqn:E; cbn; lia.
+Qed.
 
 (** [d] is below [c] wherever both are used. *)
 Definition cle (d c : counts) : Prop :=

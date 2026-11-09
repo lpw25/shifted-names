@@ -147,17 +147,24 @@ Fixpoint ktnth_with' (w : nat) (t : ktree X) (i : nat) (B : lbase) {struct t} :
       end
   end.
 
-Fixpoint knth_with' (s : kseq X) (i : nat) (B : lbase) {struct s} :
+Fixpoint spnth_with' (s : kspine X) (i : nat) (B : lbase) {struct s} :
+  Squash (option_map (unshift (lcounts B)) (spnth s i) = target) -> R :=
+  match s as s1 return Squash (option_map (unshift (lcounts B)) (spnth s1 i) = target) -> R with
+  | SNil => fun H => none (sq_map (fun E => omap_none _ _ _ _ E eq_refl) H)
+  | SCons w t s' =>
+      match Nat.ltb i w as b
+            return Squash (option_map (unshift (lcounts B)) (if b then ktnth w t i else spnth s' (i - w)) = target) -> R with
+      | true => fun H => ktnth_with' w t i B H
+      | false => fun H => spnth_with' s' (i - w) B H
+      end
+  end.
+
+Definition knth_with' (s : kseq X) (i : nat) (B : lbase) :
   Squash (option_map (unshift (lcounts B)) (knth s i) = target) -> R :=
   match s as s1 return Squash (option_map (unshift (lcounts B)) (knth s1 i) = target) -> R with
   | KNil => fun H => none (sq_map (fun E => omap_none _ _ _ _ E eq_refl) H)
-  | KCons a w t s' =>
-      match Nat.ltb i w as b
-            return Squash (option_map (unshift (lcounts B))
-                             (option_map (unshift a) (if b then ktnth w t i else knth s' (i - w))) = target) -> R with
-      | true => fun H => ktnth_with' w t i (LPlus B a) (sq_map (fun E => eq_trans (eq_sym (omap_unshift2 (lcounts B) a _)) E) H)
-      | false => fun H => knth_with' s' (i - w) (LPlus B a) (sq_map (fun E => eq_trans (eq_sym (omap_unshift2 (lcounts B) a _)) E) H)
-      end
+  | KSeq a w t s' => fun H =>
+      spnth_with' (SCons w t s') i (LPlus B a) (sq_map (fun E => eq_trans (eq_sym (omap_unshift2 (lcounts B) a _)) E) H)
   end.
 
 Definition knth_with : R := knth_with' s0 i0 B0 (squash eq_refl).
@@ -224,16 +231,16 @@ Proof.
                   = option_map (unshift (lcounts B0)) (knth s0 i0))) in H.
         revert H E; destruct (Nat.ltb j (Nat.div2 w)); intros H E; [apply IHl|apply IHr];
           rewrite <- E, omap_unshift2; reflexivity. }
-  assert (Gs : forall s i B H, option_map (unshift (lcounts B)) (knth s i) = option_map (unshift (lcounts B0)) (knth s0 i0) ->
-                 P (knth_with' i0 s0 B0 found none s i B H)).
-  { induction s as [|a w t s IH]; intros i B H E; cbn [knth_with'].
+  assert (Gp : forall s i B H, option_map (unshift (lcounts B)) (spnth s i) = option_map (unshift (lcounts B0)) (knth s0 i0) ->
+                 P (spnth_with' i0 s0 B0 found none s i B H)).
+  { induction s as [|w t s IH]; intros i B H E; cbn [spnth_with'].
     - cbn in E; rewrite Y in E; discriminate.
-    - cbn [knth] in E.
-      change (Squash (option_map (unshift (lcounts B)) (option_map (unshift a) (if Nat.ltb i w then ktnth w t i else knth s (i - w)))
+    - cbn [spnth] in E.
+      change (Squash (option_map (unshift (lcounts B)) (if Nat.ltb i w then ktnth w t i else spnth s (i - w))
                       = option_map (unshift (lcounts B0)) (knth s0 i0))) in H.
-      revert H E; destruct (Nat.ltb i w); intros H E; [apply Gt|apply IH];
-        rewrite <- E, omap_unshift2; reflexivity. }
-  apply Gs; reflexivity.
+      revert H E; destruct (Nat.ltb i w); intros H E; [apply Gt|apply IH]; exact E. }
+  destruct s0 as [|a w t s]; cbn [knth_with']; [cbn in Y; discriminate|].
+  apply Gp; cbn [knth]; rewrite omap_unshift2; reflexivity.
 Qed.
 
 Lemma knth_with_some i0 s0 B0 found none y (Rv : R)
@@ -255,15 +262,15 @@ Proof.
                 = option_map (unshift (lcounts B0)) (knth s0 i0))) in H'.
       revert H' E; destruct (Nat.ltb j (Nat.div2 w)); intros H' E; [apply IHl|apply IHr];
         rewrite <- E, omap_unshift2; reflexivity. }
-  assert (Gs : forall s i B H', option_map (unshift (lcounts B)) (knth s i) = option_map (unshift (lcounts B0)) (knth s0 i0) ->
-                 knth_with' i0 s0 B0 found none s i B H' = none (squash H)).
-  { induction s as [|a w t s IH]; intros i B H' E; cbn [knth_with']; [reflexivity|].
-    cbn [knth] in E.
-    change (Squash (option_map (unshift (lcounts B)) (option_map (unshift a) (if Nat.ltb i w then ktnth w t i else knth s (i - w)))
+  assert (Gp : forall s i B H', option_map (unshift (lcounts B)) (spnth s i) = option_map (unshift (lcounts B0)) (knth s0 i0) ->
+                 spnth_with' i0 s0 B0 found none s i B H' = none (squash H)).
+  { induction s as [|w t s IH]; intros i B H' E; cbn [spnth_with']; [reflexivity|].
+    cbn [spnth] in E.
+    change (Squash (option_map (unshift (lcounts B)) (if Nat.ltb i w then ktnth w t i else spnth s (i - w))
                     = option_map (unshift (lcounts B0)) (knth s0 i0))) in H'.
-    revert H' E; destruct (Nat.ltb i w); intros H' E; [apply Gt|apply IH];
-      rewrite <- E, omap_unshift2; reflexivity. }
-  apply Gs; reflexivity.
+    revert H' E; destruct (Nat.ltb i w); intros H' E; [apply Gt|apply IH]; exact E. }
+  destruct s0 as [|a w t s]; cbn [knth_with']; [reflexivity|].
+  apply Gp; cbn [knth]; rewrite omap_unshift2; reflexivity.
 Qed.
 
 End Lookups.

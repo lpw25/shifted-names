@@ -347,7 +347,7 @@ Proof.
     + intros [= <-]; split; [reflexivity|].
       split; [apply (kgood_kcons _ _ Ht kgood_nil)|].
       split; [reflexivity|split; [lia|]].
-      cbn [strip_ok pred]; change (kcell 1 (KLeaf t) KNil) with (kcons t KNil); rewrite knth_kcons by (exact Ht || apply kgood_nil).
+      cbn [strip_ok pred]; try change (kmk (SCons 1 (KLeaf t) SNil)) with (kcons t KNil); try change (KSeq (cmin (tuses t) cnone) 1 (KLeaf (tshift (cmin (tuses t) cnone) t)) SNil) with (kcons t KNil); rewrite knth_kcons by (exact Ht || apply kgood_nil).
       intros [_ [_ [= ->]]]; cbn in Tv; rewrite label_eqb_refl, Nat.eqb_refl in Tv; discriminate.
   - intros [= <-]; destruct (Ho _ eq_refl) as [Hk [Hg [Hl [_ Hs]]]].
     split; [reflexivity|split; [apply (kgood_kcons _ _ Ht Hg)|]].
@@ -372,7 +372,7 @@ Lemma oapply_econs w h t o i :
   = match i with 0 => tresult (tunshift w t) | S i' => oapply w h o i' end.
 Proof.
   intros Ht Ho; destruct o as [[h' ts [|len] [|p']]|]; cbn [econs oapply].
-  - cbn [eapply]; try change (kcell 1 (KLeaf t) KNil) with (kcons t KNil); rewrite knth_kcons by (exact Ht || apply kgood_nil).
+  - cbn [eapply]; try change (kmk (SCons 1 (KLeaf t) SNil)) with (kcons t KNil); try change (KSeq (cmin (tuses t) cnone) 1 (KLeaf (tshift (cmin (tuses t) cnone) t)) SNil) with (kcons t KNil); rewrite knth_kcons by (exact Ht || apply kgood_nil).
     destruct i as [|i]; cbn [Nat.ltb Nat.leb]; [reflexivity|].
     destruct (Ho _ eq_refl) as [Hk _]; apply label_key_inj in Hk; subst h'.
     cbn [eapply Nat.ltb Nat.leb]; f_equal; f_equal; lia.
@@ -382,7 +382,7 @@ Proof.
       apply andb_prop in Tv as [Ty Tj]; apply label_eqb_eq in Ty; apply Nat.eqb_eq in Tj; subst y j.
       destruct p' as [|p''], i as [|i]; cbn [oapply eapply Nat.ltb Nat.leb tunshift tresult];
         f_equal; f_equal; lia.
-    + cbn [oapply eapply]; try change (kcell 1 (KLeaf t) KNil) with (kcons t KNil); rewrite knth_kcons by (exact Ht || apply kgood_nil).
+    + cbn [oapply eapply]; try change (kmk (SCons 1 (KLeaf t) SNil)) with (kcons t KNil); try change (KSeq (cmin (tuses t) cnone) 1 (KLeaf (tshift (cmin (tuses t) cnone) t)) SNil) with (kcons t KNil); rewrite knth_kcons by (exact Ht || apply kgood_nil).
       destruct i as [|i]; cbn [Nat.ltb Nat.leb]; [reflexivity|]; f_equal; f_equal; lia.
   - destruct (Ho _ eq_refl) as [Hk [Hg [Hl _]]]; apply label_key_inj in Hk; subst h'.
     cbn [eapply]; rewrite knth_kcons by assumption.
@@ -396,15 +396,12 @@ Proof.
     destruct (Nat.ltb_spec (S i) (S (S len))), (Nat.ltb_spec i (S len)); try lia.
     + destruct (knth_some ts i Hg ltac:(lia)) as [t' ->]; reflexivity.
     + f_equal; f_equal; lia.
-  - cbn [eapply]; try change (kcell 1 (KLeaf t) KNil) with (kcons t KNil); rewrite knth_kcons by (exact Ht || apply kgood_nil).
+  - cbn [eapply]; try change (kmk (SCons 1 (KLeaf t) SNil)) with (kcons t KNil); try change (KSeq (cmin (tuses t) cnone) 1 (KLeaf (tshift (cmin (tuses t) cnone) t)) SNil) with (kcons t KNil); rewrite knth_kcons by (exact Ht || apply kgood_nil).
     destruct i as [|i]; cbn [Nat.ltb Nat.leb]; [reflexivity|]; f_equal; f_equal; lia.
 Qed.
 
 Lemma ksann_kcons_cwf (t : target) s : cwf (ksann (kcons t s)).
-Proof.
-  unfold kcons; destruct s as [|a1 w1 t1 [|a2 w2 t2 s']]; try apply cwf_cmap2.
-  destruct (Nat.eqb w1 w2); apply cwf_cmap2.
-Qed.
+Proof. apply cwf_all. Qed.
 
 Lemma ook_econs h t o : ook (econs h t o).
 Proof.

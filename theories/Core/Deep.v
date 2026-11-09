@@ -26,10 +26,13 @@ Fixpoint ktallF (B : counts) (t : ktree X) : bool :=
   | KNode a x l r => let P := cadd B a in F P x && ktallF P l && ktallF P r
   end.
 
-Fixpoint kallF (B : counts) (s : kseq X) : bool :=
+Fixpoint spallF (B : counts) (s : kspine X) : bool :=
+  match s with SNil => true | SCons _ t s' => ktallF B t && spallF B s' end.
+
+Definition kallF (B : counts) (s : kseq X) : bool :=
   match s with
   | KNil => true
-  | KCons a _ t s' => let P := cadd B a in ktallF P t && kallF P s'
+  | KSeq a _ t s' => let P := cadd B a in ktallF P t && spallF P s'
   end.
 
 Fixpoint aallF (B : counts) (t : atrie X) : bool :=
@@ -67,15 +70,25 @@ Proof.
     + intros H; split; [split; [apply H; left; reflexivity|]|]; intros y Hy; apply H; right; apply in_or_app; auto.
 Qed.
 
+Lemma spallF_spec s : forall B,
+  spinv s -> spallF B s = true <-> forall y, In y (splist s) -> G (unshift B y) = true.
+Proof.
+  induction s as [|w t s IH]; intros B Hs; cbn [spallF splist].
+  - split; [intros _ y []|reflexivity].
+  - destruct Hs as [Ht Hs]; rewrite andb_true_iff, ktallF_spec, IH by assumption.
+    split; [intros [H1 H2] y Hy; apply in_app_or in Hy as [Hy|Hy]; auto|].
+    intros H; split; intros y Hy; apply H, in_or_app; auto.
+Qed.
+
 Lemma kallF_spec s : forall B,
   kinv s -> kallF B s = true <-> forall y, In y (klist s) -> G (unshift B y) = true.
 Proof.
-  induction s as [|a w t s IH]; intros B Hs; cbn [kallF klist].
+  destruct s as [|a w t s]; intros B Hs; cbn [kallF klist].
   - split; [intros _ y []|reflexivity].
-  - destruct Hs as [Ha [_ [Ht Hs]]]; cbn [ksann klist] in Ha.
-    rewrite <- (allF_node B a _ Ha), andb_true_iff, ktallF_spec, IH by assumption.
-    split; [intros [H1 H2] y Hy; apply in_app_or in Hy as [Hy|Hy]; auto|].
-    intros H; split; intros y Hy; apply H, in_or_app; auto.
+  - pose proof (kinv_ann _ Hs) as Ha; pose proof (kinv_spine _ _ _ _ Hs) as Hsp; cbn [ksann klist] in Ha.
+    rewrite <- (allF_node B a _ Ha).
+    change (ktallF (cadd B a) t && spallF (cadd B a) s) with (spallF (cadd B a) (SCons w t s)).
+    apply spallF_spec, Hsp.
 Qed.
 
 Lemma aallF_spec t : forall B,
@@ -111,8 +124,11 @@ Local Notation target := (@target T).
 Fixpoint ktmax {X} (f : X -> nat) (t : ktree X) : nat :=
   match t with KLeaf x => f x | KNode _ x l r => Nat.max (f x) (Nat.max (ktmax f l) (ktmax f r)) end.
 
-Fixpoint kmaxs {X} (f : X -> nat) (s : kseq X) : nat :=
-  match s with KNil => 0 | KCons _ _ t s' => Nat.max (ktmax f t) (kmaxs f s') end.
+Fixpoint spmaxs {X} (f : X -> nat) (s : kspine X) : nat :=
+  match s with SNil => 0 | SCons _ t s' => Nat.max (ktmax f t) (spmaxs f s') end.
+
+Definition kmaxs {X} (f : X -> nat) (s : kseq X) : nat :=
+  match s with KNil => 0 | KSeq _ _ t s' => Nat.max (ktmax f t) (spmaxs f s') end.
 
 Fixpoint amax {X} (f : X -> nat) (t : atrie X) : nat :=
   match t with
@@ -140,11 +156,17 @@ Proof.
   destruct Hin as [<-|Hin]; [lia|apply in_app_or in Hin as [Hin|Hin]; [specialize (IHl _ Hin)|specialize (IHr _ Hin)]; lia].
 Qed.
 
+Lemma spmaxs_in s : forall x, In x (splist s) -> f x <= spmaxs f s.
+Proof.
+  induction s as [|w t s IH]; cbn [splist spmaxs]; [intros x []|].
+  intros x Hin; apply in_app_or in Hin as [Hin|Hin]; [pose proof (ktmax_in t x Hin)|specialize (IH _ Hin)]; lia.
+Qed.
+
 Lemma kmaxs_in s : forall x, In x (klist s) -> f x <= kmaxs f s.
 Proof.
-  induction s as [|c w t s IH]; cbn [klist kmaxs]; [intros x []|].
+  destruct s as [|c w t s]; cbn [klist kmaxs]; [intros x []|].
   intros x Hin; apply in_map_iff in Hin as [x0 [<- Hin]]; rewrite Hf.
-  apply in_app_or in Hin as [Hin|Hin]; [pose proof (ktmax_in t x0 Hin)|specialize (IH _ Hin)]; lia.
+  exact (spmaxs_in (SCons w t s) x0 Hin).
 Qed.
 
 Lemma amax_in t : forall x, In x (aelems t) -> f x <= amax f t.

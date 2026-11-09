@@ -12,7 +12,8 @@
     most once per path, and a node is moved as soon as it is empty.
 
     Mapped subtrees come back relative to base 0 (absolute), and their
-    parent rebases them with the smart constructors of Skew.v. *)
+    parent rebases them with the smart constructors of Skew.v ([kmk] for a
+    sequence's trees). *)
 
 From Stdlib Require Import PArith Arith Lia List Bool.
 From ShiftedNames.Core Require Import Trie Counts Based Skew ATrie.
@@ -77,13 +78,16 @@ Fixpoint atvisit (bl : tree nat) (B : counts) (kf : positive -> positive) (t : a
            ++ atvisit bl' P (fun k => kf (xO k)) l ++ atvisit bl' P (fun k => kf (xI k)) r
   end.
 
-Fixpoint kmap (bl : tree nat) (B : counts) (s : kseq X) : kseq X :=
+Fixpoint spmap (bl : tree nat) (B : counts) (s : kspine X) : kspine X :=
+  match s with SNil => SNil | SCons w t s' => SCons w (ktmap bl B t) (spmap bl B s') end.
+
+Definition kmap (bl : tree nat) (B : counts) (s : kseq X) : kseq X :=
   match s with
   | KNil => KNil
-  | KCons a w t s' =>
+  | KSeq a w t s' =>
       let bl' := below bl (cadd B a) in
-      if bempty bl' then KCons (move (cadd B a)) w t s'
-      else let P := cadd B a in kcell w (ktmap bl' P t) (kmap bl' P s')
+      if bempty bl' then KSeq (move (cadd B a)) w t s'
+      else kmk (spmap bl' (cadd B a) (SCons w t s'))
   end.
 
 (** ** Specification *)
@@ -298,34 +302,44 @@ Proof.
       rewrite map_map; apply map_ext_in; intros y Hy; unfold P; rewrite (unshift_cadd B a L y Ha Hy); reflexivity.
 Qed.
 
+Lemma spmap_spec s : forall bl B,
+  spinv s -> sound bl (map (unshift B) (splist s)) -> (forall y, In y (splist s) -> Pd (unshift B y)) ->
+  spinv (spmap bl B s) /\ splist (spmap bl B s) = map (fun y => G (unshift B y)) (splist s).
+Proof.
+  induction s as [|w t s IH]; intros bl B Hs Hsd HP; [split; [exact I|reflexivity]|].
+  destruct Hs as [Ht Hs]; cbn [spmap splist] in *.
+  destruct (ktmap_spec t bl B Ht) as [Ht' Et].
+  { eapply sound_incl; [|exact Hsd]; intros z Hz; apply in_map_iff in Hz as [y [<- Hy]].
+    apply in_map, in_or_app; left; exact Hy. }
+  { intros y Hy; apply HP, in_or_app; left; exact Hy. }
+  destruct (IH bl B Hs) as [Hs' Es].
+  { eapply sound_incl; [|exact Hsd]; intros z Hz; apply in_map_iff in Hz as [y [<- Hy]].
+    apply in_map, in_or_app; right; exact Hy. }
+  { intros y Hy; apply HP, in_or_app; right; exact Hy. }
+  split; [split; assumption|rewrite Et, Es, map_app; reflexivity].
+Qed.
+
 Theorem kmap_spec s : forall bl B,
   kinv s -> sound bl (map (unshift B) (klist s)) -> (forall y, In y (klist s) -> Pd (unshift B y)) ->
   kinv (kmap bl B s) /\ klist (kmap bl B s) = map (fun y => G (unshift B y)) (klist s).
 Proof.
-  induction s as [|a w t s' IH]; intros bl B Hs Hsd HP; [split; [exact Hs|reflexivity]|].
-  pose proof (kinv_ok _ Hs) as Hok; destruct Hs as [Ha [Hcwf [Ht Hs']]].
-  cbn [ksann klist] in Ha, Hok |- *; cbn [kmap].
-  set (L := ktlist t ++ klist s') in *.
-  assert (HokL : forall y, In y L -> eok y).
-  { intros y Hy; apply in_app_or in Hy as [Hy|Hy]; [apply (ktinv_ok t Ht _ Hy)|apply (kinv_ok s' Hs' _ Hy)]. }
+  destruct s as [|a w t s']; intros bl B Hs Hsd HP; [split; [exact Hs|reflexivity]|].
+  pose proof (kinv_cell_ok _ _ _ _ Hs) as HokL; pose proof (kinv_ann _ Hs) as Ha.
+  pose proof (kinv_spine _ _ _ _ Hs) as Hsp; destruct Hs as [_ [Hcwf _]].
+  cbn [ksann klist] in Ha, HokL, Hsd, HP |- *; cbn [kmap].
+  set (L := splist (SCons w t s')) in *.
   destruct (bempty (below bl (cadd B a))) eqn:Eb.
   - destruct (moved bl B a L Ha HokL HP Hsd Eb) as [E Hann].
     split; [|cbn [klist]; exact E].
-    split; [exact Hann|split; [apply cwf_cmap2|split; assumption]].
+    split; [exact Hann|split; [apply cwf_cmap2|exact Hsp]].
   - pose proof (sound_below bl B a L Ha Hsd) as Hs2.
     pose proof (Pd_child B a L) as HPc.
     set (bl' := below bl (cadd B a)) in *; set (P := cadd B a) in *.
-    destruct (ktmap_spec t bl' P Ht) as [Ht' Et].
-    { eapply sound_incl; [|exact Hs2]; intros z Hz; apply in_map_iff in Hz as [y [<- Hy]].
-      apply in_map, in_or_app; left; exact Hy. }
-    { intros y Hy; apply (HPc y Ha HP); apply in_or_app; left; exact Hy. }
-    destruct (IH bl' P Hs') as [Hs3 Es].
-    { eapply sound_incl; [|exact Hs2]; intros z Hz; apply in_map_iff in Hz as [y [<- Hy]].
-      apply in_map, in_or_app; right; exact Hy. }
-    { intros y Hy; apply (HPc y Ha HP); apply in_or_app; right; exact Hy. }
-    split; [apply kinv_kcell; assumption|].
-    rewrite klist_kcell, Et, Es by assumption.
-    rewrite <- map_app; fold L; rewrite map_map; apply map_ext_in; intros y Hy.
+    destruct (spmap_spec (SCons w t s') bl' P Hsp Hs2) as [Hs3 Es].
+    { intros y Hy; apply (HPc y Ha HP), Hy. }
+    destruct (kmk_spec _ Hs3) as [Hk Ek].
+    split; [exact Hk|]; rewrite Ek, Es; fold L.
+    rewrite map_map; apply map_ext_in; intros y Hy.
     unfold P; rewrite (unshift_cadd B a L y Ha Hy); reflexivity.
 Qed.
 
@@ -337,14 +351,19 @@ Proof.
   split; apply ktshape_ktrebase; [apply IHl, Hl|apply IHr, Hr].
 Qed.
 
-Lemma kshape_kweights_kmap s : forall bl B,
+Lemma spmap_shape s bl B : (spshape s -> spshape (spmap bl B s)) /\ spweights (spmap bl B s) = spweights s.
+Proof.
+  induction s as [|w t s [IH1 IH2]]; [split; [exact (fun H => H)|reflexivity]|].
+  split; [intros [H1 H2]; split; [apply ktshape_ktmap, H1|apply IH1, H2]|cbn; rewrite IH2; reflexivity].
+Qed.
+
+Lemma kshape_kweights_kmap s bl B :
   (kshape s -> kshape (kmap bl B s)) /\ kweights (kmap bl B s) = kweights s.
 Proof.
-  induction s as [|a w t s' IH]; intros bl B; [split; [exact (fun H => H)|reflexivity]|].
+  destruct s as [|a w t s']; [split; [exact (fun H => H)|reflexivity]|].
   cbn [kmap]; destruct (bempty _); [split; [exact (fun H => H)|reflexivity]|].
-  destruct (IH (below bl (cadd B a)) (cadd B a)) as [Hsh Hw].
-  split; [|rewrite kweights_kcell, Hw; reflexivity].
-  intros [Ht Hs]; unfold kcell; split; [apply ktshape_ktrebase, ktshape_ktmap, Ht|apply kshape_krebase, Hsh, Hs].
+  destruct (spmap_shape (SCons w t s') (below bl (cadd B a)) (cadd B a)) as [Hsh Hw].
+  split; [intros H; apply kshape_kmk, Hsh, H|rewrite kweights_kmk, Hw; reflexivity].
 Qed.
 
 Theorem kgood_kmap bl B s :
