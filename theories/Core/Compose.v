@@ -1944,6 +1944,47 @@ Proof.
   exists m'; split; [exact Em'|lia].
 Qed.
 
+Lemma keyed_th : keyed th.
+Proof.
+  intros k v E; unfold th in E; cbn [c_exc] in E; rewrite get_map_filter, th_tree_spec in E.
+  destruct (aget k esa) as [e|] eqn:Ea; [|discriminate].
+  exists (elabel e); apply (esa_key _ _ Ea).
+Qed.
+
+Lemma keyed_tau : keyed tau.
+Proof.
+  unfold tau.
+  assert (H : forall L, (forall e, In e L -> In e aentries) ->
+            keyed (fold_right (fun (e : entry) c => match e with
+                                          | Entry h _ _ p => cset c (label_key h) (Some (dval wa (label_key h) + p))
+                                          end) wa L)).
+  { induction L as [|e L IH]; intros HL; cbn [fold_right].
+    - unfold wa; destruct a as [w es'] eqn:Ea; destruct Ha as [_ [_ [Hk _]]]; exact Hk.
+    - destruct e as [h ts len p]; apply keyed_cset; [apply IH; intros; apply HL; right; assumption|eauto]. }
+  apply H; auto.
+Qed.
+
+(** Where the root is unused, nothing below uses it. *)
+Lemma root_covers Q w (es' : atrie entry) k :
+  nlocal Q (NAdj w es') -> nfin (NAdj w es') -> cget w k = None ->
+  forall k' e, aget k' es' = Some e -> cget (uses e) k = None.
+Proof.
+  intros Hl Hf Hw k' e E; pose proof Hl as [Hes [_ [Hkey [_ [HQ HnQ]]]]].
+  destruct (cget (uses e) k) as [m|] eqn:Em; [exfalso|reflexivity].
+  destruct (key_label k) as [l|] eqn:Kl.
+  - destruct (Pos.eqb_spec (label_key l) k) as [<-|Hne].
+    + destruct (Q l) eqn:Ql; [exact (HQ l Ql Hw)|].
+      destruct (HnQ l Ql) as [[_ Ha']|[Hn _]]; [|contradiction].
+      rewrite (ainv_ann es' Hes) in Ha'.
+      destruct (lmin_le _ e _ m (aget_in _ _ _ E) Em) as [n [En _]]; congruence.
+    + unfold cget in Hw; destruct (get k (c_exc w)) as [v|] eqn:G.
+      * destruct (Hkey k v G) as [l' ->]; rewrite key_label_spec in Kl; injection Kl as ->; congruence.
+      * unfold nfin in Hf; cbn [nroot] in Hf; congruence.
+  - unfold cget in Hw; destruct (get k (c_exc w)) as [v|] eqn:G.
+    + destruct (Hkey k v G) as [l' ->]; rewrite key_label_spec in Kl; discriminate.
+    + unfold nfin in Hf; cbn [nroot] in Hf; congruence.
+Qed.
+
 (** ** The induction step *)
 
 Section Step.
