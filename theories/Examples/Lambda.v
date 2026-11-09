@@ -6,7 +6,7 @@
     [Subst] functor. *)
 
 From Stdlib Require Import Arith List Lia Bool StrictProp.
-From ShiftedNames.Core Require Import Label Var Nested Adjustment Laws Scoped Indexed Syntax Subst.
+From ShiftedNames.Core Require Import Label Var Adjustment Laws Scoped Indexed Syntax Subst.
 
 (** ** The syntax *)
 

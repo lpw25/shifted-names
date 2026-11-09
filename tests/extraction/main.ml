@@ -31,3 +31,9 @@ let () = assert (o = t)
 let () = assert (show r = "(((\\. #0) (\\. #0)) x_0)")
 let () = assert (show r2 = "(\\. (#0 (\\. #0)))")
 let () = print_endline "extraction smoke test passed"
+(* the key realizers are mutually inverse *)
+let () = List.iter (fun s ->
+    assert (key_label (label_key (Some s)) = Some (Some s)))
+  [""; "x"; "hello"; "\000\255é"]
+let () = assert (key_label (label_key None) = Some None)
+let () = print_endline "key round trips ok"

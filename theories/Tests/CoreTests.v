@@ -85,10 +85,10 @@ Proof. vm_compute; reflexivity. Qed.
 Example big_size : List.length (elements big) = 5000.
 Proof. vm_compute; reflexivity. Qed.
 
-(** Stripping through back-links: [x₀ ↦ x₁] is the only reference to the
-    innermost [x] slot, so it is stripped, and [g₀]'s reference to the other
-    slot is renumbered (found through that slot's back-links).  The right
-    side reaches the same adjustment without stripping. *)
+(** Stripping: [x₀ ↦ x₁] is where pass-through would send [x₀] once the
+    outer [x] binder is pushed, so that entry is stripped, and [g₀]'s
+    reference to [x] is renumbered.  The right side reaches the same
+    adjustment without stripping. *)
 Example strip_renumber :
   rpush_inner (Some "x") (RRename (mk_rvar (Some "x") 1))
     (rpush_inner (Some "g") (RRename (mk_rvar (Some "x") 0))

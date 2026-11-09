@@ -21,29 +21,11 @@ Extract Inlined Constant Nat.ltb => "Big_int_Z.lt_big_int".
 Extract Inlined Constant Nat.leb => "Big_int_Z.le_big_int".
 Extract Inlined Constant Compare_dec.lt_dec => "Big_int_Z.lt_big_int".
 
-(** Parity and halving, used to index Braun trees. *)
-Extract Inlined Constant Init.Nat.even =>
-  "(fun n -> Big_int_Z.sign_big_int (Big_int_Z.and_big_int n Big_int_Z.unit_big_int) = 0)".
+(** Halving, used for the sizes of skew-binary trees, and [min]. *)
 Extract Inlined Constant Init.Nat.div2 => "(fun n -> Big_int_Z.shift_right_big_int n 1)".
-Extract Inlined Constant PeanoNat.Nat.even =>
-  "(fun n -> Big_int_Z.sign_big_int (Big_int_Z.and_big_int n Big_int_Z.unit_big_int) = 0)".
 Extract Inlined Constant PeanoNat.Nat.div2 => "(fun n -> Big_int_Z.shift_right_big_int n 1)".
-
-(** Converting between [nat] and [positive] (back-link positions are trie
-    keys): bit by bit rather than in unary. *)
-Extract Constant BinPos.Pos.of_succ_nat =>
-  "(fun n -> let rec go m =
-       if Big_int_Z.eq_big_int m Big_int_Z.unit_big_int then XH
-       else let q = go (Big_int_Z.shift_right_big_int m 1) in
-            if Big_int_Z.sign_big_int (Big_int_Z.and_big_int m Big_int_Z.unit_big_int) = 0
-            then XO q else XI q in
-     go (Big_int_Z.succ_big_int n))".
-Extract Constant BinPos.Pos.to_nat =>
-  "(fun p -> let rec go p = match p with
-       | XH -> Big_int_Z.unit_big_int
-       | XO q -> Big_int_Z.shift_left_big_int (go q) 1
-       | XI q -> Big_int_Z.succ_big_int (Big_int_Z.shift_left_big_int (go q) 1) in
-     go p)".
+Extract Inlined Constant Init.Nat.min => "Big_int_Z.min_big_int".
+Extract Inlined Constant PeanoNat.Nat.min => "Big_int_Z.min_big_int".
 
 (** Extension witnesses are their depth. *)
 Extraction Implicit ext_under [K L].
@@ -69,3 +51,20 @@ Extract Constant string_key =>
          p := (if (c lsr b) land 1 = 1 then XI !p else XO !p)
        done
      done; !p)".
+
+(** Decoding a key back to its label ([key_label]), reading eight bits per
+    character into a buffer instead of through bit lists. *)
+Extract Constant key_label =>
+  "(fun k -> match k with
+     | XH -> Some None
+     | XI _ -> None
+     | XO q ->
+       let buf = Buffer.create 16 in
+       let rec go p c i = match p with
+         | XH -> if i = 0 then Some (Some (Buffer.contents buf)) else None
+         | XO q -> step q c i
+         | XI q -> step q (c lor (1 lsl i)) i
+       and step q c i =
+         if i = 7 then (Buffer.add_char buf (Char.chr c); go q 0 0)
+         else go q c (i + 1) in
+       go q 0 0)".
