@@ -1207,6 +1207,97 @@ Proof.
     exists u; split; [reflexivity|f_equal; lia].
 Qed.
 
+Lemma es3_good k e : aget k es3 = Some e -> k = label_key (elabel e) /\ entry_good (elabel e) e.
+Proof.
+  intros E; destruct (Hsrc k e E) as [E1|[_ [_ Ag]]]; [apply es1_good, E1|].
+  destruct (Hgap k e Ag) as [He Hk]; split; [exact Hk|]; rewrite He; cbn [elabel entry_good].
+  split; [reflexivity|split; [apply kgood_nil|split; [reflexivity|intros [Hc _]; lia]]].
+Qed.
+
+Lemma WK_skip k : existsb (Pos.eqb k) WK = true -> skipN pay k = false.
+Proof.
+  intros Hx; apply existsb_exists in Hx as [k' [Hin Hk']]; apply Pos.eqb_eq in Hk'; subst k'.
+  apply filter_In in Hin as [_ Hn]; destruct (skipN pay k); [discriminate|reflexivity].
+Qed.
+
+Lemma es1_not_skipped k e : aget k es1 = Some e -> skipN pay k = false.
+Proof.
+  intros E; rewrite Hg1 in E; destruct (skipN pay k) eqn:Sk; [|reflexivity].
+  exfalso; unfold skipN in Sk; apply andb_prop in Sk as [Hp Hk]; apply Pos.eqb_eq in Hk; subst k.
+  rewrite (Hpay Hp) in E; discriminate.
+Qed.
+
+Lemma es3_not_skipped k e : aget k es3 = Some e -> skipN pay k = false.
+Proof.
+  intros E; destruct (Hsrc k e E) as [E1|[E1 _]]; [apply (es1_not_skipped _ _ E1)|].
+  rewrite Hg3, Hg2, E1 in E.
+  destruct (existsb (Pos.eqb k) WK) eqn:Hw; [apply WK_skip, Hw|].
+  destruct (existsb _ D); cbn in E; discriminate.
+Qed.
+
+Lemma a_key_in_D k ea : aget k esa = Some ea -> existsb (Pos.eqb k) D = true.
+Proof.
+  intros Ea; apply existsb_exists; exists k; split; [|apply Pos.eqb_refl].
+  apply in_or_app; right; apply in_map_iff; exists ea; split; [symmetry; apply (esa_key _ _ Ea)|apply (aentries_in _ _ Ea)].
+Qed.
+
+Lemma R_le_I k : skipN pay k = false -> aget k esa = None -> dval R k <= dval I k.
+Proof.
+  intros Sk Ea; unfold R, dval at 1; rewrite cget_cmin, cget_jstarts, Sk, Ea.
+  unfold I, dval; rewrite cget_ctotal; destruct (cget (aann es1) k); cbn; lia.
+Qed.
+
+(** Every entry left moves something: after rebasing, it is not the identity. *)
+Lemma es3_nontrivial k e : aget k es3 = Some e -> 0 < elen e \/ dval R k < epass e.
+Proof.
+  intros E; destruct (es3_good k e E) as [Hk Hge].
+  destruct (R_eq_U k ltac:(rewrite E; discriminate)) as [u [Eu ER]].
+  destruct (Hsrc k e E) as [E1|[_ [Hlt Ag]]].
+  - destruct e as [h ts [|len] p]; [right|left; cbn; lia]; cbn [elen epass elabel] in *.
+    destruct Hge as [_ [G [Hl _]]]; pose proof (klength0_nil ts G Hl) as ->.
+    assert (Hle : u <= p).
+    { pose proof (Hcle k _ E) as Hc; cbn [uses entry_based euses ksann] in Hc.
+      apply (Hc k u p ER); rewrite cget_cmin, cget_cnone, Hk, cget_cone_same; reflexivity. }
+    rewrite Hg3, Hg2, E1 in E.
+    destruct (existsb (Pos.eqb k) D) eqn:HD.
+    + destruct (existsb _ WK); cbn [gapf dropf] in E;
+        destruct (oeqb (cget R k) (Some p)) eqn:Eq; try discriminate;
+        (assert (u <> p) by (intros ->; rewrite ER, oeqb_refl in Eq; discriminate));
+        unfold dval; rewrite ER; cbn; lia.
+    + assert (Ea : aget k esa = None)
+        by (destruct (aget k esa) as [ea|] eqn:Ea; [rewrite (a_key_in_D _ _ Ea) in HD; discriminate|reflexivity]).
+      assert (Ees : aget k es = Some (Entry h KNil 0 p)).
+      { rewrite Hg1 in E1; destruct (aget k es); [exact E1|]; destruct (skipN pay k); [discriminate|].
+        rewrite Ea in E1; discriminate. }
+      assert (Hnv : ~ In k vis).
+      { intros Hin; assert (existsb (Pos.eqb k) D = true)
+          by (apply existsb_exists; exists k; split; [apply in_or_app; left; exact Hin|apply Pos.eqb_refl]).
+        congruence. }
+      pose proof (Hvis _ _ _ Ees Hnv Ea) as Hv.
+      pose proof (R_le_I k (es1_not_skipped _ _ E1) Ea); lia.
+  - destruct (Hgap k e Ag) as [He _]; rewrite He; cbn [epass]; right; exact Hlt.
+Qed.
+
+Lemma strip_shift R0 h (ts : kseq target) len p :
+  kgood ts -> cle R0 (uses (Entry h ts len p)) -> strip_ok (Entry h ts len p) ->
+  strip_ok (eshift R0 (Entry h ts len p)).
+Proof.
+  intros G Hc Hs; cbn [eshift strip_ok]; intros [Hlen [Hp Hn]]; apply Hs.
+  pose proof (cle_cmin_inv_l _ _ _ Hc) as Hpp; apply dval_le_cle in Hpp.
+  pose proof (cle_cmin_inv_r _ _ _ Hc) as Hts.
+  rewrite knth_spec in Hn by apply kshape_krebase, kgood_shape, G.
+  rewrite klist_krebase in Hn by (apply kgood_inv, G || exact Hts).
+  rewrite nth_error_map in Hn; rewrite knth_spec by apply kgood_shape, G.
+  destruct (nth_error (klist ts) (pred len)) as [t|] eqn:Et; [|discriminate]; cbn in Hn.
+  assert (Hct : cle R0 (uses t))
+    by (apply (cle_mem _ (ksann ts) (klist ts)); [exact Hts|intro k; apply ksann_klist, G|apply (nth_error_In _ _ Et)]).
+  destruct t as [y j|u [r es']]; cbn in Hn; [|discriminate].
+  injection Hn as -> Hj.
+  assert (dval R0 (label_key h) <= j)
+    by (apply (dval_le_cle R0 (label_key h) j); exact Hct).
+  split; [exact Hlen|split; [lia|f_equal; f_equal; lia]].
+Qed.
+
 End Finish.
 
 End Compose.
