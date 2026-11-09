@@ -2247,6 +2247,26 @@ Proof.
   unfold Qof in HQ; rewrite Hp in HQ; discriminate.
 Qed.
 
+(** *** Unvisited entries were moved *)
+
+Definition vis : list positive := @atvisit entry bl0 r (fun k => k) es.
+
+Lemma Hvis_esC k h p :
+  aget k esC = Some (Entry h KNil 0 p) -> ~ In k vis -> aget k esa = None -> dval (ctotal wa r) k < p.
+Proof.
+  intros E Hnv Ea; rewrite (proj2 esC_spec) in E.
+  destruct (aget k es) as [e0|] eqn:E0; [|discriminate]; cbn [option_map] in E; injection E as E.
+  pose proof Hloc as [Hes [_ [_ [Hent _]]]].
+  pose proof (atvisit_spec th es bl0 r (fun k => k) k e0 Hes (sound_bl0 _) E0 Hnv) as Hc.
+  rewrite HG_e in E; [|exact (ok_unshift r e0 (ainv_get_ok es k e0 Hes E0))|apply (Pd_entries k e0 E0)|exact Hc].
+  destruct e0 as [h0 ts0 len0 p0]; destruct (Hent _ _ E0) as [[Hk [_ [_ [Hnt _]]]] _].
+  cbn [unshift shift entry_based eunshift eshift] in E; injection E as -> Hts Hlen Hp; subst len0.
+  destruct Hnt as [Hnt|Hnt]; [lia|].
+  assert (Hth : dval th k = 0) by (unfold dval; rewrite cget_th, Ea; reflexivity).
+  assert (Hta : dval tau k = dval wa k) by (unfold dval; rewrite cget_tau, Ea; reflexivity).
+  rewrite Hk in Hp; rewrite Hth, Hta in Hp; unfold dval in *; rewrite cget_ctotal; cbn [oval]; lia.
+Qed.
+
 End Step.
 
 End Compose.
