@@ -935,4 +935,93 @@ Proof.
       f_equal; f_equal; lia.
 Qed.
 
+(** ** [restrict] *)
+
+(** Moving an entry's base: what it denotes is unchanged when the new root
+    makes up for the shift. *)
+Lemma eapply_rebase R R' c (e : entry) i :
+  kgood (etargets e) -> klength (etargets e) = elen e -> eok e -> cle c (uses e) ->
+  (forall k, (cget (uses e) k <> None \/ k = label_key (elabel e)) -> dval R' k = dval c k + dval R k) ->
+  eapply R' (eshift c e) i = eapply R e i.
+Proof.
+  destruct e as [h ts len p]; cbn [etargets elabel elen]; intros G Hl Hok Hc HR; cbn [eshift eapply].
+  pose proof (cle_cmin_inv_l _ _ _ Hc) as Hp; pose proof (cle_cmin_inv_r _ _ _ Hc) as Hts.
+  apply dval_le_cle in Hp.
+  rewrite (HR (label_key h) (or_intror eq_refl)).
+  destruct (Nat.ltb_spec i len); [|f_equal; f_equal; lia].
+  rewrite knth_spec by apply kshape_krebase, kgood_shape, G.
+  rewrite knth_spec by apply kgood_shape, G.
+  rewrite klist_krebase by (apply kgood_inv, G || exact Hts).
+  rewrite nth_error_map; destruct (nth_error (klist ts) i) as [t|] eqn:Et; cbn [option_map].
+  - assert (Hin : In t (klist ts)) by apply (nth_error_In _ _ Et).
+    assert (Hct : cle c (uses t))
+      by (apply (cle_mem _ (ksann ts) (klist ts)); [exact Hts|intro k; apply ksann_klist, G|exact Hin]).
+    assert (Htok : eok t) by apply (kgood_targets_ok ts G _ Hin).
+    f_equal; change (unshift R' (shift c t) = unshift R t).
+    rewrite <- (unshift_shift c t Htok Hct) at 2; rewrite unshift_unshift.
+    apply unshift_ext; intros k Hk; rewrite uses_shift in Hk; rewrite dval_cplus.
+    rewrite Nat.add_comm; apply HR; left; cbn [uses entry_based euses]; rewrite cget_cmin, ksann_klist by exact G.
+    destruct (cget (uses t) k) eqn:Eu; [|cbn in Hk; contradiction].
+    destruct (lmin_le _ t k _ Hin Eu) as [n' [En _]]; rewrite En.
+    destruct (cget (cone _ p) k); cbn; discriminate.
+  - apply nth_error_None in Et; rewrite <- (klength_spec _ (kgood_shape _ G)) in Et; lia.
+Qed.
+
+Definition Qnamed : option label -> bool := fun l => match l with Some _ => true | None => false end.
+
+Theorem napply_restrict (c : nadj) v :
+  ainv (nentries c) ->
+  (forall k e, aget k (nentries c) = Some e ->
+               kgood (etargets e) /\ klength (etargets e) = elen e /\ k = label_key (elabel e)) ->
+  Qnamed (v_label v) = true -> napply (restrict c) v = napply c v.
+Proof.
+  destruct c as [R es]; cbn [nentries]; intros Hes Hg Hv.
+  set (kN := label_key None).
+  destruct (aupdate_spec kN (fun _ => None) es Hes (fun _ _ => I)) as [Hes' Hg'].
+  set (es' := aupdate kN (fun _ => None) es) in *.
+  destruct v as [l i]; destruct l as [s|]; [|discriminate]; cbn [v_label v_index] in *.
+  set (kl := label_key (Some s)).
+  assert (Hkl : Pos.eqb kl kN = false) by (apply Pos.eqb_neq; intro E; apply label_key_inj in E; discriminate).
+  assert (Eg : aget kl es' = aget kl es) by (rewrite Hg', Hkl; reflexivity).
+  unfold restrict; fold kN es'.
+  assert (Hnot : forall e, aget kl es = Some e -> cget (uses e) kN <> None ->
+                 exists n, cget (aann es') kN = Some n /\ n <= oval (cget (uses e) kN)).
+  { intros e E Hu; rewrite <- Eg in E; destruct (cget (uses e) kN) as [m|] eqn:Em; [|contradiction].
+    rewrite (ainv_ann es' Hes'); destruct (lmin_le _ e kN m (aget_in _ _ _ E) Em) as [n [En Hn]].
+    exists n; split; [exact En|exact Hn]. }
+  destruct (cget (aann es') kN) as [n|] eqn:En.
+  - cbn [napply v_label v_index]; fold kl.
+    rewrite aget_arebase by (exact Hes' || (intros k n1 m Hn1 Hm; rewrite cget_cone in Hn1;
+                                             destruct (Pos.eqb_spec k kN) as [->|]; [injection Hn1 as <-; rewrite En in Hm; injection Hm as <-; lia|discriminate])).
+    rewrite Eg; destruct (aget kl es) as [e|] eqn:E; cbn [option_map].
+    + destruct (Hg _ _ E) as [G [Hl Hk]].
+      change (shift (cone kN n) e) with (eshift (cone kN n) e).
+      apply eapply_rebase; [exact G|exact Hl|apply (ainv_get_ok es kl e Hes E)| |].
+      * intros k n1 m Hn1 Hm; rewrite cget_cone in Hn1.
+        destruct (Pos.eqb_spec k kN) as [->|]; [injection Hn1 as <-|discriminate].
+        destruct (Hnot e eq_refl ltac:(rewrite Hm; discriminate)) as [n' [En' Hle]]; rewrite Hm in Hle.
+        injection En' as <-; cbn in Hle; lia.
+      * intros k _; unfold dval; rewrite cget_cset, cget_cone.
+        destruct (Pos.eqb_spec k kN) as [->|]; cbn [oval]; lia.
+    + f_equal; f_equal; unfold dval; rewrite cget_cset, Hkl; reflexivity.
+  - cbn [napply v_label v_index]; fold kl; rewrite Eg.
+    destruct (aget kl es) as [e|] eqn:E.
+    + destruct (Hg _ _ E) as [G [_ Hk]]; destruct e as [h ts len p]; cbn [eapply].
+      cbn [elabel] in Hk; rewrite <- Hk.
+      assert (HdN : forall k, k <> kN -> dval (cset R kN None) k = dval R k)
+        by (intros k Hne; unfold dval; rewrite cget_cset; apply Pos.eqb_neq in Hne; rewrite Hne; reflexivity).
+      rewrite HdN by (intro Hc; rewrite Hc in Hkl; rewrite Pos.eqb_refl in Hkl; discriminate).
+      destruct (Nat.ltb i len); [|reflexivity].
+      destruct (knth ts i) as [t|] eqn:Et; [|reflexivity].
+      f_equal; change (unshift (cset R kN None) t = unshift R t); apply unshift_ext; intros k Hku.
+      apply HdN; intros ->.
+      assert (Hin : In t (klist ts)) by (rewrite knth_spec in Et by apply (kgood_shape _ G); apply (nth_error_In _ _ Et)).
+      destruct (Hnot (Entry h ts len p) eq_refl) as [n' [En' _]]; [|congruence].
+      cbn [uses entry_based euses]; rewrite cget_cmin, ksann_klist by exact G.
+      destruct (cget (uses t) kN) eqn:Eu; [|contradiction].
+      destruct (lmin_le _ t kN _ Hin Eu) as [n'' [En'' _]]; rewrite En''.
+      destruct (cget (cone _ p) kN); discriminate.
+    + f_equal; f_equal; unfold dval; rewrite cget_cset, Hkl; reflexivity.
+Qed.
+
 End Compose.
