@@ -2026,6 +2026,66 @@ Proof.
   cbn [andb]; apply Pos.eqb_neq; intro E; apply label_key_inj in E; discriminate.
 Qed.
 
+Hypothesis IH4 : forall rho, nnest rho < nnest b -> nwf Qnamed rho -> cle wa (nroot (ncomp true rho cnone)).
+
+Lemma tcF_ge t : Pd_t t -> cle wa (uses (tcF cnone t)).
+Proof.
+  intros [_ HP]; destruct t as [y j|u rho]; [apply cle_napply_a|].
+  destruct HP as [Hw Hn]; apply (IH4 rho Hn Hw).
+Qed.
+
+Lemma ecF_ge z : Pd_e z -> cle wa (uses (ecF cnone z)).
+Proof.
+  intros HP; destruct z as [h ts len p]; pose proof HP as [G [Hl [_ HPt]]].
+  destruct (kmap_entry h ts len p HP) as [G1 E1].
+  assert (Hl1 : klength (kmap th tau tcF bl0 cnone ts) = len).
+  { rewrite (klength_spec _ (kgood_shape _ G1)), E1, length_map, <- Hl; symmetry; apply klength_spec, kgood_shape, G. }
+  cbn [ecF]; rewrite cget_cnone_dval; cbn [Nat.add]; rewrite <- Hl1.
+  apply ecomp_ge; [exact G1|]; rewrite E1; intros t Ht; apply in_map_iff in Ht as [t0 [<- Ht0]].
+  apply tcF_ge, HPt, Ht0.
+Qed.
+
+Lemma esC_ge k e : aget k esC = Some e -> cle wa (uses e).
+Proof.
+  intros E; rewrite (proj2 esC_spec) in E; destruct (aget k es) as [e0|] eqn:E0; [|discriminate].
+  cbn [option_map] in E; injection E as <-; apply ecF_ge, (Pd_entries k e0 E0).
+Qed.
+
+Lemma es1_ge k e : aget k (es1 pay r esC) = Some e -> cle wa (uses e).
+Proof.
+  intros E; rewrite (Hg1 pay r esC es_good_esC) in E.
+  destruct (aget k esC) as [e0|] eqn:E0; [injection E as <-; apply (esC_ge _ _ E0)|].
+  destruct (skipN pay k); [discriminate|]; destruct (aget k esa); [apply (adrop_ge _ _ _ E)|discriminate].
+Qed.
+
+Lemma U_ge : cle wa (aann (es1 pay r esC)).
+Proof. apply cle_aann; [apply (Hes1 pay r esC es_good_esC)|exact es1_ge]. Qed.
+
+Lemma no_low_esC : no_low pay r esC.
+Proof.
+  intros k n _ Hw _ Hn; unfold dval; rewrite cget_ctotal; cbn [oval].
+  pose proof (nwf_fin _ _ Hb) as Hf; unfold nfin in Hf; cbn [nroot] in Hf.
+  assert (Hr : cget r k = Some 0) by (unfold cget; rewrite Hw; exact Hf).
+  rewrite Hr; cbn [oval].
+  destruct (cget wa k) as [w|] eqn:Ew; [|exfalso; exact (wa_total k Ew)].
+  pose proof (U_ge k w n Ew Hn); cbn; lia.
+Qed.
+
+(** One level of [ncomp] means [b] followed by [a]. *)
+Theorem napply_ncomp v :
+  Qof pay (v_label v) = true -> napply (ncomp pay b cnone) v = rcomp (napply b v).
+Proof. intros HQ; apply napply_ncomp_b; [exact HQ|exact no_low_esC]. Qed.
+
+(** The new root is above [a]'s. *)
+Theorem root_ge : cle wa (nroot (ncomp pay b cnone)).
+Proof.
+  rewrite ncomp_b, finish_eq; cbn [nroot]; unfold R.
+  intros k n m Hn Hm; rewrite cget_cmin in Hm.
+  destruct (omin_some_or _ _ _ Hm) as [Hu|Hj]; [apply (U_ge k n m Hn Hu)|].
+  rewrite cget_jstarts in Hj; destruct (skipN pay k); [discriminate|].
+  destruct (aget k esa); [discriminate|]; rewrite cget_ctotal, Hn in Hj; injection Hj as <-; cbn; lia.
+Qed.
+
 End Step.
 
 End Compose.
