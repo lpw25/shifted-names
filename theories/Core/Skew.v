@@ -506,6 +506,21 @@ Qed.
 (** Building from a list. *)
 Definition kof_list (l : list X) : kseq := fold_right kcons KNil l.
 
+(** Taking a shift off the top of a sequence keeps it well formed. *)
+Lemma kgood_unlift d s : kgood (klift d s) -> cwf (ksann s) -> kgood s.
+Proof.
+  destruct s as [|a w t s']; [intros _ _; apply kgood_nil|].
+  intros [[Ha [_ [Ht Hs]]] [Hsh Hc]] Cw; cbn [ksann] in Cw.
+  split; [|split; [exact Hsh|exact Hc]].
+  split; [|split; [exact Cw|split; assumption]].
+  intro k; specialize (Ha k); cbn [ksann klist klift] in Ha |- *.
+  rewrite lmin_unshift in Ha |- *; rewrite cget_cadd in Ha.
+  destruct (cget a k) as [x|], (lmin (ktlist t ++ klist s') k) as [n|]; cbn in Ha |- *;
+    try reflexivity; try discriminate;
+    try (injection Ha as Ha; f_equal; destruct (cget d k); lia);
+    destruct (cget d k); discriminate.
+Qed.
+
 Theorem kgood_of_list l : (forall e, In e l -> eok e) -> kgood (kof_list l) /\ klist (kof_list l) = l.
 Proof.
   induction l as [|x l IH]; intros Hok; [split; [apply kgood_nil|reflexivity]|].
