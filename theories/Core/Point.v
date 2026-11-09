@@ -72,11 +72,10 @@ Proof.
     try contradiction; f_equal; lia.
 Qed.
 
-Theorem napply_weaken h a v :
-  nlocal Qall a -> napply (weaken h a) v = rweaken h (napply a v).
+Theorem napply_weaken_used h a v :
+  cget (nroot a) (label_key h) <> None -> napply (weaken h a) v = rweaken h (napply a v).
 Proof.
-  destruct a as [w es]; intros Ha; pose proof Ha as [_ [_ [_ [_ [HQ _]]]]].
-  assert (Hw : cget w (label_key h) <> None) by (apply HQ; reflexivity).
+  destruct a as [w es]; intros Hw; cbn [nroot] in Hw.
   assert (Hvar : forall y n, inl (mk_rvar y (dval (cadd (cone (label_key h) 1) w) (label_key y) + n))
                              = rweaken h (inl (mk_rvar y (dval w (label_key y) + n))) :> result).
   { intros y n; cbn [rweaken v_label v_index]; rewrite dval_weaken by exact Hw.
@@ -86,6 +85,13 @@ Proof.
   destruct (knth ts (v_index v)) as [[y j|u [r es']]|]; [|cbn [tunshift tresult]..|apply Hvar].
   - cbn [tunshift tresult]; apply (Hvar y j).
   - cbn [rweaken nroot nentries]; rewrite cadd_weaken by exact Hw; reflexivity.
+Qed.
+
+Theorem napply_weaken h a v :
+  nlocal Qall a -> napply (weaken h a) v = rweaken h (napply a v).
+Proof.
+  destruct a as [w es]; intros Ha; pose proof Ha as [_ [_ [_ [_ [HQ _]]]]].
+  apply napply_weaken_used, HQ; reflexivity.
 Qed.
 
 Theorem nlocal_weaken h a : nlocal Qall a -> nlocal Qall (weaken h a).

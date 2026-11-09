@@ -907,10 +907,10 @@ Hypothesis Hgood : es_good es.
 
 Definition es1 : atrie entry := add_aonly pay W es.
 Definition R : counts := cmin (aann es1) (jstarts pay W).
-Definition I : counts := ctotal wa W.
+Definition Istart : counts := ctotal wa W.
 Definition WK : list positive := filter (fun k => negb (skipN pay k)) (map fst (elements (c_exc W))).
 Definition D : list positive := vis ++ map (fun e => label_key (elabel e)) aentries.
-Definition es2 : atrie entry := fold_left (add_gap_at I R) WK es1.
+Definition es2 : atrie entry := fold_left (add_gap_at Istart R) WK es1.
 Definition es3 : atrie entry := fold_left (drop_ident R) D es2.
 
 Lemma finish_eq : finish pay W es vis = NAdj R (arebase R es3).
@@ -933,10 +933,10 @@ Lemma Hg1 k : aget k es1 = match aget k es with
 Proof. apply (add_aonly_spec pay W es Hes). Qed.
 
 Lemma Hes2 : ainv es2.
-Proof. apply (fold_keyed (add_gap_at I R) (gapf I R) (add_gap_step I R) (gapf_idem I R) WK es1 Hes1). Qed.
+Proof. apply (fold_keyed (add_gap_at Istart R) (gapf Istart R) (add_gap_step Istart R) (gapf_idem Istart R) WK es1 Hes1). Qed.
 
-Lemma Hg2 k : aget k es2 = if existsb (Pos.eqb k) WK then gapf I R k (aget k es1) else aget k es1.
-Proof. apply (fold_keyed (add_gap_at I R) (gapf I R) (add_gap_step I R) (gapf_idem I R) WK es1 Hes1). Qed.
+Lemma Hg2 k : aget k es2 = if existsb (Pos.eqb k) WK then gapf Istart R k (aget k es1) else aget k es1.
+Proof. apply (fold_keyed (add_gap_at Istart R) (gapf Istart R) (add_gap_step Istart R) (gapf_idem Istart R) WK es1 Hes1). Qed.
 
 Lemma Hes3 : ainv es3.
 Proof. apply (fold_keyed (drop_ident R) (dropf R) (drop_ident_step R) (dropf_idem R) D es2 Hes2). Qed.
@@ -946,7 +946,7 @@ Proof. apply (fold_keyed (drop_ident R) (dropf R) (drop_ident_step R) (dropf_ide
 
 Lemma Hsrc k e : aget k es3 = Some e ->
                  aget k es1 = Some e
-                 \/ (aget k es1 = None /\ dval R k < dval I k /\ agap k (dval I k) = Some e).
+                 \/ (aget k es1 = None /\ dval R k < dval Istart k /\ agap k (dval Istart k) = Some e).
 Proof.
   intros E; rewrite Hg3, Hg2 in E.
   destruct (aget k es1) as [e1|] eqn:E1.
@@ -957,14 +957,14 @@ Proof.
       destruct (oeqb _ _); [discriminate|exact E].
   - right; split; [reflexivity|].
     destruct (existsb _ WK); cbn [gapf] in E; [|destruct (existsb _ D); discriminate].
-    destruct (Nat.ltb_spec (dval R k) (dval I k)); [|destruct (existsb _ D); discriminate].
+    destruct (Nat.ltb_spec (dval R k) (dval Istart k)); [|destruct (existsb _ D); discriminate].
     split; [assumption|].
     destruct (existsb _ D); [|exact E].
-    unfold dropf in E; destruct (agap k (dval I k)) as [[h1 [|c w t s] [|len] p]|] eqn:Ag; try exact E.
+    unfold dropf in E; destruct (agap k (dval Istart k)) as [[h1 [|c w t s] [|len] p]|] eqn:Ag; try exact E.
     destruct (oeqb _ _); [discriminate|exact E].
 Qed.
 
-Lemma Hgap k e : agap k (dval I k) = Some e -> e = Entry (elabel e) KNil 0 (dval I k) /\ k = label_key (elabel e).
+Lemma Hgap k e : agap k (dval Istart k) = Some e -> e = Entry (elabel e) KNil 0 (dval Istart k) /\ k = label_key (elabel e).
 Proof.
   intros Ag; unfold agap in Ag; destruct (key_label k) as [l|]; [|discriminate].
   destruct (Pos.eqb_spec (label_key l) k) as [Hl|]; [|discriminate]; injection Ag as <-.
@@ -995,7 +995,7 @@ Proof.
   set (kh := label_key h).
   (* labels with no entry anywhere *)
   assert (Hnone : aget kh es1 = None ->
-                  aget kh es = None /\ aget kh esa = None /\ cf W es h i = inl (mk_rvar h (dval I kh + i))).
+                  aget kh es = None /\ aget kh esa = None /\ cf W es h i = inl (mk_rvar h (dval Istart kh + i))).
   { intros E1; rewrite Hg1 in E1; destruct (aget kh es) as [e0|] eqn:E0; [discriminate|].
     unfold kh in E1; rewrite Hh in E1; fold kh in E1.
     destruct (aget kh esa) as [ea|] eqn:Ea.
@@ -1005,7 +1005,7 @@ Proof.
       unfold cf; fold kh; rewrite E0, napply_a_lapp.
       unfold alist, lapp; fold kh; rewrite Ea; cbn [length Nat.ltb].
       destruct (Nat.ltb_spec (dval W kh + i) 0); [lia|].
-      unfold tauv, I, dval; fold kh; rewrite cget_tau, Ea, cget_ctotal; cbn [oval].
+      unfold tauv, Istart, dval; fold kh; rewrite cget_tau, Ea, cget_ctotal; cbn [oval].
       f_equal; f_equal; lia. }
   cbn [napply v_label v_index]; rewrite aget_arebase by (exact Hes3 || exact HR); fold kh.
   destruct (aget kh es3) as [e|] eqn:E3; cbn [option_map].
@@ -1032,13 +1032,13 @@ Proof.
       apply label_key_inj in Hk; subst h1; rewrite <- Hm; cbn [eabs lapp klist length Nat.ltb].
       destruct (Nat.ltb_spec i 0); [lia|]; unfold dval; rewrite Hp; cbn; f_equal; f_equal; lia.
     + destruct (Hnone eq_refl) as [_ [Ea ->]].
-      assert (HJ : cget (jstarts pay W) kh = Some (dval I kh))
-        by (rewrite cget_jstarts; unfold kh; rewrite Hh; fold kh; rewrite Ea; unfold I, dval; rewrite cget_ctotal; reflexivity).
-      assert (HRI : dval R kh <= dval I kh)
+      assert (HJ : cget (jstarts pay W) kh = Some (dval Istart kh))
+        by (rewrite cget_jstarts; unfold kh; rewrite Hh; fold kh; rewrite Ea; unfold Istart, dval; rewrite cget_ctotal; reflexivity).
+      assert (HRI : dval R kh <= dval Istart kh)
         by (unfold R, dval at 1; rewrite cget_cmin, HJ; destruct (cget (aann es1) kh); cbn; lia).
-      assert (HIR : dval I kh <= dval R kh).
+      assert (HIR : dval Istart kh <= dval R kh).
       { destruct (existsb (Pos.eqb kh) WK) eqn:Hw.
-        - cbn [gapf] in E3; destruct (Nat.ltb_spec (dval R kh) (dval I kh)) as [Hlt|]; [|assumption].
+        - cbn [gapf] in E3; destruct (Nat.ltb_spec (dval R kh) (dval Istart kh)) as [Hlt|]; [|assumption].
           exfalso; unfold agap, kh in E3; rewrite key_label_spec, Pos.eqb_refl in E3.
           unfold kh in *; destruct (existsb _ D); [|discriminate].
           unfold dropf in E3; destruct (oeqb _ _) eqn:Eq; [|discriminate].
@@ -1050,7 +1050,7 @@ Proof.
             apply in_map_iff; exists (kh, o); split; [reflexivity|apply In_elements, G]. }
           unfold R, dval at 2; rewrite cget_cmin, HJ.
           destruct (cget (aann es1) kh) as [n|] eqn:Eu; cbn; [|lia].
-          specialize (Hlow kh n Hh Hw0 E1 Eu); fold I in Hlow; lia. }
+          specialize (Hlow kh n Hh Hw0 E1 Eu); fold Istart in Hlow; lia. }
       f_equal; f_equal; lia.
 Qed.
 
@@ -1179,9 +1179,9 @@ Qed.
 
 Hypothesis Hpay : pay = true -> aget (label_key None) es = None.
 Hypothesis Hatt : forall k, skipN pay k = false -> aget k es <> None -> aget k esa = None ->
-                    exists n, cget (aann es1) k = Some n /\ n <= dval I k.
+                    exists n, cget (aann es1) k = Some n /\ n <= dval Istart k.
 Hypothesis Hvis : forall k h p, aget k es = Some (Entry h KNil 0 p) -> ~ In k vis -> aget k esa = None ->
-                    dval I k < p.
+                    dval Istart k < p.
 
 Lemma uses_own k e : aget k es1 = Some e -> cget (uses e) k <> None.
 Proof.
@@ -1195,12 +1195,12 @@ Proof.
   rewrite (ainv_ann es1 Hes1); destruct (lmin_le _ e k m (aget_in _ _ _ E) Em) as [u [Eu _]]; eauto.
 Qed.
 
-Lemma J_cases k : cget (jstarts pay W) k = None \/ (cget (jstarts pay W) k = Some (dval I k)
+Lemma J_cases k : cget (jstarts pay W) k = None \/ (cget (jstarts pay W) k = Some (dval Istart k)
                                                    /\ skipN pay k = false /\ aget k esa = None).
 Proof.
   rewrite cget_jstarts; destruct (skipN pay k) eqn:Sk; [left; reflexivity|].
   destruct (aget k esa); [left; reflexivity|right].
-  split; [unfold I, dval; rewrite cget_ctotal; reflexivity|split; reflexivity].
+  split; [unfold Istart, dval; rewrite cget_ctotal; reflexivity|split; reflexivity].
 Qed.
 
 (** At a label with an entry, the new root is the minimum over [es1]. *)
@@ -1226,8 +1226,8 @@ Proof.
       destruct (aget k esa) as [ea|] eqn:Ea; [exfalso|reflexivity].
       unfold adrop in E1; rewrite <- (esa_key _ _ Ea), Ea in E1; destruct ea as [h1 tsa lena pa].
       destruct (Nat.ltb _ _); discriminate. }
-    assert (HJ : cget (jstarts pay W) k = Some (dval I k))
-      by (rewrite cget_jstarts, Sk, Ea; unfold I, dval; rewrite cget_ctotal; reflexivity).
+    assert (HJ : cget (jstarts pay W) k = Some (dval Istart k))
+      by (rewrite cget_jstarts, Sk, Ea; unfold Istart, dval; rewrite cget_ctotal; reflexivity).
     unfold R in Hlt; unfold dval at 1 in Hlt; rewrite cget_cmin, HJ in Hlt; rewrite HJ.
     destruct (cget (aann es1) k) as [u|] eqn:Eu; cbn in Hlt |- *; [|lia].
     exists u; split; [reflexivity|f_equal; lia].
@@ -1267,10 +1267,10 @@ Proof.
   apply in_or_app; right; apply in_map_iff; exists ea; split; [symmetry; apply (esa_key _ _ Ea)|apply (aentries_in _ _ Ea)].
 Qed.
 
-Lemma R_le_I k : skipN pay k = false -> aget k esa = None -> dval R k <= dval I k.
+Lemma R_le_I k : skipN pay k = false -> aget k esa = None -> dval R k <= dval Istart k.
 Proof.
   intros Sk Ea; unfold R, dval at 1; rewrite cget_cmin, cget_jstarts, Sk, Ea.
-  unfold I, dval; rewrite cget_ctotal; destruct (cget (aann es1) k); cbn; lia.
+  unfold Istart, dval; rewrite cget_ctotal; destruct (cget (aann es1) k); cbn; lia.
 Qed.
 
 (** Every entry left moves something: after rebasing, it is not the identity. *)
@@ -1376,7 +1376,7 @@ Proof.
     rewrite cget_jstarts in HJ; destruct (skipN pay (label_key l)) eqn:Sk.
     + exfalso; unfold skipN in Sk; apply andb_prop in Sk as [Hp Hk]; apply Pos.eqb_eq, label_key_inj in Hk; subst l.
       unfold Qof in Hl; rewrite Hp in Hl; discriminate.
-    + destruct (aget (label_key l) esa) as [ea|] eqn:Ea; [|unfold I in HJ; rewrite cget_ctotal in HJ; discriminate].
+    + destruct (aget (label_key l) esa) as [ea|] eqn:Ea; [|unfold Istart in HJ; rewrite cget_ctotal in HJ; discriminate].
       assert (E1 : exists e1, aget (label_key l) es1 = Some e1).
       { rewrite Hg1; destruct (aget (label_key l) es) as [e0|]; [eauto|]; rewrite Sk, Ea.
         unfold adrop; rewrite <- (esa_key _ _ Ea), Ea; destruct ea as [h1 tsa lena pa].
