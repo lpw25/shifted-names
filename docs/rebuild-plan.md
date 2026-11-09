@@ -383,3 +383,31 @@ thresholds.
 2. `ATrie.v`: the pruned map and merge over the label trie.
 3. `Compose.v`: composition, `restrict`, the recursive normal form, and the
    meaning and canonicity theorems.
+
+### Stage 6 status
+
+**Done (no admits):**
+- `Prune.v`: pruned maps over skew sequences (`kmap`) and the label trie
+  (`atmap`), with their specs (`kgood_kmap`, `atmap_spec`). Also `atvisit`:
+  entries it does not list clear the thresholds.
+- `Compose.v`, definitions: `ncomp` (structural, no fuel), `finish` (adding
+  `a`-only entries, the root, identity removal, gaps, rebase) and
+  `restrict`.
+- `Compose.v`, proofs so far:
+  - specs of `th` and `tau`;
+  - `napply_a_shift`: `a` is a pure shift above its thresholds;
+  - stripping (`rstrip_spec`, `estrip_spec`), against the absolute entry
+    meaning `eabs`/`lapp`.
+
+**Next:**
+1. `a` below its thresholds (`aextra`, `adrop`); `ecomp`'s meaning.
+2. A depth measure on `nadj` for strong induction over payloads.
+3. The joint induction:
+   - `ncomp` gives a normal form (`nlocal Qall`, or `nlocal` named-only
+     after `restrict`);
+   - its meaning is `b` followed by `a`;
+   - in the clearing region it equals the moved payload, via
+     `ncanonical`.
+
+   This discharges `kmap`'s and `atmap`'s `HF` and `HG` hypotheses.
+4. Spec of `finish`: each fold step, then the rebase.

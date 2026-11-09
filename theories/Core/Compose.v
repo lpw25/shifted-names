@@ -332,4 +332,107 @@ Proof.
   - cbn [oval] in Hj |- *; f_equal; f_equal; unfold dval; lia.
 Qed.
 
+(** ** Proofs: absolute entries and stripping *)
+
+(** Where a target list followed by pass-through [p] sends input [i]. *)
+Definition lapp (h : option label) (L : list target) (p i : nat) : result :=
+  if Nat.ltb i (length L)
+  then match nth_error L i with Some t => tresult t | None => inl (mk_rvar h i) end
+  else inl (mk_rvar h (i - length L + p)).
+
+(** An absolute entry's meaning. *)
+Definition eabs (e : entry) (i : nat) : result :=
+  match e with Entry h ts _ p => lapp h (klist ts) p i end.
+
+Lemma tvar_at_spec h p (t : target) : tvar_at h p t = true <-> t = TVar h p.
+Proof.
+  destruct t as [y j|u rho]; cbn; [|split; discriminate].
+  rewrite andb_true_iff, label_eqb_eq, Nat.eqb_eq; split; [intros [-> ->]; reflexivity|intros [= -> ->]; auto].
+Qed.
+
+Lemma rstrip_spec h R p :
+  forall R2 p2, rstrip h R p = (R2, p2) ->
+  (forall i, lapp h (rev R2) p2 i = lapp h (rev R) p i)
+  /\ ~ (exists t R' p', R2 = t :: R' /\ p2 = S p' /\ t = TVar h p').
+Proof.
+  revert p; induction R as [|t R IH]; intros p R2 p2 E; cbn [rstrip] in E.
+  - destruct p; injection E as <- <-; (split; [reflexivity|intros [t [R' [p' [H _]]]]; discriminate]).
+  - destruct p as [|p'].
+    + injection E as <- <-; split; [reflexivity|intros [t' [R' [p' [_ [H _]]]]]; discriminate].
+    + destruct (tvar_at h p' t) eqn:Tv.
+      * apply tvar_at_spec in Tv; subst t.
+        destruct (IH p' R2 p2 E) as [Hm Hn]; split; [|exact Hn].
+        intro i; rewrite Hm; unfold lapp; cbn [rev]; rewrite length_app; cbn [length].
+        destruct (Nat.ltb_spec i (length (rev R))), (Nat.ltb_spec i (length (rev R) + 1)); try lia.
+        -- rewrite nth_error_app1 by lia; reflexivity.
+        -- assert (i = length (rev R)) by lia; subst i.
+           rewrite nth_error_app2, Nat.sub_diag by lia; cbn; f_equal; f_equal; lia.
+        -- f_equal; f_equal; lia.
+      * injection E as <- <-; split; [reflexivity|].
+        intros [t' [R' [p'' [[= <- <-] [[= <-] ->]]]]].
+        rewrite (proj2 (tvar_at_spec _ _ _) eq_refl) in Tv; discriminate.
+Qed.
+
+Lemma lapp_klist h ts p i : eabs (Entry h ts (klength ts) p) i = lapp h (klist ts) p i.
+Proof. reflexivity. Qed.
+
+Lemma kgood_targets_ok (ts : kseq target) : kgood ts -> forall t, In t (klist ts) -> eok t.
+Proof. intros G; apply kinv_ok, kgood_inv, G. Qed.
+
+Definition entry_good (h : option label) (e : entry) : Prop :=
+  match e with
+  | Entry h' ts len p => h' = h /\ kgood ts /\ klength ts = len /\ strip_ok e
+  end.
+
+Lemma kof_list_good (L : list target) :
+  (forall t, In t L -> eok t) -> kgood (kof_list L) /\ klist (kof_list L) = L
+  /\ klength (kof_list L) = length L.
+Proof.
+  intros H; destruct (kgood_of_list L H) as [G E]; split; [exact G|split; [exact E|]].
+  rewrite klength_spec by apply (kgood_shape _ G); rewrite E; reflexivity.
+Qed.
+
+Theorem estrip_spec h ts p :
+  kgood ts ->
+  entry_good h (estrip h ts (klength ts) p)
+  /\ forall i, eabs (estrip h ts (klength ts) p) i = lapp h (klist ts) p i.
+Proof.
+  intros G; pose proof (kgood_targets_ok ts G) as Hok.
+  assert (Hl : klength ts = length (klist ts)) by (apply klength_spec, kgood_shape, G).
+  assert (Hplain : strip_ok (Entry h ts (klength ts) p) ->
+                   entry_good h (Entry h ts (klength ts) p)
+                   /\ forall i, eabs (Entry h ts (klength ts) p) i = lapp h (klist ts) p i)
+    by (intros Hs; split; [split; [reflexivity|split; [exact G|split; [reflexivity|exact Hs]]]|reflexivity]).
+  unfold estrip; destruct (klength ts) as [|len'] eqn:El, p as [|p']; try (apply Hplain; cbn; lia).
+  destruct (knth ts len') as [t|] eqn:Et.
+  - destruct (tvar_at h p' t) eqn:Tv.
+    + destruct (rstrip h (rev (klist ts)) (S p')) as [R p2] eqn:Er.
+      destruct (rstrip_spec h _ _ R p2 Er) as [Hm Hn].
+      assert (HokR : forall t, In t (rev R) -> eok t).
+      { intros t' Ht'.
+        (* [R] is a suffix of the reversed list *)
+        assert (Hsuf : forall R0 q R1 q1, rstrip h R0 q = (R1, q1) -> forall x, In x R1 -> In x R0).
+        { induction R0 as [|x0 R0 IH0]; intros q R1 q1 E x Hx; cbn [rstrip] in E.
+          - destruct q; injection E as <- <-; exact Hx.
+          - destruct q as [|q']; [injection E as <- <-; exact Hx|].
+            destruct (tvar_at h q' x0); [right; apply (IH0 _ _ _ E _ Hx)|injection E as <- <-; exact Hx]. }
+        assert (H1 : In t' R) by (apply in_rev; exact Ht').
+        apply (Hsuf _ _ _ _ Er) in H1; apply Hok, in_rev, H1. }
+      destruct (kof_list_good (rev R) HokR) as [G' [E' L']].
+      split.
+      * split; [reflexivity|split; [exact G'|split; [rewrite L', length_rev; reflexivity|]]].
+        cbn [strip_ok]; intros [Hlen [Hp Hn']]; apply Hn.
+        rewrite knth_spec in Hn' by apply (kgood_shape _ G'); rewrite E' in Hn'.
+        destruct R as [|t0 R']; [cbn in Hlen; lia|].
+        exists t0, R', (pred p2); split; [reflexivity|].
+        cbn [rev length pred] in Hn'.
+        rewrite nth_error_app2 in Hn' by (rewrite length_rev; lia).
+        rewrite length_rev, Nat.sub_diag in Hn'; cbn in Hn'; injection Hn' as ->.
+        split; [|reflexivity]; destruct p2; [lia|reflexivity].
+      * intro i; cbn [eabs]; rewrite E', Hm, rev_involutive; reflexivity.
+    + apply Hplain; cbn [strip_ok pred]; intros [_ [_ Hn]]; rewrite Et in Hn; injection Hn as ->.
+      rewrite (proj2 (tvar_at_spec _ _ _) eq_refl) in Tv; discriminate.
+  - apply Hplain; cbn [strip_ok pred]; intros [_ [_ Hn]]; rewrite Et in Hn; discriminate.
+Qed.
+
 End Compose.
