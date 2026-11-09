@@ -1178,7 +1178,7 @@ Proof. destruct t; [intros _; apply cwf_cnone|intros [_ [H _]]; exact H]. Qed.
 
 Hypothesis Hkey : forall k e, aget k es = Some e -> keyed (uses e).
 Hypothesis HkW : keyed W.
-Hypothesis HkA : forall k e, aget k esa = Some e -> forall t, In t (klist (etargets e)) -> keyed (tuses t).
+Hypothesis HkA : forall k e, aget k esa = Some e -> forall t, In t (klist (etargets e)) -> keyed (tuses (tunshift wa t)).
 
 Lemma keyed_wa : keyed wa.
 Proof. unfold wa; destruct a as [w es']; destruct Ha as [_ [_ [Hk _]]]; exact Hk. Qed.
@@ -1194,7 +1194,6 @@ Proof.
       rewrite <- (firstn_skipn n (map (tunshift wa) (klist tsa))); apply in_or_app; right; exact Ht'. }
     rewrite (proj1 (proj2 (kof_list_good L HokL))) in Ht.
     apply in_map_iff in Ht as [t0 [<- Ht0]].
-    apply keyed_tunshift; [apply keyed_wa|].
     apply (HkA _ _ Ea); cbn [etargets].
     rewrite <- (firstn_skipn n (klist tsa)); apply in_or_app; right; exact Ht0.
   - intros t [].
