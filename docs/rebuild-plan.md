@@ -421,7 +421,31 @@ Also proved:
   - `no_low`.
 - Payloads use the flag `pay` (`skipN`) instead of a `restrict` step.
 
-**Next:**
+Also done:
+- nesting depth (`nnest`, `nest_napply`: payload results are shallower);
+- `tcF`/`ecF` (one level of the traversal) with `ncomp_eq`;
+- base independence (`ncomp_rebase`, `tcF_rebase`, `ecF_rebase`). It is
+  definitional up to `cadd cnone c = c`, because children now get the base
+  `cadd B a`.
+- Prune's hypotheses on `G` are restricted by a predicate `Pd` (use
+  "depth < n" in the induction).
+
+**Next, the main induction** on `nnest`. For an absolute `b`, deep and
+well formed, and `pay`, prove three things:
+- (P1) `nlocal (Qof pay)` and `nfin` of `ncomp pay b cnone`;
+- (P2) its meaning is `rcomp ∘ napply b` on `Qof pay` labels, where
+  `rcomp (inl y) = napply a y` and
+  `rcomp (inr (u, ρ)) = inr (u, ncomp true ρ cnone)`;
+- (P3) if `b`'s root clears `th`, then `ncomp pay b cnone` is the moved `b`
+  (root `cadd tau (csub r th)`). Use `ncanonical`.
+
+Supporting bounds:
+- composite payload roots are at least `wa` (gives `no_low`);
+- for labels without an `a` entry, the root is at most `r + tau` (gives
+  `Hatt`);
+- unvisited entries are moved (`atvisit_spec`, gives `Hvis`).
+
+Then:
 1. One level of `ncomp`. Instantiate `atmap_spec`/`kmap_spec`:
    - `HF`: base independence, via `kcanonical` and the meaning of
      targets;
