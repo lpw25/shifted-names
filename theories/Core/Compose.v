@@ -1831,6 +1831,70 @@ Proof.
   intros y Hy; destruct (aelems_aget es y Hy) as [k E]; apply (Pd_entries k y E).
 Qed.
 
+Lemma esC_entry k e0 :
+  aget k es = Some e0 ->
+  k = label_key (elabel e0)
+  /\ entry_good (elabel e0) (ecF cnone (unshift r e0))
+  /\ forall i, eabs (ecF cnone (unshift r e0)) i = rcomp (napply b (mk_rvar (elabel e0) i)).
+Proof.
+  intros E; pose proof Hloc as Hl; pose proof Hl as [_ [_ [_ [Hent _]]]].
+  pose proof (Pd_entries k e0 E) as HP.
+  destruct e0 as [h ts0 len p0]; destruct (Hent k _ E) as [[Hk [G0 [Hlen _]]] _]; cbn [elabel].
+  split; [symmetry; exact Hk|split; [apply ecF_good, HP|]].
+  intro i; cbn [unshift entry_based eunshift] in HP |- *.
+  destruct (kmap_entry h _ len _ HP) as [G1 E1].
+  assert (Hl1 : klength (kmap th tau tcF bl0 cnone (klift r ts0)) = len).
+  { rewrite (klength_spec _ (kgood_shape _ G1)), E1, length_map, klist_klift, length_map by apply kgood_inv, G0.
+    rewrite <- Hlen; symmetry; apply klength_spec, kgood_shape, G0. }
+  cbn [ecF]; rewrite cget_cnone_dval; cbn [Nat.add]; rewrite <- Hl1.
+  rewrite (proj2 (ecomp_spec h _ (dval r (label_key h) + p0) G1)), Hl1.
+  cbn [napply v_label v_index]; rewrite Hk, E; cbn [eapply].
+  destruct (Nat.ltb_spec i len) as [Hi|Hi].
+  - unfold lapp; rewrite E1, length_map, klist_klift, length_map, nth_error_map, nth_error_map by apply kgood_inv, G0.
+    rewrite knth_spec by apply kgood_shape, G0.
+    destruct (nth_error (klist ts0) i) as [t0|] eqn:Et.
+    + assert (Hi' : i < length (klist ts0)) by (apply nth_error_Some; rewrite Et; discriminate).
+      destruct (Nat.ltb_spec i (length (klist ts0))); [|lia]; cbn [option_map].
+      rewrite rcomp_tresult; reflexivity.
+    + apply nth_error_None in Et; rewrite <- (klength_spec _ (kgood_shape _ G0)) in Et; lia.
+  - cbn [rcomp]; f_equal; f_equal; rewrite Hk; lia.
+Qed.
+
+Lemma es_good_esC : es_good esC.
+Proof.
+  destruct esC_spec as [HesC HgC]; split; [exact HesC|].
+  intros k e E; rewrite HgC in E; destruct (aget k es) as [e0|] eqn:E0; [|discriminate].
+  cbn [option_map] in E; injection E as <-.
+  destruct (esC_entry k e0 E0) as [Hk [Hg _]].
+  assert (Hl : elabel (ecF cnone (unshift r e0)) = elabel e0)
+    by (destruct (ecF cnone (unshift r e0)); destruct Hg as [-> _]; reflexivity).
+  change (eunshift r e0) with (unshift r e0); rewrite Hl; split; assumption.
+Qed.
+
+Lemma cf_esC h i : cf r esC h i = rcomp (napply b (mk_rvar h i)).
+Proof.
+  unfold cf; rewrite (proj2 esC_spec).
+  destruct (aget (label_key h) es) as [e0|] eqn:E0; cbn [option_map].
+  - destruct (esC_entry _ e0 E0) as [Hk [_ Hm]]; apply label_key_inj in Hk; subst h; apply Hm.
+  - cbn [napply v_label v_index]; rewrite E0; reflexivity.
+Qed.
+
+Lemma ncomp_b : ncomp pay b cnone = finish pay r esC (@atvisit entry bl0 r (fun k => k) es).
+Proof.
+  rewrite ncomp_eq; pose proof Hloc as [_ [Hcwf _]]; rewrite cadd_cnone by exact Hcwf; reflexivity.
+Qed.
+
+Theorem napply_ncomp_b v :
+  Qof pay (v_label v) = true -> no_low pay r esC ->
+  napply (ncomp pay b cnone) v = rcomp (napply b v).
+Proof.
+  intros HQ Hlow; destruct v as [h i]; cbn [v_label] in HQ.
+  rewrite ncomp_b, napply_finish; [apply cf_esC|exact es_good_esC| |exact Hlow].
+  unfold skipN; destruct pay eqn:Hp; [|reflexivity].
+  destruct h as [s|]; [|discriminate].
+  cbn [andb]; apply Pos.eqb_neq; intro E; apply label_key_inj in E; discriminate.
+Qed.
+
 End Step.
 
 End Compose.
