@@ -1681,4 +1681,42 @@ Proof.
       split; [destruct (lmin (rev R) _); reflexivity|destruct (lmin (rev R) _); lia].
 Qed.
 
+(** ** Deep well-formedness *)
+
+(** In normal form at every level: payloads reachable from the labels that
+    matter are named-only normal forms themselves. *)
+Inductive nwf : (option label -> bool) -> nadj -> Prop :=
+| NWf Q b :
+    nlocal Q b -> nfin b ->
+    (forall v u rho, Q (v_label v) = true -> napply b v = inr (u, rho) -> nwf Qnamed rho) ->
+    nwf Q b.
+
+Lemma nwf_local Q b : nwf Q b -> nlocal Q b.
+Proof. intros [? ? Hl _ _]; exact Hl. Qed.
+
+Lemma nwf_fin Q b : nwf Q b -> nfin b.
+Proof. intros [? ? _ Hf _]; exact Hf. Qed.
+
+Lemma nwf_payload Q b v u rho : nwf Q b -> Q (v_label v) = true -> napply b v = inr (u, rho) -> nwf Qnamed rho.
+Proof. intros [? ? _ _ Hp]; apply Hp. Qed.
+
+(** [b] above the thresholds, moved by [a]'s pure shift. *)
+Definition nmove (b : nadj) : nadj :=
+  match b with NAdj r es => NAdj (cadd tau (csub r th)) es end.
+
+(** A target of an entry of [b], made absolute, is a result of [b]. *)
+Lemma target_result Q r (es : atrie entry) k h ts len p i t :
+  nlocal Q (NAdj r es) -> aget k es = Some (Entry h ts len p) -> knth ts i = Some t ->
+  napply (NAdj r es) (mk_rvar h i) = tresult (tunshift r t) /\ Q h = true.
+Proof.
+  intros Hl E Et; pose proof Hl as [_ [_ [_ [Hent _]]]].
+  destruct (Hent _ _ E) as [[Hk [G [Hlen _]]] [HQ _]]; cbn [elabel] in HQ.
+  split; [|exact HQ].
+  cbn [napply v_label v_index]; rewrite Hk, E; cbn [eapply].
+  assert (Hi : i < len)
+    by (rewrite <- Hlen, (klength_spec _ (kgood_shape _ G)); apply nth_error_Some;
+        rewrite <- knth_spec by apply (kgood_shape _ G); rewrite Et; discriminate).
+  destruct (Nat.ltb_spec i len); [rewrite Et; reflexivity|lia].
+Qed.
+
 End Compose.
