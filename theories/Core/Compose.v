@@ -1117,6 +1117,96 @@ Proof.
   rewrite HJ; destruct (c_def (aann es1)); cbn; [f_equal; lia|reflexivity].
 Qed.
 
+Lemma klength0_nil (ts : kseq target) : kgood ts -> klength ts = 0 -> ts = KNil.
+Proof.
+  intros [_ [Hsh _]]; destruct ts as [|c w t s]; [reflexivity|]; cbn [klength]; intros H.
+  destruct Hsh as [Ht _]; apply ktshape_pos in Ht; lia.
+Qed.
+
+Lemma es1_good k e : aget k es1 = Some e -> k = label_key (elabel e) /\ entry_good (elabel e) e.
+Proof. intros E; destruct (aget_add_aonly_good pay W es k e Hgood E) as [Hk [Hg _]]; split; assumption. Qed.
+
+(** A minimum of [es1] is still attained in [es3], unless it was attained
+    only by an entry for that very label which was removed. *)
+Lemma witness k u :
+  cget (aann es1) k = Some u -> (aget k es3 <> None \/ aget k es1 = None) ->
+  exists k' e', aget k' es3 = Some e' /\ cget (uses e') k = Some u.
+Proof.
+  intros Hu Hk; rewrite (ainv_ann es1 Hes1) in Hu.
+  destruct (lmin_attained _ _ _ Hu) as [e [Hin He]].
+  destruct (aelems_aget es1 e Hin) as [k' E1].
+  destruct (aget k' es3) as [e3|] eqn:E3.
+  - exists k', e3; split; [exact E3|].
+    destruct (Hsrc k' e3 E3) as [E1'|[E1' _]]; [rewrite E1 in E1'; injection E1' as ->; exact He|congruence].
+  - exfalso; rewrite Hg3, Hg2, E1 in E3.
+    assert (Hd : exists h p, e = Entry h KNil 0 p).
+    { destruct (existsb _ D), (existsb _ WK); cbn [gapf] in E3; try discriminate;
+        unfold dropf in E3; destruct e as [h [|c w t s] [|len] p]; try discriminate; eauto. }
+    destruct Hd as [h [p ->]].
+    destruct (es1_good _ _ E1) as [Hk' _]; cbn [elabel] in Hk'.
+    cbn [uses entry_based euses ksann] in He; rewrite cget_cmin, cget_cnone, cget_cone in He.
+    destruct (Pos.eqb_spec k (label_key h)) as [->|]; [|destruct (Some 0); discriminate].
+    rewrite <- Hk' in Hk; destruct Hk as [Hk|Hk]; [|congruence].
+    apply Hk; rewrite Hg3, Hg2, E1.
+    destruct (existsb _ D), (existsb _ WK); cbn [gapf] in E3 |- *; congruence.
+Qed.
+
+Hypothesis Hpay : pay = true -> aget (label_key None) es = None.
+Hypothesis Hatt : forall k, skipN pay k = false -> aget k es <> None -> aget k esa = None ->
+                    exists n, cget (aann es1) k = Some n /\ n <= dval I k.
+Hypothesis Hvis : forall k h p, aget k es = Some (Entry h KNil 0 p) -> ~ In k vis -> aget k esa = None ->
+                    dval I k < p.
+
+Lemma uses_own k e : aget k es1 = Some e -> cget (uses e) k <> None.
+Proof.
+  intros E; destruct (es1_good _ _ E) as [Hk _]; destruct e as [h ts len p]; cbn [elabel] in Hk; subst k.
+  cbn [uses entry_based euses]; rewrite cget_cmin, cget_cone_same; destruct (cget (ksann ts) _); discriminate.
+Qed.
+
+Lemma U_some k e : aget k es1 = Some e -> exists u, cget (aann es1) k = Some u.
+Proof.
+  intros E; destruct (cget (uses e) k) as [m|] eqn:Em; [|exfalso; exact (uses_own k e E Em)].
+  rewrite (ainv_ann es1 Hes1); destruct (lmin_le _ e k m (aget_in _ _ _ E) Em) as [u [Eu _]]; eauto.
+Qed.
+
+Lemma J_cases k : cget (jstarts pay W) k = None \/ (cget (jstarts pay W) k = Some (dval I k)
+                                                   /\ skipN pay k = false /\ aget k esa = None).
+Proof.
+  rewrite cget_jstarts; destruct (skipN pay k) eqn:Sk; [left; reflexivity|].
+  destruct (aget k esa); [left; reflexivity|right].
+  split; [unfold I, dval; rewrite cget_ctotal; reflexivity|split; reflexivity].
+Qed.
+
+(** At a label with an entry, the new root is the minimum over [es1]. *)
+Lemma R_eq_U k : aget k es3 <> None -> exists u, cget (aann es1) k = Some u /\ cget R k = Some u.
+Proof.
+  intros H3; destruct (aget k es3) as [e3|] eqn:E3; [|contradiction].
+  unfold R; rewrite cget_cmin.
+  destruct (Hsrc k e3 E3) as [E1|[E1 [Hlt _]]].
+  - destruct (U_some k e3 E1) as [u Eu]; exists u; split; [exact Eu|rewrite Eu].
+    destruct (J_cases k) as [->|[-> [Sk Ea]]]; [reflexivity|].
+    assert (Hes_k : aget k es <> None).
+    { rewrite Hg1 in E1; destruct (aget k es); [discriminate|]; rewrite Sk, Ea in E1; discriminate. }
+    destruct (Hatt k Sk Hes_k Ea) as [n [En Hn]]; rewrite Eu in En; injection En as <-.
+    cbn; f_equal; lia.
+  - assert (Sk : skipN pay k = false).
+    { destruct (skipN pay k) eqn:Sk; [exfalso|reflexivity].
+      assert (Hw : existsb (Pos.eqb k) WK = false).
+      { apply Bool.not_true_iff_false; intros Hx; apply existsb_exists in Hx as [k' [Hin Hk']].
+        apply Pos.eqb_eq in Hk'; subst k'; apply filter_In in Hin as [_ Hn]; rewrite Sk in Hn; discriminate. }
+      rewrite Hg3, Hg2, Hw, E1 in E3; destruct (existsb _ D); cbn in E3; discriminate. }
+    assert (Ea : aget k esa = None).
+    { rewrite Hg1 in E1; destruct (aget k es); [discriminate|]; rewrite Sk in E1.
+      destruct (aget k esa) as [ea|] eqn:Ea; [exfalso|reflexivity].
+      unfold adrop in E1; rewrite <- (esa_key _ _ Ea), Ea in E1; destruct ea as [h1 tsa lena pa].
+      destruct (Nat.ltb _ _); discriminate. }
+    assert (HJ : cget (jstarts pay W) k = Some (dval I k))
+      by (rewrite cget_jstarts, Sk, Ea; unfold I, dval; rewrite cget_ctotal; reflexivity).
+    unfold R in Hlt; unfold dval at 1 in Hlt; rewrite cget_cmin, HJ in Hlt; rewrite HJ.
+    destruct (cget (aann es1) k) as [u|] eqn:Eu; cbn in Hlt |- *; [|lia].
+    exists u; split; [reflexivity|f_equal; lia].
+Qed.
+
 End Finish.
 
 End Compose.
