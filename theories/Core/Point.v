@@ -623,4 +623,27 @@ Proof.
   - apply Hold; rewrite Hdk, Hw'; cbn; f_equal; lia.
 Qed.
 
+(** ** Lifting under a binder
+
+    [lift h a] keeps the new [h_0] and sends [h_(i+1)] to where [a] sends
+    [h_i], weakened past the new [h_0]. *)
+
+Definition lift (h : option label) (a : nadj) : nadj := extend h (TVar h 0) (weaken h a).
+
+Theorem napply_lift h a v :
+  nlocal Qall a ->
+  napply (lift h a) v
+  = if rvar_eqb v (mk_rvar h 0) then inl (mk_rvar h 0)
+    else rweaken h (napply a (unshift_rvar (mk_rvar h 0) v)).
+Proof.
+  intros Ha; unfold lift.
+  rewrite napply_extend by (apply nlocal_weaken, Ha || exact I || reflexivity).
+  destruct (rvar_eqb v _); [reflexivity|]; apply napply_weaken, Ha.
+Qed.
+
+Theorem nlocal_lift h a : nlocal Qall a -> nlocal Qall (lift h a).
+Proof.
+  intros Ha; apply nlocal_extend; [apply nlocal_weaken, Ha|exact I|reflexivity|apply keyed_cone].
+Qed.
+
 End Point.
