@@ -1027,6 +1027,96 @@ Proof.
       f_equal; f_equal; lia.
 Qed.
 
+(** *** The normal form of [finish] *)
+
+Lemma keyed_cset c k v : keyed c -> (exists l, k = label_key l) -> keyed (cset c k v).
+Proof.
+  intros Hc Hk k' v' E; unfold cset in E; cbn [c_exc] in E.
+  destruct (oeqb v (c_def c)); [rewrite get_remove in E|rewrite get_set in E];
+    destruct (Pos.eqb_spec k' k) as [->|]; try discriminate; try exact Hk; apply (Hc _ _ E).
+Qed.
+
+Lemma keyed_tunshift d (t : target) : keyed d -> keyed (tuses t) -> keyed (tuses (tunshift d t)).
+Proof. destruct t as [y j|u [r es']]; cbn; intros Hd Ht; [apply keyed_cone|apply keyed_cmap2; assumption]. Qed.
+
+Lemma keyed_ksann (ts : kseq target) : kgood ts -> (forall t, In t (klist ts) -> keyed (tuses t)) -> keyed (ksann ts).
+Proof.
+  intros G H; apply (keyed_lmin (klist ts)); [exact H|intro k; apply ksann_klist, G|apply kgood_cwf, G].
+Qed.
+
+Lemma keyed_entry h (ts : kseq target) len p :
+  kgood ts -> (forall t, In t (klist ts) -> keyed (tuses t)) -> keyed (uses (Entry h ts len p)).
+Proof. intros G H; apply keyed_cmap2; [apply keyed_cone|apply keyed_ksann; assumption]. Qed.
+
+Lemma ainv_cwf_ann (t : atrie entry) : ainv t -> cwf (aann t).
+Proof. destruct t; [intros _; apply cwf_cnone|intros [_ [H _]]; exact H]. Qed.
+
+Hypothesis Hkey : forall k e, aget k es = Some e -> keyed (uses e).
+Hypothesis HkW : keyed W.
+Hypothesis HkA : forall k e, aget k esa = Some e -> forall t, In t (klist (etargets e)) -> keyed (tuses t).
+
+Lemma keyed_wa : keyed wa.
+Proof. unfold wa; destruct a as [w es']; destruct Ha as [_ [_ [Hk _]]]; exact Hk. Qed.
+
+Lemma keyed_adrop h n e : adrop h n = Some e -> keyed (uses e).
+Proof.
+  intros E; pose proof (adrop_spec h n e E) as [Hg _].
+  unfold adrop in E; destruct (aget (label_key h) esa) as [[h' tsa lena pa]|] eqn:Ea; [|discriminate].
+  destruct (Nat.ltb n lena); injection E as <-; destruct Hg as [_ [G _]]; apply keyed_entry; try exact G.
+  - intros t Ht; set (L := map (tunshift wa) (skipn n (klist tsa))) in *.
+    assert (HokL : forall t, In t L -> eok t).
+    { intros t' Ht'; apply (alist_ok h); unfold alist; rewrite Ea; unfold L in Ht'; rewrite <- skipn_map in Ht'.
+      rewrite <- (firstn_skipn n (map (tunshift wa) (klist tsa))); apply in_or_app; right; exact Ht'. }
+    rewrite (proj1 (proj2 (kof_list_good L HokL))) in Ht.
+    apply in_map_iff in Ht as [t0 [<- Ht0]].
+    apply keyed_tunshift; [apply keyed_wa|].
+    apply (HkA _ _ Ea); cbn [etargets].
+    rewrite <- (firstn_skipn n (klist tsa)); apply in_or_app; right; exact Ht0.
+  - intros t [].
+Qed.
+
+Lemma keyed_es1 k e : aget k es1 = Some e -> keyed (uses e).
+Proof.
+  intros E; rewrite Hg1 in E; destruct (aget k es) as [e0|] eqn:E0; [injection E as <-; apply (Hkey _ _ E0)|].
+  destruct (skipN pay k); [discriminate|].
+  destruct (aget k esa) as [ea|]; [apply (keyed_adrop _ _ _ E)|discriminate].
+Qed.
+
+Lemma keyed_aann (t : atrie entry) : ainv t -> (forall k e, aget k t = Some e -> keyed (uses e)) -> keyed (aann t).
+Proof.
+  intros Ht H; apply (keyed_lmin (aelems t)); [|apply ainv_ann, Ht|apply ainv_cwf_ann, Ht].
+  intros e He; destruct (aelems_aget t e He) as [k E]; apply (H _ _ E).
+Qed.
+
+Lemma keyed_jstarts : keyed (jstarts pay W).
+Proof.
+  unfold jstarts.
+  assert (H : forall L, keyed (fold_right (fun (e : entry) c => cset c (label_key (elabel e)) None) (ctotal wa W) L))
+    by (induction L as [|e L IH]; cbn [fold_right];
+        [apply keyed_cmap2; [apply keyed_wa|exact HkW]|apply keyed_cset; [exact IH|eauto]]).
+  destruct pay; [apply keyed_cset; [apply H|eauto]|apply H].
+Qed.
+
+Lemma keyed_R : keyed R.
+Proof. apply keyed_cmap2; [apply keyed_aann; [exact Hes1|exact keyed_es1]|exact keyed_jstarts]. Qed.
+
+Hypothesis Hfa : nfin a.
+Hypothesis HW0 : c_def W = Some 0.
+
+Lemma nfin_finish : nfin (finish pay W es vis).
+Proof.
+  rewrite finish_eq; unfold nfin, R; cbn [nroot].
+  unfold cmin, cmap2; cbn [c_def].
+  assert (HJ : c_def (jstarts pay W) = Some 0).
+  { unfold jstarts.
+    assert (Hd : forall L, c_def (fold_right (fun (e : entry) c => cset c (label_key (elabel e)) None) (ctotal wa W) L)
+                           = Some (oval (c_def wa) + oval (c_def W)))
+      by (induction L as [|e L IH]; [reflexivity|exact IH]).
+    unfold nfin in Hfa; fold wa in Hfa.
+    destruct pay; [unfold cset; cbn [c_def]|]; rewrite Hd, Hfa, HW0; reflexivity. }
+  rewrite HJ; destruct (c_def (aann es1)); cbn; [f_equal; lia|reflexivity].
+Qed.
+
 End Finish.
 
 End Compose.
