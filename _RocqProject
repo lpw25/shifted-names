@@ -8,6 +8,7 @@ theories/Core/ATrie.v
 theories/Core/Prune.v
 theories/Core/Repr.v
 theories/Core/Point.v
+theories/Core/Compose.v
 theories/Core/Label.v
 theories/Core/Var.v
 theories/Core/Strict.v
