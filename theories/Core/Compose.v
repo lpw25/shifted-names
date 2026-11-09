@@ -34,6 +34,85 @@ Local Notation result := (@result T).
 Local Notation entry := (@entry T).
 Local Notation target := (@target T).
 
+(** ** Nesting depth, for induction through payloads *)
+
+Fixpoint ktmax {X} (f : X -> nat) (t : ktree X) : nat :=
+  match t with KLeaf x => f x | KNode _ x l r => Nat.max (f x) (Nat.max (ktmax f l) (ktmax f r)) end.
+
+Fixpoint kmaxs {X} (f : X -> nat) (s : kseq X) : nat :=
+  match s with KNil => 0 | KCons _ _ t s' => Nat.max (ktmax f t) (kmaxs f s') end.
+
+Fixpoint amax {X} (f : X -> nat) (t : atrie X) : nat :=
+  match t with
+  | AEmpty => 0
+  | ANode _ l o r => Nat.max (amax f l) (Nat.max (match o with Some x => f x | None => 0 end) (amax f r))
+  end.
+
+Fixpoint tnest (t : target) : nat :=
+  match t with TVar _ _ => 0 | TBind _ rho => S (nnest rho) end
+with nnest (b : nadj) : nat :=
+  match b with NAdj _ es => amax (fun e => match e with Entry _ ts _ _ => kmaxs tnest ts end) es end.
+
+Definition enest (e : entry) : nat := match e with Entry _ ts _ _ => kmaxs tnest ts end.
+
+Section Depth.
+
+Context {X : Type} {BX : Based X}.
+Variable f : X -> nat.
+Hypothesis Hf : forall d x, f (unshift d x) = f x.
+
+Lemma ktmax_in t : forall x, In x (ktlist t) -> f x <= ktmax f t.
+Proof.
+  induction t as [y|c y l IHl r IHr]; cbn [ktlist ktmax]; [intros x [<-|[]]; lia|].
+  intros x Hin; apply in_map_iff in Hin as [x0 [<- Hin]]; rewrite Hf.
+  destruct Hin as [<-|Hin]; [lia|apply in_app_or in Hin as [Hin|Hin]; [specialize (IHl _ Hin)|specialize (IHr _ Hin)]; lia].
+Qed.
+
+Lemma kmaxs_in s : forall x, In x (klist s) -> f x <= kmaxs f s.
+Proof.
+  induction s as [|c w t s IH]; cbn [klist kmaxs]; [intros x []|].
+  intros x Hin; apply in_map_iff in Hin as [x0 [<- Hin]]; rewrite Hf.
+  apply in_app_or in Hin as [Hin|Hin]; [pose proof (ktmax_in t x0 Hin)|specialize (IH _ Hin)]; lia.
+Qed.
+
+Lemma amax_in t : forall x, In x (aelems t) -> f x <= amax f t.
+Proof.
+  induction t as [|c l IHl o r IHr]; cbn [aelems amax]; [intros x []|].
+  intros x Hin; apply in_map_iff in Hin as [x0 [<- Hin]]; rewrite Hf.
+  apply in_app_or in Hin as [Hin|Hin]; [specialize (IHl _ Hin); lia|].
+  apply in_app_or in Hin as [Hin|Hin]; [destruct o as [y|]; [destruct Hin as [<-|[]]; lia|destruct Hin]|].
+  specialize (IHr _ Hin); lia.
+Qed.
+
+End Depth.
+
+Lemma tnest_unshift d (t : target) : tnest (unshift d t) = tnest t.
+Proof. destruct t as [y j|u [r es]]; reflexivity. Qed.
+
+Lemma kmaxs_klift d (ts : kseq target) : kmaxs tnest (klift d ts) = kmaxs tnest ts.
+Proof. destruct ts; reflexivity. Qed.
+
+Lemma enest_unshift d (e : entry) : enest (unshift d e) = enest e.
+Proof. destruct e as [h ts len p]; cbn; apply kmaxs_klift. Qed.
+
+Lemma nnest_es r (es : atrie entry) : nnest (NAdj r es) = amax enest es.
+Proof. reflexivity. Qed.
+
+Theorem nest_napply (b : nadj) v u rho :
+  (forall k e, aget k (nentries b) = Some e -> kgood (etargets e)) ->
+  napply b v = inr (u, rho) -> nnest rho < nnest b.
+Proof.
+  destruct b as [w es]; intros HG; cbn [napply nentries] in *; rewrite nnest_es.
+  destruct (aget _ es) as [e|] eqn:E; [|discriminate].
+  pose proof (amax_in enest enest_unshift es e (aget_in _ _ _ E)) as He.
+  pose proof (HG _ _ E) as G.
+  destruct e as [h ts len p]; cbn [eapply enest etargets] in *.
+  destruct (Nat.ltb _ _); [|discriminate].
+  destruct (knth ts _) as [t|] eqn:Et; [|discriminate].
+  pose proof (kmaxs_in tnest tnest_unshift ts t (knth_in _ _ _ G Et)) as Ht.
+  destruct t as [y j|u' [r es']]; cbn in *; [discriminate|]; intros [= -> <-]; cbn in Ht; rewrite !nnest_es in *; change (S (amax enest es') <= kmaxs tnest ts) in Ht; lia.
+Qed.
+
 (** ** Count map helpers *)
 
 (** Setting one key, keeping the exceptions canonical. *)
