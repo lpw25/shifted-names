@@ -278,6 +278,47 @@ Fixpoint ncomp (pay : bool) (b : nadj) (B : counts) {struct b} : nadj :=
 
 Definition compose (b : nadj) : nadj := ncomp false b cnone.
 
+(** One level of the traversal, with the recursion through payloads named. *)
+Definition tcF (B : counts) (t : target) : target :=
+  match t with
+  | TVar y j => rtarget (napply a (mk_rvar y (dval B (label_key y) + j)))
+  | TBind u rho => TBind u (ncomp true rho B)
+  end.
+
+Definition ecF (B : counts) (e : entry) : entry :=
+  match e with
+  | Entry h ts len p => ecomp h (kmap th tau tcF bl0 B ts) len (dval B (label_key h) + p)
+  end.
+
+Lemma ncomp_eq pay r es B :
+  ncomp pay (NAdj r es) B
+  = finish pay (cadd B r) (atmap th tau ecF bl0 (cadd B r) es) (@atvisit entry bl0 (cadd B r) (fun k => k) es).
+Proof. reflexivity. Qed.
+
+(** ** Base independence *)
+
+Lemma cget_cnone_dval k : dval cnone k = 0.
+Proof. reflexivity. Qed.
+
+Lemma cadd_cnone c : cwf c -> cadd cnone c = c.
+Proof.
+  intros Hc; apply counts_ext; [apply cwf_cmap2|exact Hc|].
+  intro k; rewrite cget_cadd, cget_cnone; destruct (cget c k); reflexivity.
+Qed.
+
+Lemma kmap_rebase F bl B (ts : kseq target) :
+  kmap th tau F bl B ts = kmap th tau F bl cnone (klift B ts).
+Proof. destruct ts as [|c w t s]; [reflexivity|]; cbn [klift kmap]; rewrite cadd_cnone by apply cwf_cmap2; reflexivity. Qed.
+
+Lemma ncomp_rebase pay r es B : ncomp pay (NAdj r es) B = ncomp pay (NAdj (cadd B r) es) cnone.
+Proof. rewrite !ncomp_eq, (cadd_cnone (cadd B r)) by apply cwf_cmap2; reflexivity. Qed.
+
+Lemma tcF_rebase B t : tcF B t = tcF cnone (unshift B t).
+Proof. destruct t as [y j|u [r es]]; [reflexivity|]; cbn [tcF unshift target_based tunshift]; rewrite ncomp_rebase; reflexivity. Qed.
+
+Lemma ecF_rebase B e : ecF B e = ecF cnone (unshift B e).
+Proof. destruct e as [h ts len p]; cbn [ecF unshift entry_based eunshift]; rewrite kmap_rebase; reflexivity. Qed.
+
 (** ** Proofs: count map helpers *)
 
 Lemma cget_cset c k v k' : cget (cset c k v) k' = if Pos.eqb k' k then v else cget c k'.
