@@ -263,30 +263,43 @@ Proof.
   apply andb_prop in H as [H _]; apply andb_prop in H as [_ H]; apply oeqb_spec, H.
 Qed.
 
-(** The payload checks, as a statement about the entries made absolute. *)
+(** A check on every target, as a statement about the entries made
+    absolute. *)
+Lemma targets_check (F : counts -> target -> bool) (HF : forall B t, F B t = F cnone (unshift B t))
+      Q r (es : atrie entry) :
+  nlocal Q (NAdj r es) ->
+  aallF (fun B e => match e with Entry _ ts _ _ => kallF F B ts end) r es = true
+  <-> forall k e, aget k es = Some e ->
+      forall t, In t (klist (klift r (etargets e))) -> F cnone t = true.
+Proof.
+  intros Hl; pose proof Hl as [Hes _].
+  set (FE := fun B e => match e with Entry _ ts _ _ => kallF F B ts end : bool).
+  assert (HFE : forall B e, FE B e = FE cnone (unshift B e)).
+  { intros B [h [|a w t s] len p]; [reflexivity|]; unfold FE; cbn [unshift entry_based eunshift klift kallF].
+    rewrite (cadd_cnone (cadd B a)) by apply cwf_cmap2; reflexivity. }
+  rewrite (aallF_spec FE (FE cnone) HFE es r Hes).
+  assert (Hent : forall e, In e (aelems es) ->
+                 (FE cnone (unshift r e) = true
+                  <-> forall t, In t (klist (klift r (etargets e))) -> F cnone t = true)).
+  { intros e He; destruct (aelems_aget es e He) as [k E].
+    pose proof Hl as [_ [_ [_ [Hent _]]]]; destruct (Hent k e E) as [Hok _].
+    destruct e as [h ts len p]; destruct Hok as [_ [G _]].
+    unfold FE; cbn [unshift entry_based eunshift etargets].
+    rewrite (kallF_spec F (F cnone) HF _ cnone (kinv_klift r ts (kgood_inv _ G))).
+    split; intros H t Ht; specialize (H t Ht).
+    - rewrite HF; exact H.
+    - rewrite <- HF; exact H. }
+  split.
+  - intros H k e E; apply Hent; [apply (aget_in _ _ _ E)|apply H, (aget_in _ _ _ E)].
+  - intros H e He; apply Hent; [exact He|]; destruct (aelems_aget es e He) as [k E]; apply (H k e E).
+Qed.
+
 Lemma nwf_targets pay r (es : atrie entry) :
   nlocal (Qof pay) (NAdj r es) ->
   aallF echeck r es = true
   <-> forall k e, aget k es = Some e ->
       forall t, In t (klist (klift r (etargets e))) -> tcheck cnone t = true.
-Proof.
-  intros Hl; pose proof Hl as [Hes _].
-  rewrite (aallF_spec echeck (echeck cnone) (fun B x => echeck_unshift B x) es r Hes).
-  assert (Hent : forall e, In e (aelems es) ->
-                 (echeck cnone (unshift r e) = true
-                  <-> forall t, In t (klist (klift r (etargets e))) -> tcheck cnone t = true)).
-  { intros e He; destruct (aelems_aget es e He) as [k E].
-    pose proof Hl as [_ [_ [_ [Hent _]]]]; destruct (Hent k e E) as [Hok _].
-    destruct e as [h ts len p]; destruct Hok as [_ [G _]].
-    cbn [unshift entry_based eunshift echeck etargets].
-    rewrite (kallF_spec tcheck (tcheck cnone) (fun B x => tcheck_unshift B x) _ cnone (kinv_klift r ts (kgood_inv _ G))).
-    split; intros H t Ht; specialize (H t Ht).
-    - rewrite tcheck_unshift; exact H.
-    - rewrite <- tcheck_unshift; exact H. }
-  split.
-  - intros H k e E; apply Hent; [apply (aget_in _ _ _ E)|apply H, (aget_in _ _ _ E)].
-  - intros H e He; apply Hent; [exact He|]; destruct (aelems_aget es e He) as [k E]; apply (H k e E).
-Qed.
+Proof. apply (targets_check tcheck tcheck_unshift). Qed.
 
 Lemma nwf_payload pay b v u rho :
   nwf pay b -> Qof pay (v_label v) = true -> napply b v = inr (u, rho) -> nwf true rho.
