@@ -68,16 +68,18 @@ target  = TVar y j        -- j relative to the counts above
 
 - **An entry for label `h`** sends `hᵢ` to its `i`-th target for `i < len`,
   and to `h₍ᵢ₋len₊p₎` (relative to the base) beyond: pass-through.
-- **Counts** (`Counts.v`). A count map is a default plus canonical
-  exceptions: per label, `None` (unused below) or how far the outputs used
-  below start above the parent's base. Every non-empty set of indices
-  factors uniquely as `k + J` with `0 ∈ J`, and weakenings compose by
-  addition, so counts are canonical.
+- **Counts** (`Counts.v`). A count map is a default plus exceptions: per
+  label, `None` (unused below) or how far the outputs used below start
+  above the parent's base. Every non-empty set of indices factors uniquely
+  as `k + J` with `0 ∈ J`, and weakenings compose by addition, so counts
+  are canonical. A count map carries a strict proof that no exception
+  repeats the default, so every count map is canonical.
 - **Annotated structures** (`Based.v`, `Skew.v`, `ATrie.v`). Every node of
-  the label trie and of each skew-binary sequence carries the minimum of the
+  the label trie and of each skew-binary tree carries the minimum of the
   counts below it, relative to its parent. Elements are stored relative to
   the base of the node holding them, so moving a subtree only changes its
-  top.
+  top. A skew sequence keeps one base at its head, and the trees of its
+  spine are all stored relative to it.
 - **The root** is the global weakening. A label without an entry is the
   identity relative to it, so weakening is an O(1)-path update at the root.
 - **Payloads.** `ρ` in `TBind u ρ` has no entry for the bound label, and its
@@ -106,8 +108,21 @@ determined by the meaning (`napply`), which gives canonicity.
 - `nidentity`: an empty trie over the uniform root.
 - `weaken h a`: add 1 to the root's `h`-count.
 - `extend h t a`: cons `t` onto `h`'s targets. The root is lowered to the
-  minimum with `t`'s uses (`lower`, adding gap entries where needed), then
-  one trie path is rebuilt with the smart constructors.
+  minimum with `t`'s uses (`lower`), and everything below moves up by the
+  difference, which `cexcess` computes from `t`'s labels alone; gap entries
+  are added where needed. Then `t` goes onto `h`'s entry. For a variable
+  target the label trie is updated incrementally (`ATrie.aupd`):
+  - on the way down, each node on the path is lowered to an envelope the new
+    entry stays above (`y_j` and `h_0`), moving its children up at those
+    labels only;
+  - on the way up, each node's counts are recomputed at the labels `h` and
+    `y` from its children (`araise`);
+  - the entry's frame is known only lazily, so the target is shifted into
+    it with `ldval`.
+  A payload target uses every named label, so it goes through `aupdate`,
+  which rebuilds the path. Consing onto the entry's skew sequence lowers
+  the head base at `t`'s labels and moves the O(log n) trees by the
+  difference; only merging two trees builds a new node over them.
 - `lift h a := extend h (TVar h 0) (weaken h a)`.
 
 Each has a meaning theorem and keeps `nwf`.
@@ -177,23 +192,38 @@ Notation:
 
 - `|y|`: the length of label `y`'s key (one count-map or trie lookup);
 - `n`: the size of the adjustment;
-- `m`: the number of exceptions in the count maps involved. Count-map
-  operations (`cmin`, `cadd`, `csub`, `cplus`) are merges, O(m).
+- `m`: the number of exceptions in the count maps involved.
+
+**Count-map operations.** A pointwise operation (`Trie.mmerge`, with a
+mode per operation and default) only walks the overlap of the two maps'
+exceptions. Exceptions that only one map has are kept or dropped whole
+when the other map's default allows it, which it does for the defaults
+`None` and `Some 0` that occur, except that `cadd` and `cplus` map the side
+whose other default is `Some 0`. So an operation with a small map, like a
+single label's count or a delta at a few labels, costs O(size of the small
+map · its key lengths).
 
 | Operation | Cost |
 |---|---|
 | `apply` on a variable (lookup) | O((\|h\| + log n) · \|y\|): trie path, sequence path, then one label read off the lazy base |
 | `apply` on a payload result | the lookup, then `kleisli` over the payload term, looking up its variables lazily over the payload's base |
-| weaken `y` | O(m) at the root |
-| extend `h` with `t` | O(m) to lower the root, plus a gap entry per label whose root count drops; O(\|h\| · m) for the trie path |
-| lift `y` | as weaken plus extend |
+| weaken `y` | O(\|y\|) at the root |
+| extend `h` with a variable `y_j` | O((\|h\| + log n) · (\|h\| + \|y\|)): the root and the trie path patched at `h` and `y`, the cons onto `h`'s sequence; plus, amortised, merging two trees of the sequence |
+| extend `h` with a payload | O(\|h\| · m): the payload uses every named label, so the root drops everywhere and the path is rebuilt |
+| lift `y` | as weaken plus extend with `y_0` |
 | compose | below |
+
+A cons that merges two trees of the sequence builds a node over them,
+whose counts cover both. That is amortised (a merge of size `w` happens
+once every `w` conses), and a program that keeps consing onto one old
+version can repeat an expensive merge.
 
 Composition costs:
 
 - a's thresholds, `τ` and the blocking tree, once: O(|a| log |a|);
 - per visited node: filtering the blocking map, O(|blocking| · |y|), plus
-  the smart constructors' count merges;
+  the smart constructors' count merges, which walk the overlap of the
+  children's maps;
 - per visited leaf: one lookup in `a`;
 - per `b`-entry whose pass-through reaches `a`'s targets: O(len of the
   `b` entry + log n);
@@ -205,15 +235,18 @@ Composition costs:
 Composing with a weakening or a lift visits only the paths to uses below
 the thresholds.
 
-**Known costs above the ideal:**
+Overall, composition costs O((P + 1) · E_a · c + V · c′ + L · ℓ), with
+`E_a` the number of `a`'s entries, `P` the visited payloads of `b`, `V` and
+`L` the visited nodes and leaves, `ℓ` a lookup in `a`, and `c`, `c′` the
+per-entry and per-node costs above.
 
-- **A visited payload costs O(|a|) to finish.** Its composite `a ∘ ρ`
-  contains `a`'s entries, which are rebuilt rather than shared with `a`'s
-  trie. Sharing would need the composite's root and identity starts to be
-  computed without folding over `a`'s entries.
-- **Count-map merges are full merges, O(m).** Small-into-large merging, or
-  factoring counts inside the label trie, would make bulk weakenings
-  cheaper. None of the current operations needs it.
+**Known cost above the ideal:** a visited payload costs O(|a|) to finish.
+Its composite `a ∘ ρ` contains `a`'s entries, which are rebuilt rather than
+shared with `a`'s trie. Sharing would only help in typical cases: the root
+is a global minimum, and when the composite discards part of `a` (a dropped
+prefix holding a payload target, which uses every named label), the root
+can change at any number of labels, which then all have to be checked.
+So the worst case is O((P + 1) · E_a) under this normal form either way.
 
 ## Extraction
 
