@@ -1511,4 +1511,28 @@ Qed.
 
 End Finish.
 
+(** ** One level of the traversal *)
+
+(** What composition does to a result of [b]. *)
+Definition rcomp (r : result) : result :=
+  match r with inl y => napply a y | inr (u, rho) => inr (u, ncomp true rho cnone) end.
+
+Lemma tresult_rtarget r : tresult (rtarget r) = r.
+Proof. destruct r as [[l i]|[u rho]]; reflexivity. Qed.
+
+Lemma rcomp_tresult t : rcomp (tresult t) = tresult (tcF cnone t).
+Proof. destruct t as [y j|u rho]; cbn [rcomp tresult tcF]; [rewrite tresult_rtarget; reflexivity|reflexivity]. Qed.
+
+(** Above the thresholds a variable is just moved. *)
+Lemma tcF_var_shift y j :
+  clears th (TVar y j : target) -> tcF cnone (TVar y j) = unshift tau (shift th (TVar y j)).
+Proof.
+  intros Hc; cbn [tcF]; rewrite cget_cnone_dval; cbn [Nat.add].
+  assert (Hj : thv y <= j).
+  { unfold thv, dval; destruct (cget th (label_key y)) as [t|] eqn:Et; cbn [oval]; [|lia].
+    apply (Hc (label_key y) t j Et); cbn; apply cget_cone_same. }
+  rewrite napply_a_shift by exact Hj; cbn [rtarget v_label v_index unshift shift target_based tunshift tshift].
+  unfold thv, tauv; f_equal; lia.
+Qed.
+
 End Compose.
