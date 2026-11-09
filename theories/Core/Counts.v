@@ -353,3 +353,22 @@ Proof.
   intros H; unfold dval; destruct (cget d k) as [m|] eqn:E; cbn; [|lia].
   apply (H k m n E); rewrite cget_cone, Pos.eqb_refl; reflexivity.
 Qed.
+
+(** ** Keys beyond a trie *)
+
+Fixpoint tdepth' {A} (m : tree' A) : nat :=
+  match m with
+  | Node001 r | Node011 _ r => S (tdepth' r)
+  | Node100 l | Node110 l _ => S (tdepth' l)
+  | Node101 l r | Node111 l _ r => S (Nat.max (tdepth' l) (tdepth' r))
+  | Node010 _ => 0
+  end.
+
+Definition tdepth {A} (m : tree A) : nat := match m with Empty => 0 | Nodes m' => tdepth' m' end.
+
+Lemma get_deep {A} (m : tree A) k : S (tdepth m) < Pos.size_nat k -> get k m = None.
+Proof.
+  destruct m as [|m]; [reflexivity|]; cbn [tdepth get].
+  revert k; induction m; intros [k|k|] Hk; cbn [get' tdepth' Pos.size_nat] in *; try reflexivity;
+    try lia; try (apply IHm; lia); try (apply IHm1; lia); try (apply IHm2; lia).
+Qed.

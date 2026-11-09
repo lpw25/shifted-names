@@ -193,6 +193,20 @@ Proof. rewrite map_map; apply map_ext_in; intros e Hin; apply lift_one, Hin. Qed
 
 End Moving.
 
+(** A minimum is attained. *)
+Lemma lmin_attained l k n : lmin l k = Some n -> exists e, In e l /\ cget (uses e) k = Some n.
+Proof.
+  induction l as [|e l IH]; [discriminate|].
+  change (lmin (e :: l) k) with (omin (cget (uses e) k) (lmin l k)).
+  destruct (cget (uses e) k) as [p|] eqn:Ep, (lmin l k) as [q|] eqn:Eq; cbn [omin]; intros H.
+  - destruct (Nat.min_spec p q) as [[_ E]|[_ E]]; rewrite E in H; injection H as <-.
+    + exists e; split; [left|]; auto.
+    + destruct (IH eq_refl) as [e' [Hin He]]; exists e'; split; [right|]; auto.
+  - injection H as <-; exists e; split; [left|]; auto.
+  - destruct (IH H) as [e' [Hin He]]; exists e'; split; [right|]; auto.
+  - discriminate.
+Qed.
+
 (** The minimum depends only on which elements occur. *)
 Lemma lmin_same_members l1 l2 k : (forall e, In e l1 <-> In e l2) -> lmin l1 k = lmin l2 k.
 Proof.
