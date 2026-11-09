@@ -2418,6 +2418,75 @@ Proof.
     destruct (cget (aann (es1 pay r esC)) k); cbn; eexists; split; [reflexivity|unfold dval; lia|reflexivity|unfold dval; lia].
 Qed.
 
+(** *** Above the thresholds, a whole level is moved *)
+
+Lemma nlocal_nmove : nlocal (Qof pay) (nmove b).
+Proof.
+  pose proof Hloc as [Hes [Hcwf [Hkey [Hent [HQ HnQ]]]]]; cbn [nmove nlocal].
+  split; [exact Hes|split; [apply cwf_cmap2|split; [apply keyed_cmap2; [apply keyed_tau|apply keyed_cmap2; [exact Hkey|apply keyed_th]]|]]].
+  split; [exact Hent|split].
+  - intros l Hl; rewrite cget_cadd, cget_csub; specialize (HQ l Hl).
+    destruct (cget r (label_key l)); [destruct (cget tau _), (cget th _); discriminate|contradiction].
+  - intros l Hl; rewrite cget_cadd, cget_csub.
+    destruct (HnQ l Hl) as [[Hn Ha']|[Hn Ha']]; [left; rewrite Hn; split; [destruct (cget tau _); reflexivity|exact Ha']|].
+    right; split; [|exact Ha'].
+    destruct (cget r (label_key l)); [destruct (cget tau _), (cget th _); discriminate|contradiction].
+Qed.
+
+Lemma dval_move k p : cget r k = Some p -> dval (cadd tau (csub r th)) k = dval tau k + (p - dval th k).
+Proof. intros Hr; unfold dval; rewrite cget_cadd, cget_csub, Hr; destruct (cget th k), (cget tau k); reflexivity. Qed.
+
+Lemma napply_nmove v :
+  cle th r -> Qof pay (v_label v) = true -> napply (nmove b) v = rcomp (napply b v).
+Proof.
+  intros Hc HQv; pose proof Hloc as Hl; pose proof Hl as [Hes [_ [_ [Hent [HQ _]]]]].
+  destruct v as [h i]; cbn [v_label v_index] in *; cbn [nmove napply v_label v_index].
+  set (kh := label_key h).
+  assert (Hr : exists q, cget r kh = Some q) by (destruct (cget r kh) eqn:E; [eauto|exfalso; exact (HQ h HQv E)]).
+  destruct Hr as [q Hq].
+  assert (Hthq : dval th kh <= q) by (unfold dval; destruct (cget th kh) as [t|] eqn:Et; cbn; [apply (Hc kh t q Et Hq)|lia]).
+  assert (Hshift : forall j, q <= j -> napply a (mk_rvar h j) = inl (mk_rvar h (j - thv h + tauv h)))
+    by (intros j Hj; apply napply_a_shift; unfold thv; fold kh; lia).
+  destruct (aget kh es) as [e0|] eqn:E0.
+  - destruct e0 as [h0 ts len p]; destruct (Hent _ _ E0) as [[Hk [G [Hlen _]]] _].
+    apply label_key_inj in Hk; subst h0; cbn [eapply].
+    destruct (Nat.ltb_spec i len) as [Hi|Hi].
+    + destruct (knth_some ts i G ltac:(lia)) as [t0 Et]; rewrite Et.
+      rewrite rcomp_tresult; f_equal.
+      assert (Hin : In t0 (klist ts)) by apply (knth_in _ _ _ G Et).
+      assert (Hok : eok t0) by apply (kgood_targets_ok ts G _ Hin).
+      assert (Hcov : forall k, cget (uses t0) k <> None ->
+                     exists p0, cget r k = Some p0 /\ cget r k = Some p0 /\ forall t, cget th k = Some t -> t <= p0).
+      { intros k Hk; destruct (cget r k) as [p0|] eqn:Ek.
+        - exists p0; split; [reflexivity|split; [reflexivity|intros t Et'; apply (Hc k t p0 Et' Ek)]].
+        - exfalso; pose proof (root_covers _ r es k Hl HW0_b Ek kh _ E0) as Hn.
+          rewrite uses_entry_klist in Hn by exact G.
+          destruct (cget (uses t0) k) as [m|] eqn:Em; [|contradiction].
+          destruct (lmin_le _ t0 k m Hin Em) as [n [En _]]; rewrite En in Hn.
+          destruct (cget (cone _ p) k); discriminate. }
+      assert (HPd : Pd_t (unshift r t0)).
+      { pose proof (Pd_entries kh _ E0) as [_ [_ [_ HPt]]]; apply HPt; cbn [etargets unshift entry_based eunshift].
+        rewrite klist_klift by apply kgood_inv, G; apply in_map, Hin. }
+      change (tunshift r t0) with (unshift r t0); rewrite HG_t.
+      * change (cadd tau (csub r th)) with (move th tau r); symmetry; exact (move_shift th tau r r t0 Hok Hcov).
+      * apply ok_unshift, Hok.
+      * exact HPd.
+      * intros k t m Et' Em; rewrite uses_unshift in Em.
+        destruct (cget (uses t0) k) as [u|] eqn:Eu; [|destruct (cget r k); discriminate].
+        destruct (Hcov k ltac:(rewrite Eu; discriminate)) as [p0 [Ep _]]; rewrite Ep in Em; cbn in Em.
+        injection Em as <-; specialize (Hc k t p0 Et' Ep); lia.
+    + cbn [rcomp]; fold kh; unfold dval at 2; rewrite Hq; cbn [oval].
+      rewrite Hshift by lia; rewrite (dval_move kh q Hq); unfold thv, tauv; fold kh; f_equal; f_equal; lia.
+  - cbn [rcomp]; fold kh; unfold dval at 2; rewrite Hq; cbn [oval].
+    rewrite Hshift by lia; rewrite (dval_move kh q Hq); unfold thv, tauv; fold kh; f_equal; f_equal; lia.
+Qed.
+
+Theorem ncomp_moved : cle th r -> ncomp pay b cnone = nmove b.
+Proof.
+  intros Hc; apply (ncanonical (Qof pay)); [exact nlocal_ncomp|exact nlocal_nmove|].
+  intros v Hv; rewrite napply_ncomp, napply_nmove by assumption; reflexivity.
+Qed.
+
 End Step.
 
 End Compose.
