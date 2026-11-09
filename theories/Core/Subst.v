@@ -417,3 +417,119 @@ Lemma down_up d w : down d (up d w) = w.
 Proof. destruct w as [[y|] i]; unfold up, down; cbn; [reflexivity|f_equal; lia]. Qed.
 
 End Raw.
+
+(** ** Substitution for a syntax *)
+
+Module Subst (Import S : SYNTAX).
+
+Local Notation P := (term 0).
+Local Notation nadj := (@nadj P).
+Local Notation entry := (@entry P).
+Local Notation target := (@target P).
+
+(** Payloads: [papply' rt x Mρ s L0] is the morphism for the payload
+    adjustment [x], its root read through [rt] (adding the base it is stored
+    over), in scope [Mρ], used under [s] outer binders, into scope [L0]. *)
+Fixpoint papply' (rt : counts -> counts) (x : nadj) (Mρ s L0 : nat) (HL : Is_true_s (Nat.eqb L0 (s + Mρ)))
+  (Hx : Is_true_s (pok Mρ (absn rt x))) {struct x} : morph 0 L0 :=
+  fun K L e v =>
+  match v_label (var_raw v) as o return v_label (var_raw v) = o -> term L with
+  | None => fun Hl => tvar (mk_var (var_raw v) (W_pinner e (var_raw v) (var_ok v) Hl))
+  | Some y => fun _ =>
+      let i := v_index (var_raw v) in
+      match x as x0 return Is_true_s (pok Mρ (absn rt x0)) -> term L with
+      | NAdj r es => fun Hx =>
+          aget_with (label_key (Some y)) es (rt r)
+            (fun Be ent =>
+               match ent as ent0
+                     return Squash (option_map (unshift (rt r)) (aget (label_key (Some y)) es) = Some (unshift Be ent0)) ->
+                            Squash (eok ent0) -> term L with
+               | Entry h ts len p => fun H1 Hok =>
+                   match lt_dec i len with
+                   | Specif.left Hi =>
+                       knth_with i ts Be
+                         (fun Bt t =>
+                            match t as t0
+                                  return Squash (option_map (unshift Be) (knth ts i) = Some (unshift Bt t0)) -> term L with
+                            | TVar y' j => fun H2 =>
+                                tvar (mk_var (up (s + ext_depth e) (mk_rvar y' (dval Bt (label_key y') + j)))
+                                        (W_pvar Mρ s L0 e (rt r) es y i Be h ts len p Bt y' j HL Hx H1 Hok Hi H2))
+                            | TBind u rho => fun H2 =>
+                                kleisli (papply' (cadd Bt) rho Mρ (s + ext_depth e) L (W_pHL Mρ s e HL)
+                                           (W_ppay Mρ (rt r) es y i Be h ts len p Bt u rho Hx H1 Hok Hi H2))
+                                        ext_here u
+                            end)
+                         (fun H2 => match W_absurd Qnamed (rt r) es _ i Be h ts len p (pok_squash Mρ _ Hx) H1 Hok Hi H2
+                                    with end)
+                   | Specif.right Hi =>
+                       tvar (mk_var (up (s + ext_depth e) (mk_rvar h (dval Be (label_key h) + (i - len + p))))
+                               (W_ppass Mρ s L0 e (rt r) es y i Be h ts len p HL Hx H1 Hok Hi))
+                   end
+               end)
+            (fun H1 =>
+               tvar (mk_var (up (s + ext_depth e) (mk_rvar (Some y) (dval (rt r) (label_key (Some y)) + i)))
+                       (W_pnone Mρ s L0 e (rt r) es y i HL Hx H1)))
+            (W_painv Mρ (rt r) es Hx)
+      end Hx
+  end eq_refl.
+
+Definition papply (x : nadj) (Mρ s L0 : nat) (HL : Is_true_s (Nat.eqb L0 (s + Mρ)))
+  (Hx : Is_true_s (pok Mρ x)) : morph 0 L0 :=
+  papply' (fun r => r) x Mρ s L0 HL (match x as x0 return Is_true_s (pok Mρ x0) -> Is_true_s (pok Mρ (absn (fun r => r) x0)) with
+                                     | NAdj r es => fun H => H end Hx).
+
+(** Looking up a variable outside the binders crossed so far. *)
+Definition look {N M K L} (a : adj P N M) (e : ext N M K L) (v' : rvar)
+  (Hv' : wf_var N v' = true) : term L :=
+  match radj_n (adj_raw a) as x0 return radj_n (adj_raw a) = x0 -> term L with
+  | NAdj R es => fun Ea =>
+      aget_with (label_key (v_label v')) es R
+        (fun Be ent =>
+           match ent as ent0
+                 return Squash (option_map (unshift R) (aget (label_key (v_label v')) es) = Some (unshift Be ent0)) ->
+                        Squash (eok ent0) -> term L with
+           | Entry h ts len p => fun H1 Hok =>
+               match lt_dec (v_index v') len with
+               | Specif.left Hi =>
+                   knth_with (v_index v') ts Be
+                     (fun Bt t =>
+                        match t as t0
+                              return Squash (option_map (unshift Be) (knth ts (v_index v')) = Some (unshift Bt t0)) -> term L with
+                        | TVar y' j => fun H2 =>
+                            tvar (mk_var (up (ext_depth e) (mk_rvar y' (dval Bt (label_key y') + j)))
+                                    (W_tvar a e v' Hv' R es Ea Be h ts len p Bt y' j H1 Hok Hi H2))
+                        | TBind u rho => fun H2 =>
+                            kleisli (papply' (cadd Bt) rho M (ext_depth e) L (W_tHL e)
+                                       (W_tpay a v' Hv' R es Ea Be h ts len p Bt u rho H1 Hok Hi H2))
+                                    ext_here u
+                        end)
+                     (fun H2 => match W_absurd Qall R es _ (v_index v') Be h ts len p (W_tlocal a R es Ea) H1 Hok Hi H2
+                                with end)
+               | Specif.right Hi =>
+                   tvar (mk_var (up (ext_depth e) (mk_rvar h (dval Be (label_key h) + (v_index v' - len + p))))
+                           (W_tpass a e v' Hv' R es Ea Be h ts len p H1 Hok Hi))
+               end
+           end)
+        (fun H1 =>
+           tvar (mk_var (up (ext_depth e) (mk_rvar (v_label v') (dval R (label_key (v_label v')) + v_index v')))
+                   (W_tnone a e v' Hv' R es Ea H1)))
+        (W_tinv a R es Ea)
+  end eq_refl.
+
+(** The morphism of a scoped adjustment. *)
+Definition apply {N M} (a : adj P N M) : morph N M :=
+  fun K L e v =>
+  let rv := var_raw v in
+  match v_label rv as o return v_label rv = o -> term L with
+  | None => fun Hl =>
+      match lt_dec (v_index rv) (ext_depth e) with
+      | Specif.left Hb => tvar (mk_var rv (W_tinner e rv Hl Hb))
+      | Specif.right Hb => look a e (down (ext_depth e) rv) (W_tdown e rv (var_ok v) (rel_ge rv _ Hb))
+      end
+  | Some y => fun Hl =>
+      look a e (down (ext_depth e) rv) (W_tdown e rv (var_ok v) (fun H => rel_some rv y Hl H _))
+  end eq_refl.
+
+Definition subst {N M} (a : adj P N M) (t : term N) : term M := kleisli (apply a) ext_here t.
+
+End Subst.
