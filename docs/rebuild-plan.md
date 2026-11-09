@@ -343,7 +343,8 @@ At each node the blocking map is filtered by the node's counts. Counts only
 grow downwards, so a label leaves the blocking map at most once per path.
 When the map is empty, the node is **moved**: its absolute counts become
 `M − θ + τ`, and nothing below it is visited. Otherwise leaves are looked up
-in `a`, payloads become `(u, restrict (a ∘ ρ))`, and node counts are
+in `a`, payloads become `(u, a ∘ ρ)` (computed with the payload flag, which
+skips the bound label), and node counts are
 recomputed bottom-up with the smart constructors. Mapped subtrees come back
 relative to base 0, and the parent rebases them.
 
@@ -381,7 +382,7 @@ thresholds.
    `klist (map) = map F (klist s)` under a pruning-soundness hypothesis).
    Also drop and snoc-by-rebuild.
 2. `ATrie.v`: the pruned map and merge over the label trie.
-3. `Compose.v`: composition, `restrict`, the recursive normal form, and the
+3. `Compose.v`: composition, the recursive normal form, and the
    meaning and canonicity theorems.
 
 ### Stage 6 status
@@ -392,7 +393,7 @@ thresholds.
   entries it does not list clear the thresholds.
 - `Compose.v`, definitions: `ncomp` (structural, no fuel), `finish` (adding
   `a`-only entries, the root, identity removal, gaps, rebase) and
-  `restrict`.
+  the payload flag (`skipN`).
 - `Compose.v`, proofs so far:
   - specs of `th` and `tau`;
   - `napply_a_shift`: `a` is a pure shift above its thresholds;
@@ -422,6 +423,9 @@ Also proved in `Compose.v`:
      identities. Use `atvisit_spec`;
    - gaps are complete (`no_low` from `b`'s normal form and `a`'s root);
    - `nfin`.
-3. `restrict`: `nlocal` named-only, and its meaning on named labels.
+3. Payloads. `ncomp true` never makes a bound-label entry, identity start
+   or gap; a `restrict` afterwards was dropped, because removing that entry
+   can remove the only witness of other labels' root counts. Show
+   `nlocal Qnamed` for payload composites.
 4. A depth measure for strong induction through payloads, tying 1–3
    together: meaning plus normal form of `ncomp` and `compose`.
