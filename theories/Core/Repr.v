@@ -187,6 +187,20 @@ Definition entry_ok (k : positive) (e : entry) : Prop :=
 Definition keyed (c : counts) : Prop :=
   forall k v, get k (c_exc c) = Some v -> exists l, k = label_key l.
 
+Lemma keyed_cmap2 f c1 c2 : keyed c1 -> keyed c2 -> keyed (cmap2 f c1 c2).
+Proof.
+  intros K1 K2 k v H; unfold cmap2 in H; cbn [c_exc] in H; rewrite get_merge in H by apply cmap2_none.
+  destruct (get k (c_exc c1)) as [v1|] eqn:E1; [apply (K1 _ _ E1)|].
+  destruct (get k (c_exc c2)) as [v2|] eqn:E2; [apply (K2 _ _ E2)|].
+  rewrite cmap2_none in H; discriminate.
+Qed.
+
+Lemma keyed_cone l n : keyed (cone (label_key l) n).
+Proof.
+  intros k v H; cbn in H; rewrite get_set in H.
+  destruct (Pos.eqb_spec k (label_key l)) as [->|]; [eauto|rewrite get_Empty in H; discriminate].
+Qed.
+
 (** [Q] says which labels' inputs matter: all of them for an adjustment, the
     named ones for a payload's (whose term has no bound variables). *)
 Definition nlocal (Q : option label -> bool) (a : nadj) : Prop :=
