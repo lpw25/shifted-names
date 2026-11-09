@@ -2267,6 +2267,78 @@ Proof.
   rewrite Hk in Hp; rewrite Hth, Hta in Hp; unfold dval in *; rewrite cget_ctotal; cbn [oval]; lia.
 Qed.
 
+(** *** Labels [a] does not move are not pushed up too far *)
+
+Hypothesis IH5 : forall rho, nnest rho < nnest b -> nwf Qnamed rho ->
+                 forall k m, aget k esa = None -> cget (nroot rho) k = Some m ->
+                 exists m', cget (nroot (ncomp true rho cnone)) k = Some m' /\ m' <= dval wa k + m.
+
+Lemma tcF_bound t k m :
+  Pd_t t -> aget k esa = None -> cget (uses t) k = Some m ->
+  exists m', cget (uses (tcF cnone t)) k = Some m' /\ m' <= dval wa k + m.
+Proof.
+  intros [_ HP] Ea Hm; destruct t as [y j|u rho].
+  - cbn in Hm; rewrite cget_cone in Hm; destruct (Pos.eqb_spec k (label_key y)) as [->|]; [|discriminate].
+    injection Hm as <-; cbn [tcF]; rewrite cget_cnone_dval; cbn [Nat.add].
+    assert (Ht0 : thv y = 0) by (unfold thv, dval; rewrite cget_th, Ea; reflexivity).
+    assert (Hta : tauv y = dval wa (label_key y)) by (unfold tauv, dval; rewrite cget_tau, Ea; reflexivity).
+    rewrite napply_a_shift by lia; cbn [rtarget v_label v_index uses target_based tuses].
+    rewrite cget_cone_same; eexists; split; [reflexivity|lia].
+  - destruct HP as [Hw Hn]; apply (IH5 rho Hn Hw k m Ea Hm).
+Qed.
+
+Lemma witness_bound k m :
+  aget k esa = None -> cget r k = Some m -> cget (aann es) k = Some 0 ->
+  exists n, cget (aann (es1 pay r esC)) k = Some n /\ n <= dval wa k + m.
+Proof.
+  intros Ea Hr Hz; pose proof Hloc as [Hes _].
+  apply (aann_zero es k Hes) in Hz as [k2 [e2 [E2 Z2]]].
+  pose proof (Pd_entries k2 e2 E2) as HP.
+  assert (Hu : cget (uses (unshift r e2)) k = Some m) by (rewrite uses_unshift, Z2, Hr; cbn; f_equal; lia).
+  set (z := unshift r e2) in *; destruct z as [h2 ts2 len2 p2] eqn:Ez.
+  pose proof HP as [G2 [Hl2 _]].
+  destruct (kmap_entry h2 ts2 len2 p2 HP) as [G1 E1].
+  assert (Hl1 : klength (kmap th tau tcF bl0 cnone ts2) = len2).
+  { rewrite (klength_spec _ (kgood_shape _ G1)), E1, length_map, <- Hl2; symmetry; apply klength_spec, kgood_shape, G2. }
+  assert (Hc : exists m', cget (uses (ecF cnone (Entry h2 ts2 len2 p2))) k = Some m' /\ m' <= dval wa k + m).
+  { change (ecF cnone (Entry h2 ts2 len2 p2)) with (ecomp h2 (kmap th tau tcF bl0 cnone ts2) len2 (0 + p2)).
+    cbn [Nat.add]; rewrite <- Hl1.
+    rewrite uses_entry_klist in Hu by exact G2.
+    destruct (omin_some_or _ _ _ Hu) as [Hp|Ht].
+    - rewrite cget_cone in Hp; destruct (Pos.eqb_spec k (label_key h2)) as [->|]; [|discriminate].
+      injection Hp as <-.
+      assert (Ht0 : thv h2 = 0) by (unfold thv, dval; rewrite cget_th, Ea; reflexivity).
+      assert (Hta : tauv h2 = dval wa (label_key h2)) by (unfold tauv, dval; rewrite cget_tau, Ea; reflexivity).
+      destruct (ecomp_uses_pass h2 _ p2 G1 ltac:(lia)) as [m' [Em' Hm']]; exists m'; split; [exact Em'|lia].
+    - destruct (lmin_attained _ _ _ Ht) as [t [Hin Et]].
+      destruct (tcF_bound t k m ltac:(destruct HP as [_ [_ [_ HPt]]]; apply HPt, Hin) Ea Et) as [m1 [Em1 Hm1]].
+      destruct (ecomp_uses_target h2 _ p2 (tcF cnone t) k m1 G1 ltac:(rewrite E1; apply in_map, Hin) Em1)
+        as [m' [Em' Hm']].
+      exists m'; split; [exact Em'|lia]. }
+  destruct Hc as [m' [Em' Hm']].
+  assert (E1' : aget k2 (es1 pay r esC) = Some (ecF cnone (Entry h2 ts2 len2 p2))).
+  { rewrite (Hg1 pay r esC es_good_esC), (proj2 esC_spec), E2; cbn [option_map].
+    change (eunshift r e2) with (unshift r e2).
+    first [rewrite Ez; reflexivity | rewrite <- Ez; reflexivity | reflexivity]. }
+  rewrite (ainv_ann _ (Hes1 pay r esC es_good_esC)).
+  destruct (lmin_le _ _ k m' (aget_in _ _ _ E1') Em') as [n [En Hn]].
+  exists n; split; [exact En|lia].
+Qed.
+
+Lemma Hatt_esC k :
+  skipN pay k = false -> aget k esC <> None -> aget k esa = None ->
+  exists n, cget (aann (es1 pay r esC)) k = Some n /\ n <= dval (ctotal wa r) k.
+Proof.
+  intros _ HC Ea; rewrite (proj2 esC_spec) in HC.
+  destruct (aget k es) as [e0|] eqn:E0; [|contradiction].
+  pose proof Hloc as [_ [_ [_ [Hent [HQ _]]]]].
+  destruct (Hent _ _ E0) as [Hok [HQe Hz]].
+  assert (Hk : k = label_key (elabel e0)) by (destruct e0; destruct Hok as [Hk _]; symmetry; exact Hk).
+  destruct (cget r k) as [m|] eqn:Hr; [|exfalso; rewrite Hk in Hr; exact (HQ _ HQe Hr)].
+  destruct (witness_bound k m Ea Hr Hz) as [n [En Hn]].
+  exists n; split; [exact En|unfold dval; rewrite cget_ctotal, Hr; cbn [oval]; unfold dval in Hn; lia].
+Qed.
+
 End Step.
 
 End Compose.
