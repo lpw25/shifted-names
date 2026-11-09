@@ -17,6 +17,23 @@ Proof.
   intros y Hy; apply H; right; exact Hy.
 Qed.
 
+Lemma map_inj_ok {A B} (g : A -> B) (P : A -> Prop) l1 l2 :
+  (forall x y, P x -> P y -> g x = g y -> x = y) ->
+  (forall x, In x l1 -> P x) -> (forall x, In x l2 -> P x) -> map g l1 = map g l2 -> l1 = l2.
+Proof.
+  intros Hinj; revert l2; induction l1 as [|x l1 IH]; intros [|y l2] H1 H2 E; try discriminate; [reflexivity|].
+  injection E as Exy E; f_equal.
+  - apply Hinj; [apply H1|apply H2|exact Exy]; left; reflexivity.
+  - apply IH; [intros; apply H1; right; auto|intros; apply H2; right; auto|exact E].
+Qed.
+
+Lemma app_inj_length {A} (a b c d : list A) :
+  a ++ b = c ++ d -> length a = length c -> a = c /\ b = d.
+Proof.
+  revert c; induction a as [|x a IH]; intros [|y c] E L; cbn in *; try discriminate; auto.
+  injection E as -> E; injection L as L; destruct (IH c E L) as [-> ->]; auto.
+Qed.
+
 (** ** The interface *)
 
 Class Based (X : Type) : Type := {
@@ -192,6 +209,9 @@ Lemma lift_list d : map (unshift (cadd d a)) L = map (unshift d) (map (unshift a
 Proof. rewrite map_map; apply map_ext_in; intros e Hin; apply lift_one, Hin. Qed.
 
 End Moving.
+
+Lemma unshift_inj d x y : eok x -> eok y -> unshift d x = unshift d y -> x = y.
+Proof. intros Hx Hy E; rewrite <- (shift_unshift d x Hx), E; apply shift_unshift, Hy. Qed.
 
 (** A minimum is attained. *)
 Lemma lmin_attained l k n : lmin l k = Some n -> exists e, In e l /\ cget (uses e) k = Some n.

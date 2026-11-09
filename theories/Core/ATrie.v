@@ -329,9 +329,6 @@ Qed.
 
 (** ** Canonicity *)
 
-Lemma unshift_inj d x y : eok x -> eok y -> unshift d x = unshift d y -> x = y.
-Proof. intros Hx Hy E; rewrite <- (shift_unshift d x Hx), E; apply shift_unshift, Hy. Qed.
-
 Lemma ainv_get_ok t k e : ainv t -> aget k t = Some e -> eok e.
 Proof. intros Ht He; apply (ainv_ok t Ht), (aget_in k t e He). Qed.
 

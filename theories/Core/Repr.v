@@ -265,7 +265,7 @@ Lemma klength_klist (ts : kseq target) : kgood ts -> length (klist ts) = klength
 Proof. intros Hg; symmetry; apply klength_spec, kgood_shape, Hg. Qed.
 
 Lemma ksann_klist (ts : kseq target) k : kgood ts -> cget (ksann ts) k = lmin (klist ts) k.
-Proof. intros [_ Hi]; apply (kinv_ann ts Hi). Qed.
+Proof. intros G; apply (kinv_ann ts (kgood_inv _ G)). Qed.
 
 (** The uses of an element below lift to the trie's counts. *)
 Lemma aann_used (es : atrie entry) k e kl :
@@ -446,15 +446,7 @@ Qed.
 Lemma tresult_inj (t1 t2 : target) : tresult t1 = tresult t2 -> t1 = t2.
 Proof. destruct t1, t2; cbn; intros H; try discriminate; injection H; intros; subst; reflexivity. Qed.
 
-Lemma map_inj_ok {A B} (g : A -> B) (P : A -> Prop) l1 l2 :
-  (forall x y, P x -> P y -> g x = g y -> x = y) ->
-  (forall x, In x l1 -> P x) -> (forall x, In x l2 -> P x) -> map g l1 = map g l2 -> l1 = l2.
-Proof.
-  intros Hinj; revert l2; induction l1 as [|x l1 IH]; intros [|y l2] H1 H2 E; try discriminate; [reflexivity|].
-  injection E as Exy E; f_equal.
-  - apply Hinj; [apply H1|apply H2|exact Exy]; left; reflexivity.
-  - apply IH; [intros; apply H1; right; auto|intros; apply H2; right; auto|exact E].
-Qed.
+
 
 Lemma entry_label w es k e : nlocal Q (NAdj w es) -> aget k es = Some e -> k = label_key (elabel e).
 Proof.
@@ -495,7 +487,7 @@ Proof.
       subst h1 h2 n1 n2; assert (p1 = p2) as -> by lia.
       f_equal; apply kcanonical; [apply Hk1|apply Hk2|].
       apply (map_inj_ok (fun t => tresult (tunshift w t)) eok);
-        [|apply (kinv_ok ts1 (proj2 Hk1))|apply (kinv_ok ts2 (proj2 Hk2))|congruence].
+        [|apply (kinv_ok ts1 (kgood_inv _ Hk1))|apply (kinv_ok ts2 (kgood_inv _ Hk2))|congruence].
       intros x y Hx Hy E; apply tresult_inj in E; apply (unshift_inj w x y Hx Hy E).
     + exfalso; destruct V1 as [_ [Hn1 [Hp1 _]]], V2 as [Hn2 Hp2].
       destruct (entry_nontrivial w es1 _ _ H1 E1); lia.
