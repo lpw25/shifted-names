@@ -204,4 +204,132 @@ Fixpoint ncomp (b : nadj) (B : counts) {struct b} : nadj :=
 
 Definition compose (b : nadj) : nadj := ncomp b cnone.
 
+(** ** Proofs: count map helpers *)
+
+Lemma cget_cset c k v k' : cget (cset c k v) k' = if Pos.eqb k' k then v else cget c k'.
+Proof.
+  unfold cset, cget; cbn [c_exc c_def].
+  destruct (oeqb v (c_def c)) eqn:E; [rewrite get_remove|rewrite get_set];
+    destruct (Pos.eqb k' k); try reflexivity.
+  apply oeqb_spec in E; symmetry; exact E.
+Qed.
+
+Lemma cwf_cset c k v : cwf c -> cwf (cset c k v).
+Proof.
+  intros Hc k' v'; unfold cset; cbn [c_exc c_def].
+  destruct (oeqb v (c_def c)) eqn:E.
+  - rewrite get_remove; destruct (Pos.eqb k' k); [discriminate|apply Hc].
+  - rewrite get_set; destruct (Pos.eqb k' k); [intros [= <-] H; rewrite H, oeqb_refl in E; discriminate|apply Hc].
+Qed.
+
+Lemma cget_ctotal c1 c2 k : cget (ctotal c1 c2) k = Some (oval (cget c1 k) + oval (cget c2 k)).
+Proof. unfold ctotal; rewrite cget_cmap2; reflexivity. Qed.
+
+(** ** Proofs: [a] above the thresholds *)
+
+Hypothesis Ha : nlocal Qall a.
+
+Lemma esa_key k e : aget k esa = Some e -> k = label_key (elabel e).
+Proof. unfold esa; destruct a as [w es]; cbn; apply (entry_label Qall w es), Ha. Qed.
+
+Lemma aentries_get e : In e aentries -> aget (label_key (elabel e)) esa = Some e.
+Proof.
+  intros Hin; destruct (aelems_aget esa e Hin) as [k E].
+  rewrite <- (esa_key k e E); exact E.
+Qed.
+
+Lemma aentries_in k e : aget k esa = Some e -> In e aentries.
+Proof. apply aget_in. Qed.
+
+Lemma th_tree_spec k :
+  get k th_tree = match aget k esa with
+                  | Some (Entry _ _ len _) => if Nat.eqb len 0 then None else Some len
+                  | None => None
+                  end.
+Proof.
+  assert (H : forall L, (forall e, In e L -> In e aentries) ->
+            get k (fold_right (fun e m => match e with
+                                          | Entry h _ len _ => if Nat.eqb len 0 then m else set (label_key h) len m
+                                          end) Empty L)
+            = match aget k esa with
+              | Some (Entry _ _ len _) =>
+                  if existsb (fun e => Pos.eqb (label_key (elabel e)) k && negb (Nat.eqb (elen e) 0)) L
+                  then Some len else None
+              | _ => None
+              end).
+  { induction L as [|e L IH]; intros HL; cbn [fold_right existsb].
+    - rewrite get_Empty; destruct (aget k esa) as [[]|]; reflexivity.
+    - assert (IH' := IH ltac:(intros; apply HL; right; assumption)).
+      destruct e as [h ts len p]; cbn [elabel elen].
+      destruct (Nat.eqb_spec len 0) as [->|Hl]; cbn [negb andb orb].
+      + rewrite andb_false_r; exact IH'.
+      + rewrite get_set, andb_true_r, Pos.eqb_sym.
+        destruct (Pos.eqb_spec (label_key h) k) as [<-|]; cbn [orb]; [|exact IH'].
+        pose proof (aentries_get _ (HL _ (or_introl eq_refl))) as G; cbn [elabel] in G; rewrite G; reflexivity. }
+  unfold th_tree; rewrite H by auto.
+  destruct (aget k esa) as [[h ts len p]|] eqn:E; [|reflexivity].
+  destruct (existsb _ aentries) eqn:X.
+  - apply existsb_exists in X as [e [Hin He]]; apply andb_prop in He as [Hk Hlen].
+    apply Pos.eqb_eq in Hk; subst k; rewrite (aentries_get e Hin) in E; injection E as ->.
+    cbn in Hlen; destruct (Nat.eqb len 0); [discriminate|reflexivity].
+  - destruct (Nat.eqb_spec len 0) as [|Hl]; [reflexivity|exfalso].
+    assert (Hin := aentries_in _ _ E); pose proof (esa_key _ _ E) as Hk.
+    assert (Hx : existsb (fun e => Pos.eqb (label_key (elabel e)) k && negb (Nat.eqb (elen e) 0)) aentries = true).
+    { apply existsb_exists; exists (Entry h ts len p); split; [exact Hin|].
+      cbn [elabel elen] in *; rewrite <- Hk, Pos.eqb_refl; destruct (Nat.eqb_spec len 0); [lia|reflexivity]. }
+    congruence.
+Qed.
+
+Lemma cget_th k :
+  cget th k = match aget k esa with
+              | Some (Entry _ _ len _) => if Nat.eqb len 0 then None else Some len
+              | None => None
+              end.
+Proof.
+  unfold th, cget; cbn [c_exc c_def]; rewrite get_map_filter, th_tree_spec.
+  destruct (aget k esa) as [[h ts len p]|]; [destruct (Nat.eqb len 0)|]; reflexivity.
+Qed.
+
+Lemma cget_tau k :
+  cget tau k = match aget k esa with
+               | Some (Entry _ _ _ p) => Some (dval wa k + p)
+               | None => cget wa k
+               end.
+Proof.
+  assert (H : forall L, (forall e, In e L -> In e aentries) ->
+            cget (fold_right (fun e c => match e with
+                                          | Entry h _ _ p => cset c (label_key h) (Some (dval wa (label_key h) + p))
+                                          end) wa L) k
+            = if existsb (fun e => Pos.eqb (label_key (elabel e)) k) L
+              then match aget k esa with Some (Entry _ _ _ p) => Some (dval wa k + p) | None => cget wa k end
+              else cget wa k).
+  { induction L as [|e L IH]; intros HL; cbn [fold_right existsb]; [reflexivity|].
+    destruct e as [h ts len p]; cbn [elabel]; rewrite cget_cset, Pos.eqb_sym.
+    destruct (Pos.eqb_spec (label_key h) k) as [<-|]; cbn [orb].
+    - pose proof (aentries_get _ (HL _ (or_introl eq_refl))) as G; cbn [elabel] in G; rewrite G; reflexivity.
+    - apply IH; intros; apply HL; right; assumption. }
+  unfold tau; rewrite H by auto.
+  destruct (existsb _ aentries) eqn:X.
+  - reflexivity.
+  - destruct (aget k esa) as [e|] eqn:E; [exfalso|reflexivity].
+    assert (Hx : existsb (fun e => Pos.eqb (label_key (elabel e)) k) aentries = true).
+    { apply existsb_exists; exists e; split; [apply (aentries_in _ _ E)|].
+      rewrite <- (esa_key _ _ E), Pos.eqb_refl; reflexivity. }
+    congruence.
+Qed.
+
+(** Above its threshold, [a] is a pure shift. *)
+Theorem napply_a_shift h j :
+  thv h <= j -> napply a (mk_rvar h j) = inl (mk_rvar h (j - thv h + tauv h)).
+Proof.
+  unfold thv, tauv, dval; rewrite cget_th, cget_tau; unfold wa, esa.
+  destruct a as [w es] eqn:Ea; cbn [napply v_label v_index wa nroot esa nentries] in *.
+  destruct (aget (label_key h) es) as [[h' ts len p]|] eqn:E; intros Hj.
+  - pose proof (entry_label Qall w es _ _ Ha E) as Hk; cbn in Hk; apply label_key_inj in Hk; subst h'.
+    cbn [eapply]; destruct (Nat.eqb_spec len 0) as [->|Hl]; cbn [oval] in *.
+    + destruct (Nat.ltb_spec j 0); [lia|]; f_equal; f_equal; lia.
+    + destruct (Nat.ltb_spec j len); [lia|]; f_equal; f_equal; unfold dval; lia.
+  - cbn [oval] in Hj |- *; f_equal; f_equal; unfold dval; lia.
+Qed.
+
 End Compose.
