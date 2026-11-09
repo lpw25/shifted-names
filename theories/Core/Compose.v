@@ -798,6 +798,44 @@ Proof.
     congruence.
 Qed.
 
+(** ** Keyed count maps *)
+
+Lemma fresh_label_list {A} (ms : list (tree A)) :
+  exists l, forall m, In m ms -> get (label_key l) m = None.
+Proof.
+  set (n := S (fold_right (fun m acc => tdepth m + acc) 0 ms)).
+  assert (Hlen : String.length (long_label n) = n) by (induction n; cbn; congruence).
+  exists (Some (long_label n)); intros m Hm; apply get_deep; cbn [label_key Pos.size_nat].
+  rewrite size_string_key, Hlen.
+  assert (tdepth m <= fold_right (fun m acc => tdepth m + acc) 0 ms).
+  { clear -Hm; induction ms as [|m' ms IH]; [destruct Hm|cbn; destruct Hm as [->|Hm]; [lia|specialize (IH Hm); lia]]. }
+  unfold n; lia.
+Qed.
+
+(** A count map that is the minimum over elements with keyed uses is keyed. *)
+Lemma keyed_lmin {X} {BX : Based X} (L : list X) c :
+  (forall e, In e L -> keyed (uses e)) -> (forall k, cget c k = lmin L k) -> cwf c -> keyed c.
+Proof.
+  intros HL Hc Hw k v E.
+  assert (Hlab : ~ (exists l, k = label_key l) -> False).
+  { intro Hn.
+    assert (Hnot : forall e, In e L -> get k (c_exc (uses e)) = None)
+      by (intros e He; destruct (get k (c_exc (uses e))) as [v'|] eqn:G; [exfalso; apply Hn, (HL e He k v' G)|reflexivity]).
+    destruct (fresh_label_list (c_exc c :: map (fun e => c_exc (uses e)) L)) as [l' Hl'].
+    assert (Hc' : get (label_key l') (c_exc c) = None) by (apply Hl'; left; reflexivity).
+    assert (Hl2 : forall e, In e L -> get (label_key l') (c_exc (uses e)) = None)
+      by (intros e He; apply Hl'; right; apply (in_map (fun e => c_exc (uses e)) L e He)).
+    assert (Hsame : lmin L k = lmin L (label_key l')).
+    { clear -Hnot Hl2; induction L as [|e L IH]; [reflexivity|].
+      unfold lmin; cbn [fold_right]; fold (lmin L k); fold (lmin L (label_key l')).
+      rewrite IH by (intros; first [apply Hnot | apply Hl2]; right; assumption).
+      f_equal; unfold cget; rewrite Hnot, Hl2 by (left; reflexivity); reflexivity. }
+    rewrite <- !Hc in Hsame; unfold cget in Hsame; rewrite E, Hc' in Hsame.
+    exact (Hw k v E Hsame). }
+  destruct (key_label k) as [l|] eqn:Kl; [destruct (Pos.eqb_spec (label_key l) k) as [<-|Hne]; [eauto|]|];
+    exfalso; apply Hlab; intros [l' ->]; rewrite key_label_spec in Kl; [injection Kl as ->; congruence|discriminate].
+Qed.
+
 (** ** [finish] *)
 
 (** Where the composite sends [h_i], given the composite entries [es] of
