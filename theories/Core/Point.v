@@ -475,4 +475,152 @@ Proof.
     rewrite <- Hlow, napply_oapply; reflexivity.
 Qed.
 
+(** ** Extension keeps the normal form *)
+
+(** Some entry uses label [k]'s first output. *)
+Lemma aann_zero (es : atrie entry) k :
+  ainv es ->
+  cget (aann es) k = Some 0
+  <-> exists k2 e, aget k2 es = Some e /\ cget (uses e) k = Some 0.
+Proof.
+  intros Hes; rewrite (ainv_ann es Hes); split.
+  - intros H; destruct (lmin_attained _ _ _ H) as [e [Hin He]].
+    destruct (aelems_aget es e Hin) as [k2 E]; exists k2, e; split; [exact E|exact He].
+  - intros [k2 [e [E He]]]; destruct (lmin_le _ e k 0 (aget_in _ _ _ E) He) as [n [Hn Hle]].
+    rewrite Hn; f_equal; lia.
+Qed.
+
+Lemma omin_zero_l a b : a = Some 0 -> omin a b = Some 0.
+Proof. intros ->; destruct b; cbn; [f_equal; lia|reflexivity]. Qed.
+
+Lemma omin_zero_r a b : b = Some 0 -> omin a b = Some 0.
+Proof. intros ->; destruct a; cbn; [f_equal; lia|reflexivity]. Qed.
+
+Lemma omin_zero a b : omin a b = Some 0 -> a = Some 0 \/ b = Some 0.
+Proof. destruct a as [x|], b as [y|]; cbn; intros H; try (left; congruence); try (right; congruence).
+  injection H as H; destruct (Nat.min_spec x y) as [[_ E]|[_ E]]; rewrite E in H; subst; auto.
+Qed.
+
+Lemma ksann_kcons (t : target) s k :
+  eok t -> kgood s -> cget (ksann (kcons t s)) k = omin (cget (tuses t) k) (cget (ksann s) k).
+Proof.
+  intros Ht G; destruct (kgood_kcons t s Ht G) as [G' E].
+  rewrite !ksann_klist by assumption; rewrite E; reflexivity.
+Qed.
+
+Lemma ksann_empty (s : kseq target) k : kgood s -> klength s = 0 -> cget (ksann s) k = None.
+Proof.
+  intros G L; rewrite ksann_klist by exact G.
+  rewrite <- (klength_klist s G) in L; destruct (klist s); [reflexivity|discriminate].
+Qed.
+
+(** A first output used by the old entry stays used. *)
+Lemma econs_zero_old h t o k :
+  eok t -> (forall e, o = Some e -> entry_ok (label_key h) e) ->
+  cget (ouses o) k = Some 0 -> cget (ouses (econs h t o)) k = Some 0.
+Proof.
+  intros Ht Ho; destruct o as [[h' ts len p]|]; [|intros H; cbn in H; discriminate].
+  destruct (Ho _ eq_refl) as [Hk [Hg [Hl _]]]; apply label_key_inj in Hk; subst h'.
+  cbn [ouses uses entry_based euses]; rewrite cget_cmin; intros H0.
+  destruct len as [|len].
+  - rewrite (ksann_empty ts k Hg Hl) in H0; destruct p as [|p'].
+    + cbn [econs ouses uses entry_based euses]; rewrite cget_cmin; apply omin_zero_l.
+      rewrite cget_cone in *; destruct (Pos.eqb k _); [reflexivity|discriminate].
+    + rewrite cget_cone in H0; destruct (Pos.eqb k _); cbn in H0; discriminate.
+  - cbn [econs ouses uses entry_based euses]; rewrite cget_cmin, ksann_kcons by assumption.
+    apply omin_zero in H0 as [H0|H0]; [apply omin_zero_l, H0|apply omin_zero_r, omin_zero_r, H0].
+Qed.
+
+(** The new target's first outputs are used, unless it was stripped away. *)
+Lemma econs_zero_new h t o k :
+  eok t -> (forall e, o = Some e -> entry_ok (label_key h) e) ->
+  cget (tuses t) k = Some 0 ->
+  cget (ouses (econs h t o)) k = Some 0 \/ (k = label_key h /\ econs h t o = None).
+Proof.
+  intros Ht Ho H0.
+  destruct o as [[h' ts [|len] [|p']]|]; cbn [econs];
+    try (left; cbn [ouses uses entry_based euses]; rewrite cget_cmin, ksann_kcons by (exact Ht || apply kgood_nil);
+         apply omin_zero_r, omin_zero_l, H0).
+  - destruct (tvar_at h p' t) eqn:Tv.
+    + destruct t as [y j|]; cbn in Tv; [|discriminate].
+      apply andb_prop in Tv as [Ty Tj]; apply label_eqb_eq in Ty; apply Nat.eqb_eq in Tj; subst y j.
+      cbn in H0; rewrite cget_cone in H0.
+      destruct (Pos.eqb_spec k (label_key h)) as [->|]; [|discriminate]; injection H0 as ->.
+      right; split; reflexivity.
+    + left; cbn [ouses uses entry_based euses]; rewrite cget_cmin, ksann_kcons by (exact Ht || apply kgood_nil).
+      apply omin_zero_r, omin_zero_l, H0.
+  - destruct (Ho _ eq_refl) as [_ [Hg _]].
+    left; cbn [ouses uses entry_based euses]; rewrite cget_cmin, ksann_kcons by assumption.
+    apply omin_zero_r, omin_zero_l, H0.
+  - destruct (Ho _ eq_refl) as [_ [Hg _]].
+    left; cbn [ouses uses entry_based euses]; rewrite cget_cmin, ksann_kcons by assumption.
+    apply omin_zero_r, omin_zero_l, H0.
+Qed.
+
+Theorem nlocal_extend h t a :
+  nlocal Qall a -> tok t -> tfinite t -> keyed (tuses t) -> nlocal Qall (extend h t a).
+Proof.
+  destruct a as [w es]; intros Ha Ht Hf Hk.
+  pose proof (nlocal_total w es Ha) as Htot.
+  pose proof Ha as [Hes [_ [Hkey [Hent _]]]].
+  set (w' := cmin w (tuses t)); set (d := csub w w'); set (es' := add_gaps d (alift d es));
+    set (t' := tshift w' t); set (kh := label_key h).
+  assert (Hes' : ainv es') by apply (aget_add_gaps d (alift d es) xH (ainv_alift d es Hes)).
+  assert (Hg' : forall k, aget k es'
+                          = match aget k es with
+                            | Some e => Some (unshift d e)
+                            | None => match get k (c_exc d) with Some (Some (S n)) => gap k (S n) | _ => None end
+                            end).
+  { intro k; unfold es'; rewrite (proj2 (aget_add_gaps d (alift d es) k (ainv_alift d es Hes))), aget_alift by exact Hes.
+    destruct (aget k es); reflexivity. }
+  assert (Hok' : forall k e, aget k es' = Some e -> entry_ok k e)
+    by exact (entry_ok_lower w es w' Hes (fun k e E => proj1 (Hent k e E))).
+  assert (Ht' : eok t') by exact (ok_shift w' t Ht).
+  assert (Hoh : forall e, aget kh es' = Some e -> entry_ok kh e) by (intro; apply Hok').
+  destruct (aupdate_spec kh (econs h t') es' Hes' (fun o _ => ook_econs h t' o)) as [Hes'' Hg''].
+  change (nlocal Qall (NAdj w' (aupdate kh (econs h t') es'))).
+  set (es'' := aupdate kh (econs h t') es') in *.
+  assert (Ekh : aget kh es'' = econs h t' (aget kh es')) by (rewrite Hg'', Pos.eqb_refl; reflexivity).
+  split; [exact Hes''|split; [apply cwf_cmap2|split; [apply keyed_cmap2; assumption|split]]].
+  2: { split; [|intros l Hl; discriminate].
+       intros l _; unfold w'; rewrite cget_cmin; specialize (Htot (label_key l)).
+       destruct (cget w _); [destruct (cget (tuses t) _); discriminate|contradiction]. }
+  intros k e E; rewrite Hg'' in E; split; [|split; [reflexivity|]].
+  { destruct (Pos.eqb_spec k kh) as [->|]; [exact (entry_ok_econs h t' _ Ht' Hoh e E)|exact (Hok' k e E)]. }
+  apply (aann_zero es'' k Hes'').
+  (* Where the root count does not drop, the old witness still serves. *)
+  assert (Hold : cget d k = Some 0 -> exists k2 e2, aget k2 es'' = Some e2 /\ cget (uses e2) k = Some 0).
+  { intros Hd; destruct (aget k es) as [e0|] eqn:E0.
+    - destruct (Hent k e0 E0) as [_ [_ Z0]]; apply (aann_zero es k Hes) in Z0 as [k2 [e2 [E2 Z2]]].
+      assert (Ze : cget (uses (unshift d e2)) k = Some 0) by (rewrite uses_unshift, Hd, Z2; reflexivity).
+      assert (E2' : aget k2 es' = Some (unshift d e2)) by (rewrite Hg', E2; reflexivity).
+      destruct (Pos.eqb_spec k2 kh) as [->|Hne].
+      + assert (Z' := econs_zero_old h t' (aget kh es') k Ht' Hoh ltac:(rewrite E2'; exact Ze)).
+        rewrite <- Ekh in Z'.
+        destruct (aget kh es'') as [e3|] eqn:Ec; [|cbn in Z'; discriminate].
+        exists kh, e3; split; [exact Ec|exact Z'].
+      + exists k2, (unshift d e2); split; [|exact Ze].
+        rewrite Hg''; apply Pos.eqb_neq in Hne; rewrite Hne; exact E2'.
+    - assert (Hn : aget k es' = None).
+      { rewrite Hg', E0; unfold cget in Hd; destruct (get k (c_exc d)) as [[[|n']|]|]; congruence. }
+      destruct (Pos.eqb_spec k kh) as [->|]; [|rewrite Hn in E; discriminate].
+      rewrite Hn in E; cbn [econs] in E; injection E as <-.
+      exists kh, (Entry h (kcons t' KNil) 1 0); split; [rewrite Hg'', Pos.eqb_refl, Hn; reflexivity|].
+      cbn [uses entry_based euses]; rewrite cget_cmin; apply omin_zero_l; apply cget_cone_same. }
+  specialize (Htot k); destruct (cget w k) as [m|] eqn:Ew; [|contradiction].
+  assert (Hu' : cget (tuses t') k = osub (cget (tuses t) k) (cget w' k)) by exact (uses_shift w' t k).
+  assert (Hw' : cget w' k = omin (Some m) (cget (tuses t) k)) by (unfold w'; rewrite cget_cmin, Ew; reflexivity).
+  assert (Hdk : cget d k = osub (Some m) (cget w' k)) by (unfold d; rewrite cget_csub, Ew; reflexivity).
+  destruct (cget (tuses t) k) as [n|] eqn:Eu; [destruct (Nat.ltb_spec n m) as [Hnm|Hnm]|].
+  - (* [t] uses [k] below the old root count: the new target is the witness *)
+    assert (Z : cget (tuses t') k = Some 0) by (rewrite Hu', Hw'; cbn; f_equal; lia).
+    destruct (econs_zero_new h t' (aget kh es') k Ht' Hoh Z) as [Z'|[-> En]].
+    + rewrite <- Ekh in Z'.
+      destruct (aget kh es'') as [e2|] eqn:Ec; [|cbn in Z'; discriminate].
+      exists kh, e2; split; [exact Ec|exact Z'].
+    + rewrite Pos.eqb_refl, En in E; discriminate.
+  - apply Hold; rewrite Hdk, Hw'; cbn; f_equal; lia.
+  - apply Hold; rewrite Hdk, Hw'; cbn; f_equal; lia.
+Qed.
+
 End Point.
