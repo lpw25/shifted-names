@@ -17,43 +17,12 @@
     it denotes. *)
 
 From Stdlib Require Import PArith Arith Lia List Bool.
-From ShiftedNames.Core Require Import Trie Counts.
+From ShiftedNames.Core Require Import Trie Counts Based.
 Import ListNotations.
-
-Lemma map_id_in {A} (f : A -> A) l : (forall x, In x l -> f x = x) -> map f l = l.
-Proof.
-  induction l as [|x l IH]; intros H; [reflexivity|]; cbn [map].
-  rewrite (H x (or_introl eq_refl)), IH; [reflexivity|].
-  intros y Hy; apply H; right; exact Hy.
-Qed.
-
-(** ** What elements must provide *)
 
 Section Skew.
 
-Context {X : Type}.
-
-(** What an element uses, relative to its own base. *)
-Variable uses : X -> counts.
-
-(** [shift d x] expresses [x] relative to a base [d] higher; [unshift d x]
-    relative to a base [d] lower. *)
-Variables shift unshift : counts -> X -> X.
-
-(** Well-formed elements. *)
-Variable ok : X -> Prop.
-
-Hypothesis ok_shift : forall d x, ok x -> ok (shift d x).
-Hypothesis ok_unshift : forall d x, ok x -> ok (unshift d x).
-Hypothesis shift_unshift : forall d x, ok x -> shift d (unshift d x) = x.
-Hypothesis unshift_shift : forall d x, ok x -> cle d (uses x) -> unshift d (shift d x) = x.
-Hypothesis unshift_unshift : forall d1 d2 x, unshift d1 (unshift d2 x) = unshift (cplus d1 d2) x.
-Hypothesis unshift_ext : forall d d' x,
-  (forall k, cget (uses x) k <> None -> dval d k = dval d' k) -> unshift d x = unshift d' x.
-Hypothesis uses_unshift : forall d x k,
-  cget (uses (unshift d x)) k = oadd (cget d k) (cget (uses x) k).
-Hypothesis uses_shift : forall d x k,
-  cget (uses (shift d x)) k = osub (cget (uses x) k) (cget d k).
+Context {X : Type} {BX : Based X} {LX : BasedLaws X}.
 
 (** ** Representation *)
 
@@ -143,17 +112,13 @@ Fixpoint slength (s : seq) : nat :=
 
 (** ** Invariants *)
 
-(** The minimum use of a list of elements (with [None] as ∞). *)
-Definition lmin (l : list X) (k : positive) : option nat :=
-  fold_right (fun e acc => omin (cget (uses e) k) acc) None l.
-
 (** Every node's counts are the minimum over what it denotes, and stored
     elements are well formed. *)
 Fixpoint tinv (t : tree) : Prop :=
   (forall k, cget (tann t) k = lmin (tlist t) k)
   /\ match t with
-     | TLeaf x => ok x
-     | TNode _ x l r => ok x /\ tinv l /\ tinv r
+     | TLeaf x => eok x
+     | TNode _ x l r => eok x /\ tinv l /\ tinv r
      end.
 
 Fixpoint sinv (s : seq) : Prop :=
@@ -179,79 +144,12 @@ Fixpoint sshape (s : seq) : Prop :=
 (** Built by [cons]. *)
 Definition canon (s : seq) : Prop := s = of_list (slist s).
 
-(** ** Lemmas about minima *)
-
-Lemma lmin_app l1 l2 k : lmin (l1 ++ l2) k = omin (lmin l1 k) (lmin l2 k).
-Proof.
-  induction l1 as [|e l1 IH]; [reflexivity|].
-  change (omin (cget (uses e) k) (lmin (l1 ++ l2) k)
-          = omin (omin (cget (uses e) k) (lmin l1 k)) (lmin l2 k)).
-  rewrite IH; destruct (cget (uses e) k), (lmin l1 k), (lmin l2 k); cbn; f_equal; lia.
-Qed.
-
-Lemma lmin_unshift d l k : lmin (map (unshift d) l) k = oadd (cget d k) (lmin l k).
-Proof.
-  induction l as [|e l IH]; [destruct (cget d k); reflexivity|].
-  change (omin (cget (uses (unshift d e)) k) (lmin (map (unshift d) l) k)
-          = oadd (cget d k) (omin (cget (uses e) k) (lmin l k))).
-  rewrite IH, uses_unshift, oadd_omin; reflexivity.
-Qed.
-
-Lemma lmin_shift d l k : lmin (map (shift d) l) k = osub (lmin l k) (cget d k).
-Proof.
-  induction l as [|e l IH]; [reflexivity|].
-  change (omin (cget (uses (shift d e)) k) (lmin (map (shift d) l) k)
-          = osub (omin (cget (uses e) k) (lmin l k)) (cget d k)).
-  rewrite IH, uses_shift, osub_omin; reflexivity.
-Qed.
-
-Lemma lmin_le l e k m : In e l -> cget (uses e) k = Some m -> exists n, lmin l k = Some n /\ n <= m.
-Proof.
-  induction l as [|e' l IH]; [intros []|].
-  change (lmin (e' :: l) k) with (omin (cget (uses e') k) (lmin l k)).
-  intros [->|Hin] Hm.
-  - rewrite Hm; destruct (lmin l k) as [p|]; cbn [omin]; eexists; (split; [reflexivity|lia]).
-  - destruct (IH Hin Hm) as [n [Hn Hle]]; rewrite Hn.
-    destruct (cget (uses e') k) as [p|]; cbn [omin]; eexists; (split; [reflexivity|lia]).
-Qed.
-
-Lemma lmin_some l e k : In e l -> cget (uses e) k <> None -> lmin l k <> None.
-Proof.
-  intros Hin Hu; destruct (cget (uses e) k) as [m|] eqn:E; [|contradiction].
-  destruct (lmin_le l e k m Hin E) as [n [Hn _]]; congruence.
-Qed.
-
-Lemma cle_lmin d l e : (forall k, cget d k = lmin l k) -> In e l -> cle d (uses e).
-Proof.
-  intros Hd Hin k n m Hn Hm; rewrite Hd in Hn.
-  destruct (lmin_le l e k m Hin Hm) as [n' [Hn' Hle]]; congruence.
-Qed.
-
-Lemma cle_cmin_l a b : cle (cmin a b) a.
-Proof.
-  intros k n m; rewrite cget_cmin; destruct (cget a k), (cget b k); cbn;
-    intros [= <-] [= <-]; lia.
-Qed.
-
-Lemma cle_cmin_r a b : cle (cmin a b) b.
-Proof.
-  intros k n m; rewrite cget_cmin; destruct (cget a k), (cget b k); cbn;
-    intros [= <-] [= <-]; lia.
-Qed.
-
-Lemma cle_trans a b c : cle a b -> (forall k, cget a k <> None -> cget b k <> None) -> cle b c -> cle a c.
-Proof.
-  intros H1 Hd H2 k n m Ha Hc.
-  destruct (cget b k) as [p|] eqn:Eb; [|exfalso; apply (Hd k); congruence].
-  specialize (H1 k n p Ha Eb); specialize (H2 k p m Eb Hc); lia.
-Qed.
-
 (** ** Trees *)
 
 Lemma tinv_ann t : tinv t -> forall k, cget (tann t) k = lmin (tlist t) k.
 Proof. destruct t; cbn [tinv]; tauto. Qed.
 
-Lemma tinv_ok t : tinv t -> forall e, In e (tlist t) -> ok e.
+Lemma tinv_ok t : tinv t -> forall e, In e (tlist t) -> eok e.
 Proof.
   induction t as [x|a x l IHl r IHr]; cbn [tinv tlist].
   - intros [_ H] e [<-|[]]; exact H.
@@ -260,78 +158,12 @@ Proof.
     apply in_app_or in Hin as [Hin|Hin]; [apply IHl|apply IHr]; assumption.
 Qed.
 
-Lemma lmin_single e k : lmin [e] k = cget (uses e) k.
-Proof. cbn; destruct (cget (uses e) k); reflexivity. Qed.
 
-(** A minimum below [a] is below every element counted in [a]. *)
-Lemma cle_mem m a L e :
-  cle m a -> (forall k, cget a k = lmin L k) -> In e L -> cle m (uses e).
-Proof.
-  intros Hm Ha Hin k n q Hn Hq.
-  destruct (lmin_le L e k q Hin Hq) as [p [Hp Hle]].
-  rewrite <- Ha in Hp; specialize (Hm k n p Hn Hp); lia.
-Qed.
-
-Lemma cle_min3_1 u a b : cle (cmin u (cmin a b)) u.
-Proof.
-  intros k n m; rewrite !cget_cmin; destruct (cget u k), (cget a k), (cget b k); cbn;
-    intros [= <-] [= <-]; lia.
-Qed.
-
-Lemma cle_min3_2 u a b : cle (cmin u (cmin a b)) a.
-Proof.
-  intros k n m; rewrite !cget_cmin; destruct (cget u k), (cget a k), (cget b k); cbn;
-    intros [= <-] [= <-]; lia.
-Qed.
-
-Lemma cle_min3_3 u a b : cle (cmin u (cmin a b)) b.
-Proof.
-  intros k n m; rewrite !cget_cmin; destruct (cget u k), (cget a k), (cget b k); cbn;
-    intros [= <-] [= <-]; lia.
-Qed.
-
-(** ** Moving lists of elements between bases *)
-
-Section Lists.
-
-Variables (a : counts) (L : list X).
-Hypothesis Ha : forall k, cget a k = lmin (map (unshift a) L) k.
-Hypothesis Hok : forall e, In e L -> ok e.
-
-Lemma uses_below e k : In e L -> cget (uses e) k <> None -> cget a k <> None.
-Proof.
-  intros Hin Hu; rewrite Ha; apply (lmin_some _ (unshift a e)); [apply in_map, Hin|].
-  rewrite uses_unshift; intro H; apply oadd_none in H; contradiction.
-Qed.
-
-(** Raising the base of the top by [m]. *)
-Lemma rebase_list m :
-  cle m a -> map (unshift (csub a m)) L = map (shift m) (map (unshift a) L).
-Proof.
-  intros Hm; rewrite map_map; apply map_ext_in; intros e Hin.
-  assert (unshift a e = unshift m (unshift (csub a m) e)) as ->.
-  { rewrite unshift_unshift; apply unshift_ext; intros k Hk.
-    rewrite dval_cplus; unfold dval; rewrite cget_csub.
-    destruct (cget a k) as [p|] eqn:E; [|exfalso; apply (uses_below e k Hin Hk), E].
-    destruct (cget m k) as [n|] eqn:F; cbn; [specialize (Hm k n p F E)|]; lia. }
-  symmetry; apply shift_unshift, ok_unshift, Hok, Hin.
-Qed.
-
-(** Lowering the base of the top by [d]. *)
-Lemma lift_list d : map (unshift (cadd d a)) L = map (unshift d) (map (unshift a) L).
-Proof.
-  rewrite map_map; apply map_ext_in; intros e Hin; rewrite unshift_unshift.
-  apply unshift_ext; intros k Hk; rewrite dval_cplus; unfold dval; rewrite cget_cadd.
-  destruct (cget a k) as [p|] eqn:E; [|exfalso; apply (uses_below e k Hin Hk), E].
-  destruct (cget d k); reflexivity.
-Qed.
-
-End Lists.
 
 (** ** Trees *)
 
 Lemma tinv_node_ok a x l r :
-  tinv (TNode a x l r) -> forall e, In e (x :: tlist l ++ tlist r) -> ok e.
+  tinv (TNode a x l r) -> forall e, In e (x :: tlist l ++ tlist r) -> eok e.
 Proof.
   intros [_ [Hx [Hl Hr]]] e [<-|Hin]; [exact Hx|].
   apply in_app_or in Hin as [Hin|Hin]; [apply (tinv_ok l Hl)|apply (tinv_ok r Hr)]; exact Hin.
@@ -368,7 +200,7 @@ Proof.
 Qed.
 
 Lemma tlist_tnode x t1 t2 :
-  ok x -> tinv t1 -> tinv t2 -> tlist (tnode x t1 t2) = x :: tlist t1 ++ tlist t2.
+  eok x -> tinv t1 -> tinv t2 -> tlist (tnode x t1 t2) = x :: tlist t1 ++ tlist t2.
 Proof.
   intros Hx H1 H2; unfold tnode; set (m := cmin (uses x) (cmin (tann t1) (tann t2))).
   cbn [tlist]; rewrite !tlist_trebase by (assumption || apply cle_min3_2 || apply cle_min3_3).
@@ -380,7 +212,7 @@ Proof.
     apply (cle_mem m (tann t2) (tlist t2)); [apply cle_min3_3|apply tinv_ann, H2|exact Hin].
 Qed.
 
-Lemma tinv_tnode x t1 t2 : ok x -> tinv t1 -> tinv t2 -> tinv (tnode x t1 t2).
+Lemma tinv_tnode x t1 t2 : eok x -> tinv t1 -> tinv t2 -> tinv (tnode x t1 t2).
 Proof.
   intros Hx H1 H2; pose proof (tlist_tnode x t1 t2 Hx H1 H2) as Hl.
   unfold tnode in *; set (m := cmin (uses x) (cmin (tann t1) (tann t2))) in *.
@@ -395,7 +227,7 @@ Qed.
 Lemma sinv_ann s : sinv s -> forall k, cget (sann s) k = lmin (slist s) k.
 Proof. destruct s; cbn [sinv]; tauto. Qed.
 
-Lemma sinv_ok s : sinv s -> forall e, In e (slist s) -> ok e.
+Lemma sinv_ok s : sinv s -> forall e, In e (slist s) -> eok e.
 Proof.
   induction s as [|a w t s IH]; cbn [sinv slist]; [intros _ _ []|].
   intros [_ [Ht Hs]] e Hin; apply in_map_iff in Hin as [e' [<- Hin]]; apply ok_unshift.
@@ -403,7 +235,7 @@ Proof.
 Qed.
 
 Lemma sinv_cell_ok a w t s :
-  sinv (SCons a w t s) -> forall e, In e (tlist t ++ slist s) -> ok e.
+  sinv (SCons a w t s) -> forall e, In e (tlist t ++ slist s) -> eok e.
 Proof.
   intros [_ [Ht Hs]] e Hin.
   apply in_app_or in Hin as [Hin|Hin]; [apply (tinv_ok t Ht)|apply (sinv_ok s Hs)]; exact Hin.
@@ -460,7 +292,7 @@ Qed.
 
 (** ** [cons] *)
 
-Theorem cons_spec x s : ok x -> sinv s -> slist (cons x s) = x :: slist s /\ sinv (cons x s).
+Theorem cons_spec x s : eok x -> sinv s -> slist (cons x s) = x :: slist s /\ sinv (cons x s).
 Proof.
   intros Hx Hs.
   assert (Hleaf : tinv (TLeaf x)) by (split; [intro k; cbn [tlist]; rewrite lmin_single; reflexivity|exact Hx]).
@@ -506,7 +338,7 @@ Qed.
 (** ** Building from a list, and canonicity *)
 
 Theorem of_list_spec l :
-  (forall e, In e l -> ok e) ->
+  (forall e, In e l -> eok e) ->
   slist (of_list l) = l /\ sinv (of_list l) /\ sshape (of_list l).
 Proof.
   induction l as [|x l IH]; intros Hok; [repeat split; intros k; reflexivity|].
@@ -525,7 +357,7 @@ Definition good (s : seq) : Prop := canon s /\ sinv s.
 Lemma good_nil : good SNil.
 Proof. split; [reflexivity|split; [intro k; reflexivity|exact I]]. Qed.
 
-Theorem good_cons x s : ok x -> good s -> good (cons x s) /\ slist (cons x s) = x :: slist s.
+Theorem good_cons x s : eok x -> good s -> good (cons x s) /\ slist (cons x s) = x :: slist s.
 Proof.
   intros Hx [Hc Hs]; destruct (cons_spec x s Hx Hs) as [E Hs'].
   split; [split; [|exact Hs']|exact E].
@@ -533,7 +365,7 @@ Proof.
   rewrite <- Hc; reflexivity.
 Qed.
 
-Theorem good_of_list l : (forall e, In e l -> ok e) -> good (of_list l) /\ slist (of_list l) = l.
+Theorem good_of_list l : (forall e, In e l -> eok e) -> good (of_list l) /\ slist (of_list l) = l.
 Proof.
   intros Hok; destruct (of_list_spec l Hok) as [E [Hs _]].
   split; [split; [unfold canon; rewrite E; reflexivity|exact Hs]|exact E].
