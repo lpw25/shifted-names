@@ -2339,6 +2339,44 @@ Proof.
   exists n; split; [exact En|unfold dval; rewrite cget_ctotal, Hr; cbn [oval]; unfold dval in Hn; lia].
 Qed.
 
+(** *** The normal form of one level *)
+
+Lemma Hfa_wf : nfin a.
+Proof. apply (nwf_fin Qall a Hwa). Qed.
+
+Lemma HW0_b : c_def r = Some 0.
+Proof. apply (nwf_fin _ _ Hb). Qed.
+
+Lemma keyed_r : keyed r.
+Proof. apply (keyed_root _ b Hloc). Qed.
+
+Theorem nlocal_ncomp : nlocal (Qof pay) (ncomp pay b cnone).
+Proof.
+  rewrite ncomp_b; fold vis.
+  apply (nlocal_finish pay r esC vis es_good_esC keyed_esC keyed_r (fun k e Ea t Ht => keyed_a_target k e t Ea Ht) Hfa_wf HW0_b
+           Hpay_esC Hatt_esC Hvis_esC).
+Qed.
+
+Theorem nfin_ncomp : nfin (ncomp pay b cnone).
+Proof. rewrite ncomp_b; apply nfin_finish; [exact Hfa_wf|exact HW0_b]. Qed.
+
+(** The new root of a label [a] does not move is at most where [a] sends
+    the old one. *)
+Theorem root_le k m :
+  aget k esa = None -> cget r k = Some m ->
+  exists m', cget (nroot (ncomp pay b cnone)) k = Some m' /\ m' <= dval wa k + m.
+Proof.
+  intros Ea Hr; rewrite ncomp_b, finish_eq; cbn [nroot]; unfold R; rewrite cget_cmin, cget_jstarts.
+  destruct (skipN pay k) eqn:Sk.
+  - unfold skipN in Sk; apply andb_prop in Sk as [Hp Hk]; apply Pos.eqb_eq in Hk; subst k.
+    pose proof Hloc as [_ [_ [_ [_ [_ HnQ]]]]].
+    assert (HQ : Qof pay None = false) by (unfold Qof; rewrite Hp; reflexivity).
+    destruct (HnQ None HQ) as [[Hn _]|[_ Hz]]; [rewrite Hr in Hn; discriminate|].
+    destruct (witness_bound _ m Ea Hr Hz) as [n [En Hn]]; rewrite En; cbn [omin]; eexists; split; [reflexivity|lia].
+  - rewrite Ea, cget_ctotal, Hr; cbn [oval].
+    destruct (cget (aann (es1 pay r esC)) k); cbn; eexists; split; [reflexivity|unfold dval; lia|reflexivity|unfold dval; lia].
+Qed.
+
 End Step.
 
 End Compose.
