@@ -161,10 +161,10 @@ Proof.
 Qed.
 
 (** Raising the base of the top by [m]. *)
-Lemma rebase_list m :
-  cle m a -> map (unshift (csub a m)) L = map (shift m) (map (unshift a) L).
+Lemma rebase_one m e :
+  cle m a -> In e L -> unshift (csub a m) e = shift m (unshift a e).
 Proof.
-  intros Hm; rewrite map_map; apply map_ext_in; intros e Hin.
+  intros Hm Hin.
   assert (unshift a e = unshift m (unshift (csub a m) e)) as ->.
   { rewrite unshift_unshift; apply unshift_ext; intros k Hk.
     rewrite dval_cplus; unfold dval; rewrite cget_csub.
@@ -173,15 +173,55 @@ Proof.
   symmetry; apply shift_unshift, ok_unshift, Hok, Hin.
 Qed.
 
-(** Lowering the base of the top by [d]. *)
-Lemma lift_list d : map (unshift (cadd d a)) L = map (unshift d) (map (unshift a) L).
+Lemma rebase_list m :
+  cle m a -> map (unshift (csub a m)) L = map (shift m) (map (unshift a) L).
 Proof.
-  rewrite map_map; apply map_ext_in; intros e Hin; rewrite unshift_unshift.
+  intros Hm; rewrite map_map; apply map_ext_in; intros e Hin; apply rebase_one; assumption.
+Qed.
+
+(** Lowering the base of the top by [d]. *)
+Lemma lift_one d e : In e L -> unshift (cadd d a) e = unshift d (unshift a e).
+Proof.
+  intros Hin; rewrite unshift_unshift.
   apply unshift_ext; intros k Hk; rewrite dval_cplus; unfold dval; rewrite cget_cadd.
   destruct (cget a k) as [p|] eqn:E; [|exfalso; apply (uses_below e k Hin Hk), E].
   destruct (cget d k); reflexivity.
 Qed.
 
+Lemma lift_list d : map (unshift (cadd d a)) L = map (unshift d) (map (unshift a) L).
+Proof. rewrite map_map; apply map_ext_in; intros e Hin; apply lift_one, Hin. Qed.
+
 End Moving.
+
+(** The minimum depends only on which elements occur. *)
+Lemma lmin_same_members l1 l2 k : (forall e, In e l1 <-> In e l2) -> lmin l1 k = lmin l2 k.
+Proof.
+  assert (H : forall l, lmin l k = None /\ (forall e, In e l -> cget (uses e) k = None)
+                     \/ exists n, lmin l k = Some n
+                                 /\ (exists e, In e l /\ cget (uses e) k = Some n)
+                                 /\ (forall e m, In e l -> cget (uses e) k = Some m -> n <= m)).
+  { induction l as [|e l IH]; [left; split; [reflexivity|intros _ []]|].
+    change (lmin (e :: l) k) with (omin (cget (uses e) k) (lmin l k)).
+    destruct IH as [[E1 E2]|[n [E1 [[e0 [He0 Hn]] E3]]]]; rewrite E1;
+      destruct (cget (uses e) k) as [p|] eqn:Ep; cbn [omin].
+    - right; exists p; repeat split; [exists e; split; [left|]; auto|].
+      intros e' m [<-|Hin] Hm; [rewrite Ep in Hm; injection Hm as <-; lia|].
+      rewrite E2 in Hm by exact Hin; discriminate.
+    - left; split; [reflexivity|intros e' [<-|Hin]; auto].
+    - right; exists (Nat.min p n); split; [reflexivity|split].
+      + destruct (Nat.min_spec p n) as [[_ ->]|[_ ->]];
+          [exists e; split; [left|]; auto|exists e0; split; [right|]; auto].
+      + intros e' m [<-|Hin] Hm; [rewrite Ep in Hm; injection Hm as <-; lia|].
+        specialize (E3 e' m Hin Hm); lia.
+    - right; exists n; split; [reflexivity|split; [exists e0; split; [right|]; auto|]].
+      intros e' m [<-|Hin] Hm; [congruence|apply (E3 e' m Hin Hm)]. }
+  intros Hm.
+  destruct (H l1) as [[A1 B1]|[n1 [A1 [[e1 [I1 U1]] C1]]]],
+           (H l2) as [[A2 B2]|[n2 [A2 [[e2 [I2 U2]] C2]]]]; rewrite A1, A2.
+  - reflexivity.
+  - rewrite B1 in U2 by (apply Hm, I2); discriminate.
+  - rewrite B2 in U1 by (apply Hm, I1); discriminate.
+  - f_equal; apply Nat.le_antisymm; [apply (C1 e2); [apply Hm|]|apply (C2 e1); [apply Hm|]]; assumption.
+Qed.
 
 End Lists.
