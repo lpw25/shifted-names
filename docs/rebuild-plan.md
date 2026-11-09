@@ -177,3 +177,90 @@ Each stage ends with a green build, a commit and a push.
   extracted).
 - **Cheap fixes to fold in:** `comp_entry` maps over the targets instead of
   indexing them; identity payloads are returned without traversal.
+
+## Stage 5 (agreed design): direct references under thinnings
+
+This replaces the slot core (design D9), back-links, and the planned
+weakening tags. Each part below removes something the slot design needed.
+
+### Representation
+
+```
+adj        = trie over labels of entry; every trie node carries θ
+entry h    = { targets : skew list of target   -- inputs h₀ … h₍len−1₎, nodes carry θ
+             ; len     : nat                   -- cached length (root only)
+             ; shift c : Z }                   -- hᵢ ↦ h₍ᵢ₊c₎ for i ≥ len
+target     = Var                               -- no data: its variable is fixed by the θs above
+           | Bind (u, ρ)                       -- ρ stored relative to its leaf's θ
+θ (node)   = per-label cover: the outputs used below, as a thinning into
+             the parent's used outputs; labels without gaps are omitted
+root       = θ into the full output scope
+```
+
+- **Targets name output variables directly.** There are no slots, slot
+  counts, back-links, expansion or renumbering. The strip rule is local: the
+  last target of `h` is not `h₍len−1+c₎`. An entry is present iff
+  `len > 0 ∨ c ≠ 0`.
+- **Covers are images.** Each θ is exactly what is used below, so it is
+  determined by the content and canonicity comes for free. A payload's
+  image is the image of its adjustment, including nested payloads; this is
+  conservative because `u` is opaque.
+- **Payload adjustments** have no `None` entry and an identity root θ, so
+  restriction is "drop the `None` entry".
+
+### Thinnings as bitmaps
+
+A per-label thinning is a `Z` bitmask. Two's complement represents the
+cofinite tail: a negative number has infinitely many ones. Bitmasks are
+canonical. Union and intersection are `lor` and `land`; rank and select use
+popcounts; composition is a bit deposit (`pdep`). On the OCaml side these are
+word-parallel Zarith operations (realizers where Zarith has no primitive).
+Costs are O(s / w) for a scope of `s` variables of that label and word size
+`w`: O(1) for scopes up to a word.
+
+### Sequences
+
+Skew-binary random-access lists (Okasaki): canonical for each length,
+`cons`/`tail` O(1), index O(log n), drop a prefix O(log n). Subtrees are
+contiguous ranges, which composition needs in order to drop a prefix and to
+reuse unchanged ranges. The length is cached at the entry only; nothing else
+needs sizes.
+
+### Composition (sharing with support pruning)
+
+`a ∘ b` starts from `a`:
+- labels `b` does not mention keep `a`'s entry (the pointer is reused);
+- for a label `b` mentions, its list is `b`'s targets mapped through `a`,
+  prepended to `a`'s list with its first `len_b + c_b` elements dropped;
+  then local strips;
+- mapping `b`'s subtrees through `a`, a subtree whose cover avoids every
+  label `a` changes is reused unchanged; where `a` acts as a thinning on a
+  label it is composed into the subtree's cover; only subtrees that `a`
+  contracts or substitutes into are descended and their covers recomputed;
+- payloads `(u, ρ)` become `(u, a ∘ ρ)` by the same procedure, then drop
+  the `None` entry. The recursion is structural (no fuel).
+
+### Costs
+
+`s` is the scope of a cover (variables of one label used below a node), and
+`w` the word size.
+
+| Operation | Cost |
+|---|---|
+| lookup `hᵢ` | O((\|h\| + log n) · s / w) |
+| weaken | O(s / w) at the root |
+| extend (variable or term), lift, strip | O(log n · s / w) |
+| compose | proportional to the part of `b` that `a` affects, times log n · s / w |
+
+### Stages
+
+1. `Core/Thin.v`: Z-bitmask thinnings (compose, union, rank, select,
+   covers), with extraction realizers.
+2. `Core/Skew.v`: skew-binary random-access lists with covers on nodes.
+3. The new core (replacing `Slots.v` and `Nested.v`): representation,
+   meaning, normal form, canonicity.
+4. Point operations: identity, weaken, extend, lift, lookup.
+5. Composition with sharing and pruning; restriction.
+6. Port `Adjustment`, `Laws`, `Scoped`, `Indexed`, `Subst` (lookup through
+   covers), the λ example and extraction; delete `Braun.v`, `Lookup.v`'s
+   Braun parts and the slot machinery.
