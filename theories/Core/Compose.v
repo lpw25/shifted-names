@@ -642,4 +642,85 @@ Proof.
   congruence.
 Qed.
 
+(** Folding per-key updates, each idempotent, over a list of keys. *)
+Lemma fold_keyed (step : atrie entry -> positive -> atrie entry)
+      (g : positive -> option entry -> option entry) :
+  (forall es k, ainv es -> ainv (step es k)
+                /\ forall k', aget k' (step es k) = if Pos.eqb k' k then g k (aget k es) else aget k' es) ->
+  (forall k o, g k (g k o) = g k o) ->
+  forall L es, ainv es ->
+  ainv (fold_left step L es)
+  /\ forall k', aget k' (fold_left step L es)
+                = if existsb (Pos.eqb k') L then g k' (aget k' es) else aget k' es.
+Proof.
+  intros Hstep Hid L; induction L as [|k L IH]; intros es Hes; cbn [fold_left existsb].
+  - split; [exact Hes|reflexivity].
+  - destruct (Hstep es k Hes) as [H1 G1]; destruct (IH _ H1) as [H2 G2]; split; [exact H2|intro k'].
+    rewrite G2, G1; destruct (Pos.eqb_spec k' k) as [->|]; cbn [orb].
+    + destruct (existsb _ L); [apply Hid|reflexivity].
+    + reflexivity.
+Qed.
+
+Definition dropf (R : counts) (k : positive) (o : option entry) : option entry :=
+  match o with
+  | Some (Entry _ KNil 0 p) => if oeqb (cget R k) (Some p) then None else o
+  | _ => o
+  end.
+
+Lemma drop_ident_step R es k :
+  ainv es -> ainv (drop_ident R es k)
+  /\ forall k', aget k' (drop_ident R es k) = if Pos.eqb k' k then dropf R k (aget k es) else aget k' es.
+Proof.
+  intros Hes; unfold drop_ident, dropf.
+  assert (Hsame : ainv es /\ forall k', aget k' es = if Pos.eqb k' k then aget k es else aget k' es)
+    by (split; [exact Hes|intro k'; destruct (Pos.eqb_spec k' k) as [->|]; reflexivity]).
+  destruct (aget k es) as [[h [|c w t s] [|len] p]|] eqn:E; try exact Hsame.
+  destruct (oeqb (cget R k) (Some p)); [|exact Hsame].
+  destruct (aupdate_spec k (fun _ => None) es Hes (fun _ _ => I)) as [Ha' Hg]; split; [exact Ha'|].
+  intro k'; rewrite Hg; reflexivity.
+Qed.
+
+Lemma dropf_idem R k o : dropf R k (dropf R k o) = dropf R k o.
+Proof.
+  destruct o as [[h [|c w t s] [|len] p]|]; cbn; try reflexivity.
+  destruct (oeqb (cget R k) (Some p)) eqn:E; cbn; [reflexivity|rewrite E; reflexivity].
+Qed.
+
+Definition gapf (I R : counts) (k : positive) (o : option entry) : option entry :=
+  match o with
+  | Some e => Some e
+  | None => if Nat.ltb (dval R k) (dval I k) then agap k (dval I k) else None
+  end.
+
+Lemma ook_agap k p : ook (agap k p).
+Proof.
+  unfold agap; destruct (key_label k); [|exact I].
+  destruct (Pos.eqb _ _); [apply cwf_cnone|exact I].
+Qed.
+
+Lemma add_gap_step I R es k :
+  ainv es -> ainv (add_gap_at I R es k)
+  /\ forall k', aget k' (add_gap_at I R es k) = if Pos.eqb k' k then gapf I R k (aget k es) else aget k' es.
+Proof.
+  intros Hes; unfold add_gap_at, gapf.
+  assert (Hsame : ainv es /\ forall k', aget k' es = if Pos.eqb k' k then aget k es else aget k' es)
+    by (split; [exact Hes|intro k'; destruct (Pos.eqb_spec k' k) as [->|]; reflexivity]).
+  destruct (aget k es) as [e|] eqn:E; [exact Hsame|].
+  destruct (Nat.ltb (dval R k) (dval I k)); [|exact Hsame].
+  destruct (aupdate_spec k (fun _ => agap k (dval I k)) es Hes (fun _ _ => ook_agap _ _)) as [Ha' Hg].
+  split; [exact Ha'|]; intro k'; rewrite Hg; reflexivity.
+Qed.
+
+Lemma gapf_idem I R k o : gapf I R k (gapf I R k o) = gapf I R k o.
+Proof.
+  destruct o as [e|]; [reflexivity|].
+  change (gapf I R k None) with (if Nat.ltb (dval R k) (dval I k) then agap k (dval I k) else None).
+  destruct (Nat.ltb (dval R k) (dval I k)) eqn:E.
+  - destruct (agap k (dval I k)) eqn:Ag; [reflexivity|].
+    change (gapf I R k None) with (if Nat.ltb (dval R k) (dval I k) then agap k (dval I k) else None).
+    rewrite E, Ag; reflexivity.
+  - change (gapf I R k None) with (if Nat.ltb (dval R k) (dval I k) then agap k (dval I k) else None).
+    rewrite E; reflexivity.
+Qed.
+
 End Compose.
