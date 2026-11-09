@@ -1776,6 +1776,80 @@ Proof.
   destruct (cget u k); cbn in Hm; [injection Hm as <-; lia|discriminate].
 Qed.
 
+Lemma wa_total k : cget wa k <> None.
+Proof. unfold wa; destruct a as [w es'] eqn:E; apply (nlocal_total w es' Ha). Qed.
+
+Lemma tauv_ge h : dval wa (label_key h) <= tauv h.
+Proof.
+  unfold tauv, dval; rewrite cget_tau; destruct (aget (label_key h) esa) as [[h1 ts1 l1 p1]|]; cbn [oval]; [unfold dval; lia|lia].
+Qed.
+
+Lemma cle_wa_cone h p : dval wa (label_key h) <= p -> cle wa (cone (label_key h) p).
+Proof.
+  intros Hp k n m Hn Hm; rewrite cget_cone in Hm; destruct (Pos.eqb_spec k (label_key h)) as [->|]; [|discriminate].
+  injection Hm as <-; unfold dval in Hp; rewrite Hn in Hp; exact Hp.
+Qed.
+
+Lemma tuses_rtarget (rs : result) : tuses (rtarget rs) = ruses rs.
+Proof. destruct rs as [[l i]|[u rho]]; reflexivity. Qed.
+
+Lemma cle_napply_a v : cle wa (uses (rtarget (napply a v))).
+Proof.
+  change (cle wa (tuses (rtarget (napply a v)))); rewrite tuses_rtarget.
+  unfold wa; destruct a as [w es'] eqn:E; apply (cle_result Qall w es' v Ha).
+Qed.
+
+Lemma alist_ge h t : In t (alist h) -> cle wa (uses t).
+Proof.
+  unfold alist; destruct (aget (label_key h) esa) as [[h' tsa len p]|]; [|intros []].
+  intros Hin; apply in_map_iff in Hin as [t0 [<- _]].
+  change (cle wa (uses (unshift wa t0))); intros k n m Hn Hm; rewrite uses_unshift, Hn in Hm.
+  destruct (cget (uses t0) k); cbn in Hm; [injection Hm as <-; lia|discriminate].
+Qed.
+
+Lemma ecomp_ge h ts1 s :
+  kgood ts1 -> (forall t, In t (klist ts1) -> cle wa (uses t)) ->
+  cle wa (uses (ecomp h ts1 (klength ts1) s)).
+Proof.
+  intros G Ht; assert (HL : klength ts1 = length (klist ts1)) by apply klength_spec, kgood_shape, G.
+  pose proof (tauv_ge h) as Htv.
+  unfold ecomp; destruct (Nat.leb_spec (thv h) s).
+  - apply estrip_ge; [exact G|]; apply (cle_entry_iff wa h ts1 _ _ G); split; [apply cle_wa_cone; lia|exact Ht].
+  - set (ex := aextra h s).
+    assert (Hex : ex = skipn s (alist h)) by apply aextra_alist.
+    assert (Hok : forall t, In t (klist ts1 ++ ex) -> eok t).
+    { intros t Ht'; apply in_app_or in Ht' as [Ht'|Ht']; [apply (kgood_targets_ok _ G _ Ht')|].
+      rewrite Hex in Ht'; apply (alist_ok h).
+      rewrite <- (firstn_skipn s (alist h)); apply in_or_app; right; exact Ht'. }
+    destruct (kof_list_good (klist ts1 ++ ex) Hok) as [G2 [E2 L2]].
+    assert (Hlen : klength ts1 + length ex = klength (kof_list (klist ts1 ++ ex)))
+      by (rewrite L2, length_app, HL; reflexivity).
+    rewrite Hlen; apply estrip_ge; [exact G2|].
+    apply (cle_entry_iff wa h _ _ _ G2); rewrite E2; split; [apply cle_wa_cone; exact Htv|].
+    intros t Ht'; apply in_app_or in Ht' as [Ht'|Ht']; [apply Ht, Ht'|].
+    rewrite Hex in Ht'; apply (alist_ge h).
+    rewrite <- (firstn_skipn s (alist h)); apply in_or_app; right; exact Ht'.
+Qed.
+
+Lemma adrop_ge h n e : adrop h n = Some e -> cle wa (uses e).
+Proof.
+  intros E; pose proof (adrop_spec h n e E) as [Hg _].
+  unfold adrop in E; destruct (aget (label_key h) esa) as [[h' tsa lena pa]|] eqn:Ea; [|discriminate].
+  destruct (esa_ok _ _ Ea) as [Hk _]; apply label_key_inj in Hk; subst h'.
+  assert (Hal : alist h = map (tunshift wa) (klist tsa)) by (unfold alist; rewrite Ea; reflexivity).
+  assert (Hp : dval wa (label_key h) <= dval wa (label_key h) + pa) by lia.
+  destruct (Nat.ltb n lena); injection E as <-; destruct Hg as [_ [G _]];
+    apply (cle_entry_iff wa h _ _ _ G); split; try (apply cle_wa_cone; lia).
+  - set (L := map (tunshift wa) (skipn n (klist tsa))) in *.
+    assert (HokL : forall t, In t L -> eok t).
+    { intros t' Ht'; apply (alist_ok h); rewrite Hal; unfold L in Ht'; rewrite <- skipn_map in Ht'.
+      rewrite <- (firstn_skipn n (map (tunshift wa) (klist tsa))); apply in_or_app; right; exact Ht'. }
+    rewrite (proj1 (proj2 (kof_list_good L HokL))); intros t Ht; apply (alist_ge h).
+    rewrite Hal; unfold L in Ht; rewrite <- skipn_map in Ht.
+    rewrite <- (firstn_skipn n (map (tunshift wa) (klist tsa))); apply in_or_app; right; exact Ht.
+  - intros t [].
+Qed.
+
 (** ** The induction step *)
 
 Section Step.
