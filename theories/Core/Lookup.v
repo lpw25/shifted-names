@@ -1,10 +1,11 @@
 (** * Lookups with continuations
 
-    [get_with i m k n] looks up [i] in [m] and calls [k x] on the element it
-    finds, or [n] if there is none; [nth_with] does the same for Braun
-    trees.  The
-    continuation also receives, as a strict proposition, where the element
-    was found.
+    [aget_with k t B found none] looks up [k] in the annotated trie [t]
+    stored over base [B], and calls [found B' x] on the element it finds,
+    stored over base [B'] (so [unshift B' x] is the element made absolute),
+    or [none] if there is none; [knth_with] does the same for skew
+    sequences.  The continuation also receives, as a strict proposition,
+    where the element was found.
 
     Two things follow.  A recursive function can recurse on what it finds
     (the guard checker unfolds these definitions and sees a subterm), which
@@ -13,139 +14,195 @@
     from the location without any runtime test: the location proofs are
     erased by extraction. *)
 
-From Stdlib Require Import PArith List StrictProp.
-From ShiftedNames.Core Require Import Trie.
-From ShiftedNames.Core Require Braun.
-Import Braun(braun, BE, BN).
+From Stdlib Require Import PArith Arith List StrictProp.
+From ShiftedNames.Core Require Import Trie Counts Based Skew ATrie.
 Import ListNotations.
 
-Lemma sq_sym {X} {a b : X} : Squash (a = b) -> Squash (b = a).
-Proof. intros [H]; exact (squash (eq_sym H)). Qed.
+Definition sq_map {P Q : Prop} (f : P -> Q) (H : Squash P) : Squash Q :=
+  match H with squash p => squash (f p) end.
 
-Section GetWith.
+Section Lookups.
 
-Context {A R : Type} (i0 : positive) (m0 : tree A)
-  (k : forall x, Squash (get i0 m0 = Some x) -> R) (n : Squash (get i0 m0 = None) -> R).
+Context {X : Type} {BX : Based X} {LX : BasedLaws X} {R : Type}.
 
-(** The continuation is a fixed parameter; only the (strict) location proof
-    is carried down: the subtree being searched answers as [m0] would. *)
-Fixpoint get_with' (i : positive) (m : tree' A) {struct m} : Squash (get' i m = get i0 m0) -> R :=
-  match m as m1, i as i1 return Squash (get' i1 m1 = get i0 m0) -> R with
-  | Node001 r, xI j => fun H => get_with' j r H
-  | Node010 x, xH => fun H => k x (sq_sym H)
-  | Node011 x _, xH => fun H => k x (sq_sym H)
-  | Node011 _ r, xI j => fun H => get_with' j r H
-  | Node100 l, xO j => fun H => get_with' j l H
-  | Node101 l _, xO j => fun H => get_with' j l H
-  | Node101 _ r, xI j => fun H => get_with' j r H
-  | Node110 l _, xO j => fun H => get_with' j l H
-  | Node110 _ x, xH => fun H => k x (sq_sym H)
-  | Node111 l _ _, xO j => fun H => get_with' j l H
-  | Node111 _ x _, xH => fun H => k x (sq_sym H)
-  | Node111 _ _ r, xI j => fun H => get_with' j r H
-  | _, _ => fun H => n (sq_sym H)
+Lemma omap_unshift2 B a (o : option X) :
+  option_map (unshift B) (option_map (unshift a) o) = option_map (unshift (cplus B a)) o.
+Proof. destruct o; cbn; [rewrite unshift_unshift|]; reflexivity. Qed.
+
+Lemma omap_none {Y Z} (f g : Y -> Z) (o : option Y) o' : option_map f o = option_map g o' -> o = None -> o' = None.
+Proof. intros E ->; destruct o'; [discriminate|reflexivity]. Qed.
+
+(** ** Tries *)
+
+Section AgetWith.
+
+Variables (k0 : positive) (t0 : atrie X) (B0 : counts)
+  (found : forall B x, Squash (option_map (unshift B0) (aget k0 t0) = Some (unshift B x)) -> R)
+  (none : Squash (aget k0 t0 = None) -> R).
+
+Local Notation goal k t B := (option_map (unshift B) (aget k t) = option_map (unshift B0) (aget k0 t0)).
+
+Fixpoint aget_with' (k : positive) (t : atrie X) (B : counts) {struct t} : Squash (goal k t B) -> R :=
+  match t as t1 return Squash (goal k t1 B) -> R with
+  | AEmpty => fun H => none (sq_map (fun E => omap_none _ _ _ _ E eq_refl) H)
+  | ANode a l o r =>
+      match k as k1 return Squash (goal k1 (ANode a l o r) B) -> R with
+      | xH =>
+          match o as o1 return Squash (goal xH (ANode a l o1 r) B) -> R with
+          | Some x => fun H => found (cplus B a) x (sq_map (fun E => eq_trans (eq_sym E) (f_equal Some (unshift_unshift B a x))) H)
+          | None => fun H => none (sq_map (fun E => omap_none _ _ _ _ E eq_refl) H)
+          end
+      | xO k' => fun H => aget_with' k' l (cplus B a) (sq_map (fun E => eq_trans (eq_sym (omap_unshift2 B a _)) E) H)
+      | xI k' => fun H => aget_with' k' r (cplus B a) (sq_map (fun E => eq_trans (eq_sym (omap_unshift2 B a _)) E) H)
+      end
   end.
 
-Definition get_with : R :=
-  match m0 as m1 return Squash (get i0 m1 = get i0 m0) -> R with
-  | Empty => fun H => n (sq_sym H)
-  | Nodes m' => fun H => get_with' i0 m' H
-  end (squash eq_refl).
+Definition aget_with : R := aget_with' k0 t0 B0 (squash eq_refl).
 
-End GetWith.
+End AgetWith.
 
-Section NthWith.
+(** ** Skew sequences *)
 
-Context {A R : Type} (i0 : nat) (t0 : braun A)
-  (k : forall x, Squash (Braun.nth i0 t0 = Some x) -> R) (n : Squash (Braun.nth i0 t0 = None) -> R).
+Section KnthWith.
 
-Fixpoint nth_with' (i : nat) (t : braun A) {struct t} : Squash (Braun.nth i t = Braun.nth i0 t0) -> R :=
-  match t as t1 return Squash (Braun.nth i t1 = Braun.nth i0 t0) -> R with
-  | BE => fun H => n (sq_sym H)
-  | BN x l r =>
-      match i as i1 return Squash (Braun.nth i1 (BN x l r) = Braun.nth i0 t0) -> R with
-      | 0 => fun H => k x (sq_sym H)
+Variables (i0 : nat) (s0 : kseq X) (B0 : counts)
+  (found : forall B x, Squash (option_map (unshift B0) (knth s0 i0) = Some (unshift B x)) -> R)
+  (none : Squash (knth s0 i0 = None) -> R).
+
+Local Notation target := (option_map (unshift B0) (knth s0 i0)).
+
+Fixpoint ktnth_with' (w : nat) (t : ktree X) (i : nat) (B : counts) {struct t} :
+  Squash (option_map (unshift B) (ktnth w t i) = target) -> R :=
+  match t as t1 return Squash (option_map (unshift B) (ktnth w t1 i) = target) -> R with
+  | KLeaf x =>
+      match i as i1 return Squash (option_map (unshift B) (ktnth w (KLeaf x) i1) = target) -> R with
+      | 0 => fun H => found B x (sq_map (@eq_sym _ _ _) H)
+      | S _ => fun H => none (sq_map (fun E => omap_none _ _ _ _ E eq_refl) H)
+      end
+  | KNode a x l r =>
+      match i as i1 return Squash (option_map (unshift B) (ktnth w (KNode a x l r) i1) = target) -> R with
+      | 0 => fun H => found (cplus B a) x (sq_map (fun E => eq_trans (eq_sym E) (f_equal Some (unshift_unshift B a x))) H)
       | S j =>
-          match Nat.even j as b
-                return Squash ((if b then Braun.nth (Nat.div2 j) l else Braun.nth (Nat.div2 j) r)
-                               = Braun.nth i0 t0) -> R with
-          | true => fun H => nth_with' (Nat.div2 j) l H
-          | false => fun H => nth_with' (Nat.div2 j) r H
+          match Nat.ltb j (Nat.div2 w) as b
+                return Squash (option_map (unshift B)
+                                 (option_map (unshift a) (if b then ktnth (Nat.div2 w) l j
+                                                          else ktnth (Nat.div2 w) r (j - Nat.div2 w)))
+                               = target) -> R with
+          | true => fun H => ktnth_with' (Nat.div2 w) l j (cplus B a)
+                                (sq_map (fun E => eq_trans (eq_sym (omap_unshift2 B a _)) E) H)
+          | false => fun H => ktnth_with' (Nat.div2 w) r (j - Nat.div2 w) (cplus B a)
+                                 (sq_map (fun E => eq_trans (eq_sym (omap_unshift2 B a _)) E) H)
           end
       end
   end.
 
-Definition nth_with : R := nth_with' i0 t0 (squash eq_refl).
+Fixpoint knth_with' (s : kseq X) (i : nat) (B : counts) {struct s} :
+  Squash (option_map (unshift B) (knth s i) = target) -> R :=
+  match s as s1 return Squash (option_map (unshift B) (knth s1 i) = target) -> R with
+  | KNil => fun H => none (sq_map (fun E => omap_none _ _ _ _ E eq_refl) H)
+  | KCons a w t s' =>
+      match Nat.ltb i w as b
+            return Squash (option_map (unshift B)
+                             (option_map (unshift a) (if b then ktnth w t i else knth s' (i - w))) = target) -> R with
+      | true => fun H => ktnth_with' w t i (cplus B a) (sq_map (fun E => eq_trans (eq_sym (omap_unshift2 B a _)) E) H)
+      | false => fun H => knth_with' s' (i - w) (cplus B a) (sq_map (fun E => eq_trans (eq_sym (omap_unshift2 B a _)) E) H)
+      end
+  end.
 
-End NthWith.
+Definition knth_with : R := knth_with' s0 i0 B0 (squash eq_refl).
+
+End KnthWith.
 
 (** ** Specifications
 
-    The location proofs are strict propositions, so the continuation cannot
-    tell which proof it was given. *)
+    The location proofs are strict propositions, so a continuation cannot
+    tell which proof it was given; it is asked to depend only on the
+    element made absolute. *)
 
-Section Specs.
-
-Context {A R : Type}.
-
-Lemma get_with'_some i0 (m0 : tree A) (k : forall x, Squash (get i0 m0 = Some x) -> R) n i m H
-  (E : get' i m = get i0 m0) x (X : get i0 m0 = Some x) :
-  get_with' i0 m0 k n i m H = k x (squash X).
+Lemma aget_with'_some k0 t0 B0 found none y (Rv : R)
+  (Hf : forall B x p, unshift B x = y -> found B x p = Rv) (Y : option_map (unshift B0) (aget k0 t0) = Some y) :
+  forall t k B H, option_map (unshift B) (aget k t) = option_map (unshift B0) (aget k0 t0) ->
+  aget_with' k0 t0 B0 found none k t B H = Rv.
 Proof.
-  revert i H E; induction m; intros [j|j|] H E; cbn [get_with'];
-    try (apply IHm || apply IHm1 || apply IHm2; exact E); cbn in E; rewrite X in E;
-    try discriminate; injection E as ->; reflexivity.
+  induction t as [|a l IHl o r IHr]; intros k B H E; cbn [aget_with'].
+  - rewrite Y in E; discriminate.
+  - destruct k as [k|k|].
+    + apply IHr; rewrite <- E; cbn [aget]; rewrite omap_unshift2; reflexivity.
+    + apply IHl; rewrite <- E; cbn [aget]; rewrite omap_unshift2; reflexivity.
+    + destruct o as [x|]; cbn in E; rewrite Y in E; [|discriminate].
+      apply Hf; injection E as <-; rewrite unshift_unshift; reflexivity.
 Qed.
 
-Lemma get_with'_none i0 (m0 : tree A) (k : forall x, Squash (get i0 m0 = Some x) -> R) n i m H
-  (E : get' i m = get i0 m0) (X : get i0 m0 = None) :
-  get_with' i0 m0 k n i m H = n (squash X).
+Lemma aget_with_some k0 t0 B0 found none y (Rv : R)
+  (Hf : forall B x p, unshift B x = y -> found B x p = Rv) :
+  option_map (unshift B0) (aget k0 t0) = Some y -> aget_with k0 t0 B0 found none = Rv.
+Proof. intros Y; apply (aget_with'_some k0 t0 B0 found none y Rv Hf Y); reflexivity. Qed.
+
+Lemma aget_with_none k0 t0 B0 found none (H : aget k0 t0 = None) :
+  aget_with k0 t0 B0 found none = none (squash H).
 Proof.
-  revert i H E; induction m; intros [j|j|] H E; cbn [get_with'];
-    try (apply IHm || apply IHm1 || apply IHm2; exact E); cbn in E; rewrite X in E;
-    try discriminate; reflexivity.
+  unfold aget_with.
+  assert (G : forall t k B H', option_map (unshift B) (aget k t) = option_map (unshift B0) (aget k0 t0) ->
+                aget_with' k0 t0 B0 found none k t B H' = none (squash H)).
+  { induction t as [|a l IHl o r IHr]; intros k B H' E; cbn [aget_with']; [reflexivity|].
+    destruct k as [k|k|].
+    + apply IHr; rewrite <- E; cbn [aget]; rewrite omap_unshift2; reflexivity.
+    + apply IHl; rewrite <- E; cbn [aget]; rewrite omap_unshift2; reflexivity.
+    + destruct o as [x|]; [|reflexivity]; cbn in E; rewrite H in E; discriminate. }
+  apply G; reflexivity.
 Qed.
 
-Lemma get_with_some i (m : tree A) (k : forall x, Squash (get i m = Some x) -> R) n x
-  (H : get i m = Some x) : get_with i m k n = k x (squash H).
+Lemma knth_with_some i0 s0 B0 found none y (Rv : R)
+  (Hf : forall B x p, unshift B x = y -> found B x p = Rv) :
+  option_map (unshift B0) (knth s0 i0) = Some y -> knth_with i0 s0 B0 found none = Rv.
 Proof.
-  unfold get_with; destruct m as [|m]; [discriminate|].
-  exact (get_with'_some i (Nodes m) k n i m _ eq_refl x H).
+  intros Y; unfold knth_with.
+  assert (Gt : forall t w i B H, option_map (unshift B) (ktnth w t i) = option_map (unshift B0) (knth s0 i0) ->
+                 ktnth_with' i0 s0 B0 found none w t i B H = Rv).
+  { induction t as [x|a x l IHl r IHr]; intros w i B H E; cbn [ktnth_with'].
+    - destruct i; cbn in E; rewrite Y in E; [|discriminate]; apply Hf; injection E as <-; reflexivity.
+    - destruct i as [|j]; cbn [ktnth] in E.
+      + cbn in E; rewrite Y in E; apply Hf; injection E as <-; rewrite unshift_unshift; reflexivity.
+      + change (Squash (option_map (unshift B) (option_map (unshift a)
+                  (if Nat.ltb j (Nat.div2 w) then ktnth (Nat.div2 w) l j else ktnth (Nat.div2 w) r (j - Nat.div2 w)))
+                  = option_map (unshift B0) (knth s0 i0))) in H.
+        revert H E; destruct (Nat.ltb j (Nat.div2 w)); intros H E; [apply IHl|apply IHr];
+          rewrite <- E, omap_unshift2; reflexivity. }
+  assert (Gs : forall s i B H, option_map (unshift B) (knth s i) = option_map (unshift B0) (knth s0 i0) ->
+                 knth_with' i0 s0 B0 found none s i B H = Rv).
+  { induction s as [|a w t s IH]; intros i B H E; cbn [knth_with'].
+    - cbn in E; rewrite Y in E; discriminate.
+    - cbn [knth] in E.
+      change (Squash (option_map (unshift B) (option_map (unshift a) (if Nat.ltb i w then ktnth w t i else knth s (i - w)))
+                      = option_map (unshift B0) (knth s0 i0))) in H.
+      revert H E; destruct (Nat.ltb i w); intros H E; [apply Gt|apply IH];
+        rewrite <- E, omap_unshift2; reflexivity. }
+  apply Gs; reflexivity.
 Qed.
 
-Lemma get_with_none i (m : tree A) (k : forall x, Squash (get i m = Some x) -> R) n
-  (H : get i m = None) : get_with i m k n = n (squash H).
+Lemma knth_with_none i0 s0 B0 found none (H : knth s0 i0 = None) :
+  knth_with i0 s0 B0 found none = none (squash H).
 Proof.
-  unfold get_with; destruct m as [|m]; [reflexivity|].
-  exact (get_with'_none i (Nodes m) k n i m _ eq_refl H).
+  unfold knth_with.
+  assert (Gt : forall t w i B H', option_map (unshift B) (ktnth w t i) = option_map (unshift B0) (knth s0 i0) ->
+                 ktnth_with' i0 s0 B0 found none w t i B H' = none (squash H)).
+  { induction t as [x|a x l IHl r IHr]; intros w i B H' E; cbn [ktnth_with'].
+    - destruct i; [cbn in E; rewrite H in E; discriminate|reflexivity].
+    - destruct i as [|j]; cbn [ktnth] in E; [cbn in E; rewrite H in E; discriminate|].
+      change (Squash (option_map (unshift B) (option_map (unshift a)
+                (if Nat.ltb j (Nat.div2 w) then ktnth (Nat.div2 w) l j else ktnth (Nat.div2 w) r (j - Nat.div2 w)))
+                = option_map (unshift B0) (knth s0 i0))) in H'.
+      revert H' E; destruct (Nat.ltb j (Nat.div2 w)); intros H' E; [apply IHl|apply IHr];
+        rewrite <- E, omap_unshift2; reflexivity. }
+  assert (Gs : forall s i B H', option_map (unshift B) (knth s i) = option_map (unshift B0) (knth s0 i0) ->
+                 knth_with' i0 s0 B0 found none s i B H' = none (squash H)).
+  { induction s as [|a w t s IH]; intros i B H' E; cbn [knth_with']; [reflexivity|].
+    cbn [knth] in E.
+    change (Squash (option_map (unshift B) (option_map (unshift a) (if Nat.ltb i w then ktnth w t i else knth s (i - w)))
+                    = option_map (unshift B0) (knth s0 i0))) in H'.
+    revert H' E; destruct (Nat.ltb i w); intros H' E; [apply Gt|apply IH];
+      rewrite <- E, omap_unshift2; reflexivity. }
+  apply Gs; reflexivity.
 Qed.
 
-Lemma nth_with'_some i0 (t0 : braun A) (k : forall x, Squash (Braun.nth i0 t0 = Some x) -> R) n i t H
-  (E : Braun.nth i t = Braun.nth i0 t0) x (X : Braun.nth i0 t0 = Some x) :
-  nth_with' i0 t0 k n i t H = k x (squash X).
-Proof.
-  revert i H E; induction t as [|y l IHl r IHr]; intros [|j] H E; cbn [nth_with'];
-    cbn in E; rewrite ?X in E; try discriminate; [injection E as ->; reflexivity|].
-  cbn [Braun.nth] in H; revert H E; destruct (Nat.even j); intros H E;
-    [apply IHl|apply IHr]; rewrite X; exact E.
-Qed.
-
-Lemma nth_with'_none i0 (t0 : braun A) (k : forall x, Squash (Braun.nth i0 t0 = Some x) -> R) n i t H
-  (E : Braun.nth i t = Braun.nth i0 t0) (X : Braun.nth i0 t0 = None) :
-  nth_with' i0 t0 k n i t H = n (squash X).
-Proof.
-  revert i H E; induction t as [|y l IHl r IHr]; intros [|j] H E; cbn [nth_with'];
-    cbn in E; rewrite ?X in E; try discriminate; try reflexivity.
-  cbn [Braun.nth] in H; revert H E; destruct (Nat.even j); intros H E;
-    [apply IHl|apply IHr]; rewrite X; exact E.
-Qed.
-
-Lemma nth_with_some i (t : braun A) (k : forall x, Squash (Braun.nth i t = Some x) -> R) n x
-  (H : Braun.nth i t = Some x) : nth_with i t k n = k x (squash H).
-Proof. exact (nth_with'_some i t k n i t _ eq_refl x H). Qed.
-
-Lemma nth_with_none i (t : braun A) (k : forall x, Squash (Braun.nth i t = Some x) -> R) n
-  (H : Braun.nth i t = None) : nth_with i t k n = n (squash H).
-Proof. exact (nth_with'_none i t k n i t _ eq_refl H). Qed.
-
-End Specs.
+End Lookups.
