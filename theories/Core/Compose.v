@@ -1618,4 +1618,67 @@ Proof.
     rewrite knth_spec by apply kgood_shape, G; rewrite E0; f_equal; f_equal; unfold thv, tauv in *; lia.
 Qed.
 
+(** ** Stripping only lowers uses *)
+
+Lemma rstrip_le h R0 p : forall R p2, rstrip h R0 p = (R, p2) ->
+  p2 <= p /\ forall x, In x R0 -> In x R \/ exists j, x = TVar h j /\ p2 <= j.
+Proof.
+  revert p; induction R0 as [|t R0 IH]; intros p R p2 E; cbn [rstrip] in E.
+  - destruct p; injection E as <- <-; (split; [lia|intros x []]).
+  - destruct p as [|p'].
+    + injection E as <- <-; split; [lia|intros x Hx; left; exact Hx].
+    + destruct (tvar_at h p' t) eqn:Tv.
+      * apply tvar_at_spec in Tv; subst t; destruct (IH p' R p2 E) as [Hp Hin].
+        split; [lia|intros x [<-|Hx]; [right; exists p'; split; [reflexivity|exact Hp]|apply Hin, Hx]].
+      * injection E as <- <-; split; [lia|intros x Hx; left; exact Hx].
+Qed.
+
+Lemma uses_entry_klist h (ts : kseq target) len p k :
+  kgood ts -> cget (uses (Entry h ts len p)) k = omin (cget (cone (label_key h) p) k) (lmin (klist ts) k).
+Proof. intros G; cbn [uses entry_based euses]; rewrite cget_cmin, ksann_klist by exact G; reflexivity. Qed.
+
+Lemma omin_some_or o1 o2 m : omin o1 o2 = Some m -> o1 = Some m \/ o2 = Some m.
+Proof.
+  destruct o1 as [x|], o2 as [y|]; cbn; intros H; auto.
+  injection H as <-; destruct (Nat.min_spec x y) as [[_ ->]|[_ ->]]; auto.
+Qed.
+
+Lemma estrip_uses_le h (ts : kseq target) p k m :
+  kgood ts -> cget (uses (Entry h ts (klength ts) p)) k = Some m ->
+  exists m', cget (uses (estrip h ts (klength ts) p)) k = Some m' /\ m' <= m.
+Proof.
+  intros G Hm; unfold estrip.
+  assert (Hsame : exists m', cget (uses (Entry h ts (klength ts) p)) k = Some m' /\ m' <= m)
+    by (exists m; split; [exact Hm|lia]).
+  destruct (klength ts) as [|len'] eqn:El, p as [|p']; try exact Hsame.
+  destruct (knth ts len') as [t|] eqn:Et; [|exact Hsame].
+  destruct (tvar_at h p' t); [|exact Hsame].
+  destruct (rstrip h (rev (klist ts)) (S p')) as [R p2] eqn:Er.
+  destruct (rstrip_le h _ _ R p2 Er) as [Hp Hin].
+  assert (HokR : forall t, In t (rev R) -> eok t).
+  { intros t' Ht'; apply in_rev in Ht'.
+    assert (Hsuf : forall R0 q R1 q1, rstrip h R0 q = (R1, q1) -> forall x, In x R1 -> In x R0).
+    { induction R0 as [|x0 R0 IH0]; intros q R1 q1 E x Hx; cbn [rstrip] in E.
+      - destruct q; injection E as <- <-; exact Hx.
+      - destruct q as [|q']; [injection E as <- <-; exact Hx|].
+        destruct (tvar_at h q' x0); [right; apply (IH0 _ _ _ E _ Hx)|injection E as <- <-; exact Hx]. }
+    apply (Hsuf _ _ _ _ Er), in_rev in Ht'; apply (kgood_targets_ok ts G), Ht'. }
+  destruct (kof_list_good (rev R) HokR) as [G' [E' _]].
+  rewrite uses_entry_klist by exact G'; rewrite E'.
+  rewrite uses_entry_klist in Hm by exact G.
+  rewrite cget_cone in Hm |- *.
+  destruct (omin_some_or _ _ _ Hm) as [Hc|Hl].
+  - destruct (Pos.eqb k (label_key h)); [|discriminate]; injection Hc as <-.
+    exists (match lmin (rev R) k with Some n => Nat.min p2 n | None => p2 end).
+    split; [destruct (lmin (rev R) k); reflexivity|destruct (lmin (rev R) k); lia].
+  - destruct (lmin_attained _ _ _ Hl) as [x [Hx Ex]].
+    destruct (Hin x (proj1 (in_rev _ _) Hx)) as [HxR|[j [-> Hj]]].
+    + destruct (lmin_le (rev R) x k _ (proj1 (in_rev _ _) HxR) Ex) as [n [En Hn]]; rewrite En.
+      destruct (Pos.eqb k (label_key h)); cbn; eexists; split; [reflexivity|lia|reflexivity|lia].
+    + cbn in Ex; rewrite cget_cone in Ex; destruct (Pos.eqb_spec k (label_key h)) as [->|]; [|discriminate].
+      injection Ex as <-.
+      exists (match lmin (rev R) (label_key h) with Some n => Nat.min p2 n | None => p2 end).
+      split; [destruct (lmin (rev R) _); reflexivity|destruct (lmin (rev R) _); lia].
+Qed.
+
 End Compose.
