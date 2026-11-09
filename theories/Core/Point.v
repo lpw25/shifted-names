@@ -259,4 +259,220 @@ Proof.
       unfold cget in Hs; rewrite G in Hs; change (oval (c_def d) = 0) in Hdef; rewrite Hdef in Hs; lia.
 Qed.
 
+(** Lowering keeps every entry in normal form: a lifted entry's last
+    target moves with its pass-through, and a gap entry has no targets. *)
+Lemma entry_ok_lower w es w' :
+  ainv es -> (forall k e, aget k es = Some e -> entry_ok k e) ->
+  forall k e, aget k (nentries (lower w' (NAdj w es))) = Some e -> entry_ok k e.
+Proof.
+  intros Hes Hok k e; set (d := csub w w'); cbn [lower nentries]; fold d.
+  rewrite (proj2 (aget_add_gaps d (alift d es) k (ainv_alift d es Hes))), aget_alift by exact Hes.
+  destruct (aget k es) as [e0|] eqn:E; cbn [option_map].
+  - intros [= <-]; destruct e0 as [h ts len p]; destruct (Hok _ _ E) as [Hk [Hg [Hl [Hn Hs]]]].
+    cbn [unshift entry_based eunshift entry_ok]; split; [exact Hk|split; [apply kgood_klift, Hg|]].
+    split; [rewrite <- Hl; unfold klength; destruct ts; reflexivity|split; [lia|]].
+    intros [Hlen [Hp Ht]]; rewrite knth_klift in Ht by exact Hg.
+    destruct (knth ts (pred len)) as [[y j|u [r es']]|] eqn:Et; cbn in Ht; try discriminate.
+    injection Ht as -> Hj; destruct p as [|p]; [lia|].
+    apply Hs; split; [exact Hlen|split; [lia|rewrite Et; f_equal; f_equal; lia]].
+  - destruct (get k (c_exc d)) as [[[|n]|]|]; try discriminate.
+    unfold gap; destruct (key_label k) as [l|]; [|discriminate].
+    destruct (Pos.eqb_spec (label_key l) k) as [Hk|]; [|discriminate].
+    intros [= <-]; cbn; split; [exact Hk|split; [apply kgood_nil|split; [reflexivity|split; lia]]].
+Qed.
+
+Lemma klength_klift d (s : kseq target) : klength (klift d s) = klength s.
+Proof. destruct s; reflexivity. Qed.
+
+(** ** Extension
+
+    [extend h t a] sends [h_0] to [t] and [h_(i+1)] to where [a] sends
+    [h_i].  The root counts drop to cover [t], then [t], relative to the new
+    root, goes on the front of [h]'s targets.  If [h] had no targets and [t]
+    is just where pass-through would send it, the pass-through shortens
+    instead (the one-element strip). *)
+
+Definition tvar_at (h : option label) (p : nat) (t : target) : bool :=
+  match t with TVar y j => label_eqb y h && Nat.eqb j p | TBind _ _ => false end.
+
+Definition econs (h : option label) (t : target) (o : option entry) : option entry :=
+  match o with
+  | Some (Entry _ ts (S len) p) => Some (Entry h (kcons t ts) (S (S len)) p)
+  | Some (Entry _ _ 0 (S p')) =>
+      if tvar_at h p' t
+      then match p' with 0 => None | _ => Some (Entry h KNil 0 p') end
+      else Some (Entry h (kcons t KNil) 1 (S p'))
+  | _ => Some (Entry h (kcons t KNil) 1 0)
+  end.
+
+Definition extend (h : option label) (t : target) (a : nadj) : nadj :=
+  let w' := cmin (nroot a) (tuses t) in
+  match lower w' a with
+  | NAdj _ es => NAdj w' (aupdate (label_key h) (econs h (tshift w' t)) es)
+  end.
+
+(** Where an optional entry for [h] sends [h_i]. *)
+Definition oapply (w : counts) (h : option label) (o : option entry) (i : nat) : result :=
+  match o with
+  | None => inl (mk_rvar h (dval w (label_key h) + i))
+  | Some e => eapply w e i
+  end.
+
+Lemma knth_kcons (t : target) s i :
+  eok t -> kgood s -> knth (kcons t s) i = match i with 0 => Some t | S i' => knth s i' end.
+Proof.
+  intros Ht G; destruct (kgood_kcons t s Ht G) as [G' E].
+  rewrite (knth_spec _ _ (kgood_shape _ G')), E; destruct i; [reflexivity|].
+  symmetry; apply knth_spec, kgood_shape, G.
+Qed.
+
+Lemma klength_kcons_good (t : target) s : klength (kcons t s) = S (klength s).
+Proof. apply klength_kcons. Qed.
+
+Lemma entry_ok_econs h t o :
+  eok t -> (forall e, o = Some e -> entry_ok (label_key h) e) ->
+  forall e, econs h t o = Some e -> entry_ok (label_key h) e.
+Proof.
+  intros Ht Ho e; destruct o as [[h' ts [|len] [|p']]|]; cbn [econs].
+  - intros [= <-]; split; [reflexivity|].
+    split; [apply (kgood_kcons _ _ Ht kgood_nil)|].
+    split; [reflexivity|split; [lia|cbn; lia]].
+  - destruct (tvar_at h p' t) eqn:Tv.
+    + destruct p' as [|p'']; [discriminate|]; intros [= <-]; split; [reflexivity|].
+      split; [apply kgood_nil|split; [reflexivity|split; [lia|cbn; lia]]].
+    + intros [= <-]; split; [reflexivity|].
+      split; [apply (kgood_kcons _ _ Ht kgood_nil)|].
+      split; [reflexivity|split; [lia|]].
+      cbn [strip_ok pred]; change (kcell 1 (KLeaf t) KNil) with (kcons t KNil); rewrite knth_kcons by (exact Ht || apply kgood_nil).
+      intros [_ [_ [= ->]]]; cbn in Tv; rewrite label_eqb_refl, Nat.eqb_refl in Tv; discriminate.
+  - intros [= <-]; destruct (Ho _ eq_refl) as [Hk [Hg [Hl [_ Hs]]]].
+    split; [reflexivity|split; [apply (kgood_kcons _ _ Ht Hg)|]].
+    split; [rewrite klength_kcons, Hl; reflexivity|split; [lia|]].
+    cbn [strip_ok pred]; rewrite knth_kcons by assumption.
+    intros [_ [Hp Hn]]; apply Hs; cbn [pred] in *; split; [lia|split; [lia|]].
+    apply label_key_inj in Hk; subst h'; exact Hn.
+  - intros [= <-]; destruct (Ho _ eq_refl) as [Hk [Hg [Hl [_ Hs]]]].
+    split; [reflexivity|split; [apply (kgood_kcons _ _ Ht Hg)|]].
+    split; [rewrite klength_kcons, Hl; reflexivity|split; [lia|]].
+    cbn [strip_ok pred]; rewrite knth_kcons by assumption.
+    intros [_ [Hp Hn]]; apply Hs; cbn [pred] in *; split; [lia|split; [lia|]].
+    apply label_key_inj in Hk; subst h'; exact Hn.
+  - intros [= <-]; split; [reflexivity|].
+    split; [apply (kgood_kcons _ _ Ht kgood_nil)|].
+    split; [reflexivity|split; [lia|cbn; lia]].
+Qed.
+
+Lemma oapply_econs w h t o i :
+  eok t -> (forall e, o = Some e -> entry_ok (label_key h) e) ->
+  oapply w h (econs h t o) i
+  = match i with 0 => tresult (tunshift w t) | S i' => oapply w h o i' end.
+Proof.
+  intros Ht Ho; destruct o as [[h' ts [|len] [|p']]|]; cbn [econs oapply].
+  - cbn [eapply]; try change (kcell 1 (KLeaf t) KNil) with (kcons t KNil); rewrite knth_kcons by (exact Ht || apply kgood_nil).
+    destruct i as [|i]; cbn [Nat.ltb Nat.leb]; [reflexivity|].
+    destruct (Ho _ eq_refl) as [Hk _]; apply label_key_inj in Hk; subst h'.
+    cbn [eapply Nat.ltb Nat.leb]; f_equal; f_equal; lia.
+  - destruct (Ho _ eq_refl) as [Hk _]; apply label_key_inj in Hk; subst h'.
+    destruct (tvar_at h p' t) eqn:Tv.
+    + destruct t as [y j|]; cbn in Tv; [|discriminate].
+      apply andb_prop in Tv as [Ty Tj]; apply label_eqb_eq in Ty; apply Nat.eqb_eq in Tj; subst y j.
+      destruct p' as [|p''], i as [|i]; cbn [oapply eapply Nat.ltb Nat.leb tunshift tresult];
+        f_equal; f_equal; lia.
+    + cbn [oapply eapply]; try change (kcell 1 (KLeaf t) KNil) with (kcons t KNil); rewrite knth_kcons by (exact Ht || apply kgood_nil).
+      destruct i as [|i]; cbn [Nat.ltb Nat.leb]; [reflexivity|]; f_equal; f_equal; lia.
+  - destruct (Ho _ eq_refl) as [Hk [Hg [Hl _]]]; apply label_key_inj in Hk; subst h'.
+    cbn [eapply]; rewrite knth_kcons by assumption.
+    destruct i as [|i]; [reflexivity|].
+    destruct (Nat.ltb_spec (S i) (S (S len))), (Nat.ltb_spec i (S len)); try lia.
+    + destruct (knth_some ts i Hg ltac:(lia)) as [t' ->]; reflexivity.
+    + f_equal; f_equal; lia.
+  - destruct (Ho _ eq_refl) as [Hk [Hg [Hl _]]]; apply label_key_inj in Hk; subst h'.
+    cbn [eapply]; rewrite knth_kcons by assumption.
+    destruct i as [|i]; [reflexivity|].
+    destruct (Nat.ltb_spec (S i) (S (S len))), (Nat.ltb_spec i (S len)); try lia.
+    + destruct (knth_some ts i Hg ltac:(lia)) as [t' ->]; reflexivity.
+    + f_equal; f_equal; lia.
+  - cbn [eapply]; try change (kcell 1 (KLeaf t) KNil) with (kcons t KNil); rewrite knth_kcons by (exact Ht || apply kgood_nil).
+    destruct i as [|i]; cbn [Nat.ltb Nat.leb]; [reflexivity|]; f_equal; f_equal; lia.
+Qed.
+
+Lemma ksann_kcons_cwf (t : target) s : cwf (ksann (kcons t s)).
+Proof.
+  unfold kcons; destruct s as [|a1 w1 t1 [|a2 w2 t2 s']]; try apply cwf_cmap2.
+  destruct (Nat.eqb w1 w2); apply cwf_cmap2.
+Qed.
+
+Lemma ook_econs h t o : ook (econs h t o).
+Proof.
+  destruct o as [[h' ts [|len] [|p']]|]; cbn [econs]; try apply ksann_kcons_cwf.
+  destruct (tvar_at h p' t); [destruct p'; [exact I|apply cwf_cnone]|apply ksann_kcons_cwf].
+Qed.
+
+Lemma napply_oapply w es v :
+  napply (NAdj w es) v = oapply w (v_label v) (aget (label_key (v_label v)) es) (v_index v).
+Proof. cbn [napply]; destruct (aget _ es); reflexivity. Qed.
+
+(** At the top level every label is used, so the root counts are total. *)
+Lemma nlocal_total w (es : atrie entry) : nlocal Qall (NAdj w es) -> forall k, cget w k <> None.
+Proof.
+  intros [_ [_ [Hkey [_ [Hq _]]]]] k; unfold cget.
+  destruct (get k (c_exc w)) as [v|] eqn:E.
+  - destruct (Hkey _ _ E) as [l ->]; specialize (Hq l eq_refl); unfold cget in Hq; rewrite E in Hq; exact Hq.
+  - destruct (fresh_label (c_exc w) (c_exc w)) as [l [El _]].
+    specialize (Hq l eq_refl); unfold cget in Hq; rewrite El in Hq; exact Hq.
+Qed.
+
+Lemma cle_cmin_l a b : cle (cmin a b) a.
+Proof. intros k n m Hn Hm; rewrite cget_cmin in Hn; apply (omin_le _ _ _ Hn); left; exact Hm. Qed.
+
+Lemma cle_cmin_r a b : cle (cmin a b) b.
+Proof. intros k n m Hn Hm; rewrite cget_cmin in Hn; apply (omin_le _ _ _ Hn); right; exact Hm. Qed.
+
+(** A target's uses are finitely many. *)
+Definition tfinite (t : target) : Prop := c_def (tuses t) = None.
+
+Lemma lower_cond w t :
+  (forall k, cget w k <> None) -> tfinite t ->
+  let w' := cmin w (tuses t) in
+  cle w' w /\ (forall k, cget w k = None -> oval (cget w' k) = 0)
+  /\ oval (c_def (csub w w')) = 0.
+Proof.
+  intros Hw Hf w'; split; [apply cle_cmin_l|split; [intros k E; exfalso; exact (Hw k E)|]].
+  unfold w', csub, cmin, cmap2; cbn [c_def]; unfold tfinite in Hf; rewrite Hf.
+  destruct (c_def w) as [n|]; cbn; [lia|reflexivity].
+Qed.
+
+Theorem napply_extend h t a v :
+  nlocal Qall a -> tok t -> tfinite t ->
+  napply (extend h t a) v
+  = if rvar_eqb v (mk_rvar h 0) then tresult t else napply a (unshift_rvar (mk_rvar h 0) v).
+Proof.
+  destruct a as [w es]; intros Ha Ht Hf.
+  destruct (lower_cond w t (nlocal_total w es Ha) Hf) as [Hle [H0 Hdef]].
+  set (w' := cmin w (tuses t)) in *.
+  pose proof Ha as [Hes [_ [_ [Hent _]]]].
+  assert (Hlow : forall v, napply (lower w' (NAdj w es)) v = napply (NAdj w es) v)
+    by (intro; apply napply_lower; assumption).
+  assert (Hok' := entry_ok_lower w es w' Hes (fun k e E => proj1 (Hent k e E))).
+  unfold extend; cbn [nroot]; fold w'.
+  destruct (lower w' (NAdj w es)) as [w'' es'] eqn:L.
+  assert (Hw'' : w'' = w') by (cbn in L; congruence); subst w''.
+  assert (Hes' : ainv es')
+    by (cbn in L; injection L as <-; apply (aget_add_gaps _ _ xH (ainv_alift _ _ Hes))).
+  cbn [nentries] in Hok'.
+  destruct (aupdate_spec (label_key h) (econs h (tshift w' t)) es' Hes' (fun o _ => ook_econs h _ o))
+    as [_ Hg].
+  rewrite napply_oapply, Hg, label_key_eqb.
+  destruct v as [l i]; cbn [v_label v_index]; unfold rvar_eqb, unshift_rvar; cbn [v_label v_index].
+  destruct (label_eqb_spec l h) as [->|Hne]; cbn [andb].
+  - rewrite label_eqb_refl, oapply_econs.
+    + destruct i as [|i]; cbn [Nat.eqb Nat.ltb Nat.leb andb].
+      * f_equal; change (unshift w' (shift w' t) = t); apply unshift_shift; [exact Ht|apply cle_cmin_r].
+      * rewrite <- Hlow, napply_oapply; cbn [v_label v_index]; f_equal; lia.
+    + exact (ok_shift w' t Ht).
+    + intros e E; apply (Hok' _ _ E).
+  - rewrite (proj2 (label_eqb_neq h l)) by congruence; cbn [andb].
+    rewrite <- Hlow, napply_oapply; reflexivity.
+Qed.
+
 End Point.
