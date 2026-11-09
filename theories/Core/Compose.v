@@ -2130,6 +2130,73 @@ Proof.
   destruct (aget k esa); [discriminate|]; rewrite cget_ctotal, Hn in Hj; injection Hj as <-; cbn; lia.
 Qed.
 
+(** *** Keyedness *)
+
+Hypothesis Hwa : nwf Qall a.
+Hypothesis IH1 : forall rho, nnest rho < nnest b -> nwf Qnamed rho -> nlocal Qnamed (ncomp true rho cnone).
+
+Lemma keyed_root Q (c : nadj) : nlocal Q c -> keyed (nroot c).
+Proof. destruct c as [w es']; intros [_ [_ [Hk _]]]; exact Hk. Qed.
+
+Lemma keyed_a_result v u rho : napply a v = inr (u, rho) -> keyed (nroot rho).
+Proof. intros E; apply (keyed_root Qnamed), (nwf_local Qnamed), (nwf_payload Qall a v u rho Hwa eq_refl E). Qed.
+
+Lemma keyed_a_target k e t :
+  aget k esa = Some e -> In t (klist (etargets e)) -> keyed (tuses (tunshift wa t)).
+Proof.
+  intros Ea Ht; destruct e as [h ts len p]; cbn [etargets] in Ht.
+  destruct (esa_ok _ _ Ea) as [Hk [G _]]; subst k.
+  destruct (In_nth_error _ _ Ht) as [i Ei].
+  assert (Et : knth ts i = Some t) by (rewrite knth_spec by apply kgood_shape, G; exact Ei).
+  assert (Hn : napply a (mk_rvar h i) = tresult (tunshift wa t)).
+  { unfold esa, wa in *; destruct a as [w es'] eqn:Eqa; cbn [nentries nroot] in *.
+    apply (target_result Qall w es' _ h ts len p i t Ha Ea Et). }
+  destruct (tunshift wa t) as [y j|u rho] eqn:Eu; [apply keyed_cone|].
+  apply (keyed_a_result _ _ _ Hn).
+Qed.
+
+Lemma keyed_alist h t : In t (alist h) -> keyed (tuses t).
+Proof.
+  unfold alist; destruct (aget (label_key h) esa) as [e|] eqn:Ea; [|intros []].
+  destruct e as [h' tsa len p]; intros Ht; apply in_map_iff in Ht as [t0 [<- Ht0]].
+  apply (keyed_a_target _ _ _ Ea Ht0).
+Qed.
+
+Lemma keyed_tcF t : Pd_t t -> keyed (tuses (tcF cnone t)).
+Proof.
+  intros [_ HP]; destruct t as [y j|u rho]; cbn [tcF].
+  - rewrite tuses_rtarget; destruct (napply a _) as [v|[u rho]] eqn:E; [apply keyed_cone|apply (keyed_a_result _ _ _ E)].
+  - destruct HP as [Hw Hn]; apply (keyed_root Qnamed), IH1; assumption.
+Qed.
+
+Lemma keyed_esC k e : aget k esC = Some e -> keyed (uses e).
+Proof.
+  intros E; rewrite (proj2 esC_spec) in E; destruct (aget k es) as [e0|] eqn:E0; [|discriminate].
+  cbn [option_map] in E; injection E as <-.
+  pose proof (Pd_entries k e0 E0) as HP; destruct (esC_entry k e0 E0) as [_ [Hg _]].
+  change (eunshift r e0) with (unshift r e0).
+  set (z := unshift r e0) in *; destruct z as [h ts len p] eqn:Ez.
+  pose proof HP as [G [Hl _]].
+  destruct (kmap_entry h ts len p HP) as [G1 E1].
+  assert (Hl1 : klength (kmap th tau tcF bl0 cnone ts) = len).
+  { rewrite (klength_spec _ (kgood_shape _ G1)), E1, length_map, <- Hl; symmetry; apply klength_spec, kgood_shape, G. }
+  change (ecF cnone (Entry h ts len p)) with (ecomp h (kmap th tau tcF bl0 cnone ts) len (0 + p)) in Hg |- *.
+  cbn [Nat.add] in Hg |- *; rewrite <- Hl1 in Hg |- *.
+  destruct (ecomp h _ (klength _) p) as [h' ts' len' p'] eqn:Ec; destruct Hg as [_ [G' _]].
+  apply keyed_entry; [exact G'|]; intros t Ht.
+  pose proof (ecomp_targets h _ p t G1) as Hc; rewrite Ec in Hc; cbn [etargets] in Hc.
+  destruct (Hc Ht) as [Ht1|Ht1]; [rewrite E1 in Ht1; apply in_map_iff in Ht1 as [t0 [<- Ht0]]|apply (keyed_alist h t Ht1)].
+  apply keyed_tcF; destruct HP as [_ [_ [_ HPt]]]; apply HPt, Ht0.
+Qed.
+
+Lemma Hpay_esC : pay = true -> aget (label_key None) esC = None.
+Proof.
+  intros Hp; rewrite (proj2 esC_spec); destruct (aget (label_key None) es) as [e0|] eqn:E0; [|reflexivity].
+  exfalso; pose proof Hloc as [_ [_ [_ [Hent _]]]]; destruct (Hent _ _ E0) as [Hok [HQ _]].
+  destruct e0 as [h ts len p]; destruct Hok as [Hk _]; apply label_key_inj in Hk; subst h.
+  unfold Qof in HQ; rewrite Hp in HQ; discriminate.
+Qed.
+
 End Step.
 
 End Compose.
