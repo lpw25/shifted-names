@@ -178,89 +178,140 @@ Each stage ends with a green build, a commit and a push.
 - **Cheap fixes to fold in:** `comp_entry` maps over the targets instead of
   indexing them; identity payloads are returned without traversal.
 
-## Stage 5 (agreed design): direct references under thinnings
+## Stage 5 (design): direct references with weakening counts
 
-This replaces the slot core (design D9), back-links, and the planned
-weakening tags. Each part below removes something the slot design needed.
+This replaces the slot core (design D9) and the back-links of stage 4.
+
+### Summary
+
+- **Targets name output variables directly.** There are no slots, slot
+  counts, back-links, expansion or renumbering. Per label, an entry holds
+  explicit targets for `h₀ … h₍len−1₎` and a pass-through shift `c`
+  (`hᵢ ↦ h₍ᵢ₊c₎` for `i ≥ len`). The normal form is local: the last target
+  is not `h₍len−1+c₎`.
+- **Weakening is lazy.** Every node carries, per label, a weakening count:
+  how far the outputs used below it start above its parent's. These counts
+  are the only thinnings stored on nodes. Everything else (gaps between used
+  variables, renamings) lives at the leaves.
+
+### Which thinnings are applied lazily
+
+Only operations other than composition need to be lazy. On the image (the
+used outputs of a label) they act at the front:
+
+| Operation | Effect on the image | Effect on existing subtrees |
+|---|---|---|
+| weaken `y` | cons 0 | +1 on `y` |
+| lift `y` | cons 1 (the new leaf uses `y₀`) | +1 on `y` |
+| extend with `yⱼ` | uses `j` | none |
+| extend with a term | the payload uses every named label from 0 | none |
+| strip | none (the variable stays used by pass-through) | none |
+
+So the thinnings ever applied lazily to existing structure are weakenings
+`0ᵏ1^∞`, i.e. counts. Composition is eager (its cost is paid anyway) and
+pushes changes to the leaves, pruned by the counts.
+
+The larger class "finite prefix, then identity" was rejected. It lets nodes
+record any gap pattern below the last use (so leaves end up holding
+nothing), and a finite image has no largest factor in it.
+
+### Factorisation
+
+**Lemma.** Every non-empty `I ⊆ ℕ` decomposes uniquely as
+`I = k + J` with `0 ∈ J`; namely `k = min I`. An empty image (a label not
+used below) imposes no constraint.
+
+So the canonical count at a node is the minimum used index below it, minus
+its parent's. Composition of counts is addition.
+
+### Count maps
+
+A node's counts form a total map from labels to `option nat` (`None` means
+the label is unused below). It is stored as a default plus exceptions:
+`{ def : option nat ; exc : trie (option nat) }`, with every exception
+different from the default, so it is canonical.
+
+- A variable leaf `yⱼ`: default `None`, exception `y ↦ j` (relative).
+- A payload: default `Some 0` (every named label used from 0), exception
+  `None ↦ None` (closed terms use no bound variables), plus positive
+  exceptions for weakenings.
+- A node: the pointwise minimum of its children, with `None` as ∞; each
+  child stores its counts relative to the node.
+
+Operations are pointwise (`min`, `add`, `sub`). Pushing a count onto a
+sibling with no counts of its own shares the map, so it is O(1). Otherwise
+the merge walks the smaller side (small-into-large).
+
+Factoring counts inside the label trie (a minimum at each label-trie node)
+would make bulk weakenings of many labels O(1). None of our operations
+needs it: the only "every label" default is the payload's, which is 0. It
+stays an option if the API gains bulk weakenings.
 
 ### Representation
 
 ```
-adj        = trie over labels of entry; every trie node carries θ
-entry h    = { targets : skew list of target   -- inputs h₀ … h₍len−1₎, nodes carry θ
-             ; len     : nat                   -- cached length (root only)
-             ; shift c : Z }                   -- hᵢ ↦ h₍ᵢ₊c₎ for i ≥ len
-target     = Var                               -- no data: its variable is fixed by the θs above
-           | Bind (u, ρ)                       -- ρ stored relative to its leaf's θ
-θ (node)   = per-label cover: the outputs used below, as a thinning into
-             the parent's used outputs; labels without gaps are omitted
-root       = θ into the full output scope
+adj        = { root : counts            -- ω: per-label weakening of the whole adjustment
+             ; entries : annotated trie of entry }   -- node counts relative to the parent
+entry h    = { targets : skew sequence of target    -- inputs h₀ …, front first
+             ; len : nat                             -- cached
+             ; c : Z }                               -- pass-through shift, relative
+target     = Var y j                                 -- j relative to the counts above
+           | Bind u ρ                                -- ρ's root counts relative to the parent
 ```
 
-- **Targets name output variables directly.** There are no slots, slot
-  counts, back-links, expansion or renumbering. The strip rule is local: the
-  last target of `h` is not `h₍len−1+c₎`. An entry is present iff
-  `len > 0 ∨ c ≠ 0`.
-- **Covers are images.** Each θ is exactly what is used below, so it is
-  determined by the content and canonicity comes for free. A payload's
-  image is the image of its adjustment, including nested payloads; this is
-  conservative because `u` is opaque.
-- **Payload adjustments** have no `None` entry and an identity root θ, so
-  restriction is "drop the `None` entry".
+- **The root.** A label without an entry is the identity relative to the
+  root counts, so it uses its outputs from relative 0. Hence `ω` is the
+  global weakening per label, and weaken is O(|y|) at the root.
+- **Payloads.** `ρ` has no bound entry, and its root counts take the place
+  of the leaf's counts.
+- **Skew sequences.** Okasaki's skew-binary random-access lists, with a
+  spine of cons cells carrying counts. `cons x` puts `x` at the root of the
+  front tree, so the subtrees beneath keep their counts, and the rest of the
+  list is one cell.
 
-### Thinnings as bitmaps
+### Invariants (the normal form)
 
-A per-label thinning is a `Z` bitmask. Two's complement represents the
-cofinite tail: a negative number has infinitely many ones. Bitmasks are
-canonical. Union and intersection are `lor` and `land`; rank and select use
-popcounts; composition is a bit deposit (`pdep`). On the OCaml side these are
-word-parallel Zarith operations (realizers where Zarith has no primitive).
-Costs are O(s / w) for a scope of `s` variables of that label and word size
-`w`: O(1) for scopes up to a word.
+- The trie is keyed by label key; trees are canonical by construction.
+- An entry is present iff `len > 0 ∨ c ≠ 0`.
+- The last target of `h` is not `h₍len−1+c₎`.
+- Every node's counts are the minimum over uses below (variable leaves,
+  pass-through starts `len + c`, payload root counts), relative to its
+  parent, as canonical count maps.
+- Payload adjustments have no `None` entry and satisfy the same invariants.
+- Exceptions in count maps are keys of labels.
 
-### Sequences
+Each part is determined by the meaning, so the representation is
+canonical (Leibniz).
 
-Skew-binary random-access lists (Okasaki): canonical for each length,
-`cons`/`tail` O(1), index O(log n), drop a prefix O(log n). Subtrees are
-contiguous ranges, which composition needs in order to drop a prefix and to
-reuse unchanged ranges. The length is cached at the entry only; nothing else
-needs sizes.
+### Operations and costs
 
-### Composition (sharing with support pruning)
+`|y|` is the length of label `y`'s key: the cost of one lookup in a count
+map or the label trie.
 
-`a ∘ b` starts from `a`:
-- labels `b` does not mention keep `a`'s entry (the pointer is reused);
-- for a label `b` mentions, its list is `b`'s targets mapped through `a`,
-  prepended to `a`'s list with its first `len_b + c_b` elements dropped;
-  then local strips;
-- mapping `b`'s subtrees through `a`, a subtree whose cover avoids every
-  label `a` changes is reused unchanged; where `a` acts as a thinning on a
-  label it is composed into the subtree's cover; only subtrees that `a`
-  contracts or substitutes into are descended and their covers recomputed;
-- payloads `(u, ρ)` become `(u, a ∘ ρ)` by the same procedure, then drop
-  the `None` entry. The recursion is structural (no fuel).
+| Operation | What it does | Cost |
+|---|---|---|
+| lookup `hᵢ` | trie path, sequence path; add the `y`-counts along the path | O(\|h\| + log n), plus O(\|y\|) per node with a positive `y`-count |
+| weaken `y` | root `y`-count +1 (upward) | O(\|y\|) |
+| extend with `yⱼ` | cons a leaf; where `j` is below a node's minimum, the difference goes to the sibling | O((\|h\| + log n) · \|y\|) |
+| extend with a term | cons a payload; the named counts on the path move down to the siblings (downward) | O(\|h\|) + O(1), plus merges charged to earlier weakenings |
+| lift `y` | weaken, then extend with `y₀` | as extend |
+| strip | local check at the end of the label's list | O(log n) |
+| compose | eager; a subtree whose minimum clears a shifted region is moved by its count alone; payloads `(u, a ∘ ρ)` recurse structurally (no fuel) | proportional to the parts `a` affects |
 
-### Costs
-
-`s` is the scope of a cover (variables of one label used below a node), and
-`w` the word size.
-
-| Operation | Cost |
-|---|---|
-| lookup `hᵢ` | O((\|h\| + log n) · s / w) |
-| weaken | O(s / w) at the root |
-| extend (variable or term), lift, strip | O(log n · s / w) |
-| compose | proportional to the part of `b` that `a` affects, times log n · s / w |
+**Building.** Each weakening is pushed at most once per path, and pushes
+onto siblings without counts share maps. Building by weakenings and extends
+costs O((weakenings + extends) · log n), plus a small-into-large merge term.
+The skew-list merges are amortised, so a program that keeps forking one old
+version can repeat an expensive merge.
 
 ### Stages
 
-1. `Core/Thin.v`: Z-bitmask thinnings (compose, union, rank, select,
-   covers), with extraction realizers.
-2. `Core/Skew.v`: skew-binary random-access lists with covers on nodes.
-3. The new core (replacing `Slots.v` and `Nested.v`): representation,
-   meaning, normal form, canonicity.
-4. Point operations: identity, weaken, extend, lift, lookup.
-5. Composition with sharing and pruning; restriction.
-6. Port `Adjustment`, `Laws`, `Scoped`, `Indexed`, `Subst` (lookup through
-   covers), the λ example and extraction; delete `Braun.v`, `Lookup.v`'s
-   Braun parts and the slot machinery.
+1. `Core/Counts.v`: the factorisation lemma; count maps with their
+   canonical form and pointwise operations.
+2. `Core/Skew.v`: skew sequences with a spine and a count map on every node.
+3. The annotated label trie.
+4. The core: representation, meaning, invariants, canonicity.
+5. Point operations: identity, weaken, extend, lift, lookup.
+6. Composition and restriction.
+7. Port `Adjustment`, `Laws`, `Scoped`, `Indexed`, `Subst`, the λ example and
+   extraction; delete the slot core, back-links and `Braun.v`.
