@@ -2487,6 +2487,66 @@ Proof.
   intros v Hv; rewrite napply_ncomp, napply_nmove by assumption; reflexivity.
 Qed.
 
+(** *** Deep well-formedness *)
+
+Hypothesis IH0 : forall rho, nnest rho < nnest b -> nwf Qnamed rho -> nwf Qnamed (ncomp true rho cnone).
+
+Theorem nwf_ncomp : nwf (Qof pay) (ncomp pay b cnone).
+Proof.
+  constructor; [exact nlocal_ncomp|exact nfin_ncomp|].
+  intros v u rho' Hv E; rewrite napply_ncomp in E by exact Hv.
+  destruct (napply b v) as [y|[u0 rho]] eqn:Eb; cbn [rcomp] in E.
+  - apply (nwf_payload Qall a y u rho' Hwa eq_refl E).
+  - injection E as -> <-; apply IH0.
+    + apply (nest_napply b v u rho b_entries_good Eb).
+    + apply (nwf_payload _ _ v u rho Hb Hv Eb).
+Qed.
+
 End Step.
+
+(** ** Composition is correct *)
+
+Section Main.
+
+Hypothesis Hwa : nwf Qall a.
+
+Definition comp_ok (pay : bool) (b : nadj) : Prop :=
+  nwf (Qof pay) (ncomp pay b cnone)
+  /\ (forall v, Qof pay (v_label v) = true -> napply (ncomp pay b cnone) v = rcomp (napply b v))
+  /\ (cle th (nroot b) -> ncomp pay b cnone = nmove b)
+  /\ cle wa (nroot (ncomp pay b cnone))
+  /\ (forall k m, aget k esa = None -> cget (nroot b) k = Some m ->
+      exists m', cget (nroot (ncomp pay b cnone)) k = Some m' /\ m' <= dval wa k + m).
+
+Lemma comp_ok_lt n : forall pay b, nnest b < n -> nwf (Qof pay) b -> comp_ok pay b.
+Proof.
+  induction n as [|n IHn]; intros pay [r es] Hn Hb; [lia|].
+  assert (IH : forall rho, nnest rho < nnest (NAdj r es) -> nwf Qnamed rho -> comp_ok true rho)
+    by (intros rho Hr Hw; apply IHn; [lia|exact Hw]).
+  assert (IH0 : forall rho, nnest rho < nnest (NAdj r es) -> nwf Qnamed rho -> nwf Qnamed (ncomp true rho cnone))
+    by (intros rho Hr Hw; apply (IH rho Hr Hw)).
+  assert (IH1 : forall rho, nnest rho < nnest (NAdj r es) -> nwf Qnamed rho -> nlocal Qnamed (ncomp true rho cnone))
+    by (intros rho Hr Hw; apply (nwf_local Qnamed), (IH rho Hr Hw)).
+  assert (IH3 : forall rho, nnest rho < nnest (NAdj r es) -> nwf Qnamed rho -> cle th (nroot rho) ->
+                ncomp true rho cnone = nmove rho)
+    by (intros rho Hr Hw; apply (IH rho Hr Hw)).
+  assert (IH4 : forall rho, nnest rho < nnest (NAdj r es) -> nwf Qnamed rho -> cle wa (nroot (ncomp true rho cnone)))
+    by (intros rho Hr Hw; apply (IH rho Hr Hw)).
+  assert (IH5 : forall rho, nnest rho < nnest (NAdj r es) -> nwf Qnamed rho ->
+                forall k m, aget k esa = None -> cget (nroot rho) k = Some m ->
+                exists m', cget (nroot (ncomp true rho cnone)) k = Some m' /\ m' <= dval wa k + m)
+    by (intros rho Hr Hw; apply (IH rho Hr Hw)).
+  split; [apply (nwf_ncomp pay r es Hb IH3 IH4 Hwa IH1 IH5 IH0)|].
+  split; [intros v Hv; apply (napply_ncomp pay r es Hb IH3 IH4 v Hv)|].
+  split; [apply (ncomp_moved pay r es Hb IH3 IH4 Hwa IH1 IH5)|].
+  split; [apply (root_ge pay r es Hb IH3 IH4)|].
+  intros k m Ea Hr; eapply root_le; eassumption.
+Qed.
+
+Theorem comp_correct pay b : nwf (Qof pay) b -> comp_ok pay b.
+Proof. apply (comp_ok_lt (S (nnest b))); lia. Qed.
+
+End Main.
+
 
 End Compose.
