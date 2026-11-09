@@ -18,3 +18,4 @@ theories/Core/Lookup.v
 theories/Core/Slots.v
 theories/Core/Nested.v
 theories/Core/Adjustment.v
+theories/Core/Laws.v

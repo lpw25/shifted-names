@@ -11,7 +11,7 @@
     composing it with [rshift] ([rpshift_as_pcompose]). *)
 
 From Stdlib Require Import Arith List Lia Bool.
-From ShiftedNames.Core Require Import Label Var Nested Adjustment.
+From ShiftedNames.Core Require Import Label Var Adjustment.
 Import ListNotations.
 
 Section Laws.
@@ -61,75 +61,20 @@ Proof.
   destruct (rvar_eqb v (mk_rvar l 0)); reflexivity.
 Qed.
 
-(** ** Payload adjustments *)
-
-Definition rpapply ρ v : rresult T := rapply (rpadj_adj ρ) v.
-
-(** Payload adjustments are equal when they act the same on free
-    variables. *)
-Theorem rpextensionality ρ1 ρ2 :
-  (forall v, v_label v <> None -> rpapply ρ1 v = rpapply ρ2 v) -> ρ1 = ρ2.
-Proof.
-  intros H; apply rpadj_eq, pcanonical;
-    try first [apply rpadj_nnormal|apply rpadj_pnormal].
-  intros v Hv; unfold rpapply in H.
-  rewrite <- (lower_rapply (rpadj_adj ρ1)), <- (lower_rapply (rpadj_adj ρ2)), H by exact Hv.
-  reflexivity.
-Qed.
-
-Lemma rpapply_depth ρ v u ρ' :
-  rpapply ρ v = inr (u, ρ') -> ndepth (rpadj_n ρ') < ndepth (rpadj_n ρ).
-Proof.
-  intros H; pose proof (f_equal lower H) as H'; unfold rpapply in H'.
-  rewrite lower_rapply in H'; cbn [lower radj_n rpadj_adj fst snd] in H'.
-  destruct (rpadj_n ρ) as [m] eqn:E.
-  apply (ndepth_binds m (u, rpadj_n ρ')), (Slots.binds_in_apply m v), H'.
-Qed.
-
-Lemma rpapply_pcompose a ρ v :
-  v_label v <> None ->
-  rpapply (rpcompose a ρ) v
-  = match rpapply ρ v with
-    | inl w => rapply a w
-    | inr p => inr (fst p, rpcompose a (snd p))
-    end.
-Proof.
-  intros Hv; unfold rpapply.
-  rewrite <- rapply_compose; apply lower_inj; rewrite !lower_rapply.
-  cbn [radj_n rpadj_adj rpcompose rpadj_n rcompose].
-  apply napply_prestrict; [|exact Hv].
-  apply nnormal_ncompose; [apply radj_ok_true|apply rpadj_nnormal].
-Qed.
-
-Lemma rpapply_pshift h ρ v :
-  v_label v <> None ->
-  rpapply (rpshift h ρ) v
-  = match rpapply ρ v with
-    | inl w => inl (shift_rvar (mk_rvar h 0) w)
-    | inr p => inr (fst p, rpshift h (snd p))
-    end.
-Proof.
-  intros Hv; unfold rpapply; apply lower_inj; rewrite lower_rapply.
-  cbn [radj_n rpadj_adj rpshift rpadj_n].
-  rewrite napply_pshift by (try apply (nnormal_normal _ (rpadj_nnormal ρ)); exact Hv).
-  pose proof (lower_rapply (rpadj_adj ρ) v) as L; cbn [radj_n rpadj_adj] in L; rewrite <- L.
-  destruct (rapply (rpadj_adj ρ) v) as [w|[u ρ']]; reflexivity.
-Qed.
-
 Lemma rpshift_as_pcompose_depth h n :
-  forall ρ, ndepth (rpadj_n ρ) <= n -> rpshift h ρ = rpcompose (rshift h) ρ.
+  forall ρ, rpdepth ρ < n -> rpshift h ρ = rpcompose (rshift h) ρ.
 Proof.
-  induction n as [|n IH]; intros ρ Hd; [pose proof (ndepth_pos (rpadj_n ρ)); lia|].
+  induction n as [|n IH]; intros ρ Hd; [lia|].
   apply rpextensionality; intros v Hv.
   rewrite rpapply_pshift, rpapply_pcompose by exact Hv.
   destruct (rpapply ρ v) as [w|[u ρ']] eqn:E.
   - rewrite rapply_shift; reflexivity.
-  - pose proof (rpapply_depth _ _ _ _ E); cbn [fst snd].
+  - pose proof (rpdepth_payload _ _ _ _ Hv E).
     rewrite (IH ρ') by lia; reflexivity.
 Qed.
 
 Theorem rpshift_as_pcompose h ρ : rpshift h ρ = rpcompose (rshift h) ρ.
-Proof. apply (rpshift_as_pcompose_depth h (ndepth (rpadj_n ρ))); lia. Qed.
+Proof. apply (rpshift_as_pcompose_depth h (S (rpdepth ρ))); lia. Qed.
 
 Theorem rpush_outer_as_compose h a : rpush_outer h a = rcompose (rshift h) a.
 Proof.
@@ -306,7 +251,7 @@ Proof.
       rewrite (proj2 (label_eqb_neq l (v_label w)))
         by (intro H; apply (Hw (mk_rvar h i) w Hhl E); symmetry; exact H).
       reflexivity.
-    + rewrite (Hp _ _ E); destruct p; reflexivity.
+    + destruct p as [u ρ]; pose proof (Hp _ _ E) as Hq; cbn [snd] in Hq; rewrite Hq; reflexivity.
 Qed.
 
 (** ** The primitives as context forms *)
