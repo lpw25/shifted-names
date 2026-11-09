@@ -423,3 +423,4 @@ Qed.
 
 Lemma key_label_spec l : key_label (label_key l) = Some l.
 Proof. destruct l as [s|]; cbn; [rewrite decode_string_key|]; reflexivity. Qed.
+
