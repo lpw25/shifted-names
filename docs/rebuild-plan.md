@@ -387,6 +387,55 @@ thresholds.
 
 ### Stage 6 status
 
+**Composition is done.** `Compose.v` proves, with no admits and no
+axioms (`Print Assumptions compose_spec` is closed):
+
+```
+Theorem compose_spec a b :
+  nwf Qall a -> nwf Qall b ->
+  nwf Qall (compose a b) /\ forall v, napply (compose a b) v = rcomp a (napply b v).
+```
+
+Here `nwf` is deep well-formedness: the normal form at every level, and
+payloads reachable from the labels that matter are themselves named-only
+normal forms. `rcomp a` sends a variable result to `napply a` and a
+payload `(u, ρ)` to `(u, ncomp true ρ cnone)`.
+
+The proof is a strong induction on nesting depth (`comp_ok_lt`). At each
+level (`Section Step`) it shows:
+- the normal form (`nlocal_finish`), including:
+  - root attainment;
+  - removal completeness, through `atvisit`;
+  - gap completeness;
+  - keyedness;
+  - `nfin`;
+- the meaning (`napply_finish`, `ecomp_spec`, `adrop_spec`);
+- in the clearing region, the whole level is the moved one
+  (`ncomp_moved`, by `ncanonical`). This discharges Prune's `HG` for
+  payloads one level up;
+- root bounds:
+  - at least `a`'s root (gives `no_low`);
+  - at most `a`'s shift of `b`'s root for labels `a` does not move
+    (gives `Hatt`).
+
+Design changes made while proving:
+- **Payload flag instead of `restrict`.** Payloads use `pay = true`
+  (`skipN`). Dropping a bound-label entry afterwards could remove the only
+  witness of other labels' root counts.
+- **Child base `cadd B a`.** Children get this instead of `cplus B a`, so
+  base independence is definitional.
+- **`Pd` in Prune.** Prune's hypotheses on `G` are restricted to the
+  elements present, by a predicate `Pd`.
+
+**Remaining:**
+- Point operations preserve `nwf`. Extend with a payload needs the
+  payload's `nwf`.
+- Restriction (dropping the bound label) for the API, if still needed.
+- Stage 7: port `Adjustment`, `Laws`, `Scoped`, `Indexed`, `Subst` and
+  extraction; delete the slot core, back-links and `Braun.v`. Check costs
+  against the table above.
+
+### Earlier stage 6 notes
 **Done (no admits):**
 - `Prune.v`: pruned maps over skew sequences (`kmap`) and the label trie
   (`atmap`), with their specs (`kgood_kmap`, `atmap_spec`). Also `atvisit`:

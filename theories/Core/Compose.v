@@ -2550,3 +2550,13 @@ End Main.
 
 
 End Compose.
+
+(** ** The top level *)
+
+Theorem compose_spec {T} (a b : @nadj T) :
+  nwf Qall a -> nwf Qall b ->
+  nwf Qall (compose a b) /\ forall v, napply (compose a b) v = rcomp a (napply b v).
+Proof.
+  intros Ha Hb; destruct (comp_correct a (nwf_local _ _ Ha) Ha false b Hb) as [Hw [Hm _]].
+  split; [exact Hw|intros v; apply Hm; reflexivity].
+Qed.
