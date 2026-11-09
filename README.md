@@ -8,9 +8,11 @@ condition.
 - [`docs/design-history.md`](docs/design-history.md) traces how the design
   evolved across the branches of this repository (and its use in an OCaml
   effect system).
-- [`docs/rebuild-plan.md`](docs/rebuild-plan.md) describes the current
+- [`docs/design.md`](docs/design.md) describes the current
   design: the substitution interface, the representation of adjustments,
   composition and the costs of the operations.
+- [`docs/implementation-plan.md`](docs/implementation-plan.md) is the
+  overall plan, including the later stages (context form, normaliser).
 
 ## Layout
 
