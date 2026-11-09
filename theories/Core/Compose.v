@@ -22,7 +22,7 @@
     removing; only the labels [b]'s root weakens can need a gap. *)
 
 From Stdlib Require Import PArith Arith Lia List Bool.
-From ShiftedNames.Core Require Import Trie Label Var Counts Based Skew ATrie Prune Repr Point.
+From ShiftedNames.Core Require Import Trie Label Var Counts Based Skew ATrie Prune Repr Point Deep.
 Import ListNotations.
 
 Section Compose.
@@ -33,85 +33,6 @@ Local Notation nadj := (@nadj T).
 Local Notation result := (@result T).
 Local Notation entry := (@entry T).
 Local Notation target := (@target T).
-
-(** ** Nesting depth, for induction through payloads *)
-
-Fixpoint ktmax {X} (f : X -> nat) (t : ktree X) : nat :=
-  match t with KLeaf x => f x | KNode _ x l r => Nat.max (f x) (Nat.max (ktmax f l) (ktmax f r)) end.
-
-Fixpoint kmaxs {X} (f : X -> nat) (s : kseq X) : nat :=
-  match s with KNil => 0 | KCons _ _ t s' => Nat.max (ktmax f t) (kmaxs f s') end.
-
-Fixpoint amax {X} (f : X -> nat) (t : atrie X) : nat :=
-  match t with
-  | AEmpty => 0
-  | ANode _ l o r => Nat.max (amax f l) (Nat.max (match o with Some x => f x | None => 0 end) (amax f r))
-  end.
-
-Fixpoint tnest (t : target) : nat :=
-  match t with TVar _ _ => 0 | TBind _ rho => S (nnest rho) end
-with nnest (b : nadj) : nat :=
-  match b with NAdj _ es => amax (fun e => match e with Entry _ ts _ _ => kmaxs tnest ts end) es end.
-
-Definition enest (e : entry) : nat := match e with Entry _ ts _ _ => kmaxs tnest ts end.
-
-Section Depth.
-
-Context {X : Type} {BX : Based X}.
-Variable f : X -> nat.
-Hypothesis Hf : forall d x, f (unshift d x) = f x.
-
-Lemma ktmax_in t : forall x, In x (ktlist t) -> f x <= ktmax f t.
-Proof.
-  induction t as [y|c y l IHl r IHr]; cbn [ktlist ktmax]; [intros x [<-|[]]; lia|].
-  intros x Hin; apply in_map_iff in Hin as [x0 [<- Hin]]; rewrite Hf.
-  destruct Hin as [<-|Hin]; [lia|apply in_app_or in Hin as [Hin|Hin]; [specialize (IHl _ Hin)|specialize (IHr _ Hin)]; lia].
-Qed.
-
-Lemma kmaxs_in s : forall x, In x (klist s) -> f x <= kmaxs f s.
-Proof.
-  induction s as [|c w t s IH]; cbn [klist kmaxs]; [intros x []|].
-  intros x Hin; apply in_map_iff in Hin as [x0 [<- Hin]]; rewrite Hf.
-  apply in_app_or in Hin as [Hin|Hin]; [pose proof (ktmax_in t x0 Hin)|specialize (IH _ Hin)]; lia.
-Qed.
-
-Lemma amax_in t : forall x, In x (aelems t) -> f x <= amax f t.
-Proof.
-  induction t as [|c l IHl o r IHr]; cbn [aelems amax]; [intros x []|].
-  intros x Hin; apply in_map_iff in Hin as [x0 [<- Hin]]; rewrite Hf.
-  apply in_app_or in Hin as [Hin|Hin]; [specialize (IHl _ Hin); lia|].
-  apply in_app_or in Hin as [Hin|Hin]; [destruct o as [y|]; [destruct Hin as [<-|[]]; lia|destruct Hin]|].
-  specialize (IHr _ Hin); lia.
-Qed.
-
-End Depth.
-
-Lemma tnest_unshift d (t : target) : tnest (unshift d t) = tnest t.
-Proof. destruct t as [y j|u [r es]]; reflexivity. Qed.
-
-Lemma kmaxs_klift d (ts : kseq target) : kmaxs tnest (klift d ts) = kmaxs tnest ts.
-Proof. destruct ts; reflexivity. Qed.
-
-Lemma enest_unshift d (e : entry) : enest (unshift d e) = enest e.
-Proof. destruct e as [h ts len p]; cbn; apply kmaxs_klift. Qed.
-
-Lemma nnest_es r (es : atrie entry) : nnest (NAdj r es) = amax enest es.
-Proof. reflexivity. Qed.
-
-Theorem nest_napply (b : nadj) v u rho :
-  (forall k e, aget k (nentries b) = Some e -> kgood (etargets e)) ->
-  napply b v = inr (u, rho) -> nnest rho < nnest b.
-Proof.
-  destruct b as [w es]; intros HG; cbn [napply nentries] in *; rewrite nnest_es.
-  destruct (aget _ es) as [e|] eqn:E; [|discriminate].
-  pose proof (amax_in enest enest_unshift es e (aget_in _ _ _ E)) as He.
-  pose proof (HG _ _ E) as G.
-  destruct e as [h ts len p]; cbn [eapply enest etargets] in *.
-  destruct (Nat.ltb _ _); [|discriminate].
-  destruct (knth ts _) as [t|] eqn:Et; [|discriminate].
-  pose proof (kmaxs_in tnest tnest_unshift ts t (knth_in _ _ _ G Et)) as Ht.
-  destruct t as [y j|u' [r es']]; cbn in *; [discriminate|]; intros [= -> <-]; cbn in Ht; rewrite !nnest_es in *; change (S (amax enest es') <= kmaxs tnest ts) in Ht; lia.
-Qed.
 
 (** ** Count map helpers *)
 
@@ -300,11 +221,6 @@ Proof. reflexivity. Qed.
 Lemma cget_cnone_dval k : dval cnone k = 0.
 Proof. reflexivity. Qed.
 
-Lemma cadd_cnone c : cwf c -> cadd cnone c = c.
-Proof.
-  intros Hc; apply counts_ext; [apply cwf_cmap2|exact Hc|].
-  intro k; rewrite cget_cadd, cget_cnone; destruct (cget c k); reflexivity.
-Qed.
 
 Lemma kmap_rebase F bl B (ts : kseq target) :
   kmap th tau F bl B ts = kmap th tau F bl cnone (klift B ts).
@@ -1668,41 +1584,12 @@ Qed.
 
 (** ** Deep well-formedness *)
 
-(** In normal form at every level: payloads reachable from the labels that
-    matter are named-only normal forms themselves. *)
-Inductive nwf : (option label -> bool) -> nadj -> Prop :=
-| NWf Q b :
-    nlocal Q b -> nfin b ->
-    (forall v u rho, Q (v_label v) = true -> napply b v = inr (u, rho) -> nwf Qnamed rho) ->
-    nwf Q b.
-
-Lemma nwf_local Q b : nwf Q b -> nlocal Q b.
-Proof. intros [? ? Hl _ _]; exact Hl. Qed.
-
-Lemma nwf_fin Q b : nwf Q b -> nfin b.
-Proof. intros [? ? _ Hf _]; exact Hf. Qed.
-
-Lemma nwf_payload Q b v u rho : nwf Q b -> Q (v_label v) = true -> napply b v = inr (u, rho) -> nwf Qnamed rho.
-Proof. intros [? ? _ _ Hp]; apply Hp. Qed.
 
 (** [b] above the thresholds, moved by [a]'s pure shift. *)
 Definition nmove (b : nadj) : nadj :=
   match b with NAdj r es => NAdj (cadd tau (csub r th)) es end.
 
 (** A target of an entry of [b], made absolute, is a result of [b]. *)
-Lemma target_result Q r (es : atrie entry) k h ts len p i t :
-  nlocal Q (NAdj r es) -> aget k es = Some (Entry h ts len p) -> knth ts i = Some t ->
-  napply (NAdj r es) (mk_rvar h i) = tresult (tunshift r t) /\ Q h = true.
-Proof.
-  intros Hl E Et; pose proof Hl as [_ [_ [_ [Hent _]]]].
-  destruct (Hent _ _ E) as [[Hk [G [Hlen _]]] [HQ _]]; cbn [elabel] in HQ.
-  split; [|exact HQ].
-  cbn [napply v_label v_index]; rewrite Hk, E; cbn [eapply].
-  assert (Hi : i < len)
-    by (rewrite <- Hlen, (klength_spec _ (kgood_shape _ G)); apply nth_error_Some;
-        rewrite <- knth_spec by apply (kgood_shape _ G); rewrite Et; discriminate).
-  destruct (Nat.ltb_spec i len); [rewrite Et; reflexivity|lia].
-Qed.
 
 (** ** Lower bounds on uses *)
 
@@ -1977,18 +1864,18 @@ Section Step.
 
 Variables (pay : bool) (r : counts) (es : atrie entry).
 Local Notation b := (NAdj r es).
-Hypothesis Hb : nwf (Qof pay) b.
+Hypothesis Hb : nwf pay b.
 
 (** What is known of payload targets one level down. *)
 Definition Pd_t (t : target) : Prop :=
-  eok t /\ match t with TVar _ _ => True | TBind _ rho => nwf Qnamed rho /\ nnest rho < nnest b end.
+  eok t /\ match t with TVar _ _ => True | TBind _ rho => nwf true rho /\ nnest rho < nnest b end.
 
 Definition Pd_e (z : entry) : Prop :=
   match z with
   | Entry h ts len p => kgood ts /\ klength ts = len /\ strip_ok z /\ forall t, In t (klist ts) -> Pd_t t
   end.
 
-Hypothesis IH3 : forall rho, nnest rho < nnest b -> nwf Qnamed rho -> cle th (nroot rho) ->
+Hypothesis IH3 : forall rho, nnest rho < nnest b -> nwf true rho -> cle th (nroot rho) ->
                  ncomp true rho cnone = nmove rho.
 
 Lemma Hloc : nlocal (Qof pay) b.
@@ -2147,7 +2034,7 @@ Proof.
   cbn [andb]; apply Pos.eqb_neq; intro E; apply label_key_inj in E; discriminate.
 Qed.
 
-Hypothesis IH4 : forall rho, nnest rho < nnest b -> nwf Qnamed rho -> cle wa (nroot (ncomp true rho cnone)).
+Hypothesis IH4 : forall rho, nnest rho < nnest b -> nwf true rho -> cle wa (nroot (ncomp true rho cnone)).
 
 Lemma tcF_ge t : Pd_t t -> cle wa (uses (tcF cnone t)).
 Proof.
@@ -2209,14 +2096,14 @@ Qed.
 
 (** *** Keyedness *)
 
-Hypothesis Hwa : nwf Qall a.
-Hypothesis IH1 : forall rho, nnest rho < nnest b -> nwf Qnamed rho -> nlocal Qnamed (ncomp true rho cnone).
+Hypothesis Hwa : nwf false a.
+Hypothesis IH1 : forall rho, nnest rho < nnest b -> nwf true rho -> nlocal Qnamed (ncomp true rho cnone).
 
 Lemma keyed_root Q (c : nadj) : nlocal Q c -> keyed (nroot c).
 Proof. destruct c as [w es']; intros [_ [_ [Hk _]]]; exact Hk. Qed.
 
 Lemma keyed_a_result v u rho : napply a v = inr (u, rho) -> keyed (nroot rho).
-Proof. intros E; apply (keyed_root Qnamed), (nwf_local Qnamed), (nwf_payload Qall a v u rho Hwa eq_refl E). Qed.
+Proof. intros E; apply (keyed_root Qnamed), (nwf_local true), (nwf_payload false a v u rho Hwa eq_refl E). Qed.
 
 Lemma keyed_a_target k e t :
   aget k esa = Some e -> In t (klist (etargets e)) -> keyed (tuses (tunshift wa t)).
@@ -2296,7 +2183,7 @@ Qed.
 
 (** *** Labels [a] does not move are not pushed up too far *)
 
-Hypothesis IH5 : forall rho, nnest rho < nnest b -> nwf Qnamed rho ->
+Hypothesis IH5 : forall rho, nnest rho < nnest b -> nwf true rho ->
                  forall k m, aget k esa = None -> cget (nroot rho) k = Some m ->
                  exists m', cget (nroot (ncomp true rho cnone)) k = Some m' /\ m' <= dval wa k + m.
 
@@ -2369,7 +2256,7 @@ Qed.
 (** *** The normal form of one level *)
 
 Lemma Hfa_wf : nfin a.
-Proof. apply (nwf_fin Qall a Hwa). Qed.
+Proof. apply (nwf_fin false a Hwa). Qed.
 
 Lemma HW0_b : c_def r = Some 0.
 Proof. apply (nwf_fin _ _ Hb). Qed.
@@ -2475,14 +2362,14 @@ Qed.
 
 (** *** Deep well-formedness *)
 
-Hypothesis IH0 : forall rho, nnest rho < nnest b -> nwf Qnamed rho -> nwf Qnamed (ncomp true rho cnone).
+Hypothesis IH0 : forall rho, nnest rho < nnest b -> nwf true rho -> nwf true (ncomp true rho cnone).
 
-Theorem nwf_ncomp : nwf (Qof pay) (ncomp pay b cnone).
+Theorem nwf_ncomp : nwf pay (ncomp pay b cnone).
 Proof.
-  constructor; [exact nlocal_ncomp|exact nfin_ncomp|].
+  apply nwf_intro; [exact nlocal_ncomp|exact nfin_ncomp|].
   intros v u rho' Hv E; rewrite napply_ncomp in E by exact Hv.
   destruct (napply b v) as [y|[u0 rho]] eqn:Eb; cbn [rcomp] in E.
-  - apply (nwf_payload Qall a y u rho' Hwa eq_refl E).
+  - apply (nwf_payload false a y u rho' Hwa eq_refl E).
   - injection E as -> <-; apply IH0.
     + apply (nest_napply b v u rho b_entries_good Eb).
     + apply (nwf_payload _ _ v u rho Hb Hv Eb).
@@ -2494,31 +2381,31 @@ End Step.
 
 Section Main.
 
-Hypothesis Hwa : nwf Qall a.
+Hypothesis Hwa : nwf false a.
 
 Definition comp_ok (pay : bool) (b : nadj) : Prop :=
-  nwf (Qof pay) (ncomp pay b cnone)
+  nwf pay (ncomp pay b cnone)
   /\ (forall v, Qof pay (v_label v) = true -> napply (ncomp pay b cnone) v = rcomp (napply b v))
   /\ (cle th (nroot b) -> ncomp pay b cnone = nmove b)
   /\ cle wa (nroot (ncomp pay b cnone))
   /\ (forall k m, aget k esa = None -> cget (nroot b) k = Some m ->
       exists m', cget (nroot (ncomp pay b cnone)) k = Some m' /\ m' <= dval wa k + m).
 
-Lemma comp_ok_lt n : forall pay b, nnest b < n -> nwf (Qof pay) b -> comp_ok pay b.
+Lemma comp_ok_lt n : forall pay b, nnest b < n -> nwf pay b -> comp_ok pay b.
 Proof.
   induction n as [|n IHn]; intros pay [r es] Hn Hb; [lia|].
-  assert (IH : forall rho, nnest rho < nnest (NAdj r es) -> nwf Qnamed rho -> comp_ok true rho)
+  assert (IH : forall rho, nnest rho < nnest (NAdj r es) -> nwf true rho -> comp_ok true rho)
     by (intros rho Hr Hw; apply IHn; [lia|exact Hw]).
-  assert (IH0 : forall rho, nnest rho < nnest (NAdj r es) -> nwf Qnamed rho -> nwf Qnamed (ncomp true rho cnone))
+  assert (IH0 : forall rho, nnest rho < nnest (NAdj r es) -> nwf true rho -> nwf true (ncomp true rho cnone))
     by (intros rho Hr Hw; apply (IH rho Hr Hw)).
-  assert (IH1 : forall rho, nnest rho < nnest (NAdj r es) -> nwf Qnamed rho -> nlocal Qnamed (ncomp true rho cnone))
-    by (intros rho Hr Hw; apply (nwf_local Qnamed), (IH rho Hr Hw)).
-  assert (IH3 : forall rho, nnest rho < nnest (NAdj r es) -> nwf Qnamed rho -> cle th (nroot rho) ->
+  assert (IH1 : forall rho, nnest rho < nnest (NAdj r es) -> nwf true rho -> nlocal Qnamed (ncomp true rho cnone))
+    by (intros rho Hr Hw; apply (nwf_local true), (IH rho Hr Hw)).
+  assert (IH3 : forall rho, nnest rho < nnest (NAdj r es) -> nwf true rho -> cle th (nroot rho) ->
                 ncomp true rho cnone = nmove rho)
     by (intros rho Hr Hw; apply (IH rho Hr Hw)).
-  assert (IH4 : forall rho, nnest rho < nnest (NAdj r es) -> nwf Qnamed rho -> cle wa (nroot (ncomp true rho cnone)))
+  assert (IH4 : forall rho, nnest rho < nnest (NAdj r es) -> nwf true rho -> cle wa (nroot (ncomp true rho cnone)))
     by (intros rho Hr Hw; apply (IH rho Hr Hw)).
-  assert (IH5 : forall rho, nnest rho < nnest (NAdj r es) -> nwf Qnamed rho ->
+  assert (IH5 : forall rho, nnest rho < nnest (NAdj r es) -> nwf true rho ->
                 forall k m, aget k esa = None -> cget (nroot rho) k = Some m ->
                 exists m', cget (nroot (ncomp true rho cnone)) k = Some m' /\ m' <= dval wa k + m)
     by (intros rho Hr Hw; apply (IH rho Hr Hw)).
@@ -2529,7 +2416,7 @@ Proof.
   intros k m Ea Hr; eapply root_le; eassumption.
 Qed.
 
-Theorem comp_correct pay b : nwf (Qof pay) b -> comp_ok pay b.
+Theorem comp_correct pay b : nwf pay b -> comp_ok pay b.
 Proof. apply (comp_ok_lt (S (nnest b))); lia. Qed.
 
 End Main.
@@ -2540,8 +2427,8 @@ End Compose.
 (** ** The top level *)
 
 Theorem compose_spec {T} (a b : @nadj T) :
-  nwf Qall a -> nwf Qall b ->
-  nwf Qall (compose a b) /\ forall v, napply (compose a b) v = rcomp a (napply b v).
+  nwf false a -> nwf false b ->
+  nwf false (compose a b) /\ forall v, napply (compose a b) v = rcomp a (napply b v).
 Proof.
   intros Ha Hb; destruct (comp_correct a (nwf_local _ _ Ha) Ha false b Hb) as [Hw [Hm _]].
   split; [exact Hw|intros v; apply Hm; reflexivity].
@@ -2579,12 +2466,12 @@ Proof.
   destruct (cget d k); cbn; f_equal; lia.
 Qed.
 
-Lemma nwf_cadd n : forall Q w (es : atrie entry) d,
-  nnest (NAdj w es) < n -> nwf Q (NAdj w es) -> keyed d -> c_def d = None -> nwf Q (NAdj (cadd d w) es).
+Lemma nwf_cadd n : forall pay w (es : atrie entry) d,
+  nnest (NAdj w es) < n -> nwf pay (NAdj w es) -> keyed d -> c_def d = None -> nwf pay (NAdj (cadd d w) es).
 Proof.
-  induction n as [|n IH]; intros Q w es d Hn Hb Kd Dd; [lia|].
+  induction n as [|n IH]; intros pay w es d Hn Hb Kd Dd; [lia|].
   pose proof (nwf_local _ _ Hb) as Hl; pose proof (nwf_fin _ _ Hb) as Hf.
-  constructor.
+  apply nwf_intro.
   - destruct Hl as [Hes [Cw [Kw [Hent [HQ HnQ]]]]].
     split; [exact Hes|split; [apply cwf_cmap2|split; [apply keyed_cmap2; assumption|split; [exact Hent|split]]]].
     + intros l Hq; rewrite cget_cadd; specialize (HQ l Hq); destruct (cget w _); [discriminate|contradiction].
@@ -2601,7 +2488,7 @@ Proof.
       { intros k' e' E'; destruct Hl as [_ [_ [_ [Hent _]]]]; destruct (Hent k' e' E') as [Hok _]; destruct e'; apply Hok. }
       pose proof (nest_napply (NAdj w es) v u _ HG E0) as Hlt; cbn [nnest] in *; lia.
     + intros k' Hk' Hw.
-      pose proof (root_covers Q w es k' Hl Hf Hw k e Ek) as Hcv.
+      pose proof (root_covers (Qof pay) w es k' Hl Hf Hw k e Ek) as Hcv.
       destruct e as [h ts len p]; rewrite uses_entry_klist in Hcv by exact G.
       cbn [etargets] in Et; pose proof (knth_in _ _ _ G Et) as Hin.
       destruct (cget r0 k') as [x|] eqn:Ex; [|contradiction].
@@ -2610,13 +2497,13 @@ Proof.
       destruct (cget (cone _ p) k'); discriminate.
 Qed.
 
-Theorem nwf_identity : nwf Qall (@nidentity T).
+Theorem nwf_identity : nwf false (@nidentity T).
 Proof.
-  constructor; [apply nlocal_identity|apply nfin_identity|].
+  apply nwf_intro; [apply nlocal_identity|apply nfin_identity|].
   intros v u rho _ E; rewrite napply_identity in E; discriminate.
 Qed.
 
-Theorem nwf_weaken h (a : nadj) : nwf Qall a -> nwf Qall (weaken h a).
+Theorem nwf_weaken h (a : nadj) : nwf false a -> nwf false (weaken h a).
 Proof.
   destruct a as [w es]; intros Ha; cbn [weaken].
   apply (nwf_cadd (S (nnest (NAdj w es)))); [cbn [nnest]; lia|exact Ha|apply keyed_cone|reflexivity].
@@ -2625,24 +2512,24 @@ Qed.
 (** A target is deeply well formed: a payload's adjustment is a named-only
     normal form. *)
 Definition twf (t : target) : Prop :=
-  match t with TVar _ _ => True | TBind _ rho => nwf Qnamed rho end.
+  match t with TVar _ _ => True | TBind _ rho => nwf true rho end.
 
 Theorem nwf_extend h (t : target) (a : nadj) :
-  nwf Qall a -> twf t -> nwf Qall (extend h t a).
+  nwf false a -> twf t -> nwf false (extend h t a).
 Proof.
   intros Ha Ht; pose proof (nwf_local _ _ Ha) as Hl; pose proof (nwf_fin _ _ Ha) as Hf.
   assert (Hok : tok t)
     by (destruct t as [y j|u [r es]]; [exact Logic.I|cbn in Ht; destruct (nwf_local _ _ Ht) as [_ [Hc _]]; exact Hc]).
   assert (Hk : keyed (tuses t))
     by (destruct t as [y j|u [r es]]; [apply keyed_cone|cbn in Ht; destruct (nwf_local _ _ Ht) as [_ [_ [Hk _]]]; exact Hk]).
-  constructor; [apply nlocal_extend; assumption|apply nfin_extend, Hf|].
+  apply nwf_intro; [apply nlocal_extend; assumption|apply nfin_extend, Hf|].
   intros v u rho _ E; rewrite napply_extend in E by assumption.
   destruct (rvar_eqb v _).
   - destruct t as [y j|u' rho']; cbn in E; [discriminate|injection E as -> <-; exact Ht].
   - apply (nwf_payload _ _ _ u rho Ha eq_refl E).
 Qed.
 
-Theorem nwf_lift h (a : nadj) : nwf Qall a -> nwf Qall (lift h a).
+Theorem nwf_lift h (a : nadj) : nwf false a -> nwf false (lift h a).
 Proof. intros Ha; apply nwf_extend; [apply nwf_weaken, Ha|exact Logic.I]. Qed.
 
 End PointWf.

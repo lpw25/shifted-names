@@ -123,18 +123,7 @@ Proof.
   intros Hin Hn Hm; destruct (lmin_le L z k m Hin Hm) as [n' [E Hle]]; congruence.
 Qed.
 
-(** Below a node, its counts are defined wherever something is used, so
-    adding them to the base keeps only what matters. *)
-Lemma unshift_cadd B a (L : list X) y :
-  (forall k, cget a k = lmin (map (unshift a) L) k) -> In y L ->
-  unshift B (unshift a y) = unshift (cadd B a) y.
-Proof.
-  intros Ha Hy; rewrite unshift_unshift; apply unshift_ext; intros k Hk.
-  rewrite dval_cplus; unfold dval; rewrite cget_cadd.
-  pose proof (Ha k) as E; rewrite lmin_unshift in E.
-  destruct (lmin L k) as [n|] eqn:En; [|exfalso; exact (lmin_some L y k Hy Hk En)].
-  destruct (cget a k) as [x|]; cbn in E |- *; [destruct (cget B k); cbn; lia|discriminate].
-Qed.
+
 
 Lemma Pd_child B a (L : list X) y :
   (forall k, cget a k = lmin (map (unshift a) L) k) ->

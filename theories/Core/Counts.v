@@ -373,6 +373,13 @@ Proof.
     try lia; try (apply IHm; lia); try (apply IHm1; lia); try (apply IHm2; lia).
 Qed.
 
+(** Adding nothing. *)
+Lemma cadd_cnone c : cwf c -> cadd cnone c = c.
+Proof.
+  intros Hc; apply counts_ext; [apply cwf_cmap2|exact Hc|].
+  intro k; rewrite cget_cadd, cget_cnone; destruct (cget c k); reflexivity.
+Qed.
+
 (** ** Deciding the invariants
 
     The invariants are decided by boolean checks, so that a proof of one can
