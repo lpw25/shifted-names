@@ -399,15 +399,29 @@ thresholds.
   - stripping (`rstrip_spec`, `estrip_spec`), against the absolute entry
     meaning `eabs`/`lapp`.
 
-**Next:**
-1. `a` below its thresholds (`aextra`, `adrop`); `ecomp`'s meaning.
-2. A depth measure on `nadj` for strong induction over payloads.
-3. The joint induction:
-   - `ncomp` gives a normal form (`nlocal Qall`, or `nlocal` named-only
-     after `restrict`);
-   - its meaning is `b` followed by `a`;
-   - in the clearing region it equals the moved payload, via
-     `ncanonical`.
+Also proved in `Compose.v`:
+- `a` as a list plus pass-through per label (`napply_a_lapp`), and
+  `ecomp_spec`: a composite entry is its mapped targets, then where `a`
+  sends its pass-through;
+- `adrop_spec` (entries only `a` has);
+- per-key fold specs (`fold_keyed`, identity removal, gaps);
+- `napply_finish`: `finish` means "the composite entries, else `b`'s
+  identity followed by `a`". It assumes `es_good` and `no_low`.
 
-   This discharges `kmap`'s and `atmap`'s `HF` and `HG` hypotheses.
-4. Spec of `finish`: each fold step, then the rebase.
+**Next:**
+1. One level of `ncomp`. Instantiate `atmap_spec`/`kmap_spec`:
+   - `HF`: base independence, via `kcanonical` and the meaning of
+     targets;
+   - `HG`: in the clearing region a composite target or entry is the moved
+     one. Use `napply_a_shift` for variables, canonicity for payloads, and
+     `kcanonical` for target sequences (no strip fires: a pure shift is
+     injective).
+2. The normal form of `finish` (`nlocal Qall`):
+   - the root is attained;
+   - removal is complete: only visited entries and `a`'s labels can become
+     identities. Use `atvisit_spec`;
+   - gaps are complete (`no_low` from `b`'s normal form and `a`'s root);
+   - `nfin`.
+3. `restrict`: `nlocal` named-only, and its meaning on named labels.
+4. A depth measure for strong induction through payloads, tying 1–3
+   together: meaning plus normal form of `ncomp` and `compose`.
