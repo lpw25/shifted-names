@@ -1849,6 +1849,51 @@ Proof.
   - intros t [].
 Qed.
 
+Lemma rstrip_sub h R0 q R1 q1 : rstrip h R0 q = (R1, q1) -> forall x, In x R1 -> In x R0.
+Proof.
+  revert q; induction R0 as [|x0 R0 IH0]; intros q E x Hx; cbn [rstrip] in E.
+  - destruct q; injection E as <- <-; exact Hx.
+  - destruct q as [|q']; [injection E as <- <-; exact Hx|].
+    destruct (tvar_at h q' x0); [right; apply (IH0 _ E _ Hx)|injection E as <- <-; exact Hx].
+Qed.
+
+(** Stripping keeps a subset of the targets. *)
+Lemma estrip_targets h (ts : kseq target) p t :
+  kgood ts -> In t (klist (etargets (estrip h ts (klength ts) p))) -> In t (klist ts).
+Proof.
+  intros G; unfold estrip.
+  destruct (klength ts) as [|len'] eqn:El, p as [|p']; try (cbn; exact (fun H => H)).
+  destruct (knth ts len') as [t0|] eqn:Et; [|cbn; exact (fun H => H)].
+  destruct (tvar_at h p' t0); [|cbn; exact (fun H => H)].
+  destruct (rstrip h (rev (klist ts)) (S p')) as [R p2] eqn:Er; cbn [etargets].
+  assert (HokR : forall t, In t (rev R) -> eok t).
+  { intros t' Ht'; apply in_rev in Ht'; apply (rstrip_sub _ _ _ _ _ Er), in_rev in Ht'.
+    apply (kgood_targets_ok ts G), Ht'. }
+  rewrite (proj1 (proj2 (kof_list_good (rev R) HokR))); intros Ht.
+  apply in_rev in Ht; apply (rstrip_sub _ _ _ _ _ Er), in_rev in Ht; exact Ht.
+Qed.
+
+(** The targets of a composite entry: mapped ones, or [a]'s. *)
+Lemma ecomp_targets h ts1 s t :
+  kgood ts1 -> In t (klist (etargets (ecomp h ts1 (klength ts1) s))) -> In t (klist ts1) \/ In t (alist h).
+Proof.
+  intros G; assert (HL : klength ts1 = length (klist ts1)) by apply klength_spec, kgood_shape, G.
+  unfold ecomp; destruct (Nat.leb (thv h) s).
+  - intros Ht; left; apply (estrip_targets h ts1 _ t G Ht).
+  - set (ex := aextra h s).
+    assert (Hex : ex = skipn s (alist h)) by apply aextra_alist.
+    assert (Hok : forall t, In t (klist ts1 ++ ex) -> eok t).
+    { intros t' Ht'; apply in_app_or in Ht' as [Ht'|Ht']; [apply (kgood_targets_ok _ G _ Ht')|].
+      rewrite Hex in Ht'; apply (alist_ok h).
+      rewrite <- (firstn_skipn s (alist h)); apply in_or_app; right; exact Ht'. }
+    destruct (kof_list_good (klist ts1 ++ ex) Hok) as [G2 [E2 L2]].
+    assert (Hlen : klength ts1 + length ex = klength (kof_list (klist ts1 ++ ex)))
+      by (rewrite L2, length_app, HL; reflexivity).
+    rewrite Hlen; intros Ht; apply (estrip_targets h _ _ t G2) in Ht; rewrite E2 in Ht.
+    apply in_app_or in Ht as [Ht|Ht]; [left; exact Ht|right].
+    rewrite Hex in Ht; rewrite <- (firstn_skipn s (alist h)); apply in_or_app; right; exact Ht.
+Qed.
+
 (** ** The induction step *)
 
 Section Step.
