@@ -1780,6 +1780,57 @@ Proof.
   destruct rho as [r' es']; reflexivity.
 Qed.
 
+Lemma sound_bl0 {X} {BX : Based X} (L : list X) : sound th bl0 L.
+Proof.
+  intros z _ k t m Ht _ _; unfold bl0; unfold th, cget in Ht; cbn [c_exc c_def] in Ht.
+  rewrite get_map_filter in Ht; destruct (get k th_tree); [congruence|discriminate].
+Qed.
+
+(** The targets of an entry, mapped. *)
+Lemma kmap_entry h (ts : kseq target) len p :
+  Pd_e (Entry h ts len p) ->
+  kgood (kmap th tau tcF bl0 cnone ts) /\ klist (kmap th tau tcF bl0 cnone ts) = map (tcF cnone) (klist ts).
+Proof.
+  intros [G [_ [_ HP]]].
+  destruct (kgood_kmap th tau tcF (tcF cnone) Pd_t (fun B x _ _ => tcF_rebase B x)
+              (fun z Hz HPz Hc => HG_t z Hz HPz Hc) (fun z _ _ => tcF_ok cnone z)
+              bl0 cnone ts G (sound_bl0 _)) as [G1 E1].
+  - intros y Hy; rewrite unshift_cnone by apply (HP y Hy); apply HP, Hy.
+  - split; [exact G1|rewrite E1; apply map_ext_in; intros y Hy; rewrite unshift_cnone by apply (HP y Hy); reflexivity].
+Qed.
+
+Lemma ecF_good h ts len p :
+  Pd_e (Entry h ts len p) -> entry_good h (ecF cnone (Entry h ts len p)).
+Proof.
+  intros HP; pose proof HP as [G [Hl _]]; destruct (kmap_entry h ts len p HP) as [G1 E1].
+  cbn [ecF]; rewrite cget_cnone_dval; cbn [Nat.add].
+  assert (Hl1 : klength (kmap th tau tcF bl0 cnone ts) = len).
+  { rewrite (klength_spec _ (kgood_shape _ G1)), E1, length_map, <- Hl; symmetry; apply klength_spec, kgood_shape, G. }
+  rewrite <- Hl1; apply (ecomp_spec h _ p G1).
+Qed.
+
+Lemma HG_e z : eok z -> Pd_e z -> clears th z -> ecF cnone z = unshift tau (shift th z).
+Proof.
+  intros Hok HP Hc; destruct z as [h ts len p]; pose proof HP as [G [Hl [Hs HPt]]].
+  apply ecF_moved; try assumption.
+  intros t Ht; apply HG_t; [apply HPt, Ht|apply HPt, Ht|].
+  pose proof (cle_cmin_inv_r _ _ _ Hc) as Hts.
+  exact (cle_mem th (ksann ts) (klist ts) t Hts (fun k => ksann_klist ts k G) Ht).
+Qed.
+
+Lemma HGok_e z : eok z -> Pd_e z -> eok (ecF cnone z).
+Proof. intros _ HP; destruct z as [h ts len p]; apply (entry_good_ok h), ecF_good, HP. Qed.
+
+(** The composite trie, absolute. *)
+Definition esC : atrie entry := atmap th tau ecF bl0 r es.
+
+Lemma esC_spec : ainv esC /\ forall k, aget k esC = option_map (fun y => ecF cnone (unshift r y)) (aget k es).
+Proof.
+  pose proof Hloc as [Hes _].
+  apply (atmap_spec th tau ecF (ecF cnone) Pd_e (fun B x _ _ => ecF_rebase B x) HG_e HGok_e es bl0 r Hes (sound_bl0 _)).
+  intros y Hy; destruct (aelems_aget es y Hy) as [k E]; apply (Pd_entries k y E).
+Qed.
+
 End Step.
 
 End Compose.
