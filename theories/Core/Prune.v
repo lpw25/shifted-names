@@ -15,7 +15,7 @@
     parent rebases them with the smart constructors of Skew.v. *)
 
 From Stdlib Require Import PArith Arith Lia List Bool.
-From ShiftedNames.Core Require Import Trie Counts Based Skew.
+From ShiftedNames.Core Require Import Trie Counts Based Skew ATrie.
 Import ListNotations.
 
 Section Prune.
@@ -52,6 +52,15 @@ Fixpoint ktmap (bl : tree nat) (B : counts) (t : ktree X) : ktree X :=
       let bl' := below bl (cadd B a) in
       if bempty bl' then KNode (move (cadd B a)) x l r
       else let P := cplus B a in ktnode (F P x) (ktmap bl' P l) (ktmap bl' P r)
+  end.
+
+Fixpoint atmap (bl : tree nat) (B : counts) (t : atrie X) : atrie X :=
+  match t with
+  | AEmpty => AEmpty
+  | ANode a l o r =>
+      let bl' := below bl (cadd B a) in
+      if bempty bl' then ANode (move (cadd B a)) l o r
+      else let P := cplus B a in amknode (atmap bl' P l) (option_map (F P) o) (atmap bl' P r)
   end.
 
 Fixpoint kmap (bl : tree nat) (B : counts) (s : kseq X) : kseq X :=
@@ -292,6 +301,61 @@ Proof.
   destruct (kshape_kweights_kmap s bl B) as [Hsh' Hw].
   split; [|exact E]; split; [exact Hs'|split; [apply Hsh', Hsh|]].
   unfold kcanon in *; rewrite klength_weights, Hw, <- klength_weights; exact Hc.
+Qed.
+
+Lemma map_eq_in {A B} (f g : A -> B) (L : list A) : map f L = map g L -> forall y, In y L -> f y = g y.
+Proof.
+  induction L as [|x L IH]; [intros _ _ []|cbn; intros E y [<-|Hy]]; injection E as E1 E2; [exact E1|].
+  apply IH; assumption.
+Qed.
+
+Lemma atmap_empty bl B t : atmap bl B t = AEmpty -> t = AEmpty.
+Proof.
+  destruct t as [|a l o r]; [reflexivity|cbn [atmap]].
+  destruct (bempty _); [discriminate|unfold amknode; discriminate].
+Qed.
+
+Lemma anonempty_atmap bl B l o r bl' B' :
+  anonempty l o r -> anonempty (atmap bl B l) (option_map (F B') o) (atmap bl' B r).
+Proof.
+  destruct (atmap bl B l) eqn:El, o, (atmap bl' B r) eqn:Er; cbn; try tauto.
+  apply atmap_empty in El, Er; subst; cbn; tauto.
+Qed.
+
+Theorem atmap_spec t : forall bl B,
+  ainv t -> sound bl (map (unshift B) (aelems t)) ->
+  ainv (atmap bl B t)
+  /\ forall k, aget k (atmap bl B t) = option_map (fun y => G (unshift B y)) (aget k t).
+Proof.
+  induction t as [|a l IHl o r IHr]; intros bl B Ht Hs; [split; [exact I|reflexivity]|].
+  pose proof (ainv_ok _ Ht) as Hok; destruct Ht as [Ha [Hcwf [Hne [Ho [Hl Hr]]]]].
+  cbn [aelems] in Ha, Hok |- *; cbn [atmap].
+  set (L := aelems l ++ oelems o ++ aelems r) in *.
+  assert (HokL : forall y, In y L -> eok y).
+  { intros y Hy; apply in_app_or in Hy as [Hy|Hy]; [apply (ainv_ok l Hl _ Hy)|].
+    apply in_app_or in Hy as [Hy|Hy]; [destruct o; [destruct Hy as [<-|[]]; exact Ho|destruct Hy]|apply (ainv_ok r Hr _ Hy)]. }
+  destruct (bempty (below bl (cadd B a))) eqn:Eb.
+  - destruct (moved bl B a L Ha HokL Hs Eb) as [E Hann].
+    split; [split; [exact Hann|split; [apply cwf_cmap2|split; [exact Hne|split; [exact Ho|split; assumption]]]]|].
+    intros k; cbn [aget]; fold (asub k l o r).
+    destruct (asub k l o r) as [y|] eqn:Ey; [|reflexivity]; cbn [option_map].
+    f_equal; rewrite map_map in E; apply (map_eq_in _ _ _ E), (asub_in _ _ _ _ _ Ey).
+  - pose proof (sound_below bl B a L Ha Hs) as Hs2.
+    set (P := cplus B a) in *; set (bl' := below bl (cadd B a)) in *.
+    destruct (IHl bl' P Hl) as [Hl' El].
+    { eapply sound_incl; [|exact Hs2]; intros z Hz; apply in_map_iff in Hz as [y [<- Hy]].
+      apply in_map, in_or_app; left; exact Hy. }
+    destruct (IHr bl' P Hr) as [Hr' Er].
+    { eapply sound_incl; [|exact Hs2]; intros z Hz; apply in_map_iff in Hz as [y [<- Hy]].
+      apply in_map, in_or_app; right; apply in_or_app; right; exact Hy. }
+    assert (Ho' : ook (option_map (F P) o))
+      by (destruct o as [x|]; [cbn; rewrite HF by exact Ho; apply HGok, ok_unshift, Ho|exact I]).
+    split; [apply ainv_amknode; [assumption|assumption|assumption|apply anonempty_atmap, Hne]|].
+    intros k; rewrite aget_amknode by assumption; cbn [aget].
+    destruct k as [k|k|]; cbn [asub].
+    + rewrite Er; destruct (aget k r); [cbn; unfold P; rewrite unshift_unshift; reflexivity|reflexivity].
+    + rewrite El; destruct (aget k l); [cbn; unfold P; rewrite unshift_unshift; reflexivity|reflexivity].
+    + destruct o as [x|]; [cbn; rewrite HF by exact Ho; unfold P; rewrite unshift_unshift; reflexivity|reflexivity].
 Qed.
 
 End Prune.

@@ -4,8 +4,8 @@ theories/Core/Trie.v
 theories/Core/Counts.v
 theories/Core/Based.v
 theories/Core/Skew.v
-theories/Core/Prune.v
 theories/Core/ATrie.v
+theories/Core/Prune.v
 theories/Core/Repr.v
 theories/Core/Point.v
 theories/Core/Label.v
