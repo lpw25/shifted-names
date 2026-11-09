@@ -741,4 +741,56 @@ Proof.
   - apply nth_error_None in Et; lia.
 Qed.
 
+Lemma cle_aann R (t : atrie entry) :
+  ainv t -> (forall k e, aget k t = Some e -> cle R (uses e)) -> cle R (aann t).
+Proof.
+  intros Ht H k n m Hn Hm; rewrite (ainv_ann t Ht) in Hm.
+  destruct (lmin_attained _ _ _ Hm) as [e [Hin He]].
+  destruct (aelems_aget t e Hin) as [k' E]; apply (H k' e E k n m Hn He).
+Qed.
+
+Lemma uses_le_aann (t : atrie entry) k e : ainv t -> aget k t = Some e -> cle (aann t) (uses e).
+Proof.
+  intros Ht E k' n m Hn Hm; rewrite (ainv_ann t Ht) in Hn.
+  destruct (lmin_le _ e k' m (aget_in _ _ _ E) Hm) as [n' [En Hle]]; congruence.
+Qed.
+
+Lemma cle_cmin_elem (t : atrie entry) J k e :
+  ainv t -> aget k t = Some e -> cle (cmin (aann t) J) (uses e).
+Proof.
+  intros Ht E k' n m Hn Hm; rewrite cget_cmin in Hn.
+  rewrite (ainv_ann t Ht) in Hn.
+  destruct (lmin_le _ e k' m (aget_in _ _ _ E) Hm) as [u [Eu Hle]]; rewrite Eu in Hn.
+  destruct (cget J k'); cbn in Hn; injection Hn as <-; lia.
+Qed.
+
+Lemma in_keys_spec {A} (m : tree A) k : existsb (Pos.eqb k) (map fst (elements m)) = true <-> get k m <> None.
+Proof.
+  rewrite existsb_exists; split.
+  - intros [k' [Hin Hk]]; apply Pos.eqb_eq in Hk; subst k'.
+    apply in_map_iff in Hin as [[k' v] [Ek Hin]]; cbn in Ek; subst k'.
+    apply In_elements in Hin; congruence.
+  - intros H; destruct (get k m) as [v|] eqn:E; [|contradiction].
+    exists k; split; [apply in_map_iff; exists (k, v); split; [reflexivity|apply In_elements, E]|apply Pos.eqb_refl].
+Qed.
+
+Lemma cget_jstarts W k :
+  cget (jstarts W) k = match aget k esa with Some _ => None | None => cget (ctotal wa W) k end.
+Proof.
+  assert (H : forall L, (forall e, In e L -> In e aentries) ->
+            cget (fold_right (fun e c => cset c (label_key (elabel e)) None) (ctotal wa W) L) k
+            = if existsb (fun e => Pos.eqb (label_key (elabel e)) k) L then None else cget (ctotal wa W) k).
+  { induction L as [|e L IH]; intros HL; cbn [fold_right existsb]; [reflexivity|].
+    rewrite cget_cset, Pos.eqb_sym; destruct (Pos.eqb _ _); [reflexivity|].
+    apply IH; intros; apply HL; right; assumption. }
+  unfold jstarts; rewrite H by auto.
+  destruct (existsb _ aentries) eqn:X.
+  - apply existsb_exists in X as [e [Hin Hk]]; apply Pos.eqb_eq in Hk; subst k.
+    rewrite (aentries_get e Hin); reflexivity.
+  - destruct (aget k esa) as [e|] eqn:E; [exfalso|reflexivity].
+    assert (Hx : existsb (fun e => Pos.eqb (label_key (elabel e)) k) aentries = true)
+      by (apply existsb_exists; exists e; split; [apply (aentries_in _ _ E)|rewrite <- (esa_key _ _ E), Pos.eqb_refl; reflexivity]).
+    congruence.
+Qed.
+
 End Compose.
