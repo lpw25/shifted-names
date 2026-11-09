@@ -1894,6 +1894,56 @@ Proof.
     rewrite Hex in Ht; rewrite <- (firstn_skipn s (alist h)); apply in_or_app; right; exact Ht.
 Qed.
 
+(** ** Upper bounds on composite uses *)
+
+Lemma ecomp_pre h ts1 s :
+  kgood ts1 ->
+  exists ts' p', kgood ts' /\ ecomp h ts1 (klength ts1) s = estrip h ts' (klength ts') p'
+                 /\ (forall t, In t (klist ts1) -> In t (klist ts'))
+                 /\ (thv h <= s -> p' = s - thv h + tauv h).
+Proof.
+  intros G; assert (HL : klength ts1 = length (klist ts1)) by apply klength_spec, kgood_shape, G.
+  unfold ecomp; destruct (Nat.leb_spec (thv h) s) as [Hs|Hs].
+  - exists ts1, (s - thv h + tauv h); split; [exact G|split; [reflexivity|split; [auto|auto]]].
+  - set (ex := aextra h s).
+    assert (Hex : ex = skipn s (alist h)) by apply aextra_alist.
+    assert (Hok : forall t, In t (klist ts1 ++ ex) -> eok t).
+    { intros t' Ht'; apply in_app_or in Ht' as [Ht'|Ht']; [apply (kgood_targets_ok _ G _ Ht')|].
+      rewrite Hex in Ht'; apply (alist_ok h).
+      rewrite <- (firstn_skipn s (alist h)); apply in_or_app; right; exact Ht'. }
+    destruct (kof_list_good (klist ts1 ++ ex) Hok) as [G2 [E2 L2]].
+    assert (Hlen : klength ts1 + length ex = klength (kof_list (klist ts1 ++ ex)))
+      by (rewrite L2, length_app, HL; reflexivity).
+    exists (kof_list (klist ts1 ++ ex)), (tauv h); split; [exact G2|split; [rewrite Hlen; reflexivity|split]].
+    + intros t Ht; rewrite E2; apply in_or_app; left; exact Ht.
+    + intros H; lia.
+Qed.
+
+Lemma ecomp_uses_target h ts1 s t k m :
+  kgood ts1 -> In t (klist ts1) -> cget (uses t) k = Some m ->
+  exists m', cget (uses (ecomp h ts1 (klength ts1) s)) k = Some m' /\ m' <= m.
+Proof.
+  intros G Ht Hm; destruct (ecomp_pre h ts1 s G) as [ts' [p' [G' [-> [Hsub _]]]]].
+  assert (Hpre : exists m0, cget (uses (Entry h ts' (klength ts') p')) k = Some m0 /\ m0 <= m).
+  { rewrite uses_entry_klist by exact G'.
+    destruct (lmin_le _ t k m (Hsub t Ht) Hm) as [n [En Hn]]; rewrite En.
+    destruct (cget (cone _ p') k); cbn; eexists; split; [reflexivity|lia|reflexivity|lia]. }
+  destruct Hpre as [m0 [Em0 Hm0]]; destruct (estrip_uses_le h ts' p' k m0 G' Em0) as [m' [Em' Hm']].
+  exists m'; split; [exact Em'|lia].
+Qed.
+
+Lemma ecomp_uses_pass h ts1 s :
+  kgood ts1 -> thv h <= s ->
+  exists m', cget (uses (ecomp h ts1 (klength ts1) s)) (label_key h) = Some m' /\ m' <= s - thv h + tauv h.
+Proof.
+  intros G Hs; destruct (ecomp_pre h ts1 s G) as [ts' [p' [G' [-> [_ Hp]]]]]; specialize (Hp Hs).
+  assert (Hpre : exists m0, cget (uses (Entry h ts' (klength ts') p')) (label_key h) = Some m0 /\ m0 <= p').
+  { rewrite uses_entry_klist, cget_cone_same by exact G'.
+    destruct (lmin (klist ts') _); cbn; eexists; split; [reflexivity|lia|reflexivity|lia]. }
+  destruct Hpre as [m0 [Em0 Hm0]]; destruct (estrip_uses_le h ts' p' _ m0 G' Em0) as [m' [Em' Hm']].
+  exists m'; split; [exact Em'|lia].
+Qed.
+
 (** ** The induction step *)
 
 Section Step.
