@@ -511,6 +511,42 @@ Proof. destruct a, b; cbn; congruence. Qed.
 Lemma oadd_none d c : oadd d c = None <-> c = None.
 Proof. destruct c; cbn; split; congruence. Qed.
 
+(** ** Lazy bases
+
+    The base a lookup (or an update) has reached is the sum of the counts on its path.
+    Summing count maps costs their size at every step, but a lookup only
+    ever reads one label's count of it (the label of the variable it
+    returns), or passes it on as the base of a payload's root.  So the base
+    is kept as the expression [lbase], and [ldval] reads one label's count
+    of it in O(|path| · |k|).  [lcounts] is its meaning, used only in
+    specifications. *)
+
+Inductive lbase : Type :=
+| LAbs (c : counts)                (* an absolute count map *)
+| LPlus (b : lbase) (a : counts)   (* a node's counts, relative to [b] *)
+| LAdd (b : lbase) (r : counts).   (* a payload's root, relative to [b] *)
+
+Fixpoint lcounts (b : lbase) : counts :=
+  match b with
+  | LAbs c => c
+  | LPlus b a => cplus (lcounts b) a
+  | LAdd b r => cadd (lcounts b) r
+  end.
+
+Fixpoint ldval (b : lbase) (k : positive) : nat :=
+  match b with
+  | LAbs c => dval c k
+  | LPlus b a => ldval b k + dval a k
+  | LAdd b r => match cget r k with Some n => ldval b k + n | None => 0 end
+  end.
+
+Lemma ldval_spec b k : ldval b k = dval (lcounts b) k.
+Proof.
+  induction b as [c|b IH a|b IH r]; cbn [ldval lcounts]; [reflexivity| |].
+  - rewrite dval_cplus, IH; reflexivity.
+  - rewrite IH; unfold dval; rewrite cget_cadd; destruct (cget r k); reflexivity.
+Qed.
+
 (** ** Equations between count maps *)
 
 Lemma csub_cadd d r : cwf r -> csub (cadd d r) d = r.

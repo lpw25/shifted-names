@@ -210,6 +210,10 @@ Proof. rewrite map_map; apply map_ext_in; intros e Hin; apply lift_one, Hin. Qed
 
 End Moving.
 
+Lemma omap_unshift2 B a (o : option X) :
+  option_map (unshift B) (option_map (unshift a) o) = option_map (unshift (cplus B a)) o.
+Proof. destruct o; cbn; [rewrite unshift_unshift|]; reflexivity. Qed.
+
 Lemma unshift_inj d x y : eok x -> eok y -> unshift d x = unshift d y -> x = y.
 Proof. intros Hx Hy E; rewrite <- (shift_unshift d x Hx), E; apply shift_unshift, Hy. Qed.
 

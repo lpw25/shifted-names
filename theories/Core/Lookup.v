@@ -19,52 +19,12 @@ From Stdlib Require Import PArith Arith List StrictProp.
 From ShiftedNames.Core Require Import Trie Counts Based Skew ATrie.
 Import ListNotations.
 
-(** ** Lazy bases
-
-    The base a lookup has reached is the sum of the counts on its path.
-    Summing count maps costs their size at every step, but a lookup only
-    ever reads one label's count of it (the label of the variable it
-    returns), or passes it on as the base of a payload's root.  So the base
-    is kept as the expression [lbase], and [ldval] reads one label's count
-    of it in O(|path| · |k|).  [lcounts] is its meaning, used only in
-    specifications. *)
-
-Inductive lbase : Type :=
-| LAbs (c : counts)                (* an absolute count map *)
-| LPlus (b : lbase) (a : counts)   (* a node's counts, relative to [b] *)
-| LAdd (b : lbase) (r : counts).   (* a payload's root, relative to [b] *)
-
-Fixpoint lcounts (b : lbase) : counts :=
-  match b with
-  | LAbs c => c
-  | LPlus b a => cplus (lcounts b) a
-  | LAdd b r => cadd (lcounts b) r
-  end.
-
-Fixpoint ldval (b : lbase) (k : positive) : nat :=
-  match b with
-  | LAbs c => dval c k
-  | LPlus b a => ldval b k + dval a k
-  | LAdd b r => match cget r k with Some n => ldval b k + n | None => 0 end
-  end.
-
-Lemma ldval_spec b k : ldval b k = dval (lcounts b) k.
-Proof.
-  induction b as [c|b IH a|b IH r]; cbn [ldval lcounts]; [reflexivity| |].
-  - rewrite dval_cplus, IH; reflexivity.
-  - rewrite IH; unfold dval; rewrite cget_cadd; destruct (cget r k); reflexivity.
-Qed.
-
 Definition sq_map {P Q : Prop} (f : P -> Q) (H : Squash P) : Squash Q :=
   match H with squash p => squash (f p) end.
 
 Section Lookups.
 
 Context {X : Type} {BX : Based X} {LX : BasedLaws X} {R : Type}.
-
-Lemma omap_unshift2 B a (o : option X) :
-  option_map (unshift B) (option_map (unshift a) o) = option_map (unshift (cplus B a)) o.
-Proof. destruct o; cbn; [rewrite unshift_unshift|]; reflexivity. Qed.
 
 Lemma omap_none {Y Z} (f g : Y -> Z) (o : option Y) o' : option_map f o = option_map g o' -> o = None -> o' = None.
 Proof. intros E ->; destruct o'; [discriminate|reflexivity]. Qed.
