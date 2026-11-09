@@ -409,6 +409,18 @@ Also proved in `Compose.v`:
 - `napply_finish`: `finish` means "the composite entries, else `b`'s
   identity followed by `a`". It assumes `es_good` and `no_low`.
 
+Also proved:
+- `nlocal_finish` (`nlocal (Qof pay)`) and `nfin_finish`, from these side
+  conditions:
+  - `es_good`;
+  - keyedness;
+  - `Hpay`: no bound-label entry in payloads;
+  - `Hatt`: at a label `b` has an entry for and `a` has none, the
+    composite minimum is at most the identity start;
+  - `Hvis`: an unvisited pure entry of `b` stays above the identity start;
+  - `no_low`.
+- Payloads use the flag `pay` (`skipN`) instead of a `restrict` step.
+
 **Next:**
 1. One level of `ncomp`. Instantiate `atmap_spec`/`kmap_spec`:
    - `HF`: base independence, via `kcanonical` and the meaning of
@@ -417,7 +429,8 @@ Also proved in `Compose.v`:
      one. Use `napply_a_shift` for variables, canonicity for payloads, and
      `kcanonical` for target sequences (no strip fires: a pure shift is
      injective).
-2. The normal form of `finish` (`nlocal Qall`):
+2. (Done: `nlocal_finish`.) Discharge its side conditions for the trie
+   `atmap` builds:
    - the root is attained;
    - removal is complete: only visited entries and `a`'s labels can become
      identities. Use `atvisit_spec`;
