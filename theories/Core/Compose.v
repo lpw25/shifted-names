@@ -1719,4 +1719,67 @@ Proof.
   destruct (Nat.ltb_spec i len); [rewrite Et; reflexivity|lia].
 Qed.
 
+(** ** The induction step *)
+
+Section Step.
+
+Variables (pay : bool) (r : counts) (es : atrie entry).
+Local Notation b := (NAdj r es).
+Hypothesis Hb : nwf (Qof pay) b.
+
+(** What is known of payload targets one level down. *)
+Definition Pd_t (t : target) : Prop :=
+  eok t /\ match t with TVar _ _ => True | TBind _ rho => nwf Qnamed rho /\ nnest rho < nnest b end.
+
+Definition Pd_e (z : entry) : Prop :=
+  match z with
+  | Entry h ts len p => kgood ts /\ klength ts = len /\ strip_ok z /\ forall t, In t (klist ts) -> Pd_t t
+  end.
+
+Hypothesis IH3 : forall rho, nnest rho < nnest b -> nwf Qnamed rho -> cle th (nroot rho) ->
+                 ncomp true rho cnone = nmove rho.
+
+Lemma Hloc : nlocal (Qof pay) b.
+Proof. apply nwf_local with (1 := Hb). Qed.
+
+Lemma b_entries_good : forall k e, aget k (nentries b) = Some e -> kgood (etargets e).
+Proof.
+  intros k e E; pose proof Hloc as [_ [_ [_ [Hent _]]]].
+  destruct (Hent k e E) as [Hok _]; destruct e as [h ts len p]; apply Hok.
+Qed.
+
+(** Every entry of [b], made absolute, satisfies [Pd_e]. *)
+Lemma Pd_entries k e0 : aget k es = Some e0 -> Pd_e (unshift r e0).
+Proof.
+  intros E; pose proof Hloc as Hl; pose proof Hl as [_ [_ [_ [Hent _]]]].
+  destruct e0 as [h ts len p]; destruct (Hent k _ E) as [[Hk [G [Hlen [Hnt Hs]]]] _].
+  cbn [unshift entry_based eunshift Pd_e].
+  split; [apply kgood_klift, G|split; [rewrite <- Hlen; destruct ts; reflexivity|split]].
+  - cbn [strip_ok]; intros [Hlen' [Hp Ht]]; rewrite knth_klift in Ht by exact G.
+    destruct (knth ts (pred len)) as [[y j|u [r' es']]|] eqn:Et; cbn in Ht; try discriminate.
+    injection Ht as -> Hj; destruct p as [|p]; [lia|].
+    apply Hs; split; [exact Hlen'|split; [lia|rewrite Et; f_equal; f_equal; lia]].
+  - intros t Ht; rewrite klist_klift in Ht by apply kgood_inv, G.
+    apply in_map_iff in Ht as [t0 [<- Ht0]].
+    assert (Hok : eok t0) by apply (kgood_targets_ok ts G _ Ht0).
+    split; [apply ok_unshift, Hok|].
+    destruct (unshift r t0) as [y j|u rho] eqn:Eu; [exact Logic.I|].
+    destruct (In_nth_error _ _ Ht0) as [i Ei].
+    assert (Et : knth ts i = Some t0) by (rewrite knth_spec by apply kgood_shape, G; exact Ei).
+    destruct (target_result _ r es k h ts len p i t0 Hl E Et) as [Hn HQ].
+    change (tunshift r t0) with (unshift r t0) in Hn; rewrite Eu in Hn; cbn [tresult] in Hn.
+    split; [apply (nwf_payload _ _ (mk_rvar h i) u rho Hb HQ Hn)|].
+    apply (nest_napply b (mk_rvar h i) u rho b_entries_good Hn).
+Qed.
+
+(** Above the thresholds a target is moved. *)
+Lemma HG_t t : eok t -> Pd_t t -> clears th t -> tcF cnone t = unshift tau (shift th t).
+Proof.
+  intros Hok [_ HP] Hc; destruct t as [y j|u rho]; [apply tcF_var_shift, Hc|].
+  destruct HP as [Hw Hn]; cbn [tcF]; rewrite (IH3 rho Hn Hw Hc).
+  destruct rho as [r' es']; reflexivity.
+Qed.
+
+End Step.
+
 End Compose.
