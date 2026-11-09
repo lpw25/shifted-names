@@ -8,26 +8,32 @@ condition.
 - [`docs/design-history.md`](docs/design-history.md) traces how the design
   evolved across the branches of this repository (and its use in an OCaml
   effect system).
-- [`docs/implementation-plan.md`](docs/implementation-plan.md) is the plan for
-  the current development.
+- [`docs/rebuild-plan.md`](docs/rebuild-plan.md) describes the current
+  design: the substitution interface, the representation of adjustments,
+  composition and the costs of the operations.
 
 ## Layout
 
-- `theories/Core/`: the internal, unindexed core:
+- `theories/Core/`: the internal, unindexed core, then the public layer:
   - `Trie.v`: canonical binary tries (Appel & Leroy), with extensionality.
-  - `Label.v`: labels, their strict order and trie keys.
-  - `Var.v`: variables (a label plus a shift index).
-  - `Slots.v`: the flat canonical representation (per-label input targets
-    and output slot counts), with `push_outer`, `push_inner` (any variable
-    target), composition, restriction and the canonicity theorem; generic in
-    the payload type.
-  - `Nested.v`: payloads `(u, ρ)` of a closed term and a lazily applied
-    adjustment; nested composition, payload canonicity, depth bounds.
-  - `Adjustment.v`: raw (unindexed) adjustments `radj T`, records with
-    SProp normality so equality is Leibniz: `rapply`, `rextensionality` and
-    the context-form constructors (`ridentity`, `rcompose`, `rpush_inner`,
-    `rpush_outer`, `rlift`).  Raw names carry an `r` prefix; the indexed
-    layer takes the plain names.
+  - `Counts.v`, `Based.v`: weakening counts (canonical count maps) and
+    elements stored relative to a base.
+  - `Skew.v`, `ATrie.v`: skew-binary sequences and label tries whose nodes
+    carry weakening counts; `Prune.v`: maps over them that move a subtree
+    by its counts alone when the function is a pure shift there.
+  - `Repr.v`: the representation of adjustments (per-label targets naming
+    output variables directly, weakenings applied lazily through counts),
+    its meaning `napply` and its normal form; `Point.v`: identity, weaken,
+    extend and lift; `Deep.v`: deep well-formedness as a structural check.
+  - `Compose.v`: pruned eager composition and its correctness.
+  - `Lookup.v`: lookups with continuations, used by substitution.
+  - `Label.v`, `Var.v`: labels with trie keys, variables.
+  - `Strict.v`: booleans as strict propositions.
+  - `Adjustment.v`: raw adjustments `radj T`, records with an SProp proof of
+    deep well-formedness so equality is Leibniz: `rapply`,
+    `rextensionality` and the constructors (`ridentity`, `rcompose`,
+    `rpush_inner`, `rpush_outer`, `rlift`).  Raw names carry an `r` prefix;
+    the indexed layer takes the plain names.
   - `Laws.v`: the equational laws of the raw constructors and the primitive
     adjustments (`rshift`, `rrename1`, `ropen`, `rclose`, `rswap`, `rsubst1`).
   - `Scoped.v`: scoping of adjustments (from `N` to `M` bound variables),
@@ -35,10 +41,12 @@ condition.
   - `Indexed.v`: the public indexed types `adj T N M`, `var`, `padj`,
     `target`, their constructors (`identity`, `compose`, `weaken`, `extend`,
     `lift`, ...) and laws.
-- `theories/Examples/`: a concrete λ-calculus built on the core (a test
-  instance; the library itself does not fix a term language):
-  `LambdaCore.v` (unindexed terms and the substitution laws) and `Lambda.v`
-  (indexed terms `term N` and substitutions on the public layer).
+  - `Syntax.v`, `Subst.v`: the interface a syntax implements (one Kleisli
+    extension and its laws) and the substitution functor over it.
+- `theories/Examples/Lambda.v`: the λ-calculus as a client of the library.
+- `theories/Extraction/Extraction.v`: extraction settings (Zarith numbers,
+  native strings); `tests/extraction/run.sh` extracts the λ example,
+  compiles it and runs a smoke test.
 - `theories/Tests/`: executable tests.
 - `src/`, `examples/`, `TyDE-2019/`: the original 2019 development, kept for
   reference.

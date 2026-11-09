@@ -14,7 +14,7 @@
 
 From Stdlib Require Extraction.
 From Stdlib Require Import PArith Arith ExtrOcamlBasic ExtrOcamlNatBigInt ExtrOcamlNativeString.
-From ShiftedNames.Core Require Import Label Syntax.
+From ShiftedNames.Core Require Import Label Syntax Lookup.
 
 (** Comparisons on [nat] that [ExtrOcamlNatBigInt] does not cover. *)
 Extract Inlined Constant Nat.ltb => "Big_int_Z.lt_big_int".
@@ -68,3 +68,9 @@ Extract Constant key_label =>
          if i = 7 then (Buffer.add_char buf (Char.chr c); go q 0 0)
          else go q c (i + 1) in
        go q 0 0)".
+
+(** The lookups' section variables [k0 t0 B0] / [i0 s0 B0] only appear in
+    the types of their location proofs. *)
+Extraction Implicit aget_with' [k0 t0 B0].
+Extraction Implicit ktnth_with' [i0 s0 B0].
+Extraction Implicit knth_with' [i0 s0 B0].
