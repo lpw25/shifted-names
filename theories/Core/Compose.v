@@ -1719,6 +1719,63 @@ Proof.
   destruct (Nat.ltb_spec i len); [rewrite Et; reflexivity|lia].
 Qed.
 
+(** ** Lower bounds on uses *)
+
+Lemma rstrip_p2 h R0 p R p2 : rstrip h R0 p = (R, p2) -> p2 = p \/ In (TVar h p2) R0.
+Proof.
+  revert p; induction R0 as [|t R0 IH]; intros p E; cbn [rstrip] in E.
+  - destruct p; injection E as <- <-; left; reflexivity.
+  - destruct p as [|p']; [injection E as <- <-; left; reflexivity|].
+    destruct (tvar_at h p' t) eqn:Tv; [|injection E as <- <-; left; reflexivity].
+    apply tvar_at_spec in Tv; subst t.
+    destruct (IH p' E) as [->|Hin]; right; [left; reflexivity|right; exact Hin].
+Qed.
+
+Lemma cle_entry_iff c h (ts : kseq target) len p :
+  kgood ts ->
+  cle c (uses (Entry h ts len p))
+  <-> cle c (cone (label_key h) p) /\ forall t, In t (klist ts) -> cle c (uses t).
+Proof.
+  intros G; split.
+  - intros H; split; [apply (cle_cmin_inv_l _ _ _ H)|].
+    intros t Ht; apply (cle_mem c (ksann ts) (klist ts) t (cle_cmin_inv_r _ _ _ H) (fun k => ksann_klist ts k G) Ht).
+  - intros [Hp Ht] k n m Hn Hm; rewrite uses_entry_klist in Hm by exact G.
+    destruct (omin_some_or _ _ _ Hm) as [Hc|Hl]; [apply (Hp k n m Hn Hc)|].
+    destruct (lmin_attained _ _ _ Hl) as [t [Hin Et]]; apply (Ht t Hin k n m Hn Et).
+Qed.
+
+Lemma estrip_ge c h (ts : kseq target) p :
+  kgood ts -> cle c (uses (Entry h ts (klength ts) p)) -> cle c (uses (estrip h ts (klength ts) p)).
+Proof.
+  intros G Hc; unfold estrip.
+  destruct (klength ts) as [|len'] eqn:El, p as [|p']; try exact Hc.
+  destruct (knth ts len') as [t|] eqn:Et; [|exact Hc].
+  destruct (tvar_at h p' t); [|exact Hc].
+  destruct (rstrip h (rev (klist ts)) (S p')) as [R p2] eqn:Er.
+  destruct (rstrip_le h _ _ R p2 Er) as [_ Hin].
+  apply (cle_entry_iff c h ts _ _ G) in Hc as [Hp Ht].
+  assert (HR : forall x, In x (rev R) -> In x (klist ts)).
+  { intros x Hx; apply in_rev in Hx; apply in_rev.
+    assert (Hsuf : forall R0 q R1 q1, rstrip h R0 q = (R1, q1) -> forall x, In x R1 -> In x R0).
+    { induction R0 as [|x0 R0 IH0]; intros q R1 q1 E x' Hx'; cbn [rstrip] in E.
+      - destruct q; injection E as <- <-; exact Hx'.
+      - destruct q as [|q']; [injection E as <- <-; exact Hx'|].
+        destruct (tvar_at h q' x0); [right; apply (IH0 _ _ _ E _ Hx')|injection E as <- <-; exact Hx']. }
+    apply (Hsuf _ _ _ _ Er _ Hx). }
+  assert (HokR : forall t, In t (rev R) -> eok t) by (intros t' Ht'; apply (kgood_targets_ok ts G), HR, Ht').
+  destruct (kof_list_good (rev R) HokR) as [G' [E' _]].
+  apply (cle_entry_iff c h _ _ _ G'); rewrite E'; split.
+  - destruct (rstrip_p2 h _ _ R p2 Er) as [->|HT]; [exact Hp|].
+    apply in_rev in HT; exact (Ht _ HT).
+  - intros x Hx; apply Ht, HR, Hx.
+Qed.
+
+Lemma cle_cadd_self c u : (forall k, cget c k <> None) -> cle c (cadd c u).
+Proof.
+  intros Hc k n m Hn Hm; rewrite cget_cadd, Hn in Hm.
+  destruct (cget u k); cbn in Hm; [injection Hm as <-; lia|discriminate].
+Qed.
+
 (** ** The induction step *)
 
 Section Step.
