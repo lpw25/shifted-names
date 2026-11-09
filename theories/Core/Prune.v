@@ -63,6 +63,20 @@ Fixpoint atmap (bl : tree nat) (B : counts) (t : atrie X) : atrie X :=
       else let P := cplus B a in amknode (atmap bl' P l) (option_map (F P) o) (atmap bl' P r)
   end.
 
+(** The keys of the entries a pruned trie map visits ([kf] rebuilds the
+    full key from the path). *)
+Fixpoint atvisit (bl : tree nat) (B : counts) (kf : positive -> positive) (t : atrie X)
+  : list positive :=
+  match t with
+  | AEmpty => []
+  | ANode a l o r =>
+      let bl' := below bl (cadd B a) in
+      if bempty bl' then []
+      else let P := cplus B a in
+           match o with Some _ => [kf xH] | None => [] end
+           ++ atvisit bl' P (fun k => kf (xO k)) l ++ atvisit bl' P (fun k => kf (xI k)) r
+  end.
+
 Fixpoint kmap (bl : tree nat) (B : counts) (s : kseq X) : kseq X :=
   match s with
   | KNil => KNil
@@ -163,6 +177,45 @@ Qed.
 Lemma sound_incl bl (L1 L2 : list X) : (forall z, In z L1 -> In z L2) -> sound bl L2 -> sound bl L1.
 Proof. intros Hi Hs z Hz; apply Hs, Hi, Hz. Qed.
 
+(** Below a moved node, every used label is at or above its threshold. *)
+Lemma pruned_counts bl B a (L : list X) :
+  (forall k, cget a k = lmin (map (unshift a) L) k) ->
+  sound bl (map (unshift B) (map (unshift a) L)) ->
+  bempty (below bl (cadd B a)) = true ->
+  forall k, lmin L k <> None ->
+    exists p, cget (cadd B a) k = Some p /\ cget (cplus B a) k = Some p
+              /\ forall t, cget th k = Some t -> t <= p.
+Proof.
+  intros Ha Hs Hb; set (M := cadd B a); set (P := cplus B a).
+  pose proof (bempty_spec _ Hb) as Hb'.
+  intros k Hk; destruct (ann_cases a L k (Ha k)) as [[_ E]|[x [Ex E]]]; [contradiction|].
+  exists (oval (cget B k) + x); unfold M, P; rewrite cget_cadd, cget_cplus, Ex.
+  split; [destruct (cget B k); reflexivity|split; [destruct (cget B k); reflexivity|]].
+  intros t Et; destruct (Nat.le_gt_cases t (oval (cget B k) + x)) as [|Hlt]; [assumption|exfalso].
+  destruct (lmin_attained _ _ _ E) as [z0 [Hz0 Ez0]].
+  assert (Hin : In (unshift B (unshift a z0)) (map (unshift B) (map (unshift a) L)))
+    by (apply in_map, in_map, Hz0).
+  assert (Eu : cget (uses (unshift B (unshift a z0))) k = Some (oval (cget B k) + x))
+    by (rewrite !uses_unshift, Ez0, Ex; destruct (cget B k); cbn; f_equal; lia).
+  specialize (Hs _ Hin k t _ Et Eu Hlt).
+  specialize (Hb' k); unfold below in Hb'; rewrite get_map_filter, Hs in Hb'; fold M in Hb'.
+  unfold M in Hb'; rewrite cget_cadd, Ex in Hb'.
+  destruct (cget B k); cbn [oadd oval] in Hb', Hlt;
+    rewrite (proj2 (Nat.ltb_lt _ _)) in Hb' by lia; discriminate.
+Qed.
+
+Lemma pruned_clears bl B a (L : list X) :
+  (forall k, cget a k = lmin (map (unshift a) L) k) ->
+  sound bl (map (unshift B) (map (unshift a) L)) ->
+  bempty (below bl (cadd B a)) = true ->
+  forall y, In y L -> clears (unshift (cplus B a) y).
+Proof.
+  intros Ha Hs Hb y Hy k t m Et Em; rewrite uses_unshift in Em.
+  destruct (cget (uses y) k) as [u|] eqn:Eu; [|destruct (cget (cplus B a) k); discriminate].
+  destruct (pruned_counts bl B a L Ha Hs Hb k (lmin_some L y k Hy ltac:(rewrite Eu; discriminate))) as [p [_ [Ep Ht]]].
+  rewrite Ep in Em; cbn in Em; injection Em as <-; specialize (Ht t Et); lia.
+Qed.
+
 (** A moved node: its elements were all above the thresholds. *)
 Lemma moved bl B a (L : list X) :
   (forall k, cget a k = lmin (map (unshift a) L) k) -> (forall y, In y L -> eok y) ->
@@ -172,25 +225,7 @@ Lemma moved bl B a (L : list X) :
   /\ forall k, cget (move (cadd B a)) k = lmin (map (unshift (move (cadd B a))) L) k.
 Proof.
   intros Ha Hok Hs Hb; set (M := cadd B a); set (P := cplus B a).
-  pose proof (bempty_spec _ Hb) as Hb'.
-  (* every used label is at or above its threshold at the node *)
-  assert (HM : forall k, lmin L k <> None ->
-                 exists p, cget M k = Some p /\ cget P k = Some p
-                           /\ forall t, cget th k = Some t -> t <= p).
-  { intros k Hk; destruct (ann_cases a L k (Ha k)) as [[_ E]|[x [Ex E]]]; [contradiction|].
-    exists (oval (cget B k) + x); unfold M, P; rewrite cget_cadd, cget_cplus, Ex.
-    split; [destruct (cget B k); reflexivity|split; [destruct (cget B k); reflexivity|]].
-    intros t Et; destruct (Nat.le_gt_cases t (oval (cget B k) + x)) as [|Hlt]; [assumption|exfalso].
-    destruct (lmin_attained _ _ _ E) as [z0 [Hz0 Ez0]].
-    assert (Hin : In (unshift B (unshift a z0)) (map (unshift B) (map (unshift a) L)))
-      by (apply in_map, in_map, Hz0).
-    assert (Eu : cget (uses (unshift B (unshift a z0))) k = Some (oval (cget B k) + x))
-      by (rewrite !uses_unshift, Ez0, Ex; destruct (cget B k); cbn; f_equal; lia).
-    specialize (Hs _ Hin k t _ Et Eu Hlt).
-    specialize (Hb' k); unfold below in Hb'; rewrite get_map_filter, Hs in Hb'; fold M in Hb'.
-    unfold M in Hb'; rewrite cget_cadd, Ex in Hb'.
-    destruct (cget B k); cbn [oadd oval] in Hb', Hlt;
-      rewrite (proj2 (Nat.ltb_lt _ _)) in Hb' by lia; discriminate. }
+  pose proof (pruned_counts bl B a L Ha Hs Hb) as HM; fold M P in HM.
   assert (Hused : forall y k, In y L -> cget (uses y) k <> None -> lmin L k <> None).
   { intros y k Hy Hk; apply (lmin_some L y k Hy Hk). }
   split.
@@ -200,13 +235,8 @@ Proof.
                   exists p, cget M k = Some p /\ cget P k = Some p
                             /\ forall t, cget th k = Some t -> t <= p)
       by (intros k Hk; apply HM, (Hused y k Hy Hk)).
-    rewrite HG.
-    + symmetry; apply move_shift; [apply Hok, Hy|exact Hy'].
-    + apply ok_unshift, Hok, Hy.
-    + intros k t m Et Em; rewrite uses_unshift in Em.
-      destruct (cget (uses y) k) as [u|] eqn:Eu; [|destruct (cget P k); discriminate].
-      destruct (Hy' k ltac:(congruence)) as [p [_ [Ep Ht]]]; rewrite Ep in Em; cbn in Em.
-      injection Em as <-; specialize (Ht t Et); lia.
+    rewrite HG by (apply ok_unshift, Hok, Hy || apply (pruned_clears bl B a L Ha Hs Hb y Hy)).
+    symmetry; apply move_shift; [apply Hok, Hy|exact Hy'].
   - intros k; rewrite lmin_unshift.
     destruct (ann_cases a L k (Ha k)) as [[Ea E]|[x [Ex E]]]; rewrite E.
     + unfold move, M; rewrite cget_cadd, cget_csub, cget_cadd, Ea; reflexivity.
@@ -356,6 +386,32 @@ Proof.
     + rewrite Er; destruct (aget k r); [cbn; unfold P; rewrite unshift_unshift; reflexivity|reflexivity].
     + rewrite El; destruct (aget k l); [cbn; unfold P; rewrite unshift_unshift; reflexivity|reflexivity].
     + destruct o as [x|]; [cbn; rewrite HF by exact Ho; unfold P; rewrite unshift_unshift; reflexivity|reflexivity].
+Qed.
+
+(** Entries the map did not visit were moved: they clear the thresholds. *)
+Theorem atvisit_spec t : forall bl B kf k e,
+  ainv t -> sound bl (map (unshift B) (aelems t)) ->
+  aget k t = Some e -> ~ In (kf k) (atvisit bl B kf t) -> clears (unshift B e).
+Proof.
+  induction t as [|a l IHl o r IHr]; intros bl B kf k e Ht Hs E Hv; [discriminate|].
+  destruct Ht as [Ha [_ [_ [_ [Hl Hr]]]]]; cbn [aelems] in Ha, Hs.
+  cbn [aget] in E; fold (asub k l o r) in E.
+  destruct (asub k l o r) as [y|] eqn:Ey; [|discriminate]; injection E as <-.
+  rewrite unshift_unshift.
+  set (L := aelems l ++ oelems o ++ aelems r) in *.
+  cbn [atvisit] in Hv; destruct (bempty (below bl (cadd B a))) eqn:Eb.
+  - apply (pruned_clears bl B a L Ha Hs Eb), (asub_in _ _ _ _ _ Ey).
+  - pose proof (sound_below bl B a L Ha Hs) as Hs2.
+    destruct k as [k|k|]; cbn [asub] in Ey.
+    + apply (IHr (below bl (cadd B a)) (cplus B a) (fun k => kf (xI k)) k); [exact Hr| |exact Ey|].
+      * eapply sound_incl; [|exact Hs2]; intros z Hz; apply in_map_iff in Hz as [w [<- Hw]].
+        apply in_map, in_or_app; right; apply in_or_app; right; exact Hw.
+      * intro H; apply Hv, in_or_app; right; apply in_or_app; right; exact H.
+    + apply (IHl (below bl (cadd B a)) (cplus B a) (fun k => kf (xO k)) k); [exact Hl| |exact Ey|].
+      * eapply sound_incl; [|exact Hs2]; intros z Hz; apply in_map_iff in Hz as [w [<- Hw]].
+        apply in_map, in_or_app; left; exact Hw.
+      * intro H; apply Hv, in_or_app; right; apply in_or_app; left; exact H.
+    + subst o; exfalso; apply Hv; left; reflexivity.
 Qed.
 
 End Prune.
