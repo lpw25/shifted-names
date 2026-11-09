@@ -575,4 +575,135 @@ Qed.
 
 End Canonical.
 
+(** ** Deciding the one-level normal form *)
+
+Definition is_label_key (k : positive) : bool :=
+  match key_label k with Some l => Pos.eqb (label_key l) k | None => false end.
+
+Lemma is_label_key_spec k : is_label_key k = true <-> exists l, k = label_key l.
+Proof.
+  unfold is_label_key; destruct (key_label k) as [l|] eqn:Kl.
+  - rewrite Pos.eqb_eq; split; [intros <-; eauto|intros [l' ->]; rewrite key_label_spec in Kl; congruence].
+  - split; [discriminate|intros [l' ->]; rewrite key_label_spec in Kl; discriminate].
+Qed.
+
+Definition keyedb (c : counts) : bool := forallb (fun k _ => is_label_key k) (c_exc c).
+
+Lemma keyedb_spec c : keyedb c = true <-> keyed c.
+Proof.
+  unfold keyedb, keyed; rewrite forallb_spec; split; intros H k v E; apply is_label_key_spec, (H k v E).
+Qed.
+
+Definition tokb (t : target) : bool := match t with TVar _ _ => true | TBind _ rho => cwfb (nroot rho) end.
+
+Lemma tokb_spec t : tokb t = true <-> eok t.
+Proof. destruct t as [y j|u [r es]]; cbn; [split; [intros _; exact I|reflexivity]|apply cwfb_spec]. Qed.
+
+Definition eokb (e : entry) : bool := cwfb (ksann (etargets e)).
+
+Lemma eokb_spec e : eokb e = true <-> eok e.
+Proof. apply cwfb_spec. Qed.
+
+Definition strip_okb (e : entry) : bool :=
+  match e with
+  | Entry h ts len p =>
+      negb (Nat.ltb 0 len && Nat.ltb 0 p
+            && match knth ts (pred len) with
+               | Some (TVar y j) => label_eqb y h && Nat.eqb j (pred p)
+               | _ => false
+               end)
+  end.
+
+Lemma strip_okb_spec e : strip_okb e = true <-> strip_ok e.
+Proof.
+  destruct e as [h ts len p]; cbn [strip_okb strip_ok].
+  rewrite negb_true_iff; split.
+  - intros H [Hl [Hp Hn]]; rewrite Hn in H; rewrite (proj2 (Nat.ltb_lt _ _) Hl), (proj2 (Nat.ltb_lt _ _) Hp) in H.
+    rewrite label_eqb_refl, Nat.eqb_refl in H; discriminate.
+  - intros H; destruct (Nat.ltb_spec 0 len), (Nat.ltb_spec 0 p); cbn [andb]; try reflexivity.
+    destruct (knth ts (pred len)) as [[y j|u rho]|] eqn:Et; try reflexivity.
+    destruct (label_eqb_spec y h) as [->|]; [|reflexivity]; destruct (Nat.eqb_spec j (pred p)) as [->|]; [|reflexivity].
+    exfalso; apply H; auto.
+Qed.
+
+Definition entry_okb (k : positive) (e : entry) : bool :=
+  match e with
+  | Entry h ts len p =>
+      Pos.eqb (label_key h) k && kgoodb tokb ts && Nat.eqb (klength ts) len
+      && (Nat.ltb 0 len || Nat.ltb 0 p) && strip_okb e
+  end.
+
+Lemma entry_okb_spec k e : entry_okb k e = true <-> entry_ok k e.
+Proof.
+  destruct e as [h ts len p]; cbn [entry_okb entry_ok].
+  rewrite !andb_true_iff, orb_true_iff, Pos.eqb_eq, (kgoodb_spec tokb tokb_spec), Nat.eqb_eq,
+    !Nat.ltb_lt, strip_okb_spec; tauto.
+Qed.
+
+Definition nlocalb (pay : bool) (a : nadj) : bool :=
+  match a with
+  | NAdj w es =>
+      let kN := label_key None in
+      ainvb eokb es && cwfb w && keyedb w
+      && List.forallb (fun kx => entry_okb (fst kx) (snd kx) && Qof pay (elabel (snd kx))
+                                 && oeqb (cget (aann es) (fst kx)) (Some 0))
+                      (akeyed (fun k => k) es)
+      && negb (oeqb (c_def w) None)
+      && forallb (fun k v => (pay && Pos.eqb k kN) || negb (oeqb v None)) (c_exc w)
+      && (negb pay
+          || (oeqb (cget w kN) None && oeqb (cget (aann es) kN) None)
+          || (negb (oeqb (cget w kN) None) && oeqb (cget (aann es) kN) (Some 0)))
+  end.
+
+Lemma oeqb_none o : negb (oeqb o None) = true <-> o <> None.
+Proof. destruct o; cbn; split; congruence || (intros; reflexivity) || (intros H; contradiction). Qed.
+
+Theorem nlocalb_spec pay a : nlocalb pay a = true <-> nlocal (Qof pay) a.
+Proof.
+  destruct a as [w es]; cbn [nlocalb nlocal].
+  rewrite !andb_true_iff, (ainvb_spec eokb eokb_spec), cwfb_spec, keyedb_spec, oeqb_none, forallb_spec.
+  rewrite (akeyed_forallb (fun k e => entry_okb k e && Qof pay (elabel e) && oeqb (cget (aann es) k) (Some 0)) es).
+  set (kN := label_key None).
+  assert (Hent : (forall k x, aget k es = Some x ->
+                   (entry_okb k x && Qof pay (elabel x) && oeqb (cget (aann es) k) (Some 0)) = true)
+                 <-> (forall k e, aget k es = Some e ->
+                      entry_ok k e /\ Qof pay (elabel e) = true /\ cget (aann es) k = Some 0)).
+  { split; intros H k e E; specialize (H k e E); rewrite !andb_true_iff, entry_okb_spec, oeqb_spec in *; tauto. }
+  rewrite Hent; clear Hent.
+  (* every label that matters is used *)
+  assert (Hused : keyed w ->
+                  ((c_def w <> None /\ forall k v, get k (c_exc w) = Some v -> ((pay && Pos.eqb k kN) || negb (oeqb v None)) = true)
+                   <-> (forall l, Qof pay l = true -> cget w (label_key l) <> None))).
+  { intros Kw; split.
+    - intros [Hd He] l Hl; unfold cget; destruct (get (label_key l) (c_exc w)) as [v|] eqn:G; [|exact Hd].
+      specialize (He _ _ G); apply orb_true_iff in He as [He|He]; [|apply oeqb_none, He].
+      exfalso; apply andb_prop in He as [Hp Hk]; apply Pos.eqb_eq, label_key_inj in Hk; subst l.
+      unfold Qof in Hl; rewrite Hp in Hl; discriminate.
+    - intros H; split.
+      + destruct (fresh_label_list [c_exc w]) as [s Hs]; specialize (Hs _ (or_introl eq_refl)).
+        specialize (H (Some s)); unfold cget in H; rewrite Hs in H; apply H; unfold Qof; destruct pay; reflexivity.
+      + intros k v G; apply orb_true_iff; destruct (Kw k v G) as [l ->].
+        destruct (pay && Pos.eqb (label_key l) kN) eqn:Hp; [left; reflexivity|right; apply oeqb_none].
+        assert (Hq : Qof pay l = true).
+        { unfold Qof; destruct pay; [|reflexivity]; destruct l as [s|]; [reflexivity|].
+          unfold kN in Hp; cbn [andb] in Hp; rewrite Pos.eqb_refl in Hp; discriminate. }
+        specialize (H l Hq); unfold cget in H; rewrite G in H; exact H. }
+  (* the labels that do not matter *)
+  assert (Hfalse : ((negb pay
+                     || (oeqb (cget w kN) None && oeqb (cget (aann es) kN) None)
+                     || (negb (oeqb (cget w kN) None) && oeqb (cget (aann es) kN) (Some 0))) = true)
+                   <-> (forall l, Qof pay l = false ->
+                        (cget w (label_key l) = None /\ cget (aann es) (label_key l) = None)
+                        \/ (cget w (label_key l) <> None /\ cget (aann es) (label_key l) = Some 0))).
+  { destruct pay; cbn [negb orb]; [|split; [intros _ l Hl; discriminate|reflexivity]].
+    rewrite !orb_true_iff, !andb_true_iff, oeqb_none, !oeqb_spec; split.
+    - intros H [s|] Hl; [discriminate|exact H].
+    - intros H; apply (H None); reflexivity. }
+  rewrite <- Hfalse; split.
+  - intros [[[[[[Ha Cw] Kw] He] Hd] Hx] Hf].
+    exact (conj Ha (conj Cw (conj Kw (conj He (conj (proj1 (Hused Kw) (conj Hd Hx)) Hf))))).
+  - intros [Ha [Cw [Kw [He [Hq Hf]]]]]; apply (Hused Kw) in Hq as [Hd Hx].
+    exact (conj (conj (conj (conj (conj (conj Ha Cw) Kw) He) Hd) Hx) Hf).
+Qed.
+
 End Repr.
