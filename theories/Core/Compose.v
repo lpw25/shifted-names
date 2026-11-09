@@ -568,4 +568,78 @@ Proof.
       destruct (Nat.ltb_spec (n + i) lena); [lia|]; rewrite Hta; f_equal; f_equal; lia.
 Qed.
 
+(** ** Proofs: the steps of [finish] *)
+
+Lemma kgood_cwf (ts : kseq target) : kgood ts -> cwf (ksann ts).
+Proof. intros [Hi _]; destruct ts as [|c w t s]; [apply cwf_cnone|destruct Hi as [_ [H _]]; exact H]. Qed.
+
+Lemma entry_good_ok h e : entry_good h e -> eok e.
+Proof. destruct e as [h' ts len p]; intros [_ [G _]]; apply kgood_cwf, G. Qed.
+
+Lemma ook_adrop h n : ook (adrop h n).
+Proof.
+  destruct (adrop h n) as [e|] eqn:E; [|exact I].
+  apply (entry_good_ok h), (proj1 (adrop_spec h n e E)).
+Qed.
+
+Theorem add_aonly_spec W es :
+  ainv es ->
+  ainv (add_aonly W es)
+  /\ forall k, aget k (add_aonly W es)
+               = match aget k es with
+                 | Some e => Some e
+                 | None => match aget k esa with
+                           | Some ea => adrop (elabel ea) (dval W k)
+                           | None => None
+                           end
+                 end.
+Proof.
+  intros Hes.
+  assert (H : forall L, (forall e, In e L -> In e aentries) ->
+            ainv (fold_right (fun e es =>
+                                let h := elabel e in
+                                match aget (label_key h) es with
+                                | Some _ => es
+                                | None => aupdate (label_key h) (fun _ => adrop h (dval W (label_key h))) es
+                                end) es L)
+            /\ forall k, aget k (fold_right (fun e es =>
+                                let h := elabel e in
+                                match aget (label_key h) es with
+                                | Some _ => es
+                                | None => aupdate (label_key h) (fun _ => adrop h (dval W (label_key h))) es
+                                end) es L)
+                         = match aget k es with
+                           | Some e => Some e
+                           | None => if existsb (fun e => Pos.eqb (label_key (elabel e)) k) L
+                                     then match aget k esa with
+                                          | Some ea => adrop (elabel ea) (dval W k)
+                                          | None => None
+                                          end
+                                     else None
+                           end).
+  { induction L as [|e L IH]; intros HL; cbn [fold_right existsb].
+    - split; [exact Hes|intro k; destruct (aget k es); reflexivity].
+    - destruct (IH (fun e' H' => HL e' (or_intror H'))) as [Hi Hg].
+      set (es' := fold_right _ es L) in *.
+      pose proof (aentries_get e (HL e (or_introl eq_refl))) as Ge.
+      destruct (aget (label_key (elabel e)) es') as [e0|] eqn:E0.
+      + split; [exact Hi|intro k; rewrite Hg].
+        destruct (Pos.eqb_spec (label_key (elabel e)) k) as [<-|]; cbn [orb]; [|reflexivity].
+        rewrite Hg in E0; destruct (aget _ es) as [e1|]; [reflexivity|].
+        destruct (existsb _ L); [rewrite Ge in E0 |- *; congruence|discriminate].
+      + destruct (aupdate_spec (label_key (elabel e)) (fun _ => adrop (elabel e) (dval W (label_key (elabel e)))) es' Hi
+                    (fun _ _ => ook_adrop _ _)) as [Ha' Hg'].
+        split; [exact Ha'|intro k; rewrite Hg', Pos.eqb_sym].
+        destruct (Pos.eqb_spec (label_key (elabel e)) k) as [<-|]; cbn [orb].
+        * rewrite Hg in E0; rewrite Ge.
+          destruct (aget _ es); [discriminate|reflexivity].
+        * rewrite Hg; reflexivity. }
+  destruct (H aentries (fun e H => H)) as [Hi Hg]; split; [exact Hi|intro k].
+  unfold add_aonly; rewrite Hg; destruct (aget k es); [reflexivity|].
+  destruct (existsb _ aentries) eqn:X; destruct (aget k esa) as [ea|] eqn:E; try reflexivity.
+  exfalso; assert (Hx : existsb (fun e => Pos.eqb (label_key (elabel e)) k) aentries = true)
+    by (apply existsb_exists; exists ea; split; [apply (aentries_in _ _ E)|rewrite <- (esa_key _ _ E), Pos.eqb_refl; reflexivity]).
+  congruence.
+Qed.
+
 End Compose.
