@@ -793,4 +793,146 @@ Proof.
     congruence.
 Qed.
 
+(** ** [finish] *)
+
+(** Where the composite sends [h_i], given the composite entries [es] of
+    the labels [b] has an entry for (absolute) and [b]'s root [W]. *)
+Definition cf (W : counts) (es : atrie entry) (h : option label) (i : nat) : result :=
+  match aget (label_key h) es with
+  | Some e => eabs e i
+  | None => napply a (mk_rvar h (dval W (label_key h) + i))
+  end.
+
+Definition es_good (es : atrie entry) : Prop :=
+  ainv es /\ forall k e, aget k es = Some e -> k = label_key (elabel e) /\ entry_good (elabel e) e.
+
+(** Labels with no entry anywhere that [W] does not weaken are used no
+    lower than their identity start. *)
+Definition no_low (W : counts) (es : atrie entry) : Prop :=
+  forall k n, get k (c_exc W) = None -> aget k (add_aonly W es) = None ->
+              cget (aann (add_aonly W es)) k = Some n -> dval (ctotal wa W) k <= n.
+
+Lemma aget_add_aonly_good W es k e :
+  es_good es -> aget k (add_aonly W es) = Some e ->
+  k = label_key (elabel e) /\ entry_good (elabel e) e
+  /\ forall i, eabs e i = cf W es (elabel e) i.
+Proof.
+  intros [Hes Hg] E; rewrite (proj2 (add_aonly_spec W es Hes)) in E.
+  destruct (aget k es) as [e0|] eqn:E0.
+  - injection E as <-; destruct (Hg _ _ E0) as [Hk Hgood]; split; [exact Hk|split; [exact Hgood|]].
+    intro i; unfold cf; rewrite <- Hk, E0; reflexivity.
+  - destruct (aget k esa) as [ea|] eqn:Ea; [|discriminate].
+    pose proof (esa_key _ _ Ea) as Hk.
+    destruct (adrop_spec _ _ _ E) as [Hgood Hm].
+    assert (He : elabel e = elabel ea) by (destruct e; destruct Hgood as [-> _]; reflexivity).
+    split; [rewrite He; exact Hk|split; [rewrite He; exact Hgood|]].
+    intro i; unfold cf; rewrite He, <- Hk, E0, Hm, Hk; reflexivity.
+Qed.
+
+Theorem napply_finish W es vis h i :
+  es_good es -> no_low W es ->
+  napply (finish W es vis) (mk_rvar h i) = cf W es h i.
+Proof.
+  intros Hgood Hlow; pose proof Hgood as [Hes _].
+  destruct (add_aonly_spec W es Hes) as [Hes1 Hg1].
+  unfold finish.
+  set (es1 := add_aonly W es) in *.
+  set (R := cmin (aann es1) (jstarts W)).
+  set (I := ctotal wa W).
+  set (WK := map fst (elements (c_exc W))).
+  set (D := vis ++ map (fun e => label_key (elabel e)) aentries).
+  destruct (fold_keyed (add_gap_at I R) (gapf I R) (add_gap_step I R) (gapf_idem I R) WK es1 Hes1) as [Hes2 Hg2].
+  set (es2 := fold_left (add_gap_at I R) WK es1) in *.
+  destruct (fold_keyed (drop_ident R) (dropf R) (drop_ident_step R) (dropf_idem R) D es2 Hes2) as [Hes3 Hg3].
+  set (es3 := fold_left (drop_ident R) D es2) in *.
+  set (kh := label_key h).
+  (* where the entries left come from *)
+  assert (Hsrc : forall k e, aget k es3 = Some e ->
+                   aget k es1 = Some e
+                   \/ (aget k es1 = None /\ dval R k < dval I k /\ agap k (dval I k) = Some e)).
+  { intros k e E; rewrite Hg3, Hg2 in E.
+    destruct (aget k es1) as [e1|] eqn:E1.
+    - left; destruct (existsb _ D), (existsb _ WK); cbn [gapf] in E; try (exact E).
+      + unfold dropf in E; destruct e1 as [h1 [|c w t s] [|len] p]; try exact E.
+        destruct (oeqb _ _); [discriminate|exact E].
+      + unfold dropf in E; destruct e1 as [h1 [|c w t s] [|len] p]; try exact E.
+        destruct (oeqb _ _); [discriminate|exact E].
+    - right; split; [reflexivity|].
+      destruct (existsb _ WK); cbn [gapf] in E; [|destruct (existsb _ D); discriminate].
+      destruct (Nat.ltb_spec (dval R k) (dval I k)); [|destruct (existsb _ D); discriminate].
+      split; [assumption|].
+      destruct (existsb _ D); [|exact E].
+      unfold dropf in E; destruct (agap k (dval I k)) as [[h1 [|c w t s] [|len] p]|] eqn:Ag; try exact E.
+      destruct (oeqb _ _); [discriminate|exact E]. }
+  assert (Hgap : forall k e, agap k (dval I k) = Some e -> e = Entry (elabel e) KNil 0 (dval I k)
+                             /\ k = label_key (elabel e)).
+  { intros k e Ag; unfold agap in Ag; destruct (key_label k) as [l|]; [|discriminate].
+    destruct (Pos.eqb_spec (label_key l) k) as [Hl|]; [|discriminate]; injection Ag as <-.
+    split; [reflexivity|symmetry; exact Hl]. }
+  (* every entry left is above the new root *)
+  assert (Hcle : forall k e, aget k es3 = Some e -> cle R (uses e)).
+  { intros k e E; destruct (Hsrc k e E) as [E1|[_ [Hlt Ag]]]; [apply (cle_cmin_elem es1 _ k e Hes1 E1)|].
+    destruct (Hgap k e Ag) as [He Hk]; rewrite He; rewrite He in Hk; cbn [elabel] in Hk.
+    intros k' n m Hn Hm; cbn [uses entry_based euses ksann] in Hm.
+    rewrite cget_cmin, cget_cnone, cget_cone in Hm; destruct (Pos.eqb_spec k' (label_key (elabel e))) as [->|];
+      [|destruct (Some 0); discriminate].
+    cbn in Hm; injection Hm as <-; rewrite <- Hk in Hn; unfold dval in Hlt |- *; rewrite Hn in Hlt; cbn in Hlt; lia. }
+  assert (HR : cle R (aann es3)) by (apply cle_aann; assumption).
+  (* labels with no entry anywhere *)
+  assert (Hnone : aget kh es1 = None ->
+                  aget kh es = None /\ aget kh esa = None /\ cf W es h i = inl (mk_rvar h (dval I kh + i))).
+  { intros E1; rewrite Hg1 in E1; destruct (aget kh es) as [e0|] eqn:E0; [discriminate|].
+    destruct (aget kh esa) as [ea|] eqn:Ea.
+    - exfalso; unfold adrop in E1; rewrite <- (esa_key _ _ Ea), Ea in E1; destruct ea as [h1 tsa lena pa].
+      destruct (Nat.ltb _ _); discriminate.
+    - split; [reflexivity|split; [reflexivity|]].
+      unfold cf; fold kh; rewrite E0, napply_a_lapp.
+      unfold alist, lapp; fold kh; rewrite Ea; cbn [length Nat.ltb].
+      destruct (Nat.ltb_spec (dval W kh + i) 0); [lia|].
+      unfold tauv, I, dval; fold kh; rewrite cget_tau, Ea, cget_ctotal; cbn [oval].
+      f_equal; f_equal; lia. }
+  cbn [napply v_label v_index]; rewrite aget_arebase by assumption; fold kh.
+  destruct (aget kh es3) as [e|] eqn:E3; cbn [option_map].
+  - destruct (Hsrc kh e E3) as [E1|[E1 [Hlt Ag]]].
+    + destruct (aget_add_aonly_good W es kh e Hgood E1) as [Hk [Hge Hm]].
+      apply label_key_inj in Hk; rewrite <- Hk in Hge, Hm.
+      change (shift R e) with (eshift R e); rewrite (eapply_eshift R h e i Hge (Hcle _ _ E3)), Hm; reflexivity.
+    + destruct (Hgap kh e Ag) as [He Hk]; apply label_key_inj in Hk.
+      destruct (Hnone E1) as [_ [_ ->]].
+      assert (Hge : entry_good h e)
+        by (rewrite He, <- Hk; split; [reflexivity|split; [apply kgood_nil|split; [reflexivity|cbn; lia]]]).
+      change (shift R e) with (eshift R e); rewrite (eapply_eshift R h e i Hge (Hcle _ _ E3)), He; cbn [eabs lapp klist length Nat.ltb].
+      unfold lapp; cbn [length]; destruct (Nat.ltb_spec i 0); [lia|]; f_equal; f_equal; [congruence|lia].
+  - rewrite Hg3, Hg2 in E3.
+    destruct (aget kh es1) as [e1|] eqn:E1.
+    + (* dropped: it was the identity relative to the new root *)
+      assert (Hd : exists h1 p, e1 = Entry h1 KNil 0 p /\ cget R kh = Some p).
+      { destruct (existsb _ D), (existsb _ WK); cbn [gapf] in E3; try discriminate;
+          unfold dropf in E3; destruct e1 as [h1 [|c w t s] [|len] p]; try discriminate;
+          destruct (oeqb (cget R kh) (Some p)) eqn:Eq; try discriminate;
+          apply oeqb_spec in Eq; eauto. }
+      destruct Hd as [h1 [p [-> Hp]]].
+      destruct (aget_add_aonly_good W es kh _ Hgood E1) as [Hk [_ Hm]]; cbn [elabel] in Hk, Hm.
+      apply label_key_inj in Hk; subst h1; rewrite <- Hm; cbn [eabs lapp klist length Nat.ltb].
+      destruct (Nat.ltb_spec i 0); [lia|]; unfold dval; rewrite Hp; cbn; f_equal; f_equal; lia.
+    + destruct (Hnone eq_refl) as [_ [Ea ->]].
+      assert (HJ : cget (jstarts W) kh = Some (dval I kh))
+        by (rewrite cget_jstarts, Ea; unfold I, dval; rewrite cget_ctotal; reflexivity).
+      assert (HRI : dval R kh <= dval I kh)
+        by (unfold R, dval at 1; rewrite cget_cmin, HJ; destruct (cget (aann es1) kh); cbn; lia).
+      assert (HIR : dval I kh <= dval R kh).
+      { destruct (existsb (Pos.eqb kh) WK) eqn:Hw.
+        - cbn [gapf] in E3; destruct (Nat.ltb_spec (dval R kh) (dval I kh)) as [Hlt|]; [|assumption].
+          exfalso; unfold agap, kh in E3; rewrite key_label_spec, Pos.eqb_refl in E3.
+          unfold kh in *; destruct (existsb _ D); [|discriminate].
+          unfold dropf in E3; destruct (oeqb _ _) eqn:Eq; [|discriminate].
+          apply oeqb_spec in Eq; unfold dval in Hlt; rewrite Eq in Hlt; cbn [oval] in Hlt; unfold dval in Hlt; lia.
+        - assert (Hw0 : get kh (c_exc W) = None)
+            by (destruct (get kh (c_exc W)) eqn:G; [exfalso; apply Bool.not_true_iff_false in Hw; apply Hw, in_keys_spec; congruence|reflexivity]).
+          unfold R, dval at 2; rewrite cget_cmin, HJ.
+          destruct (cget (aann es1) kh) as [n|] eqn:Eu; cbn; [|lia].
+          specialize (Hlow kh n Hw0 E1 Eu); fold I in Hlow; lia. }
+      f_equal; f_equal; lia.
+Qed.
+
 End Compose.
