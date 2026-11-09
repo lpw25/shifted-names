@@ -9,11 +9,14 @@
       minimum;
     - count maps: for each key (a label), the count, or [None] when the
       label is not used at all.  They are stored as a default plus
-      exceptions that differ from it, which makes them canonical, and every
-      operation on them is pointwise. *)
+      exceptions that differ from it, which makes them canonical (a count
+      map carries a strict proof of this), and every operation on them is
+      pointwise.  An operation only looks inside the subtrees of exceptions
+      where both maps have some, when the other map's default makes it
+      keep or drop the rest whole. *)
 
-From Stdlib Require Import PArith Arith Lia Bool.
-From ShiftedNames.Core Require Import Trie.
+From Stdlib Require Import PArith Arith Lia Bool StrictProp.
+From ShiftedNames.Core Require Import Strict Trie.
 
 (** ** Factorisation of weakenings *)
 
@@ -90,14 +93,27 @@ Proof. apply oeqb_spec; reflexivity. Qed.
 
 (** ** Count maps *)
 
-Record counts : Type := mk_counts { c_def : option nat; c_exc : tree (option nat) }.
+(** Canonical form: no exception repeats the default. *)
+Definition cwfr (d : option nat) (e : tree (option nat)) : bool := tall (fun v => negb (oeqb v d)) e.
+
+Record counts : Type :=
+  mk_counts { c_def : option nat; c_exc : tree (option nat); c_ok : Is_true_s (cwfr c_def c_exc) }.
 
 Definition cget (c : counts) (k : positive) : option nat :=
   match get k (c_exc c) with Some v => v | None => c_def c end.
 
-(** Canonical form: no exception repeats the default. *)
 Definition cwf (c : counts) : Prop :=
   forall k v, get k (c_exc c) = Some v -> v <> c_def c.
+
+Lemma cwfr_spec d e : cwfr d e = true <-> forall k v, get k e = Some v -> v <> d.
+Proof.
+  unfold cwfr; rewrite tall_spec; split; intros H k v E; specialize (H k v E).
+  - rewrite negb_true_iff in H; intros Hv; rewrite Hv, oeqb_refl in H; discriminate.
+  - apply negb_true_iff; destruct (oeqb v d) eqn:Ev; [apply oeqb_spec in Ev; contradiction|reflexivity].
+Qed.
+
+Lemma cwf_all c : cwf c.
+Proof. unfold cwf; apply cwfr_spec, Is_true_s_elim, c_ok. Qed.
 
 (** *** A key outside two tries *)
 
@@ -140,10 +156,11 @@ Proof. apply get_ikey; lia. Qed.
 Theorem counts_ext c1 c2 :
   cwf c1 -> cwf c2 -> (forall k, cget c1 k = cget c2 k) -> c1 = c2.
 Proof.
-  destruct c1 as [d1 e1], c2 as [d2 e2]; unfold cwf, cget; cbn; intros W1 W2 H.
+  destruct c1 as [d1 e1 p1], c2 as [d2 e2 p2]; unfold cwf, cget; cbn; intros W1 W2 H.
   assert (Hd : d1 = d2).
   { specialize (H (fresh e1 e2)); rewrite fresh_l, fresh_r in H; exact H. }
-  subst d2; f_equal; apply extensionality; intro k; specialize (H k).
+  subst d2; assert (He : e1 = e2); [|subst e2; reflexivity].
+  apply extensionality; intro k; specialize (H k).
   destruct (get k e1) as [v1|] eqn:E1, (get k e2) as [v2|] eqn:E2.
   - f_equal; exact H.
   - exfalso; apply (W1 _ _ E1), H.
@@ -151,44 +168,134 @@ Proof.
   - reflexivity.
 Qed.
 
-(** *** Pointwise operations *)
+(** *** Pointwise operations
 
-Definition cmap2_at (f : option nat -> option nat -> option nat) (c1 c2 : counts)
-  (_ : positive) (o1 o2 : option (option nat)) : option (option nat) :=
-  let v := f (match o1 with Some v => v | None => c_def c1 end)
-             (match o2 with Some v => v | None => c_def c2 end) in
-  if oeqb v (f (c_def c1) (c_def c2)) then None else Some v.
+    An operation says, for each default of the other map, whether it keeps
+    the values of exceptions that only one map has ([MKeep]), sends them
+    all to the result's default ([MDrop]), or has to map them ([MMap]).
+    Keeping or dropping costs nothing, so the cost of an operation is the
+    overlap of the two maps' exceptions plus the sides it maps. *)
 
-Definition cmap2 (f : option nat -> option nat -> option nat) (c1 c2 : counts) : counts :=
-  mk_counts (f (c_def c1) (c_def c2)) (merge (cmap2_at f c1 c2) (c_exc c1) (c_exc c2)).
+Inductive mode := MKeep | MDrop | MMap.
 
-Lemma cmap2_none f c1 c2 k : cmap2_at f c1 c2 k None None = None.
+Record cop : Type := {
+  cop_f : option nat -> option nat -> option nat;
+  cop_l : option nat -> mode;   (* exceptions of the left map only, by the right default *)
+  cop_r : option nat -> mode;   (* exceptions of the right map only, by the left default *)
+  cop_lk : forall d v, cop_l d = MKeep -> cop_f v d = v;
+  cop_ld : forall d v w, cop_l d = MDrop -> cop_f v d = cop_f w d;
+  cop_rk : forall d v, cop_r d = MKeep -> cop_f d v = v;
+  cop_rd : forall d v w, cop_r d = MDrop -> cop_f d v = cop_f d w }.
+
+Definition cmap2_at (f : option nat -> option nat -> option nat) (d1 d2 : option nat)
+  (o1 o2 : option (option nat)) : option (option nat) :=
+  let v := f (match o1 with Some v => v | None => d1 end)
+             (match o2 with Some v => v | None => d2 end) in
+  if oeqb v (f d1 d2) then None else Some v.
+
+Lemma cmap2_none f d1 d2 : cmap2_at f d1 d2 None None = None.
 Proof. unfold cmap2_at; cbv beta zeta; rewrite oeqb_refl; reflexivity. Qed.
 
-Lemma cget_cmap2 f c1 c2 k : cget (cmap2 f c1 c2) k = f (cget c1 k) (cget c2 k).
+Definition cside (m : mode) (g : option nat -> option (option nat)) (t : tree (option nat)) : tree (option nat) :=
+  match m with MKeep => t | MDrop => Empty | MMap => map_filter (fun _ v => g v) t end.
+
+Definition cmap2_exc (o : cop) (d1 d2 : option nat) (e1 e2 : tree (option nat)) : tree (option nat) :=
+  let g := cmap2_at (cop_f o) d1 d2 in
+  mmerge g (cside (cop_l o d2) (fun v => g (Some v) None)) (cside (cop_r o d1) (fun v => g None (Some v))) e1 e2.
+
+Lemma get_cmap2_exc o d1 d2 e1 e2 :
+  cwfr d1 e1 = true -> cwfr d2 e2 = true ->
+  forall k, get k (cmap2_exc o d1 d2 e1 e2) = cmap2_at (cop_f o) d1 d2 (get k e1) (get k e2).
 Proof.
-  unfold cmap2, cget; cbn [c_def c_exc]; rewrite get_merge by apply cmap2_none.
+  intros W1 W2; rewrite cwfr_spec in W1, W2; unfold cmap2_exc.
+  refine (get_mmerge _ _ _ (fun v => v <> d1) (fun v => v <> d2) _ _ _ _ W1 W2).
+  - intros m Hm i; destruct (cop_l o d2) eqn:M; cbn [cside].
+    + destruct (get i m) as [v|] eqn:E; [|symmetry; apply cmap2_none].
+      unfold cmap2_at; rewrite !(cop_lk o d2 _ M).
+      destruct (oeqb v d1) eqn:Ev; [apply oeqb_spec in Ev; contradiction (Hm i v E)|reflexivity].
+    + rewrite get_Empty; destruct (get i m) as [v|]; [|symmetry; apply cmap2_none].
+      unfold cmap2_at; rewrite (cop_ld o d2 v d1 M), oeqb_refl; reflexivity.
+    + rewrite get_map_filter; destruct (get i m); [reflexivity|symmetry; apply cmap2_none].
+  - intros m Hm i; destruct (cop_r o d1) eqn:M; cbn [cside].
+    + destruct (get i m) as [v|] eqn:E; [|symmetry; apply cmap2_none].
+      unfold cmap2_at; rewrite !(cop_rk o d1 _ M).
+      destruct (oeqb v d2) eqn:Ev; [apply oeqb_spec in Ev; contradiction (Hm i v E)|reflexivity].
+    + rewrite get_Empty; destruct (get i m) as [v|]; [|symmetry; apply cmap2_none].
+      unfold cmap2_at; rewrite (cop_rd o d1 v d2 M), oeqb_refl; reflexivity.
+    + rewrite get_map_filter; destruct (get i m); [reflexivity|symmetry; apply cmap2_none].
+Qed.
+
+Lemma cmap2_ok_eq o c1 c2 :
+  cwfr (cop_f o (c_def c1) (c_def c2)) (cmap2_exc o (c_def c1) (c_def c2) (c_exc c1) (c_exc c2)) = true.
+Proof.
+  apply cwfr_spec; intros k v E.
+  rewrite get_cmap2_exc in E by apply Is_true_s_elim, c_ok.
+  unfold cmap2_at in E; cbv zeta in E.
+  match type of E with (if oeqb ?w ?d then None else Some _) = Some _ =>
+    destruct (oeqb w d) eqn:Eq; [discriminate|injection E as <-]; intros H; rewrite H, oeqb_refl in Eq; discriminate
+  end.
+Qed.
+
+(** The canonicity proofs reduce to [stt] when the check computes, so that
+    closed count maps can be compared by computation. *)
+Definition cmap2_ok o c1 c2 := Is_true_s_intro (cmap2_ok_eq o c1 c2).
+
+Definition cmap2 (o : cop) (c1 c2 : counts) : counts :=
+  mk_counts (cop_f o (c_def c1) (c_def c2)) (cmap2_exc o (c_def c1) (c_def c2) (c_exc c1) (c_exc c2)) (cmap2_ok o c1 c2).
+
+Lemma get_cmap2 o c1 c2 k :
+  get k (c_exc (cmap2 o c1 c2)) = cmap2_at (cop_f o) (c_def c1) (c_def c2) (get k (c_exc c1)) (get k (c_exc c2)).
+Proof. apply get_cmap2_exc; apply Is_true_s_elim, c_ok. Qed.
+
+Lemma cget_cmap2 o c1 c2 k : cget (cmap2 o c1 c2) k = cop_f o (cget c1 k) (cget c2 k).
+Proof.
+  unfold cget; rewrite get_cmap2; cbn [c_def].
   unfold cmap2_at; destruct (get k (c_exc c1)), (get k (c_exc c2)); cbv beta zeta;
     match goal with |- context [oeqb ?v ?d] =>
       destruct (oeqb v d) eqn:E; [apply oeqb_spec in E; symmetry; exact E|reflexivity]
     end.
 Qed.
 
-Lemma cwf_cmap2 f c1 c2 : cwf (cmap2 f c1 c2).
-Proof.
-  intros k v; unfold cmap2; cbn [c_def c_exc]; rewrite get_merge by apply cmap2_none.
-  unfold cmap2_at; cbv beta zeta; intros H Hv.
-  destruct (get k (c_exc c1)), (get k (c_exc c2));
-    match type of H with
-    | (if oeqb ?w ?d then None else Some _) = Some _ =>
-        destruct (oeqb w d) eqn:E; [discriminate|injection H as <-];
-        rewrite (proj2 (oeqb_spec _ _) Hv) in E; discriminate
-    end.
-Qed.
+Lemma cwf_cmap2 o c1 c2 : cwf (cmap2 o c1 c2).
+Proof. apply cwf_all. Qed.
 
-Definition cmin : counts -> counts -> counts := cmap2 omin.
-Definition cadd : counts -> counts -> counts := cmap2 oadd.
-Definition csub : counts -> counts -> counts := cmap2 osub.
+(** The operations.  Defaults are [None] or [Some 0] in practice, and
+    for those every operation keeps or drops, except [cadd] and [cplus],
+    which map the side whose other default is [Some 0]. *)
+
+Definition zmode (d : option nat) : mode := match d with None | Some 0 => MKeep | _ => MMap end.
+
+Ltac cop_solve :=
+  let d := fresh "d" in let H := fresh "H" in
+  intros d; intros;
+  match goal with H : _ = _ |- _ => destruct d as [[|?]|]; cbn in H; try discriminate end;
+  repeat match goal with o : option nat |- _ => destruct o end; cbn; try reflexivity; f_equal; lia.
+
+Definition cop_min : cop.
+Proof.
+  refine {| cop_f := omin;
+            cop_l := fun d => match d with None => MKeep | Some 0 => MDrop | _ => MMap end;
+            cop_r := fun d => match d with None => MKeep | Some 0 => MDrop | _ => MMap end |};
+    cop_solve.
+Defined.
+
+Definition cop_add : cop.
+Proof.
+  refine {| cop_f := oadd;
+            cop_l := fun d => match d with None => MDrop | _ => MMap end;
+            cop_r := zmode |}; cop_solve.
+Defined.
+
+Definition cop_sub : cop.
+Proof.
+  refine {| cop_f := osub;
+            cop_l := zmode;
+            cop_r := fun d => match d with None | Some 0 => MDrop | _ => MMap end |}; cop_solve.
+Defined.
+
+Definition cmin : counts -> counts -> counts := cmap2 cop_min.
+Definition cadd : counts -> counts -> counts := cmap2 cop_add.
+Definition csub : counts -> counts -> counts := cmap2 cop_sub.
 
 Lemma cget_cmin c1 c2 k : cget (cmin c1 c2) k = omin (cget c1 k) (cget c2 k).
 Proof. apply cget_cmap2. Qed.
@@ -202,19 +309,25 @@ Proof. apply cget_cmap2. Qed.
 (** *** Basic maps *)
 
 (** Nothing used. *)
-Definition cnone : counts := mk_counts None Empty.
+Definition cnone : counts := mk_counts None Empty (Is_true_s_intro eq_refl).
 
-(** Only [k], from [n]. *)
-Definition cone (k : positive) (n : nat) : counts := mk_counts None (set k (Some n) Empty).
-
-Lemma cwf_cnone : cwf cnone.
-Proof. intros k v H; cbn in H; discriminate. Qed.
-
-Lemma cwf_cone k n : cwf (cone k n).
+Lemma cone_ok_eq k n :
+  cwfr None (set k (Some n) Empty) = true.
 Proof.
-  intros k' v; unfold cone; cbn; rewrite get_set.
+  apply cwfr_spec; intros k' v; rewrite get_set.
   destruct (Pos.eqb k' k); [intros [= <-]; discriminate|rewrite get_Empty; discriminate].
 Qed.
+
+Definition cone_ok k n := Is_true_s_intro (cone_ok_eq k n).
+
+(** Only [k], from [n]. *)
+Definition cone (k : positive) (n : nat) : counts := mk_counts None (set k (Some n) Empty) (cone_ok k n).
+
+Lemma cwf_cnone : cwf cnone.
+Proof. apply cwf_all. Qed.
+
+Lemma cwf_cone k n : cwf (cone k n).
+Proof. apply cwf_all. Qed.
 
 Lemma cget_cnone k : cget cnone k = None.
 Proof. reflexivity. Qed.
@@ -224,6 +337,50 @@ Proof.
   unfold cget, cone; cbn; rewrite get_set.
   destruct (Pos.eqb k' k); [reflexivity|rewrite get_Empty; reflexivity].
 Qed.
+
+(** *** From a map of counts *)
+
+Lemma csome_ok_eq (t : tree nat) : cwfr None (map_filter (fun _ n => Some (Some n)) t) = true.
+Proof.
+  apply cwfr_spec; intros k v; rewrite get_map_filter.
+  destruct (get k t); [intros [= <-]; discriminate|discriminate].
+Qed.
+
+Definition csome_ok t := Is_true_s_intro (csome_ok_eq t).
+
+(** The labels of [t] at their counts, every other label unused. *)
+Definition csome (t : tree nat) : counts := mk_counts None (map_filter (fun _ n => Some (Some n)) t) (csome_ok t).
+
+Lemma cget_csome t k : cget (csome t) k = get k t.
+Proof. unfold cget, csome; cbn [c_exc c_def]; rewrite get_map_filter; destruct (get k t); reflexivity. Qed.
+
+(** *** Setting one key *)
+
+Lemma cset_ok_eq c k v :
+  cwfr (c_def c) (if oeqb v (c_def c) then remove k (c_exc c) else set k v (c_exc c)) = true.
+Proof.
+  apply cwfr_spec; intros k' v'; pose proof (cwf_all c k') as Hc.
+  destruct (oeqb v (c_def c)) eqn:E.
+  - rewrite get_remove; destruct (Pos.eqb k' k); [discriminate|apply Hc].
+  - rewrite get_set; destruct (Pos.eqb k' k); [intros [= <-] H; rewrite H, oeqb_refl in E; discriminate|apply Hc].
+Qed.
+
+Definition cset_ok c k v := Is_true_s_intro (cset_ok_eq c k v).
+
+(** O(|k|). *)
+Definition cset (c : counts) (k : positive) (v : option nat) : counts :=
+  mk_counts (c_def c) (if oeqb v (c_def c) then remove k (c_exc c) else set k v (c_exc c)) (cset_ok c k v).
+
+Lemma cget_cset c k v k' : cget (cset c k v) k' = if Pos.eqb k' k then v else cget c k'.
+Proof.
+  unfold cset, cget; cbn [c_exc c_def].
+  destruct (oeqb v (c_def c)) eqn:E; [rewrite get_remove|rewrite get_set];
+    destruct (Pos.eqb k' k); try reflexivity.
+  apply oeqb_spec in E; symmetry; exact E.
+Qed.
+
+Lemma cwf_cset c k v : cwf c -> cwf (cset c k v).
+Proof. intros _; apply cwf_all. Qed.
 
 (** ** Factoring a node's counts out of its children
 
@@ -272,7 +429,26 @@ Definition dval (d : counts) (k : positive) : nat := oval (cget d k).
 Definition oplus (a b : option nat) : option nat :=
   match a, b with None, None => None | _, _ => Some (oval a + oval b) end.
 
-Definition cplus : counts -> counts -> counts := cmap2 oplus.
+Definition cop_plus : cop.
+Proof.
+  refine {| cop_f := oplus;
+            cop_l := fun d => match d with None => MKeep | _ => MMap end;
+            cop_r := fun d => match d with None => MKeep | _ => MMap end |}; cop_solve.
+Defined.
+
+Definition cplus : counts -> counts -> counts := cmap2 cop_plus.
+
+(** Two count maps as totals: an unused label counts as 0. *)
+Definition cop_total : cop.
+Proof.
+  refine {| cop_f := fun x y => Some (oval x + oval y); cop_l := fun _ => MMap; cop_r := fun _ => MMap |};
+    intros; discriminate.
+Defined.
+
+Definition ctotal : counts -> counts -> counts := cmap2 cop_total.
+
+Lemma cget_ctotal c1 c2 k : cget (ctotal c1 c2) k = Some (oval (cget c1 k) + oval (cget c2 k)).
+Proof. apply cget_cmap2. Qed.
 
 Lemma cget_cplus a b k : cget (cplus a b) k = oplus (cget a k) (cget b k).
 Proof. apply cget_cmap2. Qed.
@@ -395,14 +571,10 @@ Proof.
   split; [intros [-> ->]; reflexivity|intros [= -> ->]; split; reflexivity].
 Qed.
 
-Definition cwfb (c : counts) : bool := tall (fun v => negb (oeqb v (c_def c))) (c_exc c).
+Definition cwfb (c : counts) : bool := cwfr (c_def c) (c_exc c).
 
 Lemma cwfb_spec c : cwfb c = true <-> cwf c.
-Proof.
-  unfold cwfb, cwf; rewrite tall_spec; split; intros H k v E; specialize (H k v E).
-  - rewrite negb_true_iff in H; intros Hv; rewrite Hv, oeqb_refl in H; discriminate.
-  - apply negb_true_iff; destruct (oeqb v (c_def c)) eqn:Ev; [apply oeqb_spec in Ev; contradiction|reflexivity].
-Qed.
+Proof. apply cwfr_spec. Qed.
 
 (** Pointwise equality of canonical count maps is equality. *)
 Lemma ceqb_ext c1 c2 :

@@ -5,7 +5,7 @@
     to keep the normal form. *)
 
 From Stdlib Require Import PArith Arith Lia List Bool.
-From ShiftedNames.Core Require Import Trie Label Var Counts Based Skew ATrie Repr.
+From ShiftedNames.Core Require Import Strict Trie Label Var Counts Based Skew ATrie Repr.
 Import ListNotations.
 
 Section Point.
@@ -20,7 +20,7 @@ Local Notation target := (@target T).
 
 (** ** Identity *)
 
-Definition uniform0 : counts := mk_counts (Some 0) Empty.
+Definition uniform0 : counts := mk_counts (Some 0) Empty (Is_true_s_intro eq_refl).
 
 Definition nidentity : nadj := NAdj uniform0 AEmpty.
 

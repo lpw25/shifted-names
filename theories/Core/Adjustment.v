@@ -68,7 +68,7 @@ Proof. apply (nwf_fin false), radj_wf. Qed.
     bound label unused. *)
 
 Definition pidentity_n : @nadj T :=
-  NAdj (mk_counts (Some 0) (set (label_key None) None Empty)) AEmpty.
+  NAdj (mk_counts (Some 0) (set (label_key None) None Empty) (Is_true_s_intro eq_refl)) AEmpty.
 
 Lemma pidentity_wf : nwf true pidentity_n.
 Proof. vm_compute; reflexivity. Qed.

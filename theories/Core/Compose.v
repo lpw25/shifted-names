@@ -34,16 +34,6 @@ Local Notation result := (@result T).
 Local Notation entry := (@entry T).
 Local Notation target := (@target T).
 
-(** ** Count map helpers *)
-
-(** Setting one key, keeping the exceptions canonical. *)
-Definition cset (c : counts) (k : positive) (v : option nat) : counts :=
-  mk_counts (c_def c) (if oeqb v (c_def c) then remove k (c_exc c) else set k v (c_exc c)).
-
-(** The pointwise sum of two count maps, as totals. *)
-Definition ctotal (c1 c2 : counts) : counts :=
-  cmap2 (fun x y => Some (oval x + oval y)) c1 c2.
-
 (** ** What [a] looks like above the thresholds *)
 
 Variable a : nadj.
@@ -59,7 +49,7 @@ Definition th_tree : tree nat :=
                          | Entry h _ len _ => if Nat.eqb len 0 then m else set (label_key h) len m
                          end) Empty aentries.
 
-Definition th : counts := mk_counts None (map_filter (fun _ n => Some (Some n)) th_tree).
+Definition th : counts := csome th_tree.
 
 Definition tau : counts :=
   fold_right (fun e c => match e with
@@ -241,27 +231,6 @@ Proof. destruct t as [y j|u [r es]]; [reflexivity|]; cbn [tcF unshift target_bas
 Lemma ecF_rebase B e : ecF B e = ecF cnone (unshift B e).
 Proof. destruct e as [h ts len p]; cbn [ecF unshift entry_based eunshift]; rewrite kmap_rebase; reflexivity. Qed.
 
-(** ** Proofs: count map helpers *)
-
-Lemma cget_cset c k v k' : cget (cset c k v) k' = if Pos.eqb k' k then v else cget c k'.
-Proof.
-  unfold cset, cget; cbn [c_exc c_def].
-  destruct (oeqb v (c_def c)) eqn:E; [rewrite get_remove|rewrite get_set];
-    destruct (Pos.eqb k' k); try reflexivity.
-  apply oeqb_spec in E; symmetry; exact E.
-Qed.
-
-Lemma cwf_cset c k v : cwf c -> cwf (cset c k v).
-Proof.
-  intros Hc k' v'; unfold cset; cbn [c_exc c_def].
-  destruct (oeqb v (c_def c)) eqn:E.
-  - rewrite get_remove; destruct (Pos.eqb k' k); [discriminate|apply Hc].
-  - rewrite get_set; destruct (Pos.eqb k' k); [intros [= <-] H; rewrite H, oeqb_refl in E; discriminate|apply Hc].
-Qed.
-
-Lemma cget_ctotal c1 c2 k : cget (ctotal c1 c2) k = Some (oval (cget c1 k) + oval (cget c2 k)).
-Proof. unfold ctotal; rewrite cget_cmap2; reflexivity. Qed.
-
 (** ** Proofs: [a] above the thresholds *)
 
 Hypothesis Ha : nlocal Qall a.
@@ -323,7 +292,7 @@ Lemma cget_th k :
               | None => None
               end.
 Proof.
-  unfold th, cget; cbn [c_exc c_def]; rewrite get_map_filter, th_tree_spec.
+  unfold th; rewrite cget_csome, th_tree_spec.
   destruct (aget k esa) as [[h ts len p]|]; [destruct (Nat.eqb len 0)|]; reflexivity.
 Qed.
 
@@ -1788,7 +1757,7 @@ Qed.
 
 Lemma keyed_th : keyed th.
 Proof.
-  intros k v E; unfold th in E; cbn [c_exc] in E; rewrite get_map_filter, th_tree_spec in E.
+  intros k v E; unfold th, csome in E; cbn [c_exc] in E; rewrite get_map_filter, th_tree_spec in E.
   destruct (aget k esa) as [e|] eqn:Ea; [|discriminate].
   exists (elabel e); apply (esa_key _ _ Ea).
 Qed.
@@ -1890,8 +1859,7 @@ Qed.
 
 Lemma sound_bl0 {X} {BX : Based X} (L : list X) : sound th bl0 L.
 Proof.
-  intros z _ k t m Ht _ _; unfold bl0; unfold th, cget in Ht; cbn [c_exc c_def] in Ht.
-  rewrite get_map_filter in Ht; destruct (get k th_tree); [congruence|discriminate].
+  intros z _ k t m Ht _ _; unfold bl0; unfold th in Ht; rewrite cget_csome in Ht; exact Ht.
 Qed.
 
 (** The targets of an entry, mapped. *)

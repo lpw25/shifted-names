@@ -445,6 +445,78 @@ Qed.
 
 End Merge.
 
+(** ** Merging with one-sided subtrees handled whole
+
+    [mmerge f gl gr m1 m2] is pointwise [f] like [merge], but a subtree
+    present in only one of the tries is passed whole to [gl] (left only) or
+    [gr] (right only).  When these keep or drop a subtree without looking
+    inside it, the cost is the size of the overlap of the two shapes rather
+    than of the two tries.  Their specification may assume a property of
+    the values of their own side. *)
+
+Section MMerge.
+
+Context {A : Type}.
+Variable f : option A -> option A -> option A.
+Variables gl gr : tree A -> tree A.
+
+Fixpoint mmerge' (m1 : tree' A) (m2 : tree A) : tree A :=
+  match m2 with
+  | Empty => gl (Nodes m1)
+  | Nodes _ =>
+      let l2 := left m2 in
+      let o2 := root m2 in
+      let r2 := right m2 in
+      match m1 with
+      | Node001 r1 => Node (gr l2) (f None o2) (mmerge' r1 r2)
+      | Node010 x => Node (gr l2) (f (Some x) o2) (gr r2)
+      | Node011 x r1 => Node (gr l2) (f (Some x) o2) (mmerge' r1 r2)
+      | Node100 l1 => Node (mmerge' l1 l2) (f None o2) (gr r2)
+      | Node101 l1 r1 => Node (mmerge' l1 l2) (f None o2) (mmerge' r1 r2)
+      | Node110 l1 x => Node (mmerge' l1 l2) (f (Some x) o2) (gr r2)
+      | Node111 l1 x r1 => Node (mmerge' l1 l2) (f (Some x) o2) (mmerge' r1 r2)
+      end
+  end.
+
+Definition mmerge (m1 m2 : tree A) : tree A :=
+  match m1 with Empty => gr m2 | Nodes m1' => mmerge' m1' m2 end.
+
+Variables P1 P2 : A -> Prop.
+Hypothesis gl_spec :
+  forall m, (forall i v, get i m = Some v -> P1 v) -> forall i, get i (gl m) = f (get i m) None.
+Hypothesis gr_spec :
+  forall m, (forall i v, get i m = Some v -> P2 v) -> forall i, get i (gr m) = f None (get i m).
+
+Definition tall_P (P : A -> Prop) (m : tree A) : Prop := forall i v, get i m = Some v -> P v.
+
+Lemma tall_P_left P m : tall_P P m -> tall_P P (left m).
+Proof. intros H i v E; apply (H (xO i)); rewrite get_split; exact E. Qed.
+
+Lemma tall_P_right P m : tall_P P m -> tall_P P (right m).
+Proof. intros H i v E; apply (H (xI i)); rewrite get_split; exact E. Qed.
+
+Lemma get_mmerge' m1 : forall m2, tall_P P1 (Nodes m1) -> tall_P P2 m2 ->
+  forall i, get i (mmerge' m1 m2) = f (get' i m1) (get i m2).
+Proof.
+  induction m1 as [r IHr|x|x r IHr|l IHl|l IHl r IHr|l IHl x|l IHl x r IHr];
+    intros m2 H1 H2 i; (destruct m2 as [|m2']; [apply (gl_spec _ H1)|]);
+    cbn [mmerge']; rewrite get_Node, (get_split i (Nodes m2'));
+    pose proof (tall_P_left _ _ H2) as L2; pose proof (tall_P_right _ _ H2) as R2;
+    destruct i as [i|i|]; cbn [get'];
+    try (rewrite (gr_spec _ L2) || rewrite (gr_spec _ R2)); try reflexivity;
+    first [apply IHl|apply IHr]; try assumption;
+    intros j v E; first [exact (H1 (xO j) v E)|exact (H1 (xI j) v E)].
+Qed.
+
+Theorem get_mmerge m1 m2 : tall_P P1 m1 -> tall_P P2 m2 ->
+  forall i, get i (mmerge m1 m2) = f (get i m1) (get i m2).
+Proof.
+  destruct m1 as [|m1]; intros H1 H2 i; cbn [mmerge get]; [apply (gr_spec _ H2)|].
+  apply (get_mmerge' m1 m2 H1 H2).
+Qed.
+
+End MMerge.
+
 (** ** Derived operations *)
 
 Definition map_filter {A B} (f : positive -> A -> option B) (m : tree A)
