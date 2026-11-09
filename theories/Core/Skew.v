@@ -515,6 +515,84 @@ Proof.
   split; [exact G'|rewrite E', E; reflexivity].
 Qed.
 
+(** ** Deciding well-formedness *)
+
+Section Decide.
+
+Variable eokb : X -> bool.
+Hypothesis eokb_spec : forall x, eokb x = true <-> eok x.
+
+Fixpoint ktinvb (t : ktree) : bool :=
+  match t with
+  | KLeaf x => eokb x
+  | KNode a x l r => cwfb a && ceqb a (lminc (ktlist t)) && eokb x && ktinvb l && ktinvb r
+  end.
+
+Lemma ktinvb_spec t : ktinvb t = true <-> ktinv t.
+Proof.
+  induction t as [x|a x l IHl r IHr]; cbn [ktinvb ktinv ktann].
+  - rewrite eokb_spec; split; [intros H; split; [intro k; cbn [ktlist]; rewrite lmin_single; reflexivity|exact H]|intros [_ H]; exact H].
+  - rewrite !andb_true_iff, cwfb_spec, eokb_spec, IHl, IHr.
+    split.
+    + intros [[[[Hw Ha] Hx] Hl] Hr]; split; [apply (ceqb_lminc a _ Hw), Ha|tauto].
+    + intros [Ha [Hw [Hx [Hl Hr]]]]; repeat split; try assumption; apply (ceqb_lminc a _ Hw), Ha.
+Qed.
+
+Fixpoint kinvb (s : kseq) : bool :=
+  match s with
+  | KNil => true
+  | KCons a _ t s' => cwfb a && ceqb a (lminc (klist s)) && ktinvb t && kinvb s'
+  end.
+
+Lemma kinvb_spec s : kinvb s = true <-> kinv s.
+Proof.
+  induction s as [|a w t s IH]; cbn [kinvb kinv ksann].
+  - split; [intros _; split; [intro k; reflexivity|exact I]|reflexivity].
+  - rewrite !andb_true_iff, cwfb_spec, ktinvb_spec, IH.
+    split.
+    + intros [[[Hw Ha] Ht] Hs]; split; [apply (ceqb_lminc a _ Hw), Ha|tauto].
+    + intros [Ha [Hw [Ht Hs]]]; repeat split; try assumption; apply (ceqb_lminc a _ Hw), Ha.
+Qed.
+
+Fixpoint ktshapeb (w : nat) (t : ktree) : bool :=
+  match t with
+  | KLeaf _ => Nat.eqb w 1
+  | KNode _ _ l r =>
+      let w' := Nat.div2 (w - 1) in Nat.eqb w (S (w' + w')) && ktshapeb w' l && ktshapeb w' r
+  end.
+
+Lemma ktshapeb_spec t : forall w, ktshapeb w t = true <-> ktshape w t.
+Proof.
+  induction t as [x|a x l IHl r IHr]; intros w; cbn [ktshapeb ktshape]; [apply Nat.eqb_eq|].
+  rewrite !andb_true_iff, Nat.eqb_eq, IHl, IHr; split.
+  - intros [[Hw Hl] Hr]; eauto.
+  - intros [w' [-> [Hl Hr]]].
+    replace (S (w' + w') - 1) with (2 * w') by lia; rewrite Nat.div2_double.
+    auto.
+Qed.
+
+Fixpoint kshapeb (s : kseq) : bool :=
+  match s with KNil => true | KCons _ w t s' => ktshapeb w t && kshapeb s' end.
+
+Lemma kshapeb_spec s : kshapeb s = true <-> kshape s.
+Proof.
+  induction s as [|a w t s IH]; cbn [kshapeb kshape]; [split; [intros _; exact I|reflexivity]|].
+  rewrite andb_true_iff, ktshapeb_spec, IH; reflexivity.
+Qed.
+
+Definition kcanonb (s : kseq) : bool :=
+  if list_eq_dec Nat.eq_dec (kweights s) (cweights (klength s)) then true else false.
+
+Lemma kcanonb_spec s : kcanonb s = true <-> kcanon s.
+Proof. unfold kcanonb, kcanon; destruct (list_eq_dec _ _ _); split; congruence. Qed.
+
+Definition kgoodb (s : kseq) : bool := kinvb s && kshapeb s && kcanonb s.
+
+Lemma kgoodb_spec s : kgoodb s = true <-> kgood s.
+Proof. unfold kgoodb, kgood; rewrite !andb_true_iff, kinvb_spec, kshapeb_spec, kcanonb_spec; tauto. Qed.
+
+End Decide.
+
 End Skew.
 
 Arguments ktree : clear implicits.

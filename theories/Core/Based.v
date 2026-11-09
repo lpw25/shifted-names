@@ -258,4 +258,22 @@ Proof.
   - f_equal; apply Nat.le_antisymm; [apply (C1 e2); [apply Hm|]|apply (C2 e1); [apply Hm|]]; assumption.
 Qed.
 
+(** The minimum as a count map, for checking annotations. *)
+Definition lminc (l : list X) : counts := fold_right (fun e acc => cmin (uses e) acc) cnone l.
+
+Lemma cget_lminc l k : cget (lminc l) k = lmin l k.
+Proof.
+  induction l as [|e l IH]; [reflexivity|].
+  cbn [lminc fold_right]; rewrite cget_cmin; fold (lminc l); rewrite IH; reflexivity.
+Qed.
+
+Lemma cwf_lminc l : cwf (lminc l).
+Proof. destruct l; [apply cwf_cnone|apply cwf_cmap2]. Qed.
+
+(** An annotation is the minimum of its elements, decided. *)
+Lemma ceqb_lminc a l : cwf a -> ceqb a (lminc l) = true <-> (forall k, cget a k = lmin l k).
+Proof.
+  intros Ha; rewrite (ceqb_ext a (lminc l) Ha (cwf_lminc l)); split; intros H k; rewrite H, ?cget_lminc; reflexivity.
+Qed.
+
 End Lists.

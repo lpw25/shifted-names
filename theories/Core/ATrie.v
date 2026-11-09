@@ -373,6 +373,83 @@ Proof.
              |apply IHr; [assumption|assumption|intro k; apply (Hsub (xI k))]].
 Qed.
 
+(** ** The entries with their keys *)
+
+Fixpoint akeyed (kf : positive -> positive) (t : atrie) : list (positive * X) :=
+  match t with
+  | AEmpty => []
+  | ANode a l o r =>
+      map (fun kx => (fst kx, unshift a (snd kx)))
+          (match o with Some x => [(kf xH, x)] | None => [] end
+           ++ akeyed (fun k => kf (xO k)) l ++ akeyed (fun k => kf (xI k)) r)
+  end.
+
+Lemma akeyed_spec t : forall kf k' x,
+  In (k', x) (akeyed kf t) <-> exists k, k' = kf k /\ aget k t = Some x.
+Proof.
+  induction t as [|a l IHl o r IHr]; intros kf k' x; cbn [akeyed].
+  - split; [intros []|intros [k [_ E]]; discriminate].
+  - rewrite in_map_iff; split.
+    + intros [[k0 x0] [E Hin]]; cbn in E; injection E as <- <-.
+      apply in_app_or in Hin as [Hin|Hin].
+      * destruct o as [y|]; [|destruct Hin]; destruct Hin as [[= <- <-]|[]].
+        exists xH; split; reflexivity.
+      * apply in_app_or in Hin as [Hin|Hin].
+        -- apply IHl in Hin as [k [-> E]]; exists (xO k); split; [reflexivity|cbn; rewrite E; reflexivity].
+        -- apply IHr in Hin as [k [-> E]]; exists (xI k); split; [reflexivity|cbn; rewrite E; reflexivity].
+    + intros [k [-> E]]; cbn [aget] in E; destruct k as [k|k|].
+      * destruct (aget k r) as [y|] eqn:Ey; [|discriminate]; cbn in E; injection E as <-.
+        exists (kf (xI k), y); split; [reflexivity|].
+        apply in_or_app; right; apply in_or_app; right; apply IHr; exists k; split; [reflexivity|exact Ey].
+      * destruct (aget k l) as [y|] eqn:Ey; [|discriminate]; cbn in E; injection E as <-.
+        exists (kf (xO k), y); split; [reflexivity|].
+        apply in_or_app; right; apply in_or_app; left; apply IHl; exists k; split; [reflexivity|exact Ey].
+      * destruct o as [y|]; [|discriminate]; cbn in E; injection E as <-.
+        exists (kf xH, y); split; [reflexivity|apply in_or_app; left; left; reflexivity].
+Qed.
+
+Lemma akeyed_forallb (f : positive -> X -> bool) t :
+  List.forallb (fun kx => f (fst kx) (snd kx)) (akeyed (fun k => k) t) = true
+  <-> forall k x, aget k t = Some x -> f k x = true.
+Proof.
+  rewrite List.forallb_forall; split.
+  - intros H k x E; apply (H (k, x)), akeyed_spec; exists k; split; [reflexivity|exact E].
+  - intros H [k x] Hin; apply akeyed_spec in Hin as [k0 [-> E]]; apply H, E.
+Qed.
+
+(** ** Deciding the invariant *)
+
+Section Decide.
+
+Variable eokb : X -> bool.
+Hypothesis eokb_spec : forall x, eokb x = true <-> eok x.
+
+Definition anonemptyb (l : atrie) (o : option X) (r : atrie) : bool :=
+  match l, o, r with AEmpty, None, AEmpty => false | _, _, _ => true end.
+
+Fixpoint ainvb (t : atrie) : bool :=
+  match t with
+  | AEmpty => true
+  | ANode a l o r =>
+      cwfb a && ceqb a (lminc (aelems t)) && anonemptyb l o r
+      && match o with Some x => eokb x | None => true end && ainvb l && ainvb r
+  end.
+
+Lemma ainvb_spec t : ainvb t = true <-> ainv t.
+Proof.
+  induction t as [|a l IHl o r IHr]; cbn [ainvb ainv]; [split; reflexivity|].
+  rewrite !andb_true_iff, cwfb_spec, IHl, IHr.
+  assert (Hne : anonemptyb l o r = true <-> anonempty l o r)
+    by (destruct l, o, r; cbn; split; (discriminate || tauto || (intros; exact I) || reflexivity)).
+  assert (Ho : (match o with Some x => eokb x | None => true end) = true <-> ook o)
+    by (destruct o; cbn; [apply eokb_spec|split; reflexivity || (intros; exact I)]).
+  rewrite Hne, Ho; split.
+  - intros [[[[[Hw Ha] Hn] Hok] Hl] Hr]; split; [apply (ceqb_lminc a _ Hw), Ha|tauto].
+  - intros [Ha [Hw [Hn [Hok [Hl Hr]]]]]; repeat split; try assumption; apply (ceqb_lminc a _ Hw), Ha.
+Qed.
+
+End Decide.
+
 End ATrie.
 
 Arguments atrie : clear implicits.

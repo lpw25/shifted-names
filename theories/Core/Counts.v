@@ -372,3 +372,34 @@ Proof.
   revert k; induction m; intros [k|k|] Hk; cbn [get' tdepth' Pos.size_nat] in *; try reflexivity;
     try lia; try (apply IHm; lia); try (apply IHm1; lia); try (apply IHm2; lia).
 Qed.
+
+(** ** Deciding the invariants
+
+    The invariants are decided by boolean checks, so that a proof of one can
+    be kept in SProp (as [Is_true_s]) and still be used. *)
+
+Definition ceqb (c1 c2 : counts) : bool :=
+  oeqb (c_def c1) (c_def c2) && teqb oeqb (c_exc c1) (c_exc c2).
+
+Lemma ceqb_spec c1 c2 : ceqb c1 c2 = true <-> c1 = c2.
+Proof.
+  destruct c1 as [d1 e1], c2 as [d2 e2]; unfold ceqb; cbn [c_def c_exc].
+  rewrite andb_true_iff, oeqb_spec, (teqb_spec oeqb oeqb_spec).
+  split; [intros [-> ->]; reflexivity|intros [= -> ->]; split; reflexivity].
+Qed.
+
+Definition cwfb (c : counts) : bool := tall (fun v => negb (oeqb v (c_def c))) (c_exc c).
+
+Lemma cwfb_spec c : cwfb c = true <-> cwf c.
+Proof.
+  unfold cwfb, cwf; rewrite tall_spec; split; intros H k v E; specialize (H k v E).
+  - rewrite negb_true_iff in H; intros Hv; rewrite Hv, oeqb_refl in H; discriminate.
+  - apply negb_true_iff; destruct (oeqb v (c_def c)) eqn:Ev; [apply oeqb_spec in Ev; contradiction|reflexivity].
+Qed.
+
+(** Pointwise equality of canonical count maps is equality. *)
+Lemma ceqb_ext c1 c2 :
+  cwf c1 -> cwf c2 -> ceqb c1 c2 = true <-> (forall k, cget c1 k = cget c2 k).
+Proof.
+  intros W1 W2; rewrite ceqb_spec; split; [intros ->; reflexivity|apply counts_ext; assumption].
+Qed.
