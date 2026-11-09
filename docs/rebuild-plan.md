@@ -428,9 +428,10 @@ Design changes made while proving:
   elements present, by a predicate `Pd`.
 
 **Remaining:**
-- Point operations preserve `nwf`. Extend with a payload needs the
-  payload's `nwf`.
-- Restriction (dropping the bound label) for the API, if still needed.
+- (Done.) The point operations preserve `nwf`: `nwf_identity`,
+  `nwf_weaken`, `nwf_extend` (given `twf t`) and `nwf_lift`.
+- (Decided.) There is no restriction operation. It existed only for
+  composition, which now uses the payload flag.
 - Stage 7: port `Adjustment`, `Laws`, `Scoped`, `Indexed`, `Subst` and
   extraction; delete the slot core, back-links and `Braun.v`. Check costs
   against the table above.

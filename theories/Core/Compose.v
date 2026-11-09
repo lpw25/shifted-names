@@ -2560,3 +2560,103 @@ Proof.
   intros Ha Hb; destruct (comp_correct a (nwf_local _ _ Ha) Ha false b Hb) as [Hw [Hm _]].
   split; [exact Hw|intros v; apply Hm; reflexivity].
 Qed.
+
+(** * The point operations stay deeply well formed *)
+
+Section PointWf.
+
+Context {T : Type}.
+Local Notation nadj := (@nadj T).
+Local Notation entry := (@entry T).
+Local Notation target := (@target T).
+
+(** A payload result comes from a target of some entry, and moving the
+    root moves the payload's root with it. *)
+Lemma napply_root_payload W W' (es : atrie entry) v u rho' :
+  napply (NAdj W' es) v = inr (u, rho') ->
+  exists k e r0 es0, aget k es = Some e /\ knth (etargets e) (v_index v) = Some (TBind u (NAdj r0 es0))
+                     /\ rho' = NAdj (cadd W' r0) es0
+                     /\ napply (NAdj W es) v = inr (u, NAdj (cadd W r0) es0).
+Proof.
+  cbn [napply]; destruct (aget _ es) as [[h ts len p]|] eqn:E; [|discriminate].
+  cbn [eapply]; destruct (Nat.ltb _ _); [|discriminate].
+  destruct (knth ts _) as [[y j|u0 [r0 es0]]|] eqn:Et; cbn; try discriminate.
+  intros [= -> <-]; do 4 eexists; split; [exact E|split; [exact Et|split; reflexivity]].
+Qed.
+
+Lemma cadd_assoc_covered d w r0 :
+  (forall k, cget r0 k <> None -> cget w k <> None) -> cadd (cadd d w) r0 = cadd d (cadd w r0).
+Proof.
+  intros H; apply counts_ext; try apply cwf_cmap2; intro k; rewrite !cget_cadd.
+  destruct (cget r0 k) as [x|] eqn:Er; [|destruct (cget w k), (cget d k); reflexivity].
+  destruct (cget w k) as [y|] eqn:Ew; [|exfalso; apply (H k); congruence].
+  destruct (cget d k); cbn; f_equal; lia.
+Qed.
+
+Lemma nwf_cadd n : forall Q w (es : atrie entry) d,
+  nnest (NAdj w es) < n -> nwf Q (NAdj w es) -> keyed d -> c_def d = None -> nwf Q (NAdj (cadd d w) es).
+Proof.
+  induction n as [|n IH]; intros Q w es d Hn Hb Kd Dd; [lia|].
+  pose proof (nwf_local _ _ Hb) as Hl; pose proof (nwf_fin _ _ Hb) as Hf.
+  constructor.
+  - destruct Hl as [Hes [Cw [Kw [Hent [HQ HnQ]]]]].
+    split; [exact Hes|split; [apply cwf_cmap2|split; [apply keyed_cmap2; assumption|split; [exact Hent|split]]]].
+    + intros l Hq; rewrite cget_cadd; specialize (HQ l Hq); destruct (cget w _); [discriminate|contradiction].
+    + intros l Hq; rewrite cget_cadd; destruct (HnQ l Hq) as [[-> H]|[H1 H]]; [left; split; [destruct (cget d _); reflexivity|exact H]|].
+      right; split; [destruct (cget w _); [discriminate|contradiction]|exact H].
+  - unfold nfin in *; cbn [nroot c_def cadd cmap2] in *; rewrite Dd, Hf; reflexivity.
+  - intros v u rho' Hq E.
+    destruct (napply_root_payload w _ es v u rho' E) as [k [e [r0 [es0 [Ek [Et [-> E0]]]]]]].
+    assert (G : kgood (etargets e)).
+    { destruct Hl as [_ [_ [_ [Hent _]]]]; destruct (Hent k e Ek) as [Hok _]; destruct e; apply Hok. }
+    rewrite cadd_assoc_covered.
+    + apply IH; [|exact (nwf_payload _ _ v u _ Hb Hq E0)|exact Kd|exact Dd].
+      assert (HG : forall k' e', aget k' (nentries (NAdj w es)) = Some e' -> kgood (etargets e')).
+      { intros k' e' E'; destruct Hl as [_ [_ [_ [Hent _]]]]; destruct (Hent k' e' E') as [Hok _]; destruct e'; apply Hok. }
+      pose proof (nest_napply (NAdj w es) v u _ HG E0) as Hlt; cbn [nnest] in *; lia.
+    + intros k' Hk' Hw.
+      pose proof (root_covers Q w es k' Hl Hf Hw k e Ek) as Hcv.
+      destruct e as [h ts len p]; rewrite uses_entry_klist in Hcv by exact G.
+      cbn [etargets] in Et; pose proof (knth_in _ _ _ G Et) as Hin.
+      destruct (cget r0 k') as [x|] eqn:Ex; [|contradiction].
+      change (cget (uses (TBind u (NAdj r0 es0) : target)) k' = Some x) in Ex.
+      destruct (lmin_le (klist ts) _ k' x Hin Ex) as [m [Em _]]; rewrite Em in Hcv.
+      destruct (cget (cone _ p) k'); discriminate.
+Qed.
+
+Theorem nwf_identity : nwf Qall (@nidentity T).
+Proof.
+  constructor; [apply nlocal_identity|apply nfin_identity|].
+  intros v u rho _ E; rewrite napply_identity in E; discriminate.
+Qed.
+
+Theorem nwf_weaken h (a : nadj) : nwf Qall a -> nwf Qall (weaken h a).
+Proof.
+  destruct a as [w es]; intros Ha; cbn [weaken].
+  apply (nwf_cadd (S (nnest (NAdj w es)))); [cbn [nnest]; lia|exact Ha|apply keyed_cone|reflexivity].
+Qed.
+
+(** A target is deeply well formed: a payload's adjustment is a named-only
+    normal form. *)
+Definition twf (t : target) : Prop :=
+  match t with TVar _ _ => True | TBind _ rho => nwf Qnamed rho end.
+
+Theorem nwf_extend h (t : target) (a : nadj) :
+  nwf Qall a -> twf t -> nwf Qall (extend h t a).
+Proof.
+  intros Ha Ht; pose proof (nwf_local _ _ Ha) as Hl; pose proof (nwf_fin _ _ Ha) as Hf.
+  assert (Hok : tok t)
+    by (destruct t as [y j|u [r es]]; [exact Logic.I|cbn in Ht; destruct (nwf_local _ _ Ht) as [_ [Hc _]]; exact Hc]).
+  assert (Hk : keyed (tuses t))
+    by (destruct t as [y j|u [r es]]; [apply keyed_cone|cbn in Ht; destruct (nwf_local _ _ Ht) as [_ [_ [Hk _]]]; exact Hk]).
+  constructor; [apply nlocal_extend; assumption|apply nfin_extend, Hf|].
+  intros v u rho _ E; rewrite napply_extend in E by assumption.
+  destruct (rvar_eqb v _).
+  - destruct t as [y j|u' rho']; cbn in E; [discriminate|injection E as -> <-; exact Ht].
+  - apply (nwf_payload _ _ _ u rho Ha eq_refl E).
+Qed.
+
+Theorem nwf_lift h (a : nadj) : nwf Qall a -> nwf Qall (lift h a).
+Proof. intros Ha; apply nwf_extend; [apply nwf_weaken, Ha|exact Logic.I]. Qed.
+
+End PointWf.
