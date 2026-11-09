@@ -303,3 +303,53 @@ Proof. destruct a, b; cbn; congruence. Qed.
 
 Lemma oadd_none d c : oadd d c = None <-> c = None.
 Proof. destruct c; cbn; split; congruence. Qed.
+
+(** ** Equations between count maps *)
+
+Lemma csub_cadd d r : cwf r -> csub (cadd d r) d = r.
+Proof.
+  intros Hr; apply counts_ext; [apply cwf_cmap2|exact Hr|]; intro k.
+  rewrite cget_csub, cget_cadd; destruct (cget d k), (cget r k); cbn; f_equal; lia.
+Qed.
+
+Lemma cadd_csub d r : cwf r -> cle d r -> cadd d (csub r d) = r.
+Proof.
+  intros Hr Hle; apply counts_ext; [apply cwf_cmap2|exact Hr|]; intro k.
+  rewrite cget_cadd, cget_csub.
+  destruct (cget d k) as [n|] eqn:Ed, (cget r k) as [m|] eqn:Er; cbn; try reflexivity.
+  - specialize (Hle k n m Ed Er); f_equal; lia.
+  - f_equal; lia.
+Qed.
+
+Lemma cadd_cadd d1 d2 r : cadd d1 (cadd d2 r) = cadd (cplus d1 d2) r.
+Proof.
+  apply counts_ext; try apply cwf_cmap2; intro k.
+  rewrite !cget_cadd, cget_cplus; apply oadd_oadd.
+Qed.
+
+Lemma cadd_ext d d' r :
+  (forall k, cget r k <> None -> dval d k = dval d' k) -> cadd d r = cadd d' r.
+Proof.
+  intros H; apply counts_ext; try apply cwf_cmap2; intro k.
+  rewrite !cget_cadd; destruct (cget r k) as [m|] eqn:E; [|reflexivity].
+  specialize (H k ltac:(congruence)); unfold dval in H.
+  destruct (cget d k), (cget d' k); cbn in *; subst; reflexivity.
+Qed.
+
+Lemma cle_cmin_inv_l d x y : cle d (cmin x y) -> cle d x.
+Proof.
+  intros H k n m Hd Hx; specialize (H k n); rewrite cget_cmin, Hx in H.
+  destruct (cget y k) as [q|]; cbn in H; [specialize (H _ Hd eq_refl); lia|apply (H m Hd eq_refl)].
+Qed.
+
+Lemma cle_cmin_inv_r d x y : cle d (cmin x y) -> cle d y.
+Proof.
+  intros H k n m Hd Hy; specialize (H k n); rewrite cget_cmin, Hy in H.
+  destruct (cget x k) as [q|]; cbn in H; [specialize (H _ Hd eq_refl); lia|apply (H m Hd eq_refl)].
+Qed.
+
+Lemma dval_le_cle d k n : cle d (cone k n) -> dval d k <= n.
+Proof.
+  intros H; unfold dval; destruct (cget d k) as [m|] eqn:E; cbn; [|lia].
+  apply (H k m n E); rewrite cget_cone, Pos.eqb_refl; reflexivity.
+Qed.

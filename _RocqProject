@@ -5,6 +5,7 @@ theories/Core/Counts.v
 theories/Core/Based.v
 theories/Core/Skew.v
 theories/Core/ATrie.v
+theories/Core/Repr.v
 theories/Core/Label.v
 theories/Core/Var.v
 theories/Core/Strict.v

@@ -377,3 +377,5 @@ Proof.
 Qed.
 
 End ATrie.
+
+Arguments atrie : clear implicits.
