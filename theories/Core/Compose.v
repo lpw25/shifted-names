@@ -1535,4 +1535,87 @@ Proof.
   unfold thv, tauv; f_equal; lia.
 Qed.
 
+Lemma unshift_cnone (t : target) : eok t -> unshift cnone t = t.
+Proof.
+  destruct t as [y j|u [r es]]; [reflexivity|]; cbn; intros Hr.
+  rewrite cadd_cnone by exact Hr; reflexivity.
+Qed.
+
+Lemma napply_a_ok v u rho : napply a v = inr (u, rho) -> cwf (nroot rho).
+Proof.
+  assert (Hn : napply a v = match aget (label_key (v_label v)) esa with
+                            | None => inl (mk_rvar (v_label v) (dval wa (label_key (v_label v)) + v_index v))
+                            | Some e => eapply wa e (v_index v)
+                            end) by (unfold esa, wa; destruct a; reflexivity).
+  rewrite Hn; destruct (aget _ esa) as [e|] eqn:E; [|discriminate].
+  destruct e as [h ts len p]; destruct (esa_ok _ _ E) as [_ [G _]]; cbn [eapply].
+  destruct (Nat.ltb _ _); [|discriminate].
+  destruct (knth ts _) as [t|] eqn:Et; [|discriminate].
+  pose proof (kgood_targets_ok ts G t (knth_in _ _ _ G Et)) as Ht.
+  pose proof (ok_unshift wa t Ht) as Ht'.
+  destruct (tunshift wa t) as [y j|u' rho'] eqn:Eu; cbn; [discriminate|]; intros [= -> <-].
+  change (eok (unshift wa t)) in Ht'; cbn [unshift target_based] in Ht'; rewrite Eu in Ht'; exact Ht'.
+Qed.
+
+Lemma tcF_ok B (t : target) : eok (tcF B t).
+Proof.
+  destruct t as [y j|u rho]; cbn [tcF].
+  - destruct (napply a _) as [v|[u rho]] eqn:E; [exact Logic.I|apply (napply_a_ok _ _ _ E)].
+  - destruct rho as [r es]; rewrite ncomp_eq; unfold finish; apply cwf_cmap2.
+Qed.
+
+Lemma estrip_noop h (ts : kseq target) len p :
+  (forall t, knth ts (pred len) = Some t -> 0 < len -> 0 < p -> tvar_at h (pred p) t = false) ->
+  estrip h ts len p = Entry h ts len p.
+Proof.
+  intros H; unfold estrip; destruct len as [|len'], p as [|p']; try reflexivity.
+  destruct (knth ts len') as [t|] eqn:Et; [|reflexivity].
+  pose proof (H t Et ltac:(lia) ltac:(lia)) as Hf; cbn [pred] in Hf; rewrite Hf; reflexivity.
+Qed.
+
+(** An entry above the thresholds is just moved. *)
+Lemma ecF_moved h (ts : kseq target) len p :
+  kgood ts -> klength ts = len -> strip_ok (Entry h ts len p) ->
+  cle th (uses (Entry h ts len p)) ->
+  (forall t, In t (klist ts) -> tcF cnone t = unshift tau (shift th t)) ->
+  ecF cnone (Entry h ts len p) = unshift tau (shift th (Entry h ts len p)).
+Proof.
+  intros G Hl Hs Hc Ht.
+  pose proof (cle_cmin_inv_l _ _ _ Hc) as Hp; apply dval_le_cle in Hp.
+  pose proof (cle_cmin_inv_r _ _ _ Hc) as Hts.
+  pose proof (kgood_targets_ok ts G) as Hok.
+  (* the targets, mapped, are the moved sequence *)
+  assert (Hk : kmap th tau tcF bl0 cnone ts = klift tau (krebase th ts)).
+  { destruct (kgood_kmap th tau tcF (tcF cnone) (fun z => In z (klist ts))
+                (fun B x _ _ => tcF_rebase B x)
+                (fun z Hz Hin _ => Ht z Hin)
+                (fun z _ _ => tcF_ok cnone z)
+                bl0 cnone ts G) as [G1 E1].
+    - intros z Hz k t0 m Ht0 Hm Hlt; exfalso.
+      apply in_map_iff in Hz as [y [<- Hy]]; rewrite unshift_cnone in Hm by apply Hok, Hy.
+      pose proof (cle_mem _ (ksann ts) (klist ts) y Hts (fun k => ksann_klist ts k G) Hy k t0 m Ht0 Hm); lia.
+    - intros y Hy; rewrite unshift_cnone by apply Hok, Hy; exact Hy.
+    - apply kcanonical; [exact G1|apply kgood_klift, kgood_krebase; assumption|].
+      rewrite E1, klist_klift, klist_krebase
+        by first [exact Hts | apply kgood_inv, kgood_krebase; assumption | apply kgood_inv; assumption].
+      rewrite map_map; apply map_ext_in; intros y Hy; rewrite unshift_cnone by apply Hok, Hy.
+      rewrite tcF_rebase, unshift_cnone by apply Hok, Hy; apply Ht, Hy. }
+  cbn [ecF]; rewrite Hk, cget_cnone_dval; cbn [Nat.add].
+  unfold ecomp; destruct (Nat.leb_spec (thv h) p) as [Hle|Hlt]; [|unfold thv in Hlt; lia].
+  rewrite estrip_noop.
+  - cbn [unshift shift entry_based eunshift eshift]; unfold thv, tauv; f_equal; lia.
+  - intros t Et Hlen Hpp.
+    rewrite knth_spec in Et by apply kshape_klift, kshape_krebase, kgood_shape, G.
+    rewrite klist_klift, klist_krebase, nth_error_map, nth_error_map in Et
+      by first [exact Hts | apply kgood_inv, kgood_krebase; assumption | apply kgood_inv; assumption].
+    destruct (nth_error (klist ts) (pred len)) as [t0|] eqn:E0; [|discriminate]; injection Et as <-.
+    apply Bool.not_true_iff_false; intros Tv; apply tvar_at_spec in Tv.
+    destruct t0 as [y j|u rho]; [|destruct rho; discriminate]; cbn in Tv; injection Tv as -> Hj.
+    assert (Hjt : dval th (label_key h) <= j)
+      by (apply (dval_le_cle th (label_key h) j);
+          exact (cle_mem th (ksann ts) (klist ts) (TVar h j) Hts (fun k => ksann_klist ts k G) (nth_error_In _ _ E0))).
+    apply Hs; split; [lia|split; [unfold thv, tauv in *; lia|]].
+    rewrite knth_spec by apply kgood_shape, G; rewrite E0; f_equal; f_equal; unfold thv, tauv in *; lia.
+Qed.
+
 End Compose.
