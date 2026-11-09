@@ -272,8 +272,8 @@ Fixpoint ncomp (pay : bool) (b : nadj) (B : counts) {struct b} : nadj :=
                   | Entry h ts len p =>
                       ecomp h (kmap th tau tc bl0 B' ts) len (dval B' (label_key h) + p)
                   end in
-      let P := cplus B r in
-      finish pay (cadd B r) (atmap th tau ec bl0 P es) (@atvisit entry bl0 P (fun k => k) es)
+      let P := cadd B r in
+      finish pay P (atmap th tau ec bl0 P es) (@atvisit entry bl0 P (fun k => k) es)
   end.
 
 Definition compose (b : nadj) : nadj := ncomp false b cnone.
