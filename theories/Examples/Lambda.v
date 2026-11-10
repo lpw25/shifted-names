@@ -103,45 +103,32 @@ Example subst_two_binders {N M} (a : adj (tm 0) N M) (b c : tm (S (S N))) :
   = tlam (tlam (tapp (subst (lift (lift a)) b) (subst (lift (lift a)) c))).
 Proof. cbn; names; reflexivity. Qed.
 
-(** Substituting into a variable, stated for the constructor [tvar]. *)
-Lemma subst_tvar_ren {N M} (a : sub N M) v w : Indexed.apply_var a v = Rename w -> subst a (tvar v) = tvar w.
-Proof. exact (subst_tvar_rename a v w). Qed.
+(** ** Locally nameless operations
 
-Lemma subst_tvar_bind {N} (a : sub N 0) v u : Indexed.apply_var a v = Bind u pid -> subst a (tvar v) = u.
-Proof. exact (subst_tvar_bind0 a v u). Qed.
+    Opening the innermost bound variable as [x] is [subst ⟦ · \ x ⟧],
+    closing [x] is [subst ⟦ x \ · ⟧], and instantiating with a closed term
+    [u] is [subst ⟦ · := u ⟧]. *)
 
-(** ** Locally nameless operations *)
-
-(** Open the innermost bound variable as the name [x]; close [x] into a new
-    innermost bound variable; instantiate it with a closed term. *)
-Notation open_sub x := ⟦ · \ x ⟧ (only parsing).
-Notation close_sub x := ⟦ x \ · ⟧ (only parsing).
-Notation inst u := ⟦ · := u ⟧ (only parsing).
-
-Notation topen x := (subst (open_sub x)).
-Notation tclose x := (subst (close_sub x)).
-Notation tinst u := (subst (inst u)).
-
-Theorem topen_tclose {N} x (t : tm N) : topen x (tclose x t) = t.
+Theorem open_close {N} x (t : tm N) : subst ⟦ · \ x ⟧ (subst ⟦ x \ · ⟧ t) = t.
 Proof. names; reflexivity. Qed.
 
-Theorem tclose_topen {N} x (t : tm (S N)) : tclose x (topen x t) = t.
+Theorem close_open {N} x (t : tm (S N)) : subst ⟦ x \ · ⟧ (subst ⟦ · \ x ⟧ t) = t.
 Proof. names; reflexivity. Qed.
 
 (** Opening after substituting under the binder is one substitution. *)
-Theorem topen_subst_lift {N M} x (a : sub N M) (t : tm (S N)) :
-  topen x (subst (lift a) t) = subst ⟦ · | Γ \ x | Γ[a] ⟧ t.
+Theorem open_subst_lift {N M} x (a : sub N M) (t : tm (S N)) :
+  subst ⟦ · \ x ⟧ (subst (lift a) t) = subst ⟦ · | Γ \ x | Γ[a] ⟧ t.
 Proof. names; reflexivity. Qed.
 
 Theorem inst_subst_lift {N M} (u : tm 0) (a : sub N M) (t : tm (S N)) :
-  subst (inst u) (subst (lift a) t) = subst ⟦ · := u | a ⟧ t.
+  subst ⟦ · := u ⟧ (subst (lift a) t) = subst ⟦ · := u | a ⟧ t.
 Proof. names; reflexivity. Qed.
 
 (** Under binders, through applications. *)
 Example names_terms {N} x (t : tm (S N)) (u : tm N) :
-  topen x (tclose x (tapp (tlam t) u)) = tapp (tlam t) u.
+  subst ⟦ · \ x ⟧ (subst ⟦ x \ · ⟧ (tapp (tlam t) u)) = tapp (tlam t) u.
 Proof. names; reflexivity. Qed.
 
 (** Substituting into a variable. *)
-Example subst_var {N} x : topen x (tvar bvar0 : tm (S N)) = tvar x.
+Example subst_var {N} x : subst ⟦ · \ x ⟧ (tvar bvar0 : tm (S N)) = tvar x.
 Proof. names; reflexivity. Qed.

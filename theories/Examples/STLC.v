@@ -19,7 +19,7 @@ Reserved Notation "Γ ⊢ e ~ A" (at level 70, e at next level).
 Inductive types (Γ : ctx ty) : tm 0 -> ty -> Prop :=
 | VAR (v : var 0) A : Γ ∋ v ~ A -> Γ ⊢ tvar v ~ A
 | BASE k : Γ ⊢ tconst k ~ Base
-| LAM body A B : (forall x, Γ & x ~ A ⊢ topen x body ~ B) -> Γ ⊢ tlam body ~ Fn A B
+| LAM body A B : (forall x, Γ & x ~ A ⊢ subst ⟦ · \ x ⟧ body ~ B) -> Γ ⊢ tlam body ~ Fn A B
 | APP f e A B : Γ ⊢ f ~ Fn A B -> Γ ⊢ e ~ A -> Γ ⊢ tapp f e ~ B
 where "Γ ⊢ e ~ A" := (types Γ e A).
 
@@ -33,7 +33,7 @@ Theorem weakening {Γ e A} :
   Γ ⊢ e ~ A -> forall (σ : sub 0 0) Δ, Γ =[σ]=> Δ -> Δ ⊢ subst σ e ~ A.
 Proof.
   induction 1 as [Γ v A Hv|Γ k|Γ body A B _ IH|Γ f e A B _ IHf _ IHe]; intros σ Δ Hσ.
-  - destruct (Hσ v A Hv) as [w [Ew Hw]]; rewrite (subst_tvar_ren σ v w Ew); constructor; exact Hw.
+  - destruct (Hσ v A Hv) as [w [Ew Hw]]; rewrite subst_tvar_eval, (eval_rename _ _ _ _ _ Ew); constructor; exact Hw.
   - constructor.
   - cbn; constructor; intros x.
     apply (conv _ (IH x _ _ (ctx_map_under Γ Δ σ x x A Hσ))); names; reflexivity.
@@ -54,7 +54,8 @@ Proof.
     + apply (conv (tvar (fvar x 0))); [apply VAR, has_here|names; reflexivity].
     + intros y b Hy.
       apply (conv _ (weakening (Hσ y b Hy) _ _ (ctx_map_weaken _ _ _ x A (ctx_map_id Δ)))).
-      rewrite <- (subst_tvar_ren _ _ _ (apply_var_weaken x y)); names; reflexivity.
+      replace (tvar (vshift_free x y)) with (subst ⟦ \ x as _ ⟧ (tvar y))
+        by (apply subst_tvar_rename, apply_var_weaken); names; reflexivity.
   - cbn; econstructor; [apply IHf|apply IHe]; exact Hσ.
 Qed.
 
@@ -81,11 +82,12 @@ Proof.
   intros He He'; apply (substitution He), forall_has_cons.
   - apply (conv _ He'); names; reflexivity.
   - intros y b Hy; apply (conv (tvar y)); [constructor; exact Hy|].
-    rewrite <- (subst_tvar_ren _ _ _ (apply_var_weaken x y)); names; reflexivity.
+    replace (tvar (vshift_free x y)) with (subst ⟦ \ x as _ ⟧ (tvar y))
+        by (apply subst_tvar_rename, apply_var_weaken); names; reflexivity.
 Qed.
 
 (** A binder can be typed by opening with one chosen name. *)
-Lemma LAM' x {Γ body A B} : Γ & x ~ A ⊢ topen x body ~ B -> Γ ⊢ tlam body ~ Fn A B.
+Lemma LAM' x {Γ body A B} : Γ & x ~ A ⊢ subst ⟦ · \ x ⟧ body ~ B -> Γ ⊢ tlam body ~ Fn A B.
 Proof.
   intros H; apply LAM; intros y; apply (renaming1' y x).
   apply (conv _ H); destruct (label_compare_spec x y) as [<-|Hxy|Hxy]; names; reflexivity.
