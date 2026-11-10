@@ -1319,6 +1319,22 @@ Proof. rewrite kleisli_var; symmetry; apply apply_here_eval. Qed.
     node it cannot evaluate is shown as a substitution again. *)
 Global Hint Rewrite @kleisli_apply_under @apply_under @subst_compose : names_pre.
 Global Hint Rewrite @subst_tvar_eval @apply_here_eval : names_var.
-Global Hint Rewrite @subst_identity @eval_fold : names_post.
+(** Applying a payload adjustment [b ∘ ρ] is substituting with [b] after
+    applying [ρ]; the identity payload adjustment of a closed term does
+    nothing. *)
+Theorem psubst_pcompose {K M} (b : adj P K M) (ρ : padj P K) (u : P) :
+  psubst (pcompose b ρ) u = subst b (psubst ρ u).
+Proof.
+  unfold psubst; symmetry.
+  exact (papply_compose_depth (S (nnest (rpadj_n (padj_raw ρ)))) _ (Nat.lt_succ_diag_r _) K M K M b ext_here _ _ _ _ u).
+Qed.
+
+Theorem psubst_pid (u : P) : psubst (@pid P 0) u = u.
+Proof.
+  unfold psubst; transitivity (kleisli unit_m (@ext_here 0 0) u); [|apply kleisli_unit].
+  apply kleisli_ext; intros K L e w; apply papply_pidentity.
+Qed.
+
+Global Hint Rewrite @subst_identity @eval_fold @psubst_pcompose @psubst_pid : names_post.
 
 End Subst.

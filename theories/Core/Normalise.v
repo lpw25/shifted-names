@@ -1901,54 +1901,74 @@ Qed.
 
 (** *** Applying a single segment to a variable *)
 
-Definition seg_res (F : list (lexp * lexp)) (Sg : seg) (h : lexp) (i : nat) : option (lexp * nat) :=
+Definition seg_tgt (F : list (lexp * lexp)) (Sg : seg) (h : lexp) (i : nat) : option ntgt :=
   if sdistb F Sg then
     match sfind F h Sg with
-    | Some None => Some (h, i)
-    | Some (Some (ts, m)) =>
-        if i <? tlen ts then match tnth ts i with NVar h' j => Some (h', j) | _ => None end
-        else Some (h, i - tlen ts + m)
+    | Some None => Some (NVar h i)
+    | Some (Some (ts, m)) => Some (if i <? tlen ts then tnth ts i else NVar h (i - tlen ts + m))
     | None => None
     end
   else None.
 
-(** A variable through a word, from the right: past each lifted atom
-    only when the lifts pass it through. *)
-Fixpoint wres (F : list (lexp * lexp)) (w : word) (h : lexp) (i : nat) : option (lexp * nat) :=
+(** Where a word sends a variable, from the right: past each lifted atom
+    only when the lifts pass it through; a term only from the outermost
+    segment. *)
+Fixpoint wtgt (F : list (lexp * lexp)) (w : word) (h : lexp) (i : nat) : option ntgt :=
   match w with
-  | WEnd Sg => seg_res F Sg h i
+  | WEnd Sg => seg_tgt F Sg h i
   | WAtom Sg L a w =>
-      match wres F w h i with
-      | Some (h', j) => match lsub F h' (S j) L with Some _ => seg_res F Sg h' j | None => None end
-      | None => None
+      match wtgt F w h i with
+      | Some (NVar h' j) => match lsub F h' (S j) L with Some _ => seg_tgt F Sg h' j | None => None end
+      | _ => None
       end
   end.
 
 Definition apply_result (F : list (lexp * lexp)) (ntm : nat) (e : aexp) (h : lexp) (i : nat) : option (lexp * nat) :=
-  match anorm F ntm e with Some w => wres F w h i | None => None end.
+  match anorm F ntm e with
+  | Some w => match wtgt F w h i with Some (NVar h' j) => Some (h', j) | _ => None end
+  | None => None
+  end.
 
-Lemma seg_res_sound Sg h i h' j :
-  seg_res F Sg h i = Some (h', j) -> rapply (sden Sg) (mk_rvar (lden h) i) = inl (mk_rvar (lden h') j).
+(** A variable sent to a term with the identity payload adjustment after
+    [w]: the term and [w], for [names] to show [w]. *)
+Definition apply_payload (F : list (lexp * lexp)) (ntm : nat) (e : aexp) (h : lexp) (i : nat) : option (nat * word) :=
+  match anorm F ntm e with
+  | Some w => match wtgt F w h i with Some (NBind u wp None) => Some (u, wp) | _ => None end
+  | None => None
+  end.
+
+(** ... checked against the reified adjustment [eb] it was shown as. *)
+Definition apply_bind_check (F : list (lexp * lexp)) (ntm : nat) (e : aexp) (h : lexp) (i : nat) (eb : aexp) : option nat :=
+  match apply_payload F ntm e h i, anorm F ntm eb with
+  | Some (u, wp), Some wb =>
+      match pnormw F ntm None wp, pnormw F ntm None wb with
+      | Some w1, Some w2 => if word_eqb w1 w2 then Some u else None
+      | _, _ => None
+      end
+  | _, _ => None
+  end.
+
+Lemma seg_tgt_sound Sg h i t :
+  seg_tgt F Sg h i = Some t -> rapply (sden Sg) (mk_rvar (lden h) i) = rtarget_result (tden t).
 Proof.
-  unfold seg_res; destruct (sdistb F Sg) eqn:Ed; [|discriminate]; apply sdistb_sound in Ed.
+  unfold seg_tgt; destruct (sdistb F Sg) eqn:Ed; [|discriminate]; apply sdistb_sound in Ed.
   destruct (sfind F h Sg) as [r|] eqn:Ef; [|discriminate]; apply sfind_sound in Ef.
   rewrite rapply_sden by exact Ed; cbn [v_label v_index].
-  rewrite <- Ef; destruct r as [[ts m]|]; cbn [esem].
-  - destruct (i <? tlen ts); [|intros H; injection H as <- <-; reflexivity].
-    destruct (tnth ts i) as [h0 j0|]; [|discriminate]; intros H; injection H as <- <-; reflexivity.
-  - intros H; injection H as <- <-; reflexivity.
+  rewrite <- Ef; destruct r as [[ts m]|]; cbn [esem]; intros H; injection H as <-.
+  - destruct (i <? tlen ts); reflexivity.
+  - reflexivity.
 Qed.
 
-Lemma wres_sound w h i h' j :
-  wres F w h i = Some (h', j) -> rapply (wden w) (mk_rvar (lden h) i) = inl (mk_rvar (lden h') j).
+Lemma wtgt_sound w h i t :
+  wtgt F w h i = Some t -> rapply (wden w) (mk_rvar (lden h) i) = rtarget_result (tden t).
 Proof.
-  revert h' j; induction w as [Sg|Sg L a w IH] using word_spine; intros h' j; cbn [wres].
-  - rewrite wden_end; apply seg_res_sound.
-  - destruct (wres F w h i) as [[h1 j1]|] eqn:E; [|discriminate].
+  revert t; induction w as [Sg|Sg L a w IH] using word_spine; intros t; cbn [wtgt].
+  - rewrite wden_end; apply seg_tgt_sound.
+  - destruct (wtgt F w h i) as [[h1 j1|]|] eqn:E; try discriminate.
     destruct (lsub F h1 (S j1) L) as [L0|] eqn:EL; [|discriminate]; intros H.
-    rewrite wden_atom, !rapply_compose_cres, (IH _ _ eq_refl); cbn [cres].
+    rewrite wden_atom, !rapply_compose_cres, (IH _ eq_refl); cbn [tden rtarget_result cres].
     rewrite (lsub_sound _ _ _ _ (aden a) EL), iter_rlift_fix by lia; cbn [cres].
-    exact (seg_res_sound _ _ _ _ _ H).
+    exact (seg_tgt_sound _ _ _ _ H).
 Qed.
 
 Theorem apply_result_sound e h i h' j :
@@ -1956,7 +1976,25 @@ Theorem apply_result_sound e h i h' j :
   rapply (aeden e) (mk_rvar (lden h) i) = inl (mk_rvar (lden h') j).
 Proof.
   unfold apply_result; destruct (anorm F ntm e) as [w|] eqn:E; [|discriminate].
-  rewrite <- (proj1 anorm_sound _ _ E); apply wres_sound.
+  destruct (wtgt F w h i) as [[h1 j1|]|] eqn:Et; try discriminate; intros H; injection H as <- <-.
+  rewrite <- (proj1 anorm_sound _ _ E), (wtgt_sound _ _ _ _ Et); reflexivity.
+Qed.
+
+Theorem apply_bind_sound e h i eb u x :
+  apply_bind_check F ntm e h i eb = Some u -> nth_error tenv u = Some x ->
+  rapply (aeden e) (mk_rvar (lden h) i) = inr (x, rpcompose (aeden eb) rpidentity).
+Proof.
+  unfold apply_bind_check, apply_payload; destruct (anorm F ntm e) as [w|] eqn:E; [|discriminate].
+  destruct (wtgt F w h i) as [[|u0 wp [b|]]|] eqn:Et; try discriminate.
+  destruct (anorm F ntm eb) as [wb|] eqn:Eb; [|discriminate].
+  destruct (pnormw F ntm None wp) as [w1|] eqn:E1; [|discriminate].
+  destruct (pnormw F ntm None wb) as [w2|] eqn:E2; [|discriminate].
+  destruct (word_eqb w1 w2) eqn:Ew; [|discriminate]; intros H; injection H as <-; intros Hx.
+  apply (proj2 (proj2 (proj2 nf_eqb_eq))) in Ew; subst w2.
+  rewrite <- (proj1 anorm_sound _ _ E), (wtgt_sound _ _ _ _ Et), (tden_bind _ _ _ _ Hx); cbn [rtarget_result].
+  rewrite <- (proj1 anorm_sound _ _ Eb).
+  rewrite <- (pnormw_sound None wp w1 E1).
+  change (@rpidentity T) with (bden None); rewrite <- (pnormw_sound None wb w1 E2); reflexivity.
 Qed.
 
 End Sound.

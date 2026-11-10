@@ -79,7 +79,7 @@ Qed.
 Corollary substitution1 {Γ e e' A} x B : Γ & x ~ B ⊢ e ~ A -> Γ ⊢ e' ~ B -> Γ ⊢ subst ⟦ x := e' ⟧ e ~ A.
 Proof.
   intros He He'; apply (substitution He), forall_has_cons.
-  - apply (conv _ He'); symmetry; apply subst_tvar_bind, apply_var_subst_here.
+  - apply (conv _ He'); names; reflexivity.
   - intros y b Hy; apply (conv (tvar y)); [constructor; exact Hy|].
     rewrite <- (subst_tvar_ren _ _ _ (apply_var_weaken x y)); names; reflexivity.
 Qed.

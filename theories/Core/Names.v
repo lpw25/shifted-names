@@ -644,6 +644,20 @@ Ltac is_adj_expr a :=
   | at_scope _ => idtac
   end.
 
+(** The reifier sees term atoms after unfolding; they are shown as the
+    subterms of the original adjustment they came from. *)
+Ltac restore_term u a :=
+  match a with
+  | context [?v] => let _ := constr:(@eq_refl _ u : u = v) in v
+  | _ => u
+  end.
+
+Ltac restore_terms te a :=
+  lazymatch te with
+  | nil => te
+  | ?u :: ?r => let u' := restore_term u a in let r' := restore_terms r a in constr:(u' :: r')
+  end.
+
 (** Rewriting one adjustment to its normal form, shown as context forms;
     fails when it is already shown that way, or cannot be shown. *)
 Ltac names_rewrite a :=
@@ -665,8 +679,9 @@ Ltac names_rewrite a :=
               let d := eval vm_compute in (display_nf F (List.length te) (anorm F (List.length te) e)) in
               lazymatch d with
               | Some ?ps =>
+                  let te' := restore_terms te a in
                   let bb := fresh "b" in
-                  unshelve evar (bb : ty); [render_pieces le te ae ps|];
+                  unshelve evar (bb : ty); [render_pieces le te' ae ps|];
                   let b := eval cbv delta [bb] in bb in
                   clear bb;
                   tryif constr_eq a b then fail
@@ -713,6 +728,42 @@ Ltac names_var_eq t E :=
                                 refine (apply_result_sound le te ae pe F _ (List.length te) (le_n _) e eh i h' j _);
                                 [ unfold facts_ok; repeat constructor; cbn [lden nth]; assumption
                                 | vm_compute; reflexivity ])
+                      | None =>
+                          let pr := eval vm_compute in (apply_payload F (List.length te) e eh i) in
+                          lazymatch pr with
+                          | Some (?u, ?wp) =>
+                              let d := eval vm_compute in (display_nf F (List.length te) (Some wp)) in
+                              lazymatch d with
+                              | Some ?ps =>
+                                  let te' := restore_terms te a in
+                                  let bb := fresh "b" in
+                                  unshelve evar (bb : adj T 0 M); [render_pieces le te' ae ps|];
+                                  let b := eval cbv delta [bb] in bb in
+                                  clear bb;
+                                  let rb := eval cbn [adj_raw identity compose at_scope
+                                                      cnil cent cbnd csub csubb
+                                                      cnil_full cnil_short cent_full cent_short cbnd_full cbnd_short
+                                                      csub_full csub_short csubb_full csubb_short
+                                                      cform cform_id octx_den octx_probe ictx_den sctx_den nth slot_at slot_ix
+                                                      in_bound in_free out_bound out_free pctx_den pctx_pay noslot pcompose padj_raw pid
+                                                      to_target var_raw bvar bvar0 fvar lvar vdummy vshift_bound vshift_free] in (adj_raw b) in
+                                  lazymatch reify_adj_top rb (le, te, ae, pe) with
+                                  | (?eb, ?env3) =>
+                                      lazymatch collect_facts env3 (@nil (lexp * lexp)) with
+                                      | ((?le3, ?te3, ?ae3, ?pe3), ?F3) =>
+                                          let x := lnth te' u in
+                                          assert (E : apply_var a v = Bind x (pcompose b pid))
+                                            by (apply apply_var_bind; names_unfold;
+                                                change (rapply (aeden le3 te3 ae3 pe3 e) (mk_rvar (lden le3 eh) i)
+                                                        = inr (x, rpcompose (aeden le3 te3 ae3 pe3 eb) rpidentity));
+                                                refine (apply_bind_sound le3 te3 ae3 pe3 F3 _ (List.length te3) (le_n _) e eh i eb u x _ _);
+                                                [ unfold facts_ok; repeat constructor; cbn [lden nth]; assumption
+                                                | vm_compute; reflexivity
+                                                | reflexivity ])
+                                      end
+                                  end
+                              end
+                          end
                       end
                   end
               end
@@ -746,6 +797,7 @@ Ltac names_eval :=
       | _ = Rename ?w =>
           rewrite (@eval_rename T N M R f g a v w E); clear E;
           let r := eval cbn in (f w) in change (f w) with r
+      | _ = Bind ?x ?ρ => rewrite (@eval_bind T N M R f g a v x ρ E); clear E
       end
   end.
 
@@ -758,10 +810,17 @@ Ltac names_eval :=
        normal form, shown as context forms;
     3. evaluates [apply_var a v] and [eval] nodes for variables the normal
        form of [a] renames;
-    4. rewrites with [names_post]: identity substitutions go, and an
-       [eval] node left is shown as a substitution again. *)
-Ltac names :=
+    4. rewrites with [names_post]: identity substitutions go, a payload
+       result [u⟨b ∘ id⟩] becomes [subst b u], and an [eval] node left is
+       shown as a substitution again;
+    and repeats this until nothing changes: a pass after the first only
+    finds work in terms that payload results put in the goal.
+    Variables that the normal form sends to a term are evaluated as well,
+    the payload adjustment shown as an adjustment. *)
+Ltac names_pass :=
   repeat progress (autorewrite with names_pre; cbn [ext_shift]);
   autorewrite with names_var;
   names_adjs; names_apply; names_eval;
   autorewrite with names_post.
+
+Ltac names := repeat progress names_pass.

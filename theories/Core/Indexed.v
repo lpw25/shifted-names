@@ -204,6 +204,14 @@ Definition pcompose {M K} (a : adj T M K) (ρ : padj T M) : padj T K :=
   mk_padj (rpcompose (adj_raw a) (padj_raw ρ))
     (Is_true_s_intro (pscoped_pcompose M K _ _ (adj_scoped a) (Is_true_s_elim (padj_ok ρ)))).
 
+Lemma apply_var_bind {N M K} (a : adj T N M) (v : var N) (u : T) (b : adj T K M) (ρ : padj T K) :
+  rapply (adj_raw a) (var_raw v) = inr (u, rpcompose (adj_raw b) (padj_raw ρ)) ->
+  apply_var a v = Bind u (pcompose b ρ).
+Proof.
+  unfold apply_var; generalize (apply_wf a v); unfold apply; intros H E.
+  revert H; rewrite E; intros H; f_equal; apply padj_eq; reflexivity.
+Qed.
+
 End Indexed.
 
 (** ** Context forms
