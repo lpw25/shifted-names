@@ -93,60 +93,47 @@ compute, so closed equations hold by `vm_compute` (`Tests/CoreTests.v`).
 ### The `names` tactic (`Core/Normalise.v`, `Core/Names.v`)
 
 `names` normalises; it does not close goals (`names; reflexivity` or
-`names; easy` does). Until nothing changes, it rewrites with the rewrite
-database `names` and normalises adjustments. The database holds the laws
-of substitution, which the `Subst` functor adds for every syntax
-(`subst a (subst b t) = subst (a ∘ b) t`, `subst ⟦⟧ t = t`), and whatever
-a syntax adds itself: the λ example adds pushing `subst` through its
-constructors and seeing `topen`, `tclose` and `tinst` as substitutions.
-`names` itself knows nothing about any term language. It rewrites every
-adjustment in the goal built from
-context forms, `∘`, `⟦⟧` and `at_scope` (any other adjustment is an
-atom) to its normal form, shown as context forms, and then every
-`apply_var a v` whose result that normal form gives.
+`names; easy` does). It knows nothing about any term language: `subst` is
+an abbreviation for the Kleisli extension of the library's `apply` at the
+top, users push it through their own constructors with `cbn`, and a
+syntax's `Subst` functor contributes only monad laws, in three rewrite
+databases. One pass of `names`:
 
-For each adjustment it:
+1. rewrites with `names_pre` to a fixpoint: going under a binder lifts
+   the adjustment (`kleisli (apply a) (ext_under e) = kleisli (apply (lift
+   a)) (ext_shift e)`, and the same for `apply` on a variable), and nested
+   substitutions fuse (`subst a (subst b t) = subst (a ∘ b) t`);
+2. rewrites with `names_var`: substituting into a variable is the core
+   node `eval tvar psubst a v` (`subst a (tvar v)`, and `apply a ext_here
+   v` as `cbn` leaves it);
+3. rewrites every adjustment built from context forms, `∘`, `⟦⟧` and
+   `at_scope` (anything else is an atom) to its normal form
+   (`docs/normal-forms.md`), shown as context forms, lifts grouped;
+4. evaluates `apply_var a v` and `eval` nodes whose variable `v` is
+   concrete and whose result the normal form of `a` determines: a
+   variable `w` gives `tvar w`; a term `u` with payload adjustment `ρ`
+   gives `psubst ρ u`, with `ρ` shown as `pcompose b pid`;
+5. rewrites with `names_post`: `subst ⟦⟧ t = t`, `psubst (pcompose b ρ) u
+   = subst b (psubst ρ u)`, `psubst pid u = u`, and an `eval` node left
+   is shown as `subst a (tvar v)` again.
 
-1. unfolds it to the core's raw constructors and reifies it, with label,
-   adjustment and term atoms, collecting the order facts `label_lt x y`
-   from the context;
-2. computes its normal form (below) by a Gallina function;
-3. turns the normal form into a display description: segments expanded
-   so every target is a slot, inputs written positionally where the order
-   allows, a segment merged with the lifted atom after it into one form
-   with that tail when the lifts match its inputs, and the short form
-   where it says the same;
-4. renders that as a context-form term and proves the rewrite by deciding
-   the equation (normal forms compared, `nf_eq_sound`).
+`names` repeats passes until nothing changes; a pass after the first only
+finds work in the terms that step 4 put in the goal.
 
-An adjustment it cannot normalise (a label order it needs is missing) or
-display (a payload whose adjustment has atoms) is left as it is.
-
-The normal form is a *word*
-
-    S₀ ∘ ⇑ᴸ¹σ₁ ∘ S₁ ∘ … ∘ ⇑ᴸⁿσₙ ∘ Sₙ
-
-where each `Sᵢ` is a segment (a context form with the identity tail: per
-label, its input targets and its number of outputs, labels in order) and
-each `σᵢ` an atom under a multiset of lifts `Lᵢ`. The rules:
-
-- adjacent segments are composed into one;
-- lifts are pushed onto atoms and segments (`⇑(a ∘ b) = ⇑a ∘ ⇑b`);
-- an input entry in front of a composite goes into its first segment over
-  a lift of the rest: `push_inner h t (S ∘ X) = push_inner h t S ∘ ⇑ₕX`;
-- `⇑ₕσ ∘ shiftₕ = shiftₕ ∘ σ`: a shift right of a lifted atom moves left
-  ("settling"), so the segment right of a lift by `h` always reaches
-  `h₍₀₎`;
-- transparent entries are dropped, and payload adjustments over the
-  identity payload forget their last segment's bound entry, because only
-  named variables reach them.
+For each adjustment, step 3 unfolds it to the core's raw constructors
+and reifies it (label, adjustment and term atoms, and the order facts
+`label_lt x y` in the context), computes its normal form by a Gallina
+function, turns that into a display description, renders it as context
+forms (term atoms as they were written), and proves the rewrite by
+deciding the equation (`nf_eq_sound`). An adjustment it cannot normalise
+(a label order it needs is missing) or display (a payload whose
+adjustment has atoms) is left as it is.
 
 Every comparison between labels goes through `lcmp`, which knows concrete
 labels, the bound label (the greatest), and the context's facts closed
-under transitivity; when a comparison it needs is unknown, normalisation
-fails, and the adjustment is left as it is rather than guessed at. Soundness
-(`nf_eq_sound`) is proved and closed under the global context. Uniqueness
-of normal forms is not proved.
+under transitivity. Soundness is proved. Uniqueness of normal forms is
+not proved; `tests/fuzz` searches for expressions that agree under many
+interpretations of their atoms but normalise differently.
 
 ## Representation
 
