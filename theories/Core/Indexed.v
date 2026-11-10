@@ -31,6 +31,55 @@ Definition bvar {M} (i : nat) (H : Is_true_s (Nat.ltb i M)) : var M := @mk_var M
 Definition bvar0 {M} : var (S M) := @mk_var (S M) (mk_rvar None 0) stt.
 Definition fvar {M} (x : label) (i : nat) : var M := @mk_var M (mk_rvar (Some x) i) stt.
 
+(** *** Notation for variables
+
+    A named variable prints as its label with its index as a superscript:
+    [x] for [x₀] (a label is coerced to its first variable), [x¹] to [x⁹],
+    and [x ^ n] otherwise.  Bound variables are [·], [·¹], ..., [· ^ n]. *)
+
+(** The scope of a bound variable is taken from where it is used, before
+    its proof of being in scope is checked. *)
+Arguments bvar {M} & i H.
+
+Definition lvar {M} (x : label) : var M := fvar x 0.
+Coercion lvar : label >-> var.
+
+Declare Scope var_scope.
+Delimit Scope var_scope with var.
+Bind Scope var_scope with var.
+
+Notation "x ¹" := (fvar x 1) (at level 1, format "x ¹") : var_scope.
+Notation "'·' ¹" := (bvar 1 stt) (only parsing) : var_scope.
+Notation "'·' ¹" := (bvar 1 _) (only printing, format "· ¹") : var_scope.
+Notation "x ²" := (fvar x 2) (at level 1, format "x ²") : var_scope.
+Notation "'·' ²" := (bvar 2 stt) (only parsing) : var_scope.
+Notation "'·' ²" := (bvar 2 _) (only printing, format "· ²") : var_scope.
+Notation "x ³" := (fvar x 3) (at level 1, format "x ³") : var_scope.
+Notation "'·' ³" := (bvar 3 stt) (only parsing) : var_scope.
+Notation "'·' ³" := (bvar 3 _) (only printing, format "· ³") : var_scope.
+Notation "x ⁴" := (fvar x 4) (at level 1, format "x ⁴") : var_scope.
+Notation "'·' ⁴" := (bvar 4 stt) (only parsing) : var_scope.
+Notation "'·' ⁴" := (bvar 4 _) (only printing, format "· ⁴") : var_scope.
+Notation "x ⁵" := (fvar x 5) (at level 1, format "x ⁵") : var_scope.
+Notation "'·' ⁵" := (bvar 5 stt) (only parsing) : var_scope.
+Notation "'·' ⁵" := (bvar 5 _) (only printing, format "· ⁵") : var_scope.
+Notation "x ⁶" := (fvar x 6) (at level 1, format "x ⁶") : var_scope.
+Notation "'·' ⁶" := (bvar 6 stt) (only parsing) : var_scope.
+Notation "'·' ⁶" := (bvar 6 _) (only printing, format "· ⁶") : var_scope.
+Notation "x ⁷" := (fvar x 7) (at level 1, format "x ⁷") : var_scope.
+Notation "'·' ⁷" := (bvar 7 stt) (only parsing) : var_scope.
+Notation "'·' ⁷" := (bvar 7 _) (only printing, format "· ⁷") : var_scope.
+Notation "x ⁸" := (fvar x 8) (at level 1, format "x ⁸") : var_scope.
+Notation "'·' ⁸" := (bvar 8 stt) (only parsing) : var_scope.
+Notation "'·' ⁸" := (bvar 8 _) (only printing, format "· ⁸") : var_scope.
+Notation "x ⁹" := (fvar x 9) (at level 1, format "x ⁹") : var_scope.
+Notation "'·' ⁹" := (bvar 9 stt) (only parsing) : var_scope.
+Notation "'·' ⁹" := (bvar 9 _) (only printing, format "· ⁹") : var_scope.
+Notation "x ^ n" := (fvar x n) : var_scope.
+Notation "x" := (fvar x 0) (only printing, at level 1, x at level 0) : var_scope.
+Notation "'·' ^ n" := (bvar n _) (only printing, at level 30) : var_scope.
+Notation "'·'" := bvar0 : var_scope.
+
 Record padj (T : Type) (M : nat) : Type :=
   mk_padj { padj_raw : rpadj T; padj_ok : Is_true_s (pscoped M padj_raw) }.
 
