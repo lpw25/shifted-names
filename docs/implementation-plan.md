@@ -830,6 +830,13 @@ the items listed under D12 remain.
   Barendregt's lemma and CPS type preservation, using only public modules.
   **This is the acceptance test.**
 - Port the TyDE examples, and compare proof size and run time with `master`.
+- **Redesign the context API** (to revisit with the user; expected to
+  change a lot). The current one leaks implementation details into user
+  proofs: context morphisms are stated with `apply_var`/`Rename`, and
+  extending a context hands back variables built with `vshift_free`.
+  User code should need nothing from the library beyond `names` and the
+  context API itself, and should not see `apply_var`, `Rename` or
+  `vshift`.
 
 ### Stage 11: write-up
 
