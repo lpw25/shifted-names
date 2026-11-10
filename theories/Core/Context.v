@@ -162,6 +162,30 @@ Proof.
   injection E as <-; reflexivity.
 Qed.
 
+(** What some context forms do to variables. *)
+Lemma apply_var_weaken {N} x (v : var N) : apply_var (⟦ \ x as _ ⟧ : adj T N N) v = Rename (vshift_free x v).
+Proof.
+  apply apply_var_rename; change (adj_raw (⟦ \ x as _ ⟧ : adj T N N)) with (rpush_outer (Some x) (@ridentity T)).
+  rewrite rapply_push_outer, rapply_identity; reflexivity.
+Qed.
+
+Lemma apply_var_under_here {N M} x y (σ : adj T N M) :
+  apply_var ⟦ x | Γ \ y | Γ[σ] ⟧ (fvar x 0) = Rename (fvar y 0).
+Proof.
+  apply apply_var_rename; change (adj_raw ⟦ x | Γ \ y | Γ[σ] ⟧)
+    with (rpush_inner (Some x) (RRename (mk_rvar (Some y) 0)) (rpush_outer (Some y) (adj_raw σ))).
+  rewrite rapply_push_inner; cbn [var_raw fvar]; rewrite rvar_eqb_refl; reflexivity.
+Qed.
+
+Lemma apply_var_subst_here {N} x (u : T) : apply_var (⟦ x := u ⟧ : adj T N N) (fvar x 0) = Bind u pid.
+Proof.
+  unfold apply_var; generalize (apply_wf (⟦ x := u ⟧ : adj T N N) (fvar x 0)); unfold apply.
+  change (adj_raw (⟦ x := u ⟧ : adj T N N))
+    with (rpush_inner (Some x) (RBind u (rpcompose (@ridentity T) rpidentity)) (@ridentity T)).
+  rewrite rapply_push_inner; cbn [var_raw fvar]; rewrite rvar_eqb_refl; cbn [rtarget_result].
+  intros H; f_equal; apply padj_eq; cbn [padj_raw pid]; apply rpcompose_identity.
+Qed.
+
 (** [Γ =[σ]=> Δ]: [σ] renames every variable of [Γ] to one of [Δ] with the
     same value. *)
 Definition ctx_map {N M} (Γ : ctx A) (σ : adj T N M) (Δ : ctx A) : Prop :=

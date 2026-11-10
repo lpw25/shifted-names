@@ -136,3 +136,21 @@ Example payload_to_slot :
   | inl _ => (inl (mk_rvar None 0), inl (mk_rvar None 0))
   end = (inl (mk_rvar (Some "x") 0), inl (mk_rvar (Some "x") 1)).
 Proof. vm_compute; reflexivity. Qed.
+
+(** Renamings commute with lifts: the lift moves to the label the renaming
+    takes the lifted variable from. *)
+Section Commute.
+Context {T : Type}.
+
+Example open_commutes_lift {N M} x (σ : adj T N M) : ⟦ x | σ ⟧ ∘ ⟦ · \ x ⟧ = ⟦ · \ x ⟧ ∘ ⟦ · | σ ⟧.
+Proof. names; reflexivity. Qed.
+
+Example rename_commutes_lift {N M} x y (σ : adj T N M) :
+  label_lt x y -> ⟦ y | σ ⟧ ∘ ⟦ x \ y ⟧ = ⟦ x \ y ⟧ ∘ ⟦ x | σ ⟧.
+Proof. intros; names; reflexivity. Qed.
+
+Example swap_commutes_lift {N M} x y (σ : adj T N M) :
+  label_lt x y -> ⟦ x; y | σ ⟧ ∘ ⟦ x as a; y as b \ y as b; x as a ⟧ = ⟦ x as a; y as b \ y as b; x as a ⟧ ∘ ⟦ x; y | σ ⟧.
+Proof. intros; names; reflexivity. Qed.
+
+End Commute.

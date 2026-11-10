@@ -19,10 +19,17 @@
 
       push_inner h t (S ∘ X) = push_inner h t S ∘ ⇑ₕX.
 
-    Two adjacent segments are always composed into one.  Where an atom
-    lifted by [h] is followed by a segment that skips [h₍₀₎], the shift
-    moves out to the left ([⇑ₕσ ∘ shiftₕ = shiftₕ ∘ σ]), so the segment to
-    the right of a lift by [h] always reaches [h₍₀₎].
+    Two adjacent segments are always composed into one.  The segment to
+    the right of a lifted atom is settled against its lifts, so that it
+    takes each variable the lifts pass through from that variable only,
+    where it can: a lifted variable it skips moves out to the left as a
+    shift ([⇑ₕσ ∘ shiftₕ = shiftₕ ∘ σ]); one it takes from [g₍₀₎] only
+    turns the lift by [h] into a lift by [g], the renaming moving to the
+    left ([⇑ₕσ ∘ push_inner g h₍₀₎ (shiftₕ ∘ U) =
+    push_inner g h₍₀₎ shiftₕ ∘ ⇑_g σ ∘ ⇑_g U]); and one it takes from
+    itself is peeled off ([⇑ₕσ ∘ ⇑ₕU = ⇑ₕ(σ ∘ U)]) and the rest settled
+    underneath.  So [⟦ x | σ ⟧ ∘ ⟦ · \ x ⟧] and [⟦ · \ x ⟧ ∘ ⟦ · | σ ⟧]
+    have the same normal form.
 
     ** Labels
 
@@ -674,43 +681,6 @@ Fixpoint try_unshift (h : lexp) (U : seg) (k : nat) : option (nat * seg) :=
       end
   end.
 
-Definition settle1 (h : lexp) (st : seg * list (lexp * nat) * seg) : option (seg * list (lexp * nat) * seg) :=
-  let '(A, L, U) := st in
-  match try_unshift h U (lcount h L) with
-  | None => Some st
-  | Some (k, U') =>
-      match scomp A (shseg h k), lsub h k L with
-      | Some A', Some L' => Some (A', L', U')
-      | _, _ => None
-      end
-  end.
-
-Fixpoint settle_all (hs : list lexp) (st : seg * list (lexp * nat) * seg) : option (seg * list (lexp * nat) * seg) :=
-  match hs with
-  | [] => Some st
-  | h :: hs => match settle1 h st with Some st' => settle_all hs st' | None => None end
-  end.
-
-Definition whead (w : word) : seg := match w with WEnd s | WAtom s _ _ _ => s end.
-
-Definition wsethead (w : word) (s : seg) : word :=
-  match w with WEnd _ => WEnd s | WAtom _ L a w => WAtom s L a w end.
-
-(** [S ∘ ⇑ᴸσ ∘ w], settled. *)
-Definition settle (A : seg) (L : list (lexp * nat)) (a : nat) (w : word) : option word :=
-  match settle_all (map fst L) (A, L, whead w) with
-  | Some (A', L', U') => Some (WAtom A' L' a (wsethead w U'))
-  | None => None
-  end.
-
-(** *** The constructors on normal forms *)
-
-Fixpoint wcomp (w1 w2 : word) : option word :=
-  match w1 with
-  | WEnd A => wcons A w2
-  | WAtom A L a w => match wcomp w w2 with Some w' => settle A L a w' | None => None end
-  end.
-
 Definition sfront (h : lexp) (t : ntgt) (s : seg) : option seg :=
   if sdistb s then
     match sfind h s with
@@ -721,6 +691,129 @@ Definition sfront (h : lexp) (t : ntgt) (s : seg) : option seg :=
 
 Definition slift (h : lexp) (s : seg) : option seg :=
   match scomp (shseg h 1) s with Some s' => sfront h (NVar h 0) s' | None => None end.
+
+(** A segment [U] whose [h₍₀₎] comes from [g₍₀₎] only:
+    [U = push_inner g h₍₀₎ (shiftₕ ∘ U₂)].  Found from the entry whose
+    first target is [h₍₀₎], and checked by composing back. *)
+Fixpoint sfirst (h : lexp) (s : seg) : option (lexp * tlist * nat) :=
+  match s with
+  | SNil => None
+  | SEnt g (TCons (NVar h' 0) ts) m r => if lexp_eqb h' h then Some (g, ts, m) else sfirst h r
+  | SEnt _ _ _ r => sfirst h r
+  end.
+
+Definition sfrom (h : lexp) (U : seg) : option (lexp * seg) :=
+  match sfirst h U with
+  | None => None
+  | Some (g, ts, m) =>
+      match sset g ts m U with
+      | None => None
+      | Some U1 =>
+          match try_unshift h U1 1, sfront g (NVar h 0) U1 with
+          | Some (_, U2), Some U' => if seg_eqb U' U then Some (g, U2) else None
+          | _, _ => None
+          end
+      end
+  end.
+
+(** One step on the lifts by [h] of [S ∘ ⇑ᴸσ ∘ U]: when [U] skips
+    [h₍₀₎] the shift moves out to the left
+    ([⇑ₕσ ∘ shiftₕ = shiftₕ ∘ σ]); when [U] takes [h₍₀₎] from [g₍₀₎]
+    only, the lift is by [g] instead, the renaming moving to the left
+    ([⇑ₕσ ∘ push_inner g h₍₀₎ (shiftₕ ∘ U₂) =
+      push_inner g h₍₀₎ shiftₕ ∘ ⇑_g σ ∘ ⇑_g U₂]). *)
+Definition sstep1 (h : lexp) (st : seg * list (lexp * nat) * seg) : option (seg * list (lexp * nat) * seg) :=
+  let '(A, L, U) := st in
+  match try_unshift h U (lcount h L) with
+  | Some (k, U') =>
+      match scomp A (shseg h k), lsub h k L with
+      | Some A', Some L' => Some (A', L', U')
+      | _, _ => None
+      end
+  | None =>
+      match sfrom h U with
+      | Some (g, U2) =>
+          if lexp_eqb g h then None else
+          match sfront g (NVar h 0) (shseg h 1) with
+          | None => None
+          | Some P =>
+              match scomp A P, lsub h 1 L with
+              | Some A', Some L0 =>
+                  match ladd g 1 L0, slift g U2 with
+                  | Some L', Some U' => Some (A', L', U')
+                  | _, _ => None
+                  end
+              | _, _ => None
+              end
+          end
+      | None => None
+      end
+  end.
+
+Fixpoint sstep (hs : list lexp) (st : seg * list (lexp * nat) * seg) : option (seg * list (lexp * nat) * seg) :=
+  match hs with
+  | [] => None
+  | h :: hs => match sstep1 h st with Some st' => Some st' | None => sstep hs st end
+  end.
+
+(** A lift by [h] whose [h₍₀₎] [U] takes from [h₍₀₎] only:
+    [U = ⇑ₕU₂], and [⇑ₕσ ∘ ⇑ₕU₂ = ⇑ₕ(σ ∘ U₂)] is settled inside. *)
+Fixpoint speel (hs : list lexp) (L : list (lexp * nat)) (U : seg) : option (lexp * list (lexp * nat) * seg) :=
+  match hs with
+  | [] => None
+  | h :: hs =>
+      match sfrom h U with
+      | Some (g, U2) =>
+          if lexp_eqb g h then
+            match lsub h 1 L with Some L0 => Some (h, L0, U2) | None => speel hs L U end
+          else speel hs L U
+      | None => speel hs L U
+      end
+  end.
+
+(** Settling [S ∘ ⇑ᴸσ ∘ U]: steps first, then peeling, until the segment
+    to the right of the atom takes each lifted variable from itself only,
+    where it can. *)
+Fixpoint settle_rec (fuel : nat) (st : seg * list (lexp * nat) * seg) : seg * list (lexp * nat) * seg :=
+  match fuel with
+  | 0 => st
+  | S f =>
+      let '(A, L, U) := st in
+      match sstep (map fst L) st with
+      | Some st' => settle_rec f st'
+      | None =>
+          match speel (map fst L) L U with
+          | None => st
+          | Some (h, L0, U0) =>
+              let '(A2, L2, U2) := settle_rec f (SNil, L0, U0) in
+              match slift h A2, ladd h 1 L2, slift h U2 with
+              | Some A2', Some L', Some U' =>
+                  match scomp A A2' with Some A' => (A', L', U') | None => st end
+              | _, _, _ => st
+              end
+          end
+      end
+  end.
+
+Definition lsize (L : list (lexp * nat)) : nat := fold_right (fun '(_, n) acc => n + acc) 0 L.
+
+Definition whead (w : word) : seg := match w with WEnd s | WAtom s _ _ _ => s end.
+
+Definition wsethead (w : word) (s : seg) : word :=
+  match w with WEnd _ => WEnd s | WAtom _ L a w => WAtom s L a w end.
+
+(** [S ∘ ⇑ᴸσ ∘ w], settled. *)
+Definition settle (A : seg) (L : list (lexp * nat)) (a : nat) (w : word) : option word :=
+  let '(A', L', U') := settle_rec (3 * lsize L + 3) (A, L, whead w) in
+  Some (WAtom A' L' a (wsethead w U')).
+
+(** *** The constructors on normal forms *)
+
+Fixpoint wcomp (w1 w2 : word) : option word :=
+  match w1 with
+  | WEnd A => wcons A w2
+  | WAtom A L a w => match wcomp w w2 with Some w' => settle A L a w' | None => None end
+  end.
 
 Fixpoint wlift (h : lexp) (w : word) : option word :=
   match w with
@@ -1258,79 +1351,6 @@ Definition shiftk (h : option label) (k : nat) : radj T := iter k (rpush_outer h
 Lemma sden_shseg h k : sden (shseg h k) = shiftk (lden h) k.
 Proof. reflexivity. Qed.
 
-Lemma lift_shiftk h k (a : radj T) : rcompose (iter k (rlift h) a) (shiftk h k) = rcompose (shiftk h k) a.
-Proof.
-  induction k as [|k IH]; cbn [iter shiftk]; [rewrite rcompose_identity_l, rcompose_identity_r; reflexivity|].
-  fold (shiftk h k); rewrite !(rpush_outer_as_compose h (shiftk h k)).
-  rewrite rcompose_assoc, rcompose_lift_shift, <- rcompose_assoc, IH, rcompose_assoc; reflexivity.
-Qed.
-
-Lemma assoc_move (A Sh Y Z U rest : radj T) :
-  rcompose Z Sh = rcompose Sh Y ->
-  rcompose A (rcompose Z (rcompose (rcompose Sh U) rest)) = rcompose (rcompose A Sh) (rcompose Y (rcompose U rest)).
-Proof.
-  intros H; rewrite <- (rcompose_assoc Sh U rest), (rcompose_assoc Z Sh), H.
-  rewrite <- (rcompose_assoc Sh Y), (rcompose_assoc A Sh); reflexivity.
-Qed.
-
-Lemma try_unshift_sound h U k k' U' :
-  try_unshift F ntm h U k = Some (k', U') -> sden U = rcompose (shiftk (lden h) k') (sden U').
-Proof.
-  induction k as [|k IH]; cbn [try_unshift]; [discriminate|].
-  destruct (scomp F ntm (unseg h (S k)) U) as [U1|] eqn:E1; [|apply IH].
-  destruct (scomp F ntm (shseg h (S k)) U1) as [U2|] eqn:E2; [|apply IH].
-  destruct (seg_eqb U2 U) eqn:Eq; [|apply IH].
-  intros H; injection H as <- <-; apply (proj1 (proj2 (proj2 nf_eqb_eq))) in Eq; subst U2.
-  rewrite (proj2 (scomp_sound _ _ _ E2)); reflexivity.
-Qed.
-
-Definition stden (st : seg * list (lexp * nat) * seg) (x rest : radj T) : radj T :=
-  let '(A, L, U) := st in rcompose (sden A) (rcompose (lifts L x) (rcompose (sden U) rest)).
-
-Lemma settle1_sound h st st' (x rest : radj T) : settle1 F ntm h st = Some st' -> stden st' x rest = stden st x rest.
-Proof.
-  destruct st as [[A L] U]; unfold settle1.
-  destruct (try_unshift F ntm h U (lcount h L)) as [[k U']|] eqn:Et; [|intros H; injection H as <-; reflexivity].
-  destruct (scomp F ntm A (shseg h k)) as [A'|] eqn:EA; [|discriminate].
-  destruct (lsub F h k L) as [L'|] eqn:EL; [|discriminate]; intros H; injection H as <-; cbn [stden].
-  rewrite (try_unshift_sound _ _ _ _ _ Et), (lsub_sound _ _ _ _ x EL), (proj2 (scomp_sound _ _ _ EA)), sden_shseg.
-  symmetry; apply assoc_move, lift_shiftk.
-Qed.
-
-Lemma settle_all_sound hs st st' (x rest : radj T) : settle_all F ntm hs st = Some st' -> stden st' x rest = stden st x rest.
-Proof.
-  revert st; induction hs as [|h hs IH]; intros st; cbn [settle_all]; [congruence|].
-  destruct (settle1 F ntm h st) as [st1|] eqn:E; [|discriminate]; intros H.
-  rewrite (IH _ H); apply (settle1_sound _ _ _ _ _ E).
-Qed.
-
-Definition wrest (w : word) : radj T :=
-  match w with WEnd _ => ridentity | WAtom _ L a w => rcompose (lifts L (aden a)) (wden w) end.
-
-Lemma wden_head w : wden w = rcompose (sden (whead w)) (wrest w).
-Proof. destruct w; cbn [whead wrest]; [rewrite wden_end, rcompose_identity_r|rewrite wden_atom]; reflexivity. Qed.
-
-Lemma wden_sethead w U : wden (wsethead w U) = rcompose (sden U) (wrest w).
-Proof. destruct w; cbn [wsethead wrest]; [rewrite wden_end, rcompose_identity_r|rewrite wden_atom]; reflexivity. Qed.
-
-Lemma settle_sound A L a w w' :
-  settle F ntm A L a w = Some w' -> wden w' = rcompose (sden A) (rcompose (lifts L (aden a)) (wden w)).
-Proof.
-  unfold settle; destruct (settle_all F ntm (map fst L) (A, L, whead w)) as [[[A' L'] U']|] eqn:E; [|discriminate].
-  intros H; injection H as <-; pose proof (settle_all_sound _ _ _ (aden a) (wrest w) E) as Hs; cbn [stden] in Hs.
-  rewrite wden_atom, wden_sethead, Hs, <- (wden_head w); reflexivity.
-Qed.
-
-(** *** The constructors *)
-
-Lemma wcomp_sound w1 w2 w : wcomp F ntm w1 w2 = Some w -> wden w = rcompose (wden w1) (wden w2).
-Proof.
-  revert w; induction w1 as [A|A L a w1 IH] using word_spine; intros w; cbn [wcomp].
-  - intros H; rewrite (wcons_sound _ _ _ H); reflexivity.
-  - destruct (wcomp F ntm w1 w2) as [w'|] eqn:E; [|discriminate]; intros H.
-    rewrite (settle_sound _ _ _ _ _ H), (IH _ eq_refl), wden_atom, !rcompose_assoc; reflexivity.
-Qed.
-
 Lemma sfront_sound h t s s' :
   sfront F h t s = Some s' -> sdist s' /\ sden s' = rpush_inner (lden h) (tden t) (sden s).
 Proof.
@@ -1360,17 +1380,60 @@ Proof.
   unfold shiftk; cbn [iter]; rewrite rcompose_identity_push_outer; reflexivity.
 Qed.
 
-Lemma wlift_sound h w w' : wlift F ntm h w = Some w' -> wden w' = rlift (lden h) (wden w).
+Lemma lift_shiftk h k (a : radj T) : rcompose (iter k (rlift h) a) (shiftk h k) = rcompose (shiftk h k) a.
 Proof.
-  revert w'; induction w as [s|s L a w IH] using word_spine; intros w'; cbn [wlift].
-  - destruct (slift F ntm h s) as [s'|] eqn:E; [|discriminate]; intros H; injection H as <-.
-    rewrite !wden_end; apply (slift_sound _ _ _ E).
-  - destruct (slift F ntm h s) as [s'|] eqn:Es; [|discriminate].
-    destruct (ladd F h 1 L) as [L'|] eqn:EL; [|discriminate].
-    destruct (wlift F ntm h w) as [w1|] eqn:Ew; [|discriminate]; intros H; injection H as <-.
-    rewrite !wden_atom, (slift_sound _ _ _ Es), (ladd_sound _ _ _ _ _ EL), (IH _ eq_refl); cbn [iter].
-    rewrite !rlift_compose; reflexivity.
+  induction k as [|k IH]; cbn [iter shiftk]; [rewrite rcompose_identity_l, rcompose_identity_r; reflexivity|].
+  fold (shiftk h k); rewrite !(rpush_outer_as_compose h (shiftk h k)).
+  rewrite rcompose_assoc, rcompose_lift_shift, <- rcompose_assoc, IH, rcompose_assoc; reflexivity.
 Qed.
+
+Lemma assoc_move (A Sh Y Z U rest : radj T) :
+  rcompose Z Sh = rcompose Sh Y ->
+  rcompose A (rcompose Z (rcompose (rcompose Sh U) rest)) = rcompose (rcompose A Sh) (rcompose Y (rcompose U rest)).
+Proof.
+  intros H; rewrite <- (rcompose_assoc Sh U rest), (rcompose_assoc Z Sh), H.
+  rewrite <- (rcompose_assoc Sh Y), (rcompose_assoc A Sh); reflexivity.
+Qed.
+
+Lemma try_unshift_sound h U k k' U' :
+  try_unshift F ntm h U k = Some (k', U') -> sden U = rcompose (shiftk (lden h) k') (sden U').
+Proof.
+  induction k as [|k IH]; cbn [try_unshift]; [discriminate|].
+  destruct (scomp F ntm (unseg h (S k)) U) as [U1|] eqn:E1; [|apply IH].
+  destruct (scomp F ntm (shseg h (S k)) U1) as [U2|] eqn:E2; [|apply IH].
+  destruct (seg_eqb U2 U) eqn:Eq; [|apply IH].
+  intros H; injection H as <- <-; apply (proj1 (proj2 (proj2 nf_eqb_eq))) in Eq; subst U2.
+  rewrite (proj2 (scomp_sound _ _ _ E2)); reflexivity.
+Qed.
+
+Definition stden (st : seg * list (lexp * nat) * seg) (x rest : radj T) : radj T :=
+  let '(A, L, U) := st in rcompose (sden A) (rcompose (lifts L x) (rcompose (sden U) rest)).
+
+Lemma try_unshift_one h U k U' : try_unshift F ntm h U 1 = Some (k, U') -> k = 1.
+Proof.
+  cbn [try_unshift]; destruct (scomp _ _ _ _); [|discriminate].
+  destruct (scomp _ _ _ _); [|discriminate]; destruct (seg_eqb _ _); congruence.
+Qed.
+
+Lemma sfrom_sound h U g U2 :
+  sfrom F ntm h U = Some (g, U2) ->
+  sden U = rpush_inner (lden g) (RRename (mk_rvar (lden h) 0)) (rcompose (shiftk (lden h) 1) (sden U2)).
+Proof.
+  unfold sfrom; destruct (sfirst h U) as [[[g' ts] m]|]; [|discriminate].
+  destruct (sset F g' ts m U) as [U1|]; [|discriminate].
+  destruct (try_unshift F ntm h U1 1) as [[k U2']|] eqn:Et; [|discriminate].
+  destruct (sfront F g' (NVar h 0) U1) as [U'|] eqn:Ef; [|discriminate].
+  destruct (seg_eqb U' U) eqn:Eq; [|discriminate]; intros H; injection H as <- <-.
+  apply (proj1 (proj2 (proj2 nf_eqb_eq))) in Eq; subst U'.
+  rewrite (proj2 (sfront_sound _ _ _ _ Ef)), (try_unshift_sound _ _ _ _ _ Et), (try_unshift_one _ _ _ _ Et).
+  reflexivity.
+Qed.
+
+Lemma shiftk_one h (a : radj T) : rcompose (shiftk h 1) a = rpush_outer h a.
+Proof. unfold shiftk; cbn [iter]; apply rcompose_identity_push_outer. Qed.
+
+Lemma rapply_lift_here h (a : radj T) : rapply (rlift h a) (mk_rvar h 0) = inl (mk_rvar h 0).
+Proof. rewrite rapply_lift, rvar_eqb_refl; reflexivity. Qed.
 
 Lemma rpush_inner_compose h t (a b : radj T) :
   rpush_inner h t (rcompose a b) = rcompose (rpush_inner h t a) (rlift h b).
@@ -1385,6 +1448,115 @@ Proof.
       * exfalso; destruct w as [h' i]; unfold shift_rvar in E; revert E; case_vars.
       * rewrite unshift_shift_rvar; reflexivity.
     + rewrite rpshift_as_pcompose, rpcompose_compose, rcompose_push_inner_shift; reflexivity.
+Qed.
+
+Lemma rename_lift h g (X U2 : radj T) :
+  rcompose (rlift h X) (rpush_inner g (RRename (mk_rvar h 0)) (rcompose (shiftk h 1) U2))
+  = rcompose (rpush_inner g (RRename (mk_rvar h 0)) (shiftk h 1)) (rcompose (rlift g X) (rlift g U2)).
+Proof.
+  rewrite rcompose_push_inner_r; unfold rapply_target; rewrite rapply_lift_here.
+  rewrite rcompose_assoc; change (rlift h X) with (iter 1 (rlift h) X) at 1; rewrite (lift_shiftk h 1 X), <- rcompose_assoc, rpush_inner_compose, rlift_compose.
+  reflexivity.
+Qed.
+
+Lemma sstep1_sound h st st' (x rest : radj T) : sstep1 F ntm h st = Some st' -> stden st' x rest = stden st x rest.
+Proof.
+  destruct st as [[A L] U]; unfold sstep1.
+  destruct (try_unshift F ntm h U (lcount h L)) as [[k U']|] eqn:Et.
+  - destruct (scomp F ntm A (shseg h k)) as [A'|] eqn:EA; [|discriminate].
+    destruct (lsub F h k L) as [L'|] eqn:EL; [|discriminate]; intros H; injection H as <-; cbn [stden].
+    rewrite (try_unshift_sound _ _ _ _ _ Et), (lsub_sound _ _ _ _ x EL), (proj2 (scomp_sound _ _ _ EA)), sden_shseg.
+    symmetry; apply assoc_move, lift_shiftk.
+  - destruct (sfrom F ntm h U) as [[g U2]|] eqn:Ef; [|discriminate].
+    destruct (lexp_eqb g h); [discriminate|].
+    destruct (sfront F g (NVar h 0) (shseg h 1)) as [P|] eqn:EP; [|discriminate].
+    destruct (scomp F ntm A P) as [A'|] eqn:EA; [|discriminate].
+    destruct (lsub F h 1 L) as [L0|] eqn:EL; [|discriminate].
+    destruct (ladd F g 1 L0) as [L'|] eqn:EL'; [|discriminate].
+    destruct (slift F ntm g U2) as [U'|] eqn:EU; [|discriminate].
+    intros H; injection H as <-; cbn [stden].
+    rewrite (proj2 (scomp_sound _ _ _ EA)), (proj2 (sfront_sound _ _ _ _ EP)), sden_shseg.
+    rewrite (ladd_sound _ _ _ _ x EL'), (slift_sound _ _ _ EU), (sfrom_sound _ _ _ _ Ef), (lsub_sound _ _ _ _ x EL).
+    cbn [iter tden]; rewrite (rcompose_assoc (rlift (lden h) (lifts L0 x))), rename_lift.
+    rewrite <- !rcompose_assoc; reflexivity.
+Qed.
+
+Lemma sstep_sound hs st st' (x rest : radj T) : sstep F ntm hs st = Some st' -> stden st' x rest = stden st x rest.
+Proof.
+  induction hs as [|h hs IH]; cbn [sstep]; [discriminate|].
+  destruct (sstep1 F ntm h st) as [st1|] eqn:E; [intros H; injection H as <-; apply (sstep1_sound _ _ _ _ _ E)|apply IH].
+Qed.
+
+Lemma speel_sound hs L U h L0 U0 (x : radj T) :
+  speel F ntm hs L U = Some (h, L0, U0) ->
+  lifts L x = rlift (lden h) (lifts L0 x) /\ sden U = rlift (lden h) (sden U0).
+Proof.
+  induction hs as [|h' hs IH]; cbn [speel]; [discriminate|].
+  destruct (sfrom F ntm h' U) as [[g U2]|] eqn:Ef; [|apply IH].
+  destruct (lexp_eqb g h') eqn:Eg; [|apply IH]; apply lexp_eqb_eq in Eg; subst g.
+  destruct (lsub F h' 1 L) as [L1|] eqn:EL; [|apply IH]; intros H; injection H as <- <- <-.
+  rewrite (lsub_sound _ _ _ _ x EL), (sfrom_sound _ _ _ _ Ef), shiftk_one; split; reflexivity.
+Qed.
+
+Lemma settle_rec_sound fuel : forall st (x rest : radj T), stden (settle_rec F ntm fuel st) x rest = stden st x rest.
+Proof.
+  induction fuel as [|f IH]; intros [[A L] U] x rest; cbn [settle_rec]; [reflexivity|].
+  destruct (sstep F ntm (map fst L) (A, L, U)) as [st'|] eqn:Es.
+  { rewrite IH; apply (sstep_sound _ _ _ _ _ Es). }
+  destruct (speel F ntm (map fst L) L U) as [[[h L0] U0]|] eqn:Ep; [|reflexivity].
+  pose proof (IH (SNil, L0, U0) x ridentity) as Hi.
+  destruct (settle_rec F ntm f (SNil, L0, U0)) as [[A2 L2] U2].
+  destruct (slift F ntm h A2) as [A2'|] eqn:EA2; [|reflexivity].
+  destruct (ladd F h 1 L2) as [L'|] eqn:EL; [|reflexivity].
+  destruct (slift F ntm h U2) as [U'|] eqn:EU; [|reflexivity].
+  destruct (scomp F ntm A A2') as [A'|] eqn:EA; [|reflexivity].
+  cbn [stden] in *; destruct (speel_sound _ _ _ _ _ _ x Ep) as [HL HU].
+  rewrite (proj2 (scomp_sound _ _ _ EA)), (slift_sound _ _ _ EA2), (ladd_sound _ _ _ _ x EL), (slift_sound _ _ _ EU).
+  rewrite HL, HU; cbn [iter].
+  change (sden SNil) with (@ridentity T) in Hi; rewrite rcompose_identity_l, !rcompose_identity_r in Hi.
+  rewrite rcompose_assoc in Hi.
+  rewrite (rcompose_assoc (rlift (lden h) (lifts L0 x))), rlift_compose, <- Hi, <- !rlift_compose.
+  rewrite <- !rcompose_assoc; reflexivity.
+Qed.
+
+Definition wrest (w : word) : radj T :=
+  match w with WEnd _ => ridentity | WAtom _ L a w => rcompose (lifts L (aden a)) (wden w) end.
+
+Lemma wden_head w : wden w = rcompose (sden (whead w)) (wrest w).
+Proof. destruct w; cbn [whead wrest]; [rewrite wden_end, rcompose_identity_r|rewrite wden_atom]; reflexivity. Qed.
+
+Lemma wden_sethead w U : wden (wsethead w U) = rcompose (sden U) (wrest w).
+Proof. destruct w; cbn [wsethead wrest]; [rewrite wden_end, rcompose_identity_r|rewrite wden_atom]; reflexivity. Qed.
+
+Lemma settle_sound A L a w w' :
+  settle F ntm A L a w = Some w' -> wden w' = rcompose (sden A) (rcompose (lifts L (aden a)) (wden w)).
+Proof.
+  unfold settle; pose proof (settle_rec_sound (3 * lsize L + 3) (A, L, whead w) (aden a) (wrest w)) as Hs.
+  destruct (settle_rec F ntm (3 * lsize L + 3) (A, L, whead w)) as [[A' L'] U'].
+  intros H; injection H as <-; cbn [stden] in Hs.
+  rewrite wden_atom, wden_sethead, Hs, <- (wden_head w); reflexivity.
+Qed.
+
+(** *** The constructors *)
+
+Lemma wcomp_sound w1 w2 w : wcomp F ntm w1 w2 = Some w -> wden w = rcompose (wden w1) (wden w2).
+Proof.
+  revert w; induction w1 as [A|A L a w1 IH] using word_spine; intros w; cbn [wcomp].
+  - intros H; rewrite (wcons_sound _ _ _ H); reflexivity.
+  - destruct (wcomp F ntm w1 w2) as [w'|] eqn:E; [|discriminate]; intros H.
+    rewrite (settle_sound _ _ _ _ _ H), (IH _ eq_refl), wden_atom, !rcompose_assoc; reflexivity.
+Qed.
+
+Lemma wlift_sound h w w' : wlift F ntm h w = Some w' -> wden w' = rlift (lden h) (wden w).
+Proof.
+  revert w'; induction w as [s|s L a w IH] using word_spine; intros w'; cbn [wlift].
+  - destruct (slift F ntm h s) as [s'|] eqn:E; [|discriminate]; intros H; injection H as <-.
+    rewrite !wden_end; apply (slift_sound _ _ _ E).
+  - destruct (slift F ntm h s) as [s'|] eqn:Es; [|discriminate].
+    destruct (ladd F h 1 L) as [L'|] eqn:EL; [|discriminate].
+    destruct (wlift F ntm h w) as [w1|] eqn:Ew; [|discriminate]; intros H; injection H as <-.
+    rewrite !wden_atom, (slift_sound _ _ _ Es), (ladd_sound _ _ _ _ _ EL), (IH _ eq_refl); cbn [iter].
+    rewrite !rlift_compose; reflexivity.
 Qed.
 
 Lemma wpush_sound h t w w' : wpush F ntm h t w = Some w' -> wden w' = rpush_inner (lden h) (tden t) (wden w).

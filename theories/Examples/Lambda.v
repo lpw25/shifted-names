@@ -123,6 +123,13 @@ Theorem subst_subst {N M P} (a : adj (tm 0) M P) (b : adj (tm 0) N M) (t : tm N)
   subst a (subst b t) = subst (compose a b) t.
 Proof. apply subst_compose. Qed.
 
+(** Substituting into a variable, for the constructor [tvar]. *)
+Lemma subst_tvar_ren {N M} (a : sub N M) v w : Indexed.apply_var a v = Rename w -> subst a (tvar v) = tvar w.
+Proof. exact (subst_tvar_rename a v w). Qed.
+
+Lemma subst_tvar_bind {N} (a : sub N 0) v u : Indexed.apply_var a v = Bind u pid -> subst a (tvar v) = u.
+Proof. exact (subst_tvar_bind0 a v u). Qed.
+
 (** [names] pushes substitutions through the constructors. *)
 Global Hint Rewrite @subst_tlam @subst_tapp @subst_tconst : names.
 

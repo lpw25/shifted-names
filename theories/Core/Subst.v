@@ -846,6 +846,44 @@ Proof.
   f_equal; apply var_eq; exact Hu.
 Qed.
 
+(** The identity payload adjustment of a closed term leaves it as it is. *)
+Lemma papply_pidentity HL Hx {K L} (e : ext 0 0 K L) (v : var K) :
+  papply pidentity_n 0 0 0 HL Hx K L e v = unit_m K L e v.
+Proof.
+  unfold unit_m, ext_var; destruct v as [[[y|] i] Hv].
+  - assert (E : napply (@pidentity_n P) (var_raw (mk_var (mk_rvar (Some y) i) Hv)) = inl (mk_rvar (Some y) i))
+      by reflexivity.
+    rewrite (papply_var _ 0 0 0 HL Hx e (mk_var (mk_rvar (Some y) i) Hv) (mk_rvar (Some y) i) (Is_true_s_intro (ext_same_wf e _ (Is_true_s_elim Hv))) ltac:(discriminate) E).
+    reflexivity.
+  - apply papply_inner; reflexivity.
+Qed.
+
+(** Substituting into a variable the adjustment sends to a closed term with
+    the identity payload adjustment. *)
+Lemma subst_tvar_bind0 {N} (a : adj P N 0) (v : var N) (u : P) :
+  Indexed.apply_var a v = Bind u pid -> subst a (tvar v) = u.
+Proof.
+  intros E; unfold subst; rewrite kleisli_var.
+  assert (Hr : rapply (adj_raw a) (var_raw v) = inr (u, rpidentity)).
+  { revert E; unfold Indexed.apply_var; generalize (apply_wf a v); unfold Indexed.apply.
+    destruct (rapply (adj_raw a) (var_raw v)) as [w0|[u0 ρ]]; intros H E; [discriminate|].
+    injection E as <- Eρ; rewrite Eρ; reflexivity. }
+  unfold rapply in Hr.
+  destruct (napply (radj_n (adj_raw a)) (var_raw v)) as [w0|[u0 x]] eqn:En; cbn in Hr; [discriminate|].
+  injection Hr as -> Ex.
+  assert (Hwf : nwf true x) by (apply (nwf_payload false _ (var_raw v) u x (radj_wf (adj_raw a)) eq_refl En)).
+  assert (Hxp : x = pidentity_n).
+  { rewrite <- Ex; symmetry; exact (rpadj_n_to_padj x Hwf). }
+  assert (Hd : down 0 (var_raw v) = var_raw v)
+    by (destruct v as [[[y|] i] Hv]; unfold down; cbn; [reflexivity|rewrite Nat.sub_0_r; reflexivity]).
+  assert (Hρ : Is_true_s (pok 0 x))
+    by (apply Is_true_s_intro, (top_payload_ok a (var_raw v) u); [apply Is_true_s_elim, var_ok|exact En]).
+  rewrite <- Hd in En.
+  rewrite (apply_pay a ext_here v u x stt Hρ (fun _ => le_0_n _) En).
+  subst x; transitivity (kleisli unit_m (@ext_here 0 0) u); [|apply kleisli_unit].
+  apply kleisli_ext; intros K L e w; apply papply_pidentity.
+Qed.
+
 End Char.
 
 (** ** Going under a binder is lifting *)

@@ -24,6 +24,7 @@ theories/Core/Context.v
 theories/Core/Syntax.v
 theories/Core/Subst.v
 theories/Examples/Lambda.v
+theories/Examples/STLC.v
 theories/Extraction/Extraction.v
 theories/Tests/CoreTests.v
 theories/Tests/NamesTests.v
