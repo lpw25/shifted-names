@@ -557,6 +557,36 @@ unindexed `radj` remains available for internal use).
   proves the constructor equations, identity, composition, instantiation
   and open/close laws.
 
+### D12. The normaliser (Stage 9, as implemented)
+
+Implemented in `Normalise.v` (syntax, normal forms, operations, soundness)
+and `Names.v` (reification and the `names` tactic); see `design.md` for
+the normal form. Decisions:
+
+- **Reflection over the raw layer.** Indexed goals become raw goals by
+  `adj_eq`, and the raw constructors are reified. No dependent syntax is
+  needed, and one normaliser serves both layers.
+- **Words with lifted atoms.** Instead of D3's alternating context
+  segments and atoms with entries above the atoms, lifts are pushed onto
+  the atoms: `⇑σ ∘ ⇑τ` and `⇑(σ ∘ τ)` both normalise to `⇑σ ∘ ⇑τ`, and the
+  binder fragment needs no special treatment.
+- **Partial order knowledge fails loudly.** Rather than D3's "leave
+  unrelated entries in place", every label comparison must be known, so
+  segments are always fully sorted and the tactic fails when an order fact
+  is missing. A case split on `label_compare` supplies it.
+- **Checks instead of invariants.** Operations check distinctness of
+  segment labels (`sdistb`) and verify settling by composing back, so
+  soundness needs no well-formedness invariant on normal forms.
+
+Not yet done:
+- the uniqueness theorem for normal forms;
+- `option label` variables (a label that may be the bound one) are not
+  reified, so entries on them become atoms;
+- payload adjustments are compared as full words, with only the last
+  segment's bound entry forgotten; equal payloads written differently
+  under atoms can fail to match;
+- `padj` goals and goals about `apply`/terms.
+
 ### D6. Users see only the indexed form
 
 Scoped terms and adjustments (indexed by the number of bound names), built as
@@ -719,6 +749,9 @@ Relative.v-style convenience layer comes last.
 client file that imports only public modules can state and prove them.
 
 ### Stage 9: the reflective normaliser
+
+*Status:* soundness and the `names` tactic are done (D12); uniqueness and
+the items listed under D12 remain.
 
 - **Reification** of indexed goal expressions (adjustments, compositions,
   lifts, term operations) into a syntax with label atoms, **adjustment atoms**,

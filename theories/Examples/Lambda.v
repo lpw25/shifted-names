@@ -6,7 +6,7 @@
     [Subst] functor. *)
 
 From Stdlib Require Import Arith List Lia Bool StrictProp.
-From ShiftedNames.Core Require Import Label Var Adjustment Laws Scoped Indexed Syntax Subst.
+From ShiftedNames.Core Require Import Label Var Adjustment Laws Scoped Indexed Syntax Subst Names.
 
 (** ** The syntax *)
 
@@ -139,15 +139,28 @@ Theorem topen_tclose {N} x (t : tm N) : topen x (tclose x t) = t.
 Proof.
   unfold topen, tclose; rewrite subst_compose.
   transitivity (subst identity t); [f_equal|apply subst_identity].
-  apply adj_eq; apply rcompose_open_close.
+  unfold open_sub, close_sub; names.
 Qed.
 
 Theorem tclose_topen {N} x (t : tm (S N)) : tclose x (topen x t) = t.
 Proof.
   unfold topen, tclose; rewrite subst_compose.
   transitivity (subst identity t); [f_equal|apply subst_identity].
-  apply adj_eq; apply rcompose_close_open.
+  unfold open_sub, close_sub; names.
 Qed.
 
 (** Instantiating the innermost bound variable with a closed term. *)
 Definition inst {N} (u : tm 0) : sub (S N) N := extend (Bind u) identity.
+
+(** Opening after substituting under the binder is one substitution;
+    the adjustment equation is closed by the [names] tactic. *)
+Theorem topen_subst_lift {N M} x (a : sub N M) (t : tm (S N)) :
+  topen x (subst (lift a) t) = subst (extend (Rename (fvar x 0)) (weaken_free x a)) t.
+Proof.
+  unfold topen; rewrite subst_compose; f_equal.
+  unfold open_sub; names.
+Qed.
+
+Theorem inst_subst_lift {N M} (u : tm 0) (a : sub N M) (t : tm (S N)) :
+  subst (inst u) (subst (lift a) t) = subst (extend (Bind u) a) t.
+Proof. rewrite subst_compose; f_equal; unfold inst; names. Qed.

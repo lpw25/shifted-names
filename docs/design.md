@@ -54,6 +54,41 @@ The functor `Subst` (`Core/Subst.v`) gives:
 `Examples/Lambda.v` is a complete client: the λ-calculus with open, close
 and instantiation and their inverse laws.
 
+### The `names` tactic (`Core/Normalise.v`, `Core/Names.v`)
+
+`names` proves equations between adjustments built from `identity`,
+`compose`, `weaken(_free)`, `extend(_free)`, `lift(_free)` and `at_scope`,
+with any other adjustment as an opaque atom. Labels may be concrete
+strings, the bound label, or label variables; the order between label
+variables comes from hypotheses `label_lt (Some x) (Some y)`.
+
+It works by reflection. Both sides are reified into `aexp` and normalised
+to a *word*
+
+    S₀ ∘ ⇑ᴸ¹σ₁ ∘ S₁ ∘ … ∘ ⇑ᴸⁿσₙ ∘ Sₙ
+
+where each `Sᵢ` is a segment (a context form with the identity tail: per
+label, its input targets and its number of outputs, labels in order) and
+each `σᵢ` an atom under a multiset of lifts `Lᵢ`. The rules:
+
+- adjacent segments are composed into one;
+- lifts are pushed onto atoms and segments (`⇑(a ∘ b) = ⇑a ∘ ⇑b`);
+- an input entry in front of a composite goes into its first segment over
+  a lift of the rest: `push_inner h t (S ∘ X) = push_inner h t S ∘ ⇑ₕX`;
+- `⇑ₕσ ∘ shiftₕ = shiftₕ ∘ σ`: a shift right of a lifted atom moves left
+  ("settling"), so the segment right of a lift by `h` always reaches
+  `h₍₀₎`;
+- transparent entries are dropped, and payload adjustments over the
+  identity payload forget their last segment's bound entry, because only
+  named variables reach them.
+
+Every comparison between labels goes through `lcmp`, which knows concrete
+labels, the bound label (the greatest), and the context's facts closed
+under transitivity; when a comparison it needs is unknown, normalisation
+fails, so the tactic fails rather than guess. Soundness
+(`nf_eq_sound`) is proved and closed under the global context. Uniqueness
+of normal forms is not proved.
+
 ## Representation
 
 `Core/Repr.v`. Targets name output variables directly. The only thinnings
@@ -270,4 +305,6 @@ Assumptions` is closed for:
 - `compose_spec`;
 - `subst_compose` and `subst_identity` (through the λ example's
   `subst_subst` and `subst_id`);
-- `topen_tclose` and `tclose_topen`.
+- `topen_tclose` and `tclose_topen`;
+- `nf_eq_sound`, and the λ example's `topen_subst_lift` and
+  `inst_subst_lift`, proved with `names`.

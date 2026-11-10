@@ -18,8 +18,11 @@ theories/Core/Adjustment.v
 theories/Core/Laws.v
 theories/Core/Scoped.v
 theories/Core/Indexed.v
+theories/Core/Normalise.v
+theories/Core/Names.v
 theories/Core/Syntax.v
 theories/Core/Subst.v
 theories/Examples/Lambda.v
 theories/Extraction/Extraction.v
 theories/Tests/CoreTests.v
+theories/Tests/NamesTests.v
