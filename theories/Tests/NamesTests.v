@@ -23,10 +23,12 @@ Example positional {N M} x y (a : adj T N M) :
   ⟦ x; · | Γ \ y; · | Γ[a] ⟧ = ⟦ x as p; · as q | Γ \ y as p; · as q | Γ[a] ⟧.
 Proof. reflexivity. Qed.
 
-(** The tail named in the input context is the one the output context
-    binds: another variable of the same type does not do. *)
-Fail Check (fun (Δ : tname) (σ : adj T 0 0) => ⟦ "x" | Δ \ "y" | Γ[σ] ⟧).
-Fail Check (fun (σ : adj T 0 0) => ⟦ "x" | tname_tt \ "y" | Γ[σ] ⟧).
+(** Slots and tail names are local to their context form: nothing from
+    outside can stand for one. *)
+Fail Check (fun (c : var 0) => (⟦ "x" as c \ "x" as d ⟧ : adj T 0 0)).
+Fail Check (fun (W : Type) (Δ : W) (σ : adj T 0 0) => ⟦ "x" | Δ \ "y" | Γ[σ] ⟧).
+Fail Check (fun (σ : adj T 0 0) => ⟦ "x" | tt \ "y" | Γ[σ] ⟧).
+Fail Check (fun (u : T) => (⟦ "y" := u⟨ "x" as c ⟩ ⟧ : adj T 0 0)).
 
 (** ** The binder fragment *)
 
@@ -100,4 +102,12 @@ Example subst_shifted :
   | inr (_, ρ) => rpapply ρ (mk_rvar (Some "x") 0)
   | inl _ => inl (mk_rvar None 0)
   end = inl (mk_rvar (Some "x") 1).
+Proof. vm_compute; reflexivity. Qed.
+
+(** A payload context sends the term's names to slots. *)
+Example payload_to_slot :
+  match apply (⟦ "y" := 0⟨ "x" as c ⟩ \ "x" as c ⟧ : adj nat 0 0) (fvar "y" 0) with
+  | inr (_, ρ) => (rpapply ρ (mk_rvar (Some "x") 0), rpapply ρ (mk_rvar (Some "x") 1))
+  | inl _ => (inl (mk_rvar None 0), inl (mk_rvar None 0))
+  end = (inl (mk_rvar (Some "x") 0), inl (mk_rvar (Some "x") 1)).
 Proof. vm_compute; reflexivity. Qed.

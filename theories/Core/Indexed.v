@@ -155,10 +155,6 @@ End Indexed.
     u] are in the scope of the output tail, and are shifted past the
     output context's slots. *)
 
-(** The name of a tail: its binder exists only to make the input and the
-    output context name the same tail. *)
-Inductive tname : Type := tname_tt.
-
 Section Context.
 
 Context {T : Type}.
@@ -181,139 +177,195 @@ Qed.
 Definition vshift_bound {M} (v : var M) : var (S M) := mk_var _ (vshift_bound_ok v).
 Definition vshift_free {M} (y : label) (v : var M) : var M := mk_var _ (vshift_free_ok y v).
 
-(** Weakening a payload past one output.  Payloads are passed as thunks,
-    so that the weakening is only computed for the entries that use it. *)
-Definition pw_bound {M} (ρ : unit -> padj T M) : unit -> padj T (S M) := fun _ => pcompose (out_bound identity) (ρ tt).
-Definition pw_free {M} (y : label) (ρ : unit -> padj T M) : unit -> padj T M := fun _ => pcompose (out_free y identity) (ρ tt).
+(** *** Payload contexts
 
-(** *** The full form *)
+    [u⟨ P ⟩]: where the free names of a substituted term go.  [P] is an
+    input context with no outputs of its own: [x as c] sends [u]'s [x₀] to
+    the slot [c], [x := u'⟨ … ⟩] substitutes; the other names of [u] go
+    to the output tail, past the slots.  Slots are variables of the
+    abstract type [V] (see below). *)
+Inductive pctx (V : Type) : Type :=
+| PEmpty
+| PRen (p : pctx V) (x : label) (c : V)
+| PSub (p : pctx V) (x : label) (u : T) (q : pctx V).
 
-(** Input contexts, innermost entry first, built by adding entries on the
-    outside: [ictx M Nb N P] goes from a tail with [Nb] inputs to [N]
-    inputs, into the output scope [M], with [P] positional entries. *)
-Inductive ictx (M : nat) : nat -> nat -> nat -> Type :=
-| IEmpty {N} : ictx M N N 0
-| IPosF {Nb N P} (i : ictx M Nb N P) (x : label) : ictx M Nb N (S P)
-| IPosB {Nb N P} (i : ictx M (S Nb) N P) : ictx M Nb N (S P)
-| IRenF {Nb N P} (i : ictx M Nb N P) (x : label) (v : var M) : ictx M Nb N P
-| IRenB {Nb N P} (i : ictx M (S Nb) N P) (v : var M) : ictx M Nb N P
-| ISubF {Nb N P} (i : ictx M Nb N P) (x : label) (u : T) : ictx M Nb N P
-| ISubB {Nb N P} (i : ictx M (S Nb) N P) (u : T) : ictx M Nb N P.
+Arguments PEmpty {V}.
+Arguments PRen {V} p x c.
+Arguments PSub {V} p x u q.
 
-(** Output contexts, innermost slot first, over the input context: the
-    indices are the positional outputs so far, the output scope at the
-    outer edge of the slots so far, and whether the input context names
-    its tail. *)
-Inductive octx (Nt N M P : nat) : nat -> nat -> option tname -> Type :=
-| OEnd (i : ictx M Nt N P) : octx Nt N M P 0 M None
-| OEndT (g : tname) (i : ictx M Nt N P) : octx Nt N M P 0 M (Some g)
-| OPosF {Po J b} (o : octx Nt N M P Po J b) (y : label) : octx Nt N M P (S Po) J b
-| OPosB {Po J b} (o : octx Nt N M P Po (S J) b) : octx Nt N M P (S Po) J b
-| ONamF {Po J b} (y : label) (k : var M -> octx Nt N M P Po J b) : octx Nt N M P Po J b
-| ONamB {Po J b} (k : var M -> octx Nt N M P Po (S J) b) : octx Nt N M P Po J b.
-
-Arguments IEmpty {M N}.
-Arguments IPosF {M Nb N P} i x.
-Arguments IPosB {M Nb N P} i.
-Arguments IRenF {M Nb N P} i x v.
-Arguments IRenB {M Nb N P} i v.
-Arguments ISubF {M Nb N P} i x u.
-Arguments ISubB {M Nb N P} i u.
-Arguments OEnd {Nt N M P} i.
-Arguments OEndT {Nt N M P} g i.
-Arguments OPosF {Nt N M P Po J b} o y.
-Arguments OPosB {Nt N M P Po J b} o.
-Arguments ONamF {Nt N M P Po J b} y k.
-Arguments ONamB {Nt N M P Po J b} k.
-
-Definition vdummy {M} : var M := fvar EmptyString 0.
-
-(** The input context over [X], with [pos] the positional slots,
-    innermost first, and [ρ] the payload adjustment of its terms. *)
-Fixpoint ictx_den {M Nb N P} (i : ictx M Nb N P) : list (var M) -> (unit -> padj T M) -> adj T Nb M -> adj T N M :=
-  match i in ictx _ Nb N P return list (var M) -> (unit -> padj T M) -> adj T Nb M -> adj T N M with
-  | IEmpty => fun _ _ X => X
-  | @IPosF _ _ _ P i x => fun pos ρ X => ictx_den i pos ρ (in_free x (Rename (nth P pos vdummy)) X)
-  | @IPosB _ _ _ P i => fun pos ρ X => ictx_den i pos ρ (in_bound (Rename (nth P pos vdummy)) X)
-  | IRenF i x v => fun pos ρ X => ictx_den i pos ρ (in_free x (Rename v) X)
-  | IRenB i v => fun pos ρ X => ictx_den i pos ρ (in_bound (Rename v) X)
-  | ISubF i x u => fun pos ρ X => ictx_den i pos ρ (in_free x (Bind u (ρ tt)) X)
-  | ISubB i u => fun pos ρ X => ictx_den i pos ρ (in_bound (Bind u (ρ tt)) X)
+(** The payload adjustment of [P], with slots read by [f], over [wk], the
+    weakening from the output tail past the slots. *)
+Fixpoint pctx_den {V K J} (p : pctx V) (f : V -> var J) (wk : adj T K J) : adj T K J :=
+  match p with
+  | PEmpty => wk
+  | PRen p x c => pctx_den p f (in_free x (Rename (f c)) wk)
+  | PSub p x u q => pctx_den p f (in_free x (Bind u (pcompose (pctx_den q f wk) pid)) wk)
   end.
 
-(** Where the slots inside [o] take a variable at its outer edge. *)
-Fixpoint octx_probe {Nt N M P Po J b} (o : octx Nt N M P Po J b) : var J -> var M :=
-  match o in octx _ _ _ _ _ J _ return var J -> var M with
-  | OEnd _ | OEndT _ _ => fun v => v
-  | OPosF o y => fun v => octx_probe o (vshift_free y v)
-  | OPosB o => fun v => octx_probe o (vshift_bound v)
-  | ONamF y k => fun v => octx_probe (k vdummy) (vshift_free y v)
-  | ONamB k => fun v => octx_probe (k vdummy) (vshift_bound v)
-  end.
-
-(** The slots from the outermost in, over [X]; [pos] collects the
-    positional slots and [ρ] weakens the input context's terms. *)
-Fixpoint octx_den {Nt N M P Po J b} (o : octx Nt N M P Po J b)
-  : list (var M) -> (unit -> padj T J) -> adj T Nt J -> adj T N M :=
-  match o in octx _ _ _ _ _ J _ return list (var M) -> (unit -> padj T J) -> adj T Nt J -> adj T N M with
-  | OEnd i | OEndT _ i => fun pos ρ X => ictx_den i pos ρ X
-  | OPosF o y => fun pos ρ X => octx_den o (octx_probe o (fvar y 0) :: pos) (pw_free y ρ) (out_free y X)
-  | OPosB o => fun pos ρ X => octx_den o (octx_probe o bvar0 :: pos) (pw_bound ρ) (out_bound X)
-  | ONamF y k => fun pos ρ X =>
-      let a := octx_probe (k vdummy) (fvar y 0) in octx_den (k a) pos (pw_free y ρ) (out_free y X)
-  | ONamB k => fun pos ρ X =>
-      let a := octx_probe (k vdummy) bvar0 in octx_den (k a) pos (pw_bound ρ) (out_bound X)
-  end.
-
-Definition cform_id {Nt N M P} (o : octx Nt N M P P Nt None) : adj T N M := octx_den o nil (fun _ => pid) identity.
-
-Definition cform {Nt Mt N M P} (o : forall g : tname, octx Nt N M P P Mt (Some g)) (σ : adj T Nt Mt) : adj T N M :=
-  octx_den (o tname_tt) nil (fun _ => pid) σ.
+Definition pctx_pay {V K J} (p : pctx V) (f : V -> var J) (wk : adj T K J) : padj T J := pcompose (pctx_den p f wk) pid.
 
 (** *** The short form *)
 
-(** [sctx Nb Mb N M] goes from a tail [adj Nb Mb] to [adj N M]. *)
+(** [sctx Nb Mb N M] goes from a tail [adj Nb Mb] to [adj N M].  It
+    declares no slots, so its payload contexts cannot name any: their slot
+    type is [Empty_set]. *)
 Inductive sctx : nat -> nat -> nat -> nat -> Type :=
 | SEmpty {N M} : sctx N M N M
 | SLiftF {Nb Mb N M} (s : sctx Nb Mb N M) (x : label) : sctx Nb Mb N M
 | SLiftB {Nb Mb N M} (s : sctx (S Nb) (S Mb) N M) : sctx Nb Mb N M
-| SSubF {Nb Mb N M} (s : sctx Nb Mb N M) (x : label) (u : T) : sctx Nb Mb N M
-| SSubB {Nb Mb N M} (s : sctx (S Nb) Mb N M) (u : T) : sctx Nb Mb N M.
+| SSubF {Nb Mb N M} (s : sctx Nb Mb N M) (x : label) (u : T) (q : pctx Empty_set) : sctx Nb Mb N M
+| SSubB {Nb Mb N M} (s : sctx (S Nb) Mb N M) (u : T) (q : pctx Empty_set) : sctx Nb Mb N M.
 
 Inductive sclosed (N M : nat) : Type :=
 | STail {Nb Mb} (s : sctx Nb Mb N M) (σ : adj T Nb Mb).
 
 Arguments STail {N M Nb Mb} s σ.
 
-Fixpoint sctx_den {Nb Mb N M} (s : sctx Nb Mb N M) : (unit -> padj T Mb) -> adj T Nb Mb -> adj T N M :=
-  match s with
+Definition noslot {J} (c : Empty_set) : var J := match c with end.
+
+Fixpoint sctx_den {K Nb Mb N M} (s : sctx Nb Mb N M) : (unit -> adj T K Mb) -> adj T Nb Mb -> adj T N M :=
+  match s in sctx Nb Mb N M return (unit -> adj T K Mb) -> adj T Nb Mb -> adj T N M with
   | SEmpty => fun _ X => X
-  | SLiftF s x => fun ρ X => sctx_den s (pw_free x ρ) (in_free x (Rename (fvar x 0)) (out_free x X))
-  | SLiftB s => fun ρ X => sctx_den s (pw_bound ρ) (in_bound (Rename bvar0) (out_bound X))
-  | SSubF s x u => fun ρ X => sctx_den s ρ (in_free x (Bind u (ρ tt)) X)
-  | SSubB s u => fun ρ X => sctx_den s ρ (in_bound (Bind u (ρ tt)) X)
+  | SLiftF s x => fun wk X => sctx_den s (fun _ => out_free x (wk tt)) (in_free x (Rename (fvar x 0)) (out_free x X))
+  | SLiftB s => fun wk X => sctx_den s (fun _ => out_bound (wk tt)) (in_bound (Rename bvar0) (out_bound X))
+  | SSubF s x u q => fun wk X => sctx_den s wk (in_free x (Bind u (pctx_pay q noslot (wk tt))) X)
+  | SSubB s u q => fun wk X => sctx_den s wk (in_bound (Bind u (pctx_pay q noslot (wk tt))) X)
   end.
+
+(** *** The full form
+
+    Slots are bound as variables of an abstract type [V], and the tail as
+    a variable of an abstract type [W] (parametric higher-order abstract
+    syntax): a context form is a function of [V] and [W], so the only
+    things of those types in it are its own binders, and an entry cannot
+    refer to anything else.  The denotation takes [V] to be the variables
+    of the output scope. *)
+
+(** Input contexts, innermost entry first, built by adding entries on the
+    outside: [ictx V M Nb N P] goes from a tail with [Nb] inputs to [N]
+    inputs, into the output scope [M], with [P] positional entries. *)
+Inductive ictx (V : Type) (M : nat) : nat -> nat -> nat -> Type :=
+| IEmpty {N} : ictx V M N N 0
+| IPosF {Nb N P} (i : ictx V M Nb N P) (x : label) : ictx V M Nb N (S P)
+| IPosB {Nb N P} (i : ictx V M (S Nb) N P) : ictx V M Nb N (S P)
+| IRenF {Nb N P} (i : ictx V M Nb N P) (x : label) (c : V) : ictx V M Nb N P
+| IRenB {Nb N P} (i : ictx V M (S Nb) N P) (c : V) : ictx V M Nb N P
+| ISubF {Nb N P} (i : ictx V M Nb N P) (x : label) (u : T) (q : pctx V) : ictx V M Nb N P
+| ISubB {Nb N P} (i : ictx V M (S Nb) N P) (u : T) (q : pctx V) : ictx V M Nb N P.
+
+(** Output contexts, innermost slot first, over the input context: the
+    indices are the positional outputs so far, the output scope at the
+    outer edge of the slots so far, and whether the input context names
+    its tail. *)
+Inductive octx (V W : Type) (Nt N M P : nat) : nat -> nat -> bool -> Type :=
+| OEnd (i : ictx V M Nt N P) : octx V W Nt N M P 0 M false
+| OEndT (g : W) (i : ictx V M Nt N P) : octx V W Nt N M P 0 M true
+| OPosF {Po J b} (o : octx V W Nt N M P Po J b) (y : label) : octx V W Nt N M P (S Po) J b
+| OPosB {Po J b} (o : octx V W Nt N M P Po (S J) b) : octx V W Nt N M P (S Po) J b
+| ONamF {Po J b} (y : label) (k : V -> octx V W Nt N M P Po J b) : octx V W Nt N M P Po J b
+| ONamB {Po J b} (k : V -> octx V W Nt N M P Po (S J) b) : octx V W Nt N M P Po J b
+| OShort (s : sctx Nt Nt N M) : octx V W Nt N M P 0 Nt false
+| OShortT (c : sclosed N M) : octx V W Nt N M P 0 Nt false.
+
+Arguments IEmpty {V M N}.
+Arguments IPosF {V M Nb N P} i x.
+Arguments IPosB {V M Nb N P} i.
+Arguments IRenF {V M Nb N P} i x c.
+Arguments IRenB {V M Nb N P} i c.
+Arguments ISubF {V M Nb N P} i x u q.
+Arguments ISubB {V M Nb N P} i u q.
+Arguments OEnd {V W Nt N M P} i.
+Arguments OEndT {V W Nt N M P} g i.
+Arguments OPosF {V W Nt N M P Po J b} o y.
+Arguments OPosB {V W Nt N M P Po J b} o.
+Arguments ONamF {V W Nt N M P Po J b} y k.
+Arguments ONamB {V W Nt N M P Po J b} k.
+Arguments OShort {V W Nt N M P} s.
+Arguments OShortT {V W Nt N M P} c.
+
+Definition vdummy {M} : var M := fvar EmptyString 0.
+
+(** The input context over [X], with [pos] the positional slots,
+    innermost first, and [wk] the weakening of its terms past the
+    slots. *)
+Fixpoint ictx_den {K M Nb N P} (i : ictx (var M) M Nb N P)
+  : list (var M) -> (unit -> adj T K M) -> adj T Nb M -> adj T N M :=
+  match i in ictx _ _ Nb N P return list (var M) -> (unit -> adj T K M) -> adj T Nb M -> adj T N M with
+  | IEmpty => fun _ _ X => X
+  | @IPosF _ _ _ _ P i x => fun pos wk X => ictx_den i pos wk (in_free x (Rename (nth P pos vdummy)) X)
+  | @IPosB _ _ _ _ P i => fun pos wk X => ictx_den i pos wk (in_bound (Rename (nth P pos vdummy)) X)
+  | IRenF i x c => fun pos wk X => ictx_den i pos wk (in_free x (Rename c) X)
+  | IRenB i c => fun pos wk X => ictx_den i pos wk (in_bound (Rename c) X)
+  | ISubF i x u q => fun pos wk X => ictx_den i pos wk (in_free x (Bind u (pctx_pay q (fun c => c) (wk tt))) X)
+  | ISubB i u q => fun pos wk X => ictx_den i pos wk (in_bound (Bind u (pctx_pay q (fun c => c) (wk tt))) X)
+  end.
+
+(** Where the slots inside [o] take a variable at its outer edge. *)
+Fixpoint octx_probe {W Nt N M P Po J b} (o : octx (var M) W Nt N M P Po J b) : var J -> var M :=
+  match o in octx _ _ _ _ _ _ _ J _ return var J -> var M with
+  | OEnd _ | OEndT _ _ => fun v => v
+  | OPosF o y => fun v => octx_probe o (vshift_free y v)
+  | OPosB o => fun v => octx_probe o (vshift_bound v)
+  | ONamF y k => fun v => octx_probe (k vdummy) (vshift_free y v)
+  | ONamB k => fun v => octx_probe (k vdummy) (vshift_bound v)
+  | OShort _ | OShortT _ => fun _ => vdummy
+  end.
+
+(** The slots from the outermost in, over [X]; [pos] collects the
+    positional slots and [wk] weakens past the slots so far. *)
+Fixpoint octx_den {K W Nt N M P Po J b} (o : octx (var M) W Nt N M P Po J b)
+  : list (var M) -> (unit -> adj T K J) -> adj T Nt J -> adj T N M :=
+  match o in octx _ _ _ _ _ _ _ J _ return list (var M) -> (unit -> adj T K J) -> adj T Nt J -> adj T N M with
+  | OEnd i | OEndT _ i => fun pos wk X => ictx_den i pos wk X
+  | OPosF o y => fun pos wk X =>
+      octx_den o (octx_probe o (fvar y 0) :: pos) (fun _ => out_free y (wk tt)) (out_free y X)
+  | OPosB o => fun pos wk X =>
+      octx_den o (octx_probe o bvar0 :: pos) (fun _ => out_bound (wk tt)) (out_bound X)
+  | ONamF y k => fun pos wk X =>
+      let a := octx_probe (k vdummy) (fvar y 0) in octx_den (k a) pos (fun _ => out_free y (wk tt)) (out_free y X)
+  | ONamB k => fun pos wk X =>
+      let a := octx_probe (k vdummy) bvar0 in octx_den (k a) pos (fun _ => out_bound (wk tt)) (out_bound X)
+  | OShort s => fun _ _ X => sctx_den s (fun _ => identity) X
+  | OShortT (STail s σ) => fun _ _ _ => sctx_den s (fun _ => identity) σ
+  end.
+
+(** A context form is elaborated twice from the same syntax: [chk] at
+    abstract slot and tail types, which only checks that every slot and
+    tail name used is one the form binds itself, and [o] at the slot type
+    [var M], which is what it means and how it prints. *)
+Definition cform_id {Nt N M P} (chk : forall V W : Type, octx V W Nt N M P P Nt false)
+  (o : octx (var M) unit Nt N M P P Nt false) : adj T N M :=
+  octx_den o nil (fun _ => @identity T Nt) identity.
+
+Definition cform {Nt Mt N M P} (chk : forall V W : Type, W -> octx V W Nt N M P P Mt true)
+  (o : unit -> octx (var M) unit Nt N M P P Mt true) (σ : adj T Nt Mt) : adj T N M :=
+  octx_den (o tt) nil (fun _ => @identity T Mt) σ.
 
 End Context.
 
-Arguments IEmpty {T M N}.
-Arguments IPosF {T M Nb N P} i x.
-Arguments IPosB {T M Nb N P} i.
-Arguments IRenF {T M Nb N P} i x v.
-Arguments IRenB {T M Nb N P} i v.
-Arguments ISubF {T M Nb N P} i x u.
-Arguments ISubB {T M Nb N P} i u.
-Arguments OEnd {T Nt N M P} i.
-Arguments OEndT {T Nt N M P} g i.
-Arguments OPosF {T Nt N M P Po J b} o y.
-Arguments OPosB {T Nt N M P Po J b} o.
-Arguments ONamF {T Nt N M P Po J b} y k.
-Arguments ONamB {T Nt N M P Po J b} k.
+Arguments PEmpty {T V}.
+Arguments PRen {T V} p x c.
+Arguments PSub {T V} p x u q.
+Arguments IEmpty {T V M N}.
+Arguments IPosF {T V M Nb N P} i x.
+Arguments IPosB {T V M Nb N P} i.
+Arguments IRenF {T V M Nb N P} i x c.
+Arguments IRenB {T V M Nb N P} i c.
+Arguments ISubF {T V M Nb N P} i x u q.
+Arguments ISubB {T V M Nb N P} i u q.
+Arguments OEnd {T V W Nt N M P} i.
+Arguments OEndT {T V W Nt N M P} g i.
+Arguments OPosF {T V W Nt N M P Po J b} o y.
+Arguments OPosB {T V W Nt N M P Po J b} o.
+Arguments ONamF {T V W Nt N M P Po J b} y k.
+Arguments ONamB {T V W Nt N M P Po J b} k.
+Arguments OShort {T V W Nt N M P} s.
+Arguments OShortT {T V W Nt N M P} c.
 Arguments SEmpty {T N M}.
 Arguments SLiftF {T Nb Mb N M} s x.
 Arguments SLiftB {T Nb Mb N M} s.
-Arguments SSubF {T Nb Mb N M} s x u.
-Arguments SSubB {T Nb Mb N M} s u.
+Arguments SSubF {T Nb Mb N M} s x u q.
+Arguments SSubB {T Nb Mb N M} s u q.
 Arguments STail {T N M Nb Mb} s σ.
 
 (** *** Entries shared by both forms
@@ -321,55 +373,61 @@ Arguments STail {T N M Nb Mb} s σ.
     The input entries are written the same way in both forms; which form
     they build is decided by the type expected of them: an output context
     after [\] expects a full-form input context, and a context form with
-    no [\] is a short form. *)
+    no [\] a short-form one. *)
 
 Class CNil (C : Type) := cnil : C.
-Class CEnt (C E R : Type) := cent : C -> E -> R.
+Class CEnt (C R : Type) := cent : C -> label -> R.
 Class CBnd (C R : Type) := cbnd : C -> R.
-Class CSub (T C R : Type) := csub : C -> label -> T -> R.
-Class CSubB (T C R : Type) := csubb : C -> T -> R.
-Class CDen (C A : Type) := cden : C -> A.
-
-#[export] Instance cnil_full {T M N} : CNil (@ictx T M N N 0) := IEmpty.
+Class CSub (T V C R : Type) := csub : C -> label -> T -> @pctx T V -> R.
+Class CSubB (T V C R : Type) := csubb : C -> T -> @pctx T V -> R.
+#[export] Instance cnil_full {T V M N} : CNil (@ictx T V M N N 0) := IEmpty.
 #[export] Instance cnil_short {T N M} : CNil (@sctx T N M N M) := SEmpty.
-#[export] Instance cent_full {T M Nb N P} : CEnt (@ictx T M Nb N P) label (ictx M Nb N (S P)) := IPosF.
-#[export] Instance cent_short {T Nb Mb N M} : CEnt (@sctx T Nb Mb N M) label (sctx Nb Mb N M) := SLiftF.
-#[export] Instance cbnd_full {T M Nb N P} : CBnd (@ictx T M (S Nb) N P) (ictx M Nb N (S P)) := IPosB.
+#[export] Instance cent_full {T V M Nb N P} : CEnt (@ictx T V M Nb N P) (ictx V M Nb N (S P)) := IPosF.
+#[export] Instance cent_short {T Nb Mb N M} : CEnt (@sctx T Nb Mb N M) (sctx Nb Mb N M) := SLiftF.
+#[export] Instance cbnd_full {T V M Nb N P} : CBnd (@ictx T V M (S Nb) N P) (ictx V M Nb N (S P)) := IPosB.
 #[export] Instance cbnd_short {T Nb Mb N M} : CBnd (@sctx T (S Nb) (S Mb) N M) (sctx Nb Mb N M) := SLiftB.
-#[export] Instance csub_full {T M Nb N P} : CSub T (@ictx T M Nb N P) (ictx M Nb N P) := ISubF.
-#[export] Instance csub_short {T Nb Mb N M} : CSub T (@sctx T Nb Mb N M) (sctx Nb Mb N M) := SSubF.
-#[export] Instance csubb_full {T M Nb N P} : CSubB T (@ictx T M (S Nb) N P) (ictx M Nb N P) := ISubB.
-#[export] Instance csubb_short {T Nb Mb N M} : CSubB T (@sctx T (S Nb) Mb N M) (sctx Nb Mb N M) := SSubB.
-#[export] Instance cden_full {T Nt N M P} : CDen (@octx T Nt N M P P Nt None) (adj T N M) := cform_id.
-#[export] Instance cden_short {T N0 N M} : CDen (@sctx T N0 N0 N M) (adj T N M) := fun s => sctx_den s (fun _ => pid) identity.
-#[export] Instance cden_tail {T N M} : CDen (@sclosed T N M) (adj T N M) :=
-  fun c => match c with STail s σ => sctx_den s (fun _ => pid) σ end.
-
+#[export] Instance csub_full {T V M Nb N P} : CSub T V (@ictx T V M Nb N P) (ictx V M Nb N P) := ISubF.
+#[export] Instance csub_short {T Nb Mb N M} : CSub T Empty_set (@sctx T Nb Mb N M) (sctx Nb Mb N M) := SSubF.
+#[export] Instance csubb_full {T V M Nb N P} : CSubB T V (@ictx T V M (S Nb) N P) (ictx V M Nb N P) := ISubB.
+#[export] Instance csubb_short {T Nb Mb N M} : CSubB T Empty_set (@sctx T (S Nb) Mb N M) (sctx Nb Mb N M) := SSubB.
 (** *** Notation *)
 
+Declare Custom Entry adj_pay.
 Declare Custom Entry adj_in.
+
+(** Payload contexts. *)
+Notation "p ; x 'as' c" := (PRen p x c) (in custom adj_pay at level 2, left associativity, x constr at level 0, c constr at level 0).
+Notation "p ; x ':=' u" := (PSub p x u PEmpty) (in custom adj_pay at level 2, left associativity, x constr at level 0, u constr at level 0).
+Notation "p ; x ':=' u '⟨' q '⟩'" := (PSub p x u q) (in custom adj_pay at level 2, left associativity, x constr at level 0, u constr at level 0, q custom adj_pay at level 2).
+Notation "x 'as' c" := (PRen PEmpty x c) (in custom adj_pay at level 1, x constr at level 0, c constr at level 0).
+Notation "x ':=' u" := (PSub PEmpty x u PEmpty) (in custom adj_pay at level 1, x constr at level 0, u constr at level 0).
+Notation "x ':=' u '⟨' q '⟩'" := (PSub PEmpty x u q) (in custom adj_pay at level 1, x constr at level 0, u constr at level 0, q custom adj_pay at level 2).
 Declare Custom Entry adj_out.
 
 Notation "i ; x" := (cent i x) (in custom adj_in at level 2, left associativity, x constr at level 0).
 Notation "i ; x 'as' v" := (IRenF i x v) (in custom adj_in at level 2, left associativity, x constr at level 0, v constr at level 0).
-Notation "i ; x ':=' u" := (csub i x u) (in custom adj_in at level 2, left associativity, x constr at level 0, u constr at level 0).
+Notation "i ; x ':=' u" := (csub i x u PEmpty) (in custom adj_in at level 2, left associativity, x constr at level 0, u constr at level 0).
+Notation "i ; x ':=' u '⟨' p '⟩'" := (csub i x u p) (in custom adj_in at level 2, left associativity, x constr at level 0, u constr at level 0, p custom adj_pay at level 2).
 Notation "i ; '·'" := (cbnd i) (in custom adj_in at level 2, left associativity).
 Notation "i ; '·' 'as' v" := (IRenB i v) (in custom adj_in at level 2, left associativity, v constr at level 0).
-Notation "i ; '·' ':=' u" := (csubb i u) (in custom adj_in at level 2, left associativity, u constr at level 0).
+Notation "i ; '·' ':=' u" := (csubb i u PEmpty) (in custom adj_in at level 2, left associativity, u constr at level 0).
+Notation "i ; '·' ':=' u '⟨' p '⟩'" := (csubb i u p) (in custom adj_in at level 2, left associativity, u constr at level 0, p custom adj_pay at level 2).
 Notation "x" := (cent cnil x) (in custom adj_in at level 1, x constr at level 0).
 Notation "x 'as' v" := (IRenF cnil x v) (in custom adj_in at level 1, x constr at level 0, v constr at level 0).
-Notation "x ':=' u" := (csub cnil x u) (in custom adj_in at level 1, x constr at level 0, u constr at level 0).
+Notation "x ':=' u" := (csub cnil x u PEmpty) (in custom adj_in at level 1, x constr at level 0, u constr at level 0).
+Notation "x ':=' u '⟨' p '⟩'" := (csub cnil x u p) (in custom adj_in at level 1, x constr at level 0, u constr at level 0, p custom adj_pay at level 2).
 Notation "'·'" := (cbnd cnil) (in custom adj_in at level 1).
 Notation "'·' 'as' v" := (IRenB cnil v) (in custom adj_in at level 1, v constr at level 0).
-Notation "'·' ':=' u" := (csubb cnil u) (in custom adj_in at level 1, u constr at level 0).
+Notation "'·' ':=' u" := (csubb cnil u PEmpty) (in custom adj_in at level 1, u constr at level 0).
+Notation "'·' ':=' u '⟨' p '⟩'" := (csubb cnil u p) (in custom adj_in at level 1, u constr at level 0, p custom adj_pay at level 2).
 
 Notation "o ; y" := (OPosF o y) (in custom adj_out at level 4, left associativity, y constr at level 0).
 Notation "o ; y 'as' a" := (ONamF y (fun a => o)) (in custom adj_out at level 4, left associativity, y constr at level 0, a name).
 Notation "o ; '·'" := (OPosB o) (in custom adj_out at level 4, left associativity).
 Notation "o ; '·' 'as' a" := (ONamB (fun a => o)) (in custom adj_out at level 4, left associativity, a name).
-Notation "i" := i (in custom adj_out at level 3, i custom adj_in at level 2).
-Notation "i '|' σ" := (STail i σ) (in custom adj_out at level 3, i custom adj_in at level 2, σ constr at level 200).
-Notation "'|' σ" := (STail cnil σ) (in custom adj_out at level 3, σ constr at level 200).
+Notation "i" := (OShort i) (in custom adj_out at level 3, i custom adj_in at level 2).
+Notation "i '|' σ" := (OShortT (Nt:=0) (STail i σ)) (in custom adj_out at level 3, i custom adj_in at level 2, σ constr at level 200).
+Notation "'|' σ" := (OShortT (Nt:=0) (STail cnil σ)) (in custom adj_out at level 3, σ constr at level 200).
 Notation "i '\'" := (OEnd i) (in custom adj_out at level 3, i custom adj_in at level 2).
 Notation "i '\' y" := (OPosF (OEnd i) y) (in custom adj_out at level 3, i custom adj_in at level 2, y constr at level 0).
 Notation "i '\' y 'as' a" := (ONamF y (fun a => OEnd i)) (in custom adj_out at level 3, i custom adj_in at level 2, y constr at level 0, a name).
@@ -391,10 +449,15 @@ Notation "'|' g '\' y 'as' a" := (ONamF y (fun a => OEndT g cnil)) (in custom ad
 Notation "'|' g '\' '·'" := (OPosB (OEndT g cnil)) (in custom adj_out at level 3, g constr at level 200).
 Notation "'|' g '\' '·' 'as' a" := (ONamB (fun a => OEndT g cnil)) (in custom adj_out at level 3, g constr at level 200, a name).
 
-Notation "⟦ c ⟧" := (cden c) (c custom adj_out at level 4, format "⟦  c  ⟧").
-Notation "⟦ c | g [ σ ] ⟧" := (cform (fun g => c) σ)
-  (c custom adj_out at level 4, g name, σ constr at level 200, format "⟦  c  |  g [ σ ]  ⟧").
-Notation "⟦ c | g ⟧" := (cform (fun g => c) identity) (c custom adj_out at level 4, g name, format "⟦  c  |  g  ⟧").
+Notation "⟦ c ⟧" := (cform_id (fun (V W : Type) => c) c) (only parsing, c custom adj_out at level 4).
+Notation "⟦ c ⟧" := (cform_id _ c) (only printing, c custom adj_out at level 4, format "⟦  c  ⟧").
+Notation "⟦ c | g [ σ ] ⟧" := (cform (fun (V W : Type) (g : W) => c) (fun g => c) σ)
+  (only parsing, c custom adj_out at level 4, g name, σ constr at level 200).
+Notation "⟦ c | g [ σ ] ⟧" := (cform _ (fun g => c) σ)
+  (only printing, c custom adj_out at level 4, g name, σ constr at level 200, format "⟦  c  |  g [ σ ]  ⟧").
+Notation "⟦ c | g ⟧" := (cform (fun (V W : Type) (g : W) => c) (fun g => c) identity)
+  (only parsing, c custom adj_out at level 4, g name).
+Notation "⟦ c | g ⟧" := (cform _ (fun g => c) identity) (only printing, c custom adj_out at level 4, g name, format "⟦  c  |  g  ⟧").
 Notation "⟦ ⟧" := identity (format "⟦ ⟧").
 
 Declare Scope adj_scope.

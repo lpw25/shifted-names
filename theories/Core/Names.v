@@ -220,11 +220,11 @@ Ltac names :=
   | |- @eq (adj _ _ _) _ _ =>
       apply adj_eq;
       cbn [adj_raw identity compose at_scope
-           cden cnil cent cbnd csub csubb
+           cnil cent cbnd csub csubb
            cnil_full cnil_short cent_full cent_short cbnd_full cbnd_short
-           csub_full csub_short csubb_full csubb_short cden_full cden_short cden_tail
+           csub_full csub_short csubb_full csubb_short
            cform cform_id octx_den octx_probe ictx_den sctx_den nth
-           in_bound in_free out_bound out_free pw_bound pw_free pcompose padj_raw pid
+           in_bound in_free out_bound out_free pctx_den pctx_pay noslot pcompose padj_raw pid
            to_target var_raw bvar bvar0 fvar vdummy vshift_bound vshift_free];
       names_decide
   end.
