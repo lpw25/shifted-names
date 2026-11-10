@@ -1,9 +1,9 @@
 (** * The [names] tactic
 
     [names] proves an equation between adjustments [adj T N M] built from
-    context forms [⟦ I ⇒ O | σ ⟧] (and so [weaken], [extend], [lift] and
-    their named variants), [∘], [⟦⟧] and [at_scope], with any other
-    adjustment as an atom.  Labels may be concrete strings or variables;
+    context forms (full [⟦ I \ O ⟧], [⟦ I | Γ \ O | Γ[σ] ⟧] and short
+    [⟦ I; σ ⟧], and so [lift] and [lift_free]), [∘], [⟦⟧] and [at_scope],
+    with any other adjustment as an atom.  Labels may be concrete strings or variables;
     the order between label variables comes from hypotheses [label_lt x y]
     in the context ([label_compare] provides them by case analysis).
 
@@ -19,14 +19,17 @@ Import ListNotations.
 
 (** ** Reification *)
 
-(** The position of [x] in the list [l], adding it at the end if absent;
-    returns the index and the new list. *)
+(** The position of [x] in the list [l], up to conversion, adding it at
+    the end if absent; returns the index and the new list. *)
 Ltac lookup_add x l :=
   let rec go l n :=
     lazymatch l with
     | nil => constr:((n, false))
-    | x :: _ => constr:((n, true))
-    | _ :: ?r => go r (S n)
+    | ?y :: ?r =>
+        match constr:(tt) with
+        | _ => let _ := constr:(@eq_refl _ x : x = y) in constr:((n, true))
+        | _ => go r (S n)
+        end
     end in
   lazymatch go l O with
   | (?n, true) => constr:((n, l))
@@ -216,7 +219,12 @@ Ltac names :=
   lazymatch goal with
   | |- @eq (adj _ _ _) _ _ =>
       apply adj_eq;
-      cbn [adj_raw identity compose ctx oden iden fst snd in_bound in_free out_bound out_free at_scope
-           to_target var_raw bvar bvar0 fvar vshift_bound vshift_free];
+      cbn [adj_raw identity compose at_scope
+           cden cnil cent cbnd csub csubb
+           cnil_full cnil_short cent_full cent_short cent_tail cbnd_full cbnd_short
+           csub_full csub_short csubb_full csubb_short cden_full cden_short cden_tail
+           cform cform_id octx_den octx_probe ictx_den sctx_den nth
+           in_bound in_free out_bound out_free pw_bound pw_free pcompose padj_raw pid
+           to_target var_raw bvar bvar0 fvar vdummy vshift_bound vshift_free];
       names_decide
   end.

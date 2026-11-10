@@ -56,19 +56,31 @@ and instantiation and their inverse laws.
 
 ### Context forms
 
-Adjustments are written and printed as context forms
+Adjustments are written and printed as context forms. Contexts list their
+innermost entry first, and the bound label is written `·`.
 
-    ⟦ x as a, · := u ⇒ a : y, b : · | σ ⟧
+    ⟦ a as x; y := u | Γ \ b; a as x | Γ[σ] ⟧      (full form)
+    ⟦ ·; a; y := u; σ ⟧                              (short form)
 
-an input context (each input, `x` or the bound `·`, sent to a variable
-with `as` or to a term with `:=`), `⇒`, an output context of named slots
-(`a : y`, `b : ·`), and an optional tail `σ`. Both contexts list their
-outermost entry first. Slots are binders: input entries refer to them by
-name, or to any other variable of the output scope. `weaken`, `extend`,
-`lift` and their named variants are abbreviations for one-entry context
-forms (`lift σ` is `⟦ · as b ⇒ b : · | σ ⟧`), and composition is `∘`, so
-goals print in this notation. Concrete context forms compute, so closed
-equations hold by `vm_compute` (`Tests/CoreTests.v`).
+In the full form, the input context sends each input to a variable
+(`a as x`, where `x` is a slot of the output context or any variable of
+the output scope), to a term (`y := u`), or, written alone, to the output
+written alone in the same position among those (`⟦ a \ b ⟧` renames `a`
+to `b`). The output context declares slots, `a as x` or positionally just
+`a`. `| Γ` names the rest of the input context and `| Γ[σ]` (or `| Γ`)
+the rest of the output context with `σ` applied to it; the two must name
+the same tail, because the output's `Γ` binds the input's. Without them
+the tail is the identity.
+
+The short form has only an input context: a label alone is a lift (the
+label in both contexts, linked), `x := u` a substitution, and a last
+entry that is an adjustment is the tail. `⟦ ·; σ ⟧` is `σ` under a binder
+(`lift σ`), `⟦ x := u ⟧` substitutes, `⟦ · := u ⟧` instantiates.
+
+Terms `u` are in the scope of the output tail: they are shifted past the
+output context's slots, so in `⟦ a as x; y := u \ a as x ⟧` the `a`s of
+`u` are not the new `a`. Composition is `∘`. Concrete context forms
+compute, so closed equations hold by `vm_compute` (`Tests/CoreTests.v`).
 
 ### The `names` tactic (`Core/Normalise.v`, `Core/Names.v`)
 

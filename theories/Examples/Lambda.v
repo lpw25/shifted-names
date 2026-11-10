@@ -127,8 +127,8 @@ Proof. apply subst_compose. Qed.
 
 (** Open the innermost bound variable as the name [x]; close [x] into a new
     innermost bound variable. *)
-Definition open_sub {N} (x : label) : sub (S N) N := ⟦ · as a ⇒ a : x ⟧.
-Definition close_sub {N} (x : label) : sub N (S N) := ⟦ x as b ⇒ b : · ⟧.
+Definition open_sub {N} (x : label) : sub (S N) N := ⟦ · \ x ⟧.
+Definition close_sub {N} (x : label) : sub N (S N) := ⟦ x \ · ⟧.
 
 Definition topen {N} (x : label) (t : tm (S N)) : tm N := subst (open_sub x) t.
 Definition tclose {N} (x : label) (t : tm N) : tm (S N) := subst (close_sub x) t.
@@ -148,17 +148,17 @@ Proof.
 Qed.
 
 (** Instantiating the innermost bound variable with a closed term. *)
-Definition inst {N} (u : tm 0) : sub (S N) N := ⟦ · := u ⇒ ⟧.
+Definition inst {N} (u : tm 0) : sub (S N) N := ⟦ · := u ⟧.
 
 (** Opening after substituting under the binder is one substitution;
     the adjustment equation is closed by the [names] tactic. *)
 Theorem topen_subst_lift {N M} x (a : sub N M) (t : tm (S N)) :
-  topen x (subst (lift a) t) = subst ⟦ · as c ⇒ c : x | a ⟧ t.
+  topen x (subst (lift a) t) = subst ⟦ · | Γ \ x | Γ[a] ⟧ t.
 Proof.
   unfold topen; rewrite subst_compose; f_equal.
   unfold open_sub; names.
 Qed.
 
 Theorem inst_subst_lift {N M} (u : tm 0) (a : sub N M) (t : tm (S N)) :
-  subst (inst u) (subst (lift a) t) = subst ⟦ · := u ⇒ | a ⟧ t.
+  subst (inst u) (subst (lift a) t) = subst ⟦ · := u; a ⟧ t.
 Proof. rewrite subst_compose; f_equal; unfold inst; names. Qed.

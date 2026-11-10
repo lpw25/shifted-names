@@ -587,30 +587,35 @@ Not yet done:
 
 ### D13. Context-form notation (as implemented)
 
-`⟦ I ⇒ O | σ ⟧` in `Indexed.v`: the input context `I` (entries `x as v`,
-`x := u`, `· as v`, `· := u`, outermost first), then the output context
-`O` of slots (`a : y`, `a : ·`, outermost first), then the optional tail
-`σ`. Slots are Rocq binders, so input entries refer to them by name;
-`v` may also be any other variable of the output scope.
+In `Indexed.v`; the syntax is described in `design.md`. Decisions:
 
-- `ctx σ o` binds the innermost slot first and hands each slot its
-  variable in the final scope, built by shifting past the slots inside it
-  (`vshift_bound`, `vshift_free`): no label comparisons, no index
-  arithmetic, and the indices of `ictx`/`octx` make every form scoped by
-  construction.
-- `weaken`, `extend`, `lift` and their named variants are parsing-only
-  abbreviations for one-entry context forms, so every adjustment users
-  build prints as a context form; composition prints as `∘`.
-- The tail comes last (`| σ`) because a leading tail and an input context
-  cannot be told apart by the parser.
-- Labels: the bound label is written `·`, named labels are `label`s; the
-  order the library uses is `label_lt` on `label`, decided by
-  `label_compare`. The `option label` order is internal (`olabel_lt`).
+- **Slots are binders.** In the full form each output entry `a as x` is a
+  Rocq binder over everything before it, inputs included, so inputs refer
+  to slots by name. The grammar is left-recursive, so the innermost slot
+  ends up deepest in the term; `octx_den` builds from the outermost slot
+  in and gives each slot its variable in the final scope by probing the
+  slots inside it (`octx_probe`) for the shifts they add.
+- **The tail name is a binder too**, of the empty-in-practice type
+  `tname`, bound by the output's `Γ[σ]` and referred to by the input's
+  `| Γ`: a mismatch is an unbound name. The tail is written after `|`
+  because a bare tail name after `;` cannot be told from a bare label.
+- **Positional entries** pair up innermost first; the numbers of
+  positional inputs and outputs are indices, so a mismatch is a type
+  error.
+- **One input grammar, two forms.** Input entries build overloaded terms
+  (type classes `CNil`, `CEnt`, `CBnd`, `CSub`, `CSubB`); an output
+  context after `\` expects a full-form `ictx`, and `⟦ … ⟧` with no `\`
+  a short-form `sctx`, or `sclosed` when the last entry is an adjustment.
+- **Terms in inputs are in the tail's scope**: a target `Bind u ρ` carries
+  a payload adjustment, the weakening past the output slots.
+- The indexed constructors are context forms; `lift` and `lift_free` are
+  parsing abbreviations for `⟦ ·; σ ⟧` and `⟦ x; σ ⟧`.
+- Labels: `label_lt`/`label_compare` on `label`; the `option label` order
+  is internal (`olabel_lt`).
 
-Not yet done: adjustments are printed as built; nested context forms and
+Not yet done: adjustments print as built; nested context forms and
 compositions that the normaliser would merge into one context form are
-not merged by any tactic yet (a `names_simpl` rewriting adjustments to
-their normal forms would do it).
+not merged by any tactic yet.
 
 ### D6. Users see only the indexed form
 

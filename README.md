@@ -40,9 +40,8 @@ condition.
   - `Scoped.v`: scoping of adjustments (from `N` to `M` bound variables),
     checked on the data, with preservation by every constructor.
   - `Indexed.v`: the public indexed types `adj T N M`, `var`, `padj`,
-    `target`; context forms `⟦ I ⇒ O | σ ⟧` with named slots (and the
-    abbreviations `weaken`, `extend`, `lift`, ...), composition `∘`, and
-    their laws.
+    `target`; context forms (`⟦ a as x | Γ \ b as x | Γ[σ] ⟧`, short
+    `⟦ ·; σ ⟧`), composition `∘`, and their laws.
   - `Normalise.v`, `Names.v`: the reflective normaliser and the `names`
     tactic, which proves equations between indexed adjustments.
   - `Syntax.v`, `Subst.v`: the interface a syntax implements (one Kleisli

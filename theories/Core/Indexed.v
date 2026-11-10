@@ -5,12 +5,11 @@
     and two scoped adjustments are equal exactly when they agree on the
     variables in scope ([extensionality]).
 
-    Users write and see adjustments as context forms [⟦ I ⇒ O | σ ⟧] (see
-    "Context forms" below), composed with [∘]; [⟦⟧] is the identity.
-    [weaken], [extend], [lift] and their named variants ([weaken_free x],
-    ...) are abbreviations for one-entry context forms.  Bound and named
-    labels have separate syntax ([·] and a [label]), so users never see
-    [option label]. *)
+    Users write and see adjustments as context forms (see "Context forms"
+    below), composed with [∘]; [⟦⟧] is the identity.  [lift] and
+    [lift_free x] are abbreviations for [⟦ ·; σ ⟧] and [⟦ x; σ ⟧].  Bound
+    and named labels have separate syntax ([·] and a [label]), so users
+    never see [option label]. *)
 
 From Stdlib Require Import Arith List Lia Bool StrictProp String.
 From ShiftedNames.Core Require Import Label Var Adjustment Laws Scoped.
@@ -42,26 +41,30 @@ Arguments padj_ok {T M} _.
 Lemma padj_eq {T M} (ρ1 ρ2 : padj T M) : padj_raw ρ1 = padj_raw ρ2 -> ρ1 = ρ2.
 Proof. destruct ρ1, ρ2; cbn; intros ->; reflexivity. Qed.
 
-(** Where an input goes: a variable, or a closed term.  (Payloads with a
-    pending adjustment arise inside the library, never from users.) *)
+(** The identity payload adjustment: a term's named variables stay as
+    they are. *)
+Definition pid {T M} : padj T M := mk_padj rpidentity (Is_true_s_intro eq_refl).
+
+(** Where an input goes: a variable, or a term [u] whose variables are
+    moved by the payload adjustment [ρ]. *)
 Inductive target (T : Type) (M : nat) : Type :=
 | Rename (w : var M)
-| Bind (u : T).
+| Bind (u : T) (ρ : padj T M).
 
 Arguments Rename {T M} _.
-Arguments Bind {T M} _.
+Arguments Bind {T M} _ _.
 
 Definition to_target {T M} (t : target T M) : rtarget T :=
   match t with
   | Rename w => RRename (var_raw w)
-  | Bind u => RBind u rpidentity
+  | Bind u ρ => RBind u (padj_raw ρ)
   end.
 
 Lemma to_target_wf {T M} (t : target T M) : result_wf M (rtarget_result (to_target t)) = true.
 Proof.
-  destruct t as [w|u]; cbn [to_target rtarget_result].
+  destruct t as [w|u ρ]; cbn [to_target rtarget_result].
   - rewrite result_wf_inl; apply Is_true_s_elim, var_ok.
-  - rewrite result_wf_inr; reflexivity.
+  - rewrite result_wf_inr; apply Is_true_s_elim, padj_ok.
 Qed.
 
 (** ** Scoped adjustments *)
@@ -131,23 +134,34 @@ End Indexed.
 
 (** ** Context forms
 
-    The adjustments users write and see are context forms
-    [⟦ I ⇒ O | σ ⟧]: an input context [I] over an output context [O] over a
-    tail adjustment [σ] (omitted when it is the identity).  The output context declares slots, each with an
-    identifier and a label ([a : y], or [a : ·] for the bound label); the
-    input context sends each input ([x], or [·]) either to a variable ([x
-    as v], where [v] is a slot or any other variable of the output scope)
-    or to a term ([x := u]).  Both contexts are written outermost first,
-    so their last entries are the innermost ones.
+    Users write and see adjustments as context forms.
 
-    Slots are bound variables: [ctx σ o] binds the innermost slot first,
-    and passes each slot's variable in the final output scope. *)
+    - The full form [⟦ I \ O ⟧], or [⟦ I | Γ \ O | Γ[σ] ⟧] with a tail.
+      [I] is the input context, innermost entry first: an input ([x], or
+      [·] for the bound label) is sent to a variable ([x as v]), to a term
+      ([x := u]), or, written alone, to the output in the same position
+      among the outputs written alone.  [O] is the output context,
+      innermost first: [y as a] declares a slot [a] that inputs refer to,
+      and [y] alone a positional slot.  The tail [Γ] names the rest of the
+      input context; [Γ[σ]] (or just [Γ]) is the rest of the output
+      context, the adjustment [σ] applied to it.
+    - The short form [⟦ I ⟧], or [⟦ I; σ ⟧] with a tail: an input
+      written alone is a lift (the label in both contexts, linked), [x :=
+      u] a substitution.  [⟦ ·; σ ⟧] lifts [σ] under a binder, [⟦ x := u
+      ⟧] substitutes [u] for [x], [⟦ · := u ⟧] instantiates.
+
+    Variables [v] in [x as v] are in the output scope; terms [u] in [x :=
+    u] are in the scope of the output tail, and are shifted past the
+    output context's slots. *)
+
+(** The name of a tail: its binder exists only to make the input and the
+    output context name the same tail. *)
+Inductive tname : Type := tname_tt.
 
 Section Context.
 
 Context {T : Type}.
 
-(** Shifting a variable past a new innermost bound or named output. *)
 Lemma vshift_bound_ok {M} (v : var M) : Is_true_s (wf_var (S M) (shift_rvar (mk_rvar None 0) (var_raw v))).
 Proof.
   apply Is_true_s_intro; pose proof (Is_true_s_elim (var_ok v)) as H.
@@ -162,97 +176,222 @@ Proof.
     [destruct (String.eqb y x && _); reflexivity|exact H].
 Qed.
 
+(** Shifting a variable past a new innermost bound or named output. *)
 Definition vshift_bound {M} (v : var M) : var (S M) := mk_var _ (vshift_bound_ok v).
 Definition vshift_free {M} (y : label) (v : var M) : var M := mk_var _ (vshift_free_ok y v).
 
-(** Input contexts over a tail with [Nt] inputs, into the output scope
-    [M]; the last entry is the innermost. *)
-Inductive ictx (Nt M : nat) : nat -> Type :=
-| IEnd : ictx Nt M Nt
-| IInB {N} (r : ictx Nt M N) (t : target T M) : ictx Nt M (S N)
-| IInF {N} (r : ictx Nt M N) (x : label) (t : target T M) : ictx Nt M N.
+(** Weakening a payload past one output. *)
+Definition pw_bound {M} (ρ : padj T M) : padj T (S M) := pcompose (out_bound identity) ρ.
+Definition pw_free {M} (y : label) (ρ : padj T M) : padj T M := pcompose (out_free y identity) ρ.
 
-(** Output contexts, innermost slot first, ending in the input context;
-    the index is the output scope still to be built down to the tail's
-    [Mt]. *)
-Inductive octx (Nt Mt N M : nat) : nat -> Type :=
-| OEnd (i : ictx Nt M N) : octx Nt Mt N M Mt
-| OOutB {J} (k : var M -> octx Nt Mt N M J) : octx Nt Mt N M (S J)
-| OOutF {J} (y : label) (k : var M -> octx Nt Mt N M J) : octx Nt Mt N M J.
+(** *** The full form *)
 
-Arguments IEnd {Nt M}.
-Arguments IInB {Nt M N} r t.
-Arguments IInF {Nt M N} r x t.
-Arguments OEnd {Nt Mt N M} i.
-Arguments OOutB {Nt Mt N M J} k.
-Arguments OOutF {Nt Mt N M J} y k.
+(** Input contexts, innermost entry first, built by adding entries on the
+    outside: [ictx M Nb N P] goes from a tail with [Nb] inputs to [N]
+    inputs, into the output scope [M], with [P] positional entries. *)
+Inductive ictx (M : nat) : nat -> nat -> nat -> Type :=
+| IEmpty {N} : ictx M N N 0
+| IPosF {Nb N P} (i : ictx M Nb N P) (x : label) : ictx M Nb N (S P)
+| IPosB {Nb N P} (i : ictx M (S Nb) N P) : ictx M Nb N (S P)
+| IRenF {Nb N P} (i : ictx M Nb N P) (x : label) (v : var M) : ictx M Nb N P
+| IRenB {Nb N P} (i : ictx M (S Nb) N P) (v : var M) : ictx M Nb N P
+| ISubF {Nb N P} (i : ictx M Nb N P) (x : label) (u : T) : ictx M Nb N P
+| ISubB {Nb N P} (i : ictx M (S Nb) N P) (u : T) : ictx M Nb N P.
 
-Fixpoint iden {Nt M N} (i : ictx Nt M N) (X : adj T Nt M) : adj T N M :=
-  match i with
-  | IEnd => X
-  | IInB r t => in_bound t (iden r X)
-  | IInF r x t => in_free x t (iden r X)
+(** Output contexts, innermost slot first, over the input context: the
+    indices are the positional outputs so far, the output scope at the
+    outer edge of the slots so far, and whether the input context names
+    its tail. *)
+Inductive octx (Nt N M P : nat) : nat -> nat -> bool -> Type :=
+| OEnd (i : ictx M Nt N P) : octx Nt N M P 0 M false
+| OEndT (g : tname) (i : ictx M Nt N P) : octx Nt N M P 0 M true
+| OPosF {Po J b} (o : octx Nt N M P Po J b) (y : label) : octx Nt N M P (S Po) J b
+| OPosB {Po J b} (o : octx Nt N M P Po (S J) b) : octx Nt N M P (S Po) J b
+| ONamF {Po J b} (y : label) (k : var M -> octx Nt N M P Po J b) : octx Nt N M P Po J b
+| ONamB {Po J b} (k : var M -> octx Nt N M P Po (S J) b) : octx Nt N M P Po J b.
+
+Arguments IEmpty {M N}.
+Arguments IPosF {M Nb N P} i x.
+Arguments IPosB {M Nb N P} i.
+Arguments IRenF {M Nb N P} i x v.
+Arguments IRenB {M Nb N P} i v.
+Arguments ISubF {M Nb N P} i x u.
+Arguments ISubB {M Nb N P} i u.
+Arguments OEnd {Nt N M P} i.
+Arguments OEndT {Nt N M P} g i.
+Arguments OPosF {Nt N M P Po J b} o y.
+Arguments OPosB {Nt N M P Po J b} o.
+Arguments ONamF {Nt N M P Po J b} y k.
+Arguments ONamB {Nt N M P Po J b} k.
+
+Definition vdummy {M} : var M := fvar EmptyString 0.
+
+(** The input context over [X], with [pos] the positional slots,
+    innermost first, and [ρ] the payload adjustment of its terms. *)
+Fixpoint ictx_den {M Nb N P} (i : ictx M Nb N P) : list (var M) -> padj T M -> adj T Nb M -> adj T N M :=
+  match i in ictx _ Nb N P return list (var M) -> padj T M -> adj T Nb M -> adj T N M with
+  | IEmpty => fun _ _ X => X
+  | @IPosF _ _ _ P i x => fun pos ρ X => ictx_den i pos ρ (in_free x (Rename (nth P pos vdummy)) X)
+  | @IPosB _ _ _ P i => fun pos ρ X => ictx_den i pos ρ (in_bound (Rename (nth P pos vdummy)) X)
+  | IRenF i x v => fun pos ρ X => ictx_den i pos ρ (in_free x (Rename v) X)
+  | IRenB i v => fun pos ρ X => ictx_den i pos ρ (in_bound (Rename v) X)
+  | ISubF i x u => fun pos ρ X => ictx_den i pos ρ (in_free x (Bind u ρ) X)
+  | ISubB i u => fun pos ρ X => ictx_den i pos ρ (in_bound (Bind u ρ) X)
   end.
 
-(** [sh] takes the variables of the scope [J] reached so far to the final
-    output scope. *)
-Fixpoint oden {Nt Mt N M J} (o : octx Nt Mt N M J)
-  : (var J -> var M) -> ictx Nt M N * (adj T Nt Mt -> adj T Nt J) :=
-  match o in octx _ _ _ _ J return (var J -> var M) -> ictx Nt M N * (adj T Nt Mt -> adj T Nt J) with
-  | OEnd i => fun _ => (i, fun σ => σ)
-  | OOutB k => fun sh =>
-      let p := oden (k (sh bvar0)) (fun v => sh (vshift_bound v)) in (fst p, fun σ => out_bound (snd p σ))
-  | OOutF y k => fun sh =>
-      let p := oden (k (sh (fvar y 0))) (fun v => sh (vshift_free y v)) in (fst p, fun σ => out_free y (snd p σ))
+(** Where the slots inside [o] take a variable at its outer edge. *)
+Fixpoint octx_probe {Nt N M P Po J b} (o : octx Nt N M P Po J b) : var J -> var M :=
+  match o in octx _ _ _ _ _ J _ return var J -> var M with
+  | OEnd _ | OEndT _ _ => fun v => v
+  | OPosF o y => fun v => octx_probe o (vshift_free y v)
+  | OPosB o => fun v => octx_probe o (vshift_bound v)
+  | ONamF y k => fun v => octx_probe (k vdummy) (vshift_free y v)
+  | ONamB k => fun v => octx_probe (k vdummy) (vshift_bound v)
   end.
 
-Definition ctx {Nt Mt N M} (σ : adj T Nt Mt) (o : octx Nt Mt N M M) : adj T N M :=
-  let p := oden o (fun v => v) in iden (fst p) (snd p σ).
+(** The slots from the outermost in, over [X]; [pos] collects the
+    positional slots and [ρ] weakens the input context's terms. *)
+Fixpoint octx_den {Nt N M P Po J b} (o : octx Nt N M P Po J b)
+  : list (var M) -> padj T J -> adj T Nt J -> adj T N M :=
+  match o in octx _ _ _ _ _ J _ return list (var M) -> padj T J -> adj T Nt J -> adj T N M with
+  | OEnd i | OEndT _ i => fun pos ρ X => ictx_den i pos ρ X
+  | OPosF o y => fun pos ρ X => octx_den o (octx_probe o (fvar y 0) :: pos) (pw_free y ρ) (out_free y X)
+  | OPosB o => fun pos ρ X => octx_den o (octx_probe o bvar0 :: pos) (pw_bound ρ) (out_bound X)
+  | ONamF y k => fun pos ρ X =>
+      let a := octx_probe (k vdummy) (fvar y 0) in octx_den (k a) pos (pw_free y ρ) (out_free y X)
+  | ONamB k => fun pos ρ X =>
+      let a := octx_probe (k vdummy) bvar0 in octx_den (k a) pos (pw_bound ρ) (out_bound X)
+  end.
+
+Definition cform_id {Nt N M P} (o : octx Nt N M P P Nt false) : adj T N M := octx_den o nil pid identity.
+
+Definition cform {Nt Mt N M P} (o : tname -> octx Nt N M P P Mt true) (σ : adj T Nt Mt) : adj T N M :=
+  octx_den (o tname_tt) nil pid σ.
+
+(** *** The short form *)
+
+(** [sctx Nb Mb N M] goes from a tail [adj Nb Mb] to [adj N M]. *)
+Inductive sctx : nat -> nat -> nat -> nat -> Type :=
+| SEmpty {N M} : sctx N M N M
+| SLiftF {Nb Mb N M} (s : sctx Nb Mb N M) (x : label) : sctx Nb Mb N M
+| SLiftB {Nb Mb N M} (s : sctx (S Nb) (S Mb) N M) : sctx Nb Mb N M
+| SSubF {Nb Mb N M} (s : sctx Nb Mb N M) (x : label) (u : T) : sctx Nb Mb N M
+| SSubB {Nb Mb N M} (s : sctx (S Nb) Mb N M) (u : T) : sctx Nb Mb N M.
+
+Inductive sclosed (N M : nat) : Type :=
+| STail {Nb Mb} (s : sctx Nb Mb N M) (σ : adj T Nb Mb).
+
+Arguments STail {N M Nb Mb} s σ.
+
+Fixpoint sctx_den {Nb Mb N M} (s : sctx Nb Mb N M) : padj T Mb -> adj T Nb Mb -> adj T N M :=
+  match s with
+  | SEmpty => fun _ X => X
+  | SLiftF s x => fun ρ X => sctx_den s (pw_free x ρ) (in_free x (Rename (fvar x 0)) (out_free x X))
+  | SLiftB s => fun ρ X => sctx_den s (pw_bound ρ) (in_bound (Rename bvar0) (out_bound X))
+  | SSubF s x u => fun ρ X => sctx_den s ρ (in_free x (Bind u ρ) X)
+  | SSubB s u => fun ρ X => sctx_den s ρ (in_bound (Bind u ρ) X)
+  end.
 
 End Context.
 
-Arguments IEnd {T Nt M}.
-Arguments IInB {T Nt M N} r t.
-Arguments IInF {T Nt M N} r x t.
-Arguments OEnd {T Nt Mt N M} i.
-Arguments OOutB {T Nt Mt N M J} k.
-Arguments OOutF {T Nt Mt N M J} y k.
+Arguments IEmpty {T M N}.
+Arguments IPosF {T M Nb N P} i x.
+Arguments IPosB {T M Nb N P} i.
+Arguments IRenF {T M Nb N P} i x v.
+Arguments IRenB {T M Nb N P} i v.
+Arguments ISubF {T M Nb N P} i x u.
+Arguments ISubB {T M Nb N P} i u.
+Arguments OEnd {T Nt N M P} i.
+Arguments OEndT {T Nt N M P} g i.
+Arguments OPosF {T Nt N M P Po J b} o y.
+Arguments OPosB {T Nt N M P Po J b} o.
+Arguments ONamF {T Nt N M P Po J b} y k.
+Arguments ONamB {T Nt N M P Po J b} k.
+Arguments SEmpty {T N M}.
+Arguments SLiftF {T Nb Mb N M} s x.
+Arguments SLiftB {T Nb Mb N M} s.
+Arguments SSubF {T Nb Mb N M} s x u.
+Arguments SSubB {T Nb Mb N M} s u.
+Arguments STail {T N M Nb Mb} s σ.
+
+(** *** Entries shared by both forms
+
+    The input entries are written the same way in both forms; which form
+    they build is decided by the type expected of them: an output context
+    after [\] expects a full-form input context, and a context form with
+    no [\] is a short form. *)
+
+Class CNil (C : Type) := cnil : C.
+Class CEnt (C E R : Type) := cent : C -> E -> R.
+Class CBnd (C R : Type) := cbnd : C -> R.
+Class CSub (T C R : Type) := csub : C -> label -> T -> R.
+Class CSubB (T C R : Type) := csubb : C -> T -> R.
+Class CDen (C A : Type) := cden : C -> A.
+
+#[export] Instance cnil_full {T M N} : CNil (@ictx T M N N 0) := IEmpty.
+#[export] Instance cnil_short {T N M} : CNil (@sctx T N M N M) := SEmpty.
+#[export] Instance cent_full {T M Nb N P} : CEnt (@ictx T M Nb N P) label (ictx M Nb N (S P)) := IPosF.
+#[export] Instance cent_short {T Nb Mb N M} : CEnt (@sctx T Nb Mb N M) label (sctx Nb Mb N M) := SLiftF.
+#[export] Instance cent_tail {T Nb Mb N M} : CEnt (@sctx T Nb Mb N M) (adj T Nb Mb) (sclosed N M) := STail.
+#[export] Instance cbnd_full {T M Nb N P} : CBnd (@ictx T M (S Nb) N P) (ictx M Nb N (S P)) := IPosB.
+#[export] Instance cbnd_short {T Nb Mb N M} : CBnd (@sctx T (S Nb) (S Mb) N M) (sctx Nb Mb N M) := SLiftB.
+#[export] Instance csub_full {T M Nb N P} : CSub T (@ictx T M Nb N P) (ictx M Nb N P) := ISubF.
+#[export] Instance csub_short {T Nb Mb N M} : CSub T (@sctx T Nb Mb N M) (sctx Nb Mb N M) := SSubF.
+#[export] Instance csubb_full {T M Nb N P} : CSubB T (@ictx T M (S Nb) N P) (ictx M Nb N P) := ISubB.
+#[export] Instance csubb_short {T Nb Mb N M} : CSubB T (@sctx T (S Nb) Mb N M) (sctx Nb Mb N M) := SSubB.
+#[export] Instance cden_full {T Nt N M P} : CDen (@octx T Nt N M P P Nt false) (adj T N M) := cform_id.
+#[export] Instance cden_short {T N0 N M} : CDen (@sctx T N0 N0 N M) (adj T N M) := fun s => sctx_den s pid identity.
+#[export] Instance cden_tail {T N M} : CDen (@sclosed T N M) (adj T N M) :=
+  fun c => match c with STail s σ => sctx_den s pid σ end.
 
 (** *** Notation *)
 
 Declare Custom Entry adj_in.
 Declare Custom Entry adj_out.
 
-(** Input contexts: a list of entries, outermost first. *)
-Notation "i , x '↦' t" := (IInF i x t)
-  (in custom adj_in at level 2, left associativity, x constr at level 0, t constr at level 0).
-Notation "i , '·' '↦' t" := (IInB i t) (in custom adj_in at level 2, left associativity, t constr at level 0).
-Notation "i , x 'as' v" := (IInF i x (Rename v)) (in custom adj_in at level 2, left associativity, x constr at level 0, v constr at level 0).
-Notation "i , '·' 'as' v" := (IInB i (Rename v)) (in custom adj_in at level 2, left associativity, v constr at level 0).
-Notation "i , x ':=' u" := (IInF i x (Bind u)) (in custom adj_in at level 2, left associativity, x constr at level 0, u constr at level 0).
-Notation "i , '·' ':=' u" := (IInB i (Bind u)) (in custom adj_in at level 2, left associativity, u constr at level 0).
-Notation "x '↦' t" := (IInF IEnd x t) (in custom adj_in at level 1, x constr at level 0, t constr at level 0).
-Notation "'·' '↦' t" := (IInB IEnd t) (in custom adj_in at level 1, t constr at level 0).
-Notation "x 'as' v" := (IInF IEnd x (Rename v)) (in custom adj_in at level 1, x constr at level 0, v constr at level 0).
-Notation "'·' 'as' v" := (IInB IEnd (Rename v)) (in custom adj_in at level 1, v constr at level 0).
-Notation "x ':=' u" := (IInF IEnd x (Bind u)) (in custom adj_in at level 1, x constr at level 0, u constr at level 0).
-Notation "'·' ':=' u" := (IInB IEnd (Bind u)) (in custom adj_in at level 1, u constr at level 0).
+Notation "i ; x" := (cent i x) (in custom adj_in at level 2, left associativity, x constr at level 0).
+Notation "i ; x 'as' v" := (IRenF i x v) (in custom adj_in at level 2, left associativity, x constr at level 0, v constr at level 0).
+Notation "i ; x ':=' u" := (csub i x u) (in custom adj_in at level 2, left associativity, x constr at level 0, u constr at level 0).
+Notation "i ; '·'" := (cbnd i) (in custom adj_in at level 2, left associativity).
+Notation "i ; '·' 'as' v" := (IRenB i v) (in custom adj_in at level 2, left associativity, v constr at level 0).
+Notation "i ; '·' ':=' u" := (csubb i u) (in custom adj_in at level 2, left associativity, u constr at level 0).
+Notation "x" := (cent cnil x) (in custom adj_in at level 1, x constr at level 0).
+Notation "x 'as' v" := (IRenF cnil x v) (in custom adj_in at level 1, x constr at level 0, v constr at level 0).
+Notation "x ':=' u" := (csub cnil x u) (in custom adj_in at level 1, x constr at level 0, u constr at level 0).
+Notation "'·'" := (cbnd cnil) (in custom adj_in at level 1).
+Notation "'·' 'as' v" := (IRenB cnil v) (in custom adj_in at level 1, v constr at level 0).
+Notation "'·' ':=' u" := (csubb cnil u) (in custom adj_in at level 1, u constr at level 0).
 
-(** Output contexts: the input context, [⇒], then the slots, outermost
-    first. *)
-Notation "o , a : y" := (OOutF y (fun a => o))
-  (in custom adj_out at level 4, left associativity, a name, y constr at level 0).
-Notation "o , a : '·'" := (OOutB (fun a => o)) (in custom adj_out at level 4, left associativity, a name).
-Notation "'⇒'" := (OEnd IEnd) (in custom adj_out at level 3).
-Notation "i '⇒'" := (OEnd i) (in custom adj_out at level 3, i custom adj_in at level 2).
-Notation "'⇒' a : y" := (OOutF y (fun a => OEnd IEnd)) (in custom adj_out at level 3, a name, y constr at level 0).
-Notation "'⇒' a : '·'" := (OOutB (fun a => OEnd IEnd)) (in custom adj_out at level 3, a name).
-Notation "i '⇒' a : y" := (OOutF y (fun a => OEnd i))
-  (in custom adj_out at level 3, i custom adj_in at level 2, a name, y constr at level 0).
-Notation "i '⇒' a : '·'" := (OOutB (fun a => OEnd i)) (in custom adj_out at level 3, i custom adj_in at level 2, a name).
+Notation "o ; y" := (OPosF o y) (in custom adj_out at level 4, left associativity, y constr at level 0).
+Notation "o ; y 'as' a" := (ONamF y (fun a => o)) (in custom adj_out at level 4, left associativity, y constr at level 0, a name).
+Notation "o ; '·'" := (OPosB o) (in custom adj_out at level 4, left associativity).
+Notation "o ; '·' 'as' a" := (ONamB (fun a => o)) (in custom adj_out at level 4, left associativity, a name).
+Notation "i" := i (in custom adj_out at level 3, i custom adj_in at level 2).
+Notation "i '\'" := (OEnd i) (in custom adj_out at level 3, i custom adj_in at level 2).
+Notation "i '\' y" := (OPosF (OEnd i) y) (in custom adj_out at level 3, i custom adj_in at level 2, y constr at level 0).
+Notation "i '\' y 'as' a" := (ONamF y (fun a => OEnd i)) (in custom adj_out at level 3, i custom adj_in at level 2, y constr at level 0, a name).
+Notation "i '\' '·'" := (OPosB (OEnd i)) (in custom adj_out at level 3, i custom adj_in at level 2).
+Notation "i '\' '·' 'as' a" := (ONamB (fun a => OEnd i)) (in custom adj_out at level 3, i custom adj_in at level 2, a name).
+Notation "'\'" := (OEnd cnil) (in custom adj_out at level 3).
+Notation "'\' y" := (OPosF (OEnd cnil) y) (in custom adj_out at level 3, y constr at level 0).
+Notation "'\' y 'as' a" := (ONamF y (fun a => OEnd cnil)) (in custom adj_out at level 3, y constr at level 0, a name).
+Notation "'\' '·'" := (OPosB (OEnd cnil)) (in custom adj_out at level 3).
+Notation "'\' '·' 'as' a" := (ONamB (fun a => OEnd cnil)) (in custom adj_out at level 3, a name).
+Notation "i '|' g '\'" := (OEndT g i) (in custom adj_out at level 3, i custom adj_in at level 2, g constr at level 0).
+Notation "i '|' g '\' y" := (OPosF (OEndT g i) y) (in custom adj_out at level 3, i custom adj_in at level 2, g constr at level 0, y constr at level 0).
+Notation "i '|' g '\' y 'as' a" := (ONamF y (fun a => OEndT g i)) (in custom adj_out at level 3, i custom adj_in at level 2, g constr at level 0, y constr at level 0, a name).
+Notation "i '|' g '\' '·'" := (OPosB (OEndT g i)) (in custom adj_out at level 3, i custom adj_in at level 2, g constr at level 0).
+Notation "i '|' g '\' '·' 'as' a" := (ONamB (fun a => OEndT g i)) (in custom adj_out at level 3, i custom adj_in at level 2, g constr at level 0, a name).
+Notation "'|' g '\'" := (OEndT g cnil) (in custom adj_out at level 3, g constr at level 0).
+Notation "'|' g '\' y" := (OPosF (OEndT g cnil) y) (in custom adj_out at level 3, g constr at level 0, y constr at level 0).
+Notation "'|' g '\' y 'as' a" := (ONamF y (fun a => OEndT g cnil)) (in custom adj_out at level 3, g constr at level 0, y constr at level 0, a name).
+Notation "'|' g '\' '·'" := (OPosB (OEndT g cnil)) (in custom adj_out at level 3, g constr at level 0).
+Notation "'|' g '\' '·' 'as' a" := (ONamB (fun a => OEndT g cnil)) (in custom adj_out at level 3, g constr at level 0, a name).
 
-Notation "⟦ o | σ ⟧" := (ctx σ o) (o custom adj_out at level 4, σ constr at level 99, format "⟦  o  |  σ  ⟧").
-Notation "⟦ o ⟧" := (ctx identity o) (o custom adj_out at level 4, format "⟦  o  ⟧").
+Notation "⟦ c ⟧" := (cden c) (c custom adj_out at level 4, format "⟦  c  ⟧").
+Notation "⟦ c | g [ σ ] ⟧" := (cform (fun g => c) σ)
+  (c custom adj_out at level 4, g name, σ constr at level 200, format "⟦  c  |  g [ σ ]  ⟧").
+Notation "⟦ c | g ⟧" := (cform (fun g => c) identity) (c custom adj_out at level 4, g name, format "⟦  c  |  g  ⟧").
 Notation "⟦ ⟧" := identity (format "⟦ ⟧").
 
 Declare Scope adj_scope.
@@ -261,13 +400,9 @@ Bind Scope adj_scope with adj.
 Notation "a ∘ b" := (compose a b) (at level 40, left associativity) : adj_scope.
 Global Open Scope adj_scope.
 
-(** The constructors, as context forms. *)
-Notation weaken a := (ctx a (OOutB (fun _ => OEnd IEnd))) (only parsing).
-Notation weaken_free x a := (ctx a (OOutF x (fun _ => OEnd IEnd))) (only parsing).
-Notation extend t a := (ctx a (OEnd (IInB IEnd t))) (only parsing).
-Notation extend_free x t a := (ctx a (OEnd (IInF IEnd x t))) (only parsing).
-Notation lift a := (ctx a (OOutB (fun b => OEnd (IInB IEnd (Rename b))))) (only parsing).
-Notation lift_free x a := (ctx a (OOutF x (fun b => OEnd (IInF IEnd x (Rename b))))) (only parsing).
+(** Going under a binder. *)
+Notation lift a := ⟦ ·; a ⟧ (only parsing).
+Notation lift_free x a := ⟦ x; a ⟧ (only parsing).
 
 Section Laws.
 
@@ -305,26 +440,6 @@ Proof. apply adj_eq; cbn [adj_raw compose]; rewrite !adj_raw_lift; apply rlift_c
 Theorem lift_free_compose {N M K} x (a : adj T M K) (b : adj T N M) :
   compose (lift_free x a) (lift_free x b) = lift_free x (compose a b).
 Proof. apply adj_eq; cbn [adj_raw compose]; rewrite !adj_raw_lift_free; apply rlift_compose. Qed.
-
-Theorem compose_weaken_l {N M K} (a : adj T M K) (b : adj T N M) :
-  compose (weaken a) b = weaken (compose a b).
-Proof. apply adj_eq, rcompose_push_outer_l. Qed.
-
-Theorem compose_weaken_free_l {N M K} x (a : adj T M K) (b : adj T N M) :
-  compose (weaken_free x a) b = weaken_free x (compose a b).
-Proof. apply adj_eq, rcompose_push_outer_l. Qed.
-
-(** An output entry is cancelled by an input entry with the same label. *)
-Theorem compose_cancel {N M K} (t : target T K) (a : adj T M K) (b : adj T N M) :
-  compose (extend t a) (weaken b) = compose a b.
-Proof. apply adj_eq, rcompose_cancel. Qed.
-
-Theorem compose_cancel_free {N M K} x (t : target T K) (a : adj T M K) (b : adj T N M) :
-  compose (extend_free x t a) (weaken_free x b) = compose a b.
-Proof. apply adj_eq, rcompose_cancel. Qed.
-
-Theorem lift_as_context {N M} (a : adj T N M) : lift a = extend (Rename bvar0) (weaken a).
-Proof. reflexivity. Qed.
 
 (** ** Closed adjustments
 
