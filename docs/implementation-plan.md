@@ -600,9 +600,7 @@ In `Indexed.v`; the syntax is described in `design.md`. Decisions:
   input context used (`option tname`), and `cform` requires it to be the
   bound variable itself, so any other term of type `tname` is a type
   error. Tails are written after `|` in both forms, because a bare name
-  after `;` cannot be told from a bare label. A bare output tail `| Γ`
-  (identity) is not provided: it would mean the same as no tail, and its
-  token shape clashes with the printing of `lift_free`.
+  after `;` cannot be told from a bare label.
 - **Positional entries** pair up innermost first; the numbers of
   positional inputs and outputs are indices, so a mismatch is a type
   error.
@@ -613,9 +611,10 @@ In `Indexed.v`; the syntax is described in `design.md`. Decisions:
 - **Terms in inputs are in the tail's scope**: a target `Bind u ρ` carries
   a payload adjustment, the weakening past the output slots, computed
   only for the entries that use it.
-- The core constructors (`identity`, `compose`, `lift`, `lift_free`, the
-  primitive entries) are direct definitions on the raw layer; `lift` and
-  `lift_free` print as `⟦ · | σ ⟧` and `⟦ x | σ ⟧`.
+- Everything users build is a context form: `lift σ` and `lift_free x σ`
+  are parsing abbreviations for `⟦ · | σ ⟧` and `⟦ x | σ ⟧`. Only
+  `identity` (`⟦⟧`), `compose` (`∘`) and the internal primitive entries
+  the context forms are built from are direct definitions.
 - Labels: `label_lt`/`label_compare` on `label`; the `option label` order
   is internal (`olabel_lt`).
 

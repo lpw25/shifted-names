@@ -6,8 +6,8 @@
     variables in scope ([extensionality]).
 
     Users write and see adjustments as context forms (see "Context forms"
-    below), composed with [∘]; [⟦⟧] is the identity.  [lift] and
-    [lift_free x] are abbreviations for [⟦ ·; σ ⟧] and [⟦ x; σ ⟧].  Bound
+    below), composed with [∘]; [⟦⟧] is the identity.  [lift σ] and
+    [lift_free x σ] are abbreviations for [⟦ · | σ ⟧] and [⟦ x | σ ⟧].  Bound
     and named labels have separate syntax ([·] and a [label]), so users
     never see [option label]. *)
 
@@ -125,13 +125,6 @@ Definition in_free {N M} (x : label) (t : target T M) (a : adj T N M) : adj T N 
   mk_adj (rpush_inner (Some x) (to_target t) (adj_raw a))
     (Is_true_s_intro (scoped_push_inner_some x N M _ _ (adj_scoped a) (to_target_wf t))).
 
-(** Going under a binder, bound or named. *)
-Definition lift {N M} (a : adj T N M) : adj T (S N) (S M) :=
-  mk_adj (rlift None (adj_raw a)) (Is_true_s_intro (scoped_lift_none N M _ (adj_scoped a))).
-
-Definition lift_free {N M} (x : label) (a : adj T N M) : adj T N M :=
-  mk_adj (rlift (Some x) (adj_raw a)) (Is_true_s_intro (scoped_lift_some x N M _ (adj_scoped a))).
-
 (** Payload adjustments are moved through scoped adjustments. *)
 Definition pcompose {M K} (a : adj T M K) (ρ : padj T M) : padj T K :=
   mk_padj (rpcompose (adj_raw a) (padj_raw ρ))
@@ -150,9 +143,9 @@ End Indexed.
       among the outputs written alone.  [O] is the output context,
       innermost first: [y as a] declares a slot [a] that inputs refer to,
       and [y] alone a positional slot.  The tail [Γ] names the rest of the
-      input context; [Γ[σ]] is the rest of the output context, the
-      adjustment [σ] applied to it.  Without them the tail is the
-      identity.
+      input context; [Γ[σ]] (or just [Γ]) is the rest of the output
+      context, the adjustment [σ] applied to it.  Without them the tail is
+      the identity.
     - The short form [⟦ I ⟧], or [⟦ I | σ ⟧] with a tail: an input
       written alone is a lift (the label in both contexts, linked), [x :=
       u] a substitution.  [⟦ · | σ ⟧] lifts [σ] under a binder, [⟦ x := u
@@ -401,6 +394,7 @@ Notation "'|' g '\' '·' 'as' a" := (ONamB (fun a => OEndT g cnil)) (in custom a
 Notation "⟦ c ⟧" := (cden c) (c custom adj_out at level 4, format "⟦  c  ⟧").
 Notation "⟦ c | g [ σ ] ⟧" := (cform (fun g => c) σ)
   (c custom adj_out at level 4, g name, σ constr at level 200, format "⟦  c  |  g [ σ ]  ⟧").
+Notation "⟦ c | g ⟧" := (cform (fun g => c) identity) (c custom adj_out at level 4, g name, format "⟦  c  |  g  ⟧").
 Notation "⟦ ⟧" := identity (format "⟦ ⟧").
 
 Declare Scope adj_scope.
@@ -409,15 +403,9 @@ Bind Scope adj_scope with adj.
 Notation "a ∘ b" := (compose a b) (at level 40, left associativity) : adj_scope.
 Global Open Scope adj_scope.
 
-(** [lift] and [lift_free] print as the short forms they equal. *)
-Notation "⟦ '·' '|' a ⟧" := (lift a) (only printing, format "⟦  ·  |  a  ⟧").
-Notation "⟦ x '|' a ⟧" := (lift_free x a) (only printing, format "⟦  x  |  a  ⟧").
-
-Lemma lift_as_context {T N M} (a : adj T N M) : lift a = ⟦ · | a ⟧.
-Proof. reflexivity. Qed.
-
-Lemma lift_free_as_context {T N M} x (a : adj T N M) : lift_free x a = ⟦ x | a ⟧.
-Proof. reflexivity. Qed.
+(** Going under a binder, bound or named. *)
+Notation lift a := ⟦ · | a ⟧ (only parsing).
+Notation lift_free x a := ⟦ x | a ⟧ (only parsing).
 
 Section Laws.
 

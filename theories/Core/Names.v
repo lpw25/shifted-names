@@ -219,7 +219,7 @@ Ltac names :=
   lazymatch goal with
   | |- @eq (adj _ _ _) _ _ =>
       apply adj_eq;
-      cbn [adj_raw identity compose at_scope lift lift_free
+      cbn [adj_raw identity compose at_scope
            cden cnil cent cbnd csub csubb
            cnil_full cnil_short cent_full cent_short cbnd_full cbnd_short
            csub_full csub_short csubb_full csubb_short cden_full cden_short cden_tail

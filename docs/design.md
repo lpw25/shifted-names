@@ -67,17 +67,16 @@ In the full form, the input context sends each input to a variable
 the output scope), to a term (`y := u`), or, written alone, to the output
 written alone in the same position among those (`⟦ a \ b ⟧` renames `a`
 to `b`). The output context declares slots, `a as x` or positionally just
-`a`. `| Γ` names the rest of the input context and `| Γ[σ]` the rest of
-the output context with `σ` applied to it. The output's `Γ` binds the
+`a`. `| Γ` names the rest of the input context and `| Γ[σ]` (or `| Γ`)
+the rest of the output context with `σ` applied to it. The output's `Γ` binds the
 name, and the input context's type records which name it used, so a
 different name (even another variable of the same type) is a type error.
 Without them the tail is the identity.
 
 The short form has only an input context: a label alone is a lift (the
 label in both contexts, linked), `x := u` a substitution, and `| σ` the
-tail. `⟦ · | σ ⟧` is `σ` under a binder (`lift σ`, which is defined
-directly on the core and prints this way), `⟦ x := u ⟧` substitutes,
-`⟦ · := u ⟧` instantiates.
+tail. `⟦ · | σ ⟧` is `σ` under a binder (`lift σ` abbreviates it),
+`⟦ x := u ⟧` substitutes, `⟦ · := u ⟧` instantiates.
 
 Terms `u` are in the scope of the output tail: they are shifted past the
 output context's slots, so in `⟦ a as x; y := u \ a as x ⟧` the `a`s of

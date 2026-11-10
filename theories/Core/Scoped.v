@@ -347,20 +347,6 @@ Proof.
     + exact Hv.
 Qed.
 
-Theorem scoped_lift_none N M a :
-  scoped N M a = true -> scoped (S N) (S M) (rlift None a) = true.
-Proof.
-  intros Ha; unfold rlift; apply scoped_push_inner_none;
-    [apply scoped_push_outer_none, Ha|reflexivity].
-Qed.
-
-Theorem scoped_lift_some x N M a :
-  scoped N M a = true -> scoped N M (rlift (Some x) a) = true.
-Proof.
-  intros Ha; unfold rlift; apply scoped_push_inner_some;
-    [apply scoped_push_outer_some, Ha|reflexivity].
-Qed.
-
 Theorem scoped_ext N M a b :
   scoped N M a = true -> scoped N M b = true ->
   (forall v, wf_var N v = true -> rapply a v = rapply b v) -> a = b.
