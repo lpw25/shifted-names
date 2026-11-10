@@ -149,6 +149,17 @@ Definition apply_var {N M} (a : adj T N M) (v : var N) : target T M :=
   | inr (u, ρ) => fun H => Bind u (mk_padj ρ (Is_true_s_intro H))
   end (apply_wf a v).
 
+(** What a variable becomes, given what to make of a variable and of a
+    term with its payload adjustment: the node [names] evaluates. *)
+Definition eval {N M R} (f : var M -> R) (g : padj T M -> T -> R) (a : adj T N M) (v : var N) : R :=
+  match apply_var a v with Rename w => f w | Bind u ρ => g ρ u end.
+
+Lemma eval_rename {N M R} f g (a : adj T N M) v w : apply_var a v = Rename w -> @eval N M R f g a v = f w.
+Proof. unfold eval; intros ->; reflexivity. Qed.
+
+Lemma eval_bind {N M R} f g (a : adj T N M) v u ρ : apply_var a v = Bind u ρ -> @eval N M R f g a v = g ρ u.
+Proof. unfold eval; intros ->; reflexivity. Qed.
+
 Lemma apply_var_rename {N M} (a : adj T N M) (v : var N) (w : var M) :
   rapply (adj_raw a) (var_raw v) = inl (var_raw w) -> apply_var a v = Rename w.
 Proof.
@@ -569,7 +580,9 @@ Notation "⟦ ⟧" := identity (format "⟦ ⟧").
 
 (** The rewrite database [names] uses besides normalising adjustments:
     the substitution functor adds its laws, and each syntax its own. *)
-Create Rewrite HintDb names.
+Create Rewrite HintDb names_pre.
+Create Rewrite HintDb names_var.
+Create Rewrite HintDb names_post.
 
 Declare Scope adj_scope.
 Delimit Scope adj_scope with adj.

@@ -91,47 +91,24 @@ Import LS.
 (** Substitutions: scoped adjustments whose payloads are closed terms. *)
 Notation sub N M := (adj (tm 0) N M).
 
-(** Going under a binder: by the library's rewrite rules. *)
-Theorem subst_tlam {N M} (a : adj (tm 0) N M) (b : tm (S N)) :
+(** Substitution is the library's [subst], an abbreviation for the
+    Kleisli extension of its [apply]: [cbn] pushes it through the
+    constructors, and [names] does the rest. *)
+Example subst_tlam {N M} (a : adj (tm 0) N M) (b : tm (S N)) :
   subst a (tlam b) = tlam (subst (lift a) b).
-Proof.
-  unfold subst; cbn [LambdaSyntax.kleisli].
-  rewrite (kleisli_apply_under a ext_here b); reflexivity.
-Qed.
+Proof. cbn; names; reflexivity. Qed.
 
-Theorem subst_tapp {N M} (a : adj (tm 0) N M) t1 t2 :
-  subst a (tapp t1 t2) = tapp (subst a t1) (subst a t2).
-Proof. reflexivity. Qed.
-
-Theorem subst_tconst {N M} (a : adj (tm 0) N M) n : subst a (tconst n) = tconst n.
-Proof. reflexivity. Qed.
-
-(** Two binders, with no per-binder rule. *)
 Example subst_two_binders {N M} (a : adj (tm 0) N M) (b c : tm (S (S N))) :
   subst a (tlam (tlam (tapp b c)))
   = tlam (tlam (tapp (subst (lift (lift a)) b) (subst (lift (lift a)) c))).
-Proof.
-  unfold subst; cbn [LambdaSyntax.kleisli].
-  rewrite !kleisli_apply_under; cbn [ext_shift]; rewrite !kleisli_apply_under.
-  reflexivity.
-Qed.
+Proof. cbn; names; reflexivity. Qed.
 
-Theorem subst_id {N} (t : tm N) : subst identity t = t.
-Proof. apply subst_identity. Qed.
-
-Theorem subst_subst {N M P} (a : adj (tm 0) M P) (b : adj (tm 0) N M) (t : tm N) :
-  subst a (subst b t) = subst (compose a b) t.
-Proof. apply subst_compose. Qed.
-
-(** Substituting into a variable, for the constructor [tvar]. *)
+(** Substituting into a variable, stated for the constructor [tvar]. *)
 Lemma subst_tvar_ren {N M} (a : sub N M) v w : Indexed.apply_var a v = Rename w -> subst a (tvar v) = tvar w.
 Proof. exact (subst_tvar_rename a v w). Qed.
 
 Lemma subst_tvar_bind {N} (a : sub N 0) v u : Indexed.apply_var a v = Bind u pid -> subst a (tvar v) = u.
 Proof. exact (subst_tvar_bind0 a v u). Qed.
-
-(** [names] pushes substitutions through the constructors. *)
-Global Hint Rewrite @subst_tlam @subst_tapp @subst_tconst : names.
 
 (** ** Locally nameless operations *)
 
@@ -141,22 +118,9 @@ Notation open_sub x := ⟦ · \ x ⟧ (only parsing).
 Notation close_sub x := ⟦ x \ · ⟧ (only parsing).
 Notation inst u := ⟦ · := u ⟧ (only parsing).
 
-Definition topen {N} (x : label) (t : tm (S N)) : tm N := subst (open_sub x) t.
-Definition tclose {N} (x : label) (t : tm N) : tm (S N) := subst (close_sub x) t.
-
-Definition tinst {N} (u : tm 0) (t : tm (S N)) : tm N := subst (inst u) t.
-
-Lemma tinst_subst {N} u (t : tm (S N)) : tinst u t = subst (inst u) t.
-Proof. reflexivity. Qed.
-
-Lemma topen_subst {N} x (t : tm (S N)) : topen x t = subst (open_sub x) t.
-Proof. reflexivity. Qed.
-
-Lemma tclose_subst {N} x (t : tm N) : tclose x t = subst (close_sub x) t.
-Proof. reflexivity. Qed.
-
-(** [names] sees opening and closing as the substitutions they are. *)
-Global Hint Rewrite @topen_subst @tclose_subst @tinst_subst : names.
+Notation topen x := (subst (open_sub x)).
+Notation tclose x := (subst (close_sub x)).
+Notation tinst u := (subst (inst u)).
 
 Theorem topen_tclose {N} x (t : tm N) : topen x (tclose x t) = t.
 Proof. names; reflexivity. Qed.
@@ -176,4 +140,8 @@ Proof. names; reflexivity. Qed.
 (** Under binders, through applications. *)
 Example names_terms {N} x (t : tm (S N)) (u : tm N) :
   topen x (tclose x (tapp (tlam t) u)) = tapp (tlam t) u.
+Proof. names; reflexivity. Qed.
+
+(** Substituting into a variable. *)
+Example subst_var {N} x : topen x (tvar bvar0 : tm (S N)) = tvar x.
 Proof. names; reflexivity. Qed.

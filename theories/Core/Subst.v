@@ -608,7 +608,20 @@ Definition apply {N M} (a : adj P N M) : morph N M :=
       look a e (down (ext_depth e) rv) (W_tdown e rv (var_ok v) (fun H => rel_some rv y Hl H _))
   end eq_refl.
 
-Definition subst {N M} (a : adj P N M) (t : term N) : term M := kleisli (apply a) ext_here t.
+(** Substitution is the Kleisli extension of [apply] at the top; it is an
+    abbreviation, so rewriting sees the Kleisli extension and printing
+    shows [subst]. *)
+Notation subst a := (kleisli (apply a) ext_here).
+
+Lemma padj_pok {M} (ρ : padj P M) : Is_true_s (pok M (rpadj_n (padj_raw ρ))).
+Proof.
+  apply Is_true_s_intro; unfold pok; apply andb_true_iff; split;
+    [exact (Is_true_s_elim (rpadj_ok _))|exact (Is_true_s_elim (padj_ok ρ))].
+Qed.
+
+(** A payload term with its payload adjustment applied. *)
+Definition psubst {M} (ρ : padj P M) (u : P) : term M :=
+  kleisli (papply (rpadj_n (padj_raw ρ)) M 0 M (Is_true_s_intro (Nat.eqb_refl M)) (padj_pok ρ)) ext_here u.
 
 (** ** What [look] and [papply] compute *)
 
@@ -829,7 +842,7 @@ Qed.
 Lemma subst_tvar_rename {N M} (a : adj P N M) (v : var N) (w : var M) :
   Indexed.apply_var a v = Rename w -> subst a (tvar v) = tvar w.
 Proof.
-  intros E; unfold subst; rewrite kleisli_var.
+  intros E; rewrite kleisli_var.
   assert (Hr : rapply (adj_raw a) (var_raw v) = inl (var_raw w)).
   { revert E; unfold Indexed.apply_var; generalize (apply_wf a v); unfold Indexed.apply.
     destruct (rapply (adj_raw a) (var_raw v)) as [w0|[u ρ]]; intros H E; [|discriminate].
@@ -863,7 +876,7 @@ Qed.
 Lemma subst_tvar_bind0 {N} (a : adj P N 0) (v : var N) (u : P) :
   Indexed.apply_var a v = Bind u pid -> subst a (tvar v) = u.
 Proof.
-  intros E; unfold subst; rewrite kleisli_var.
+  intros E; rewrite kleisli_var.
   assert (Hr : rapply (adj_raw a) (var_raw v) = inr (u, rpidentity)).
   { revert E; unfold Indexed.apply_var; generalize (apply_wf a v); unfold Indexed.apply.
     destruct (rapply (adj_raw a) (var_raw v)) as [w0|[u0 ρ]]; intros H E; [discriminate|].
@@ -1075,7 +1088,7 @@ Qed.
 
 Theorem subst_identity {N} (t : term N) : subst identity t = t.
 Proof.
-  unfold subst; rewrite (kleisli_ext _ _ _ unit_m (fun K L e v => apply_identity e v)).
+  rewrite (kleisli_ext _ _ _ unit_m (fun K L e v => apply_identity e v)).
   apply kleisli_unit.
 Qed.
 
@@ -1245,11 +1258,67 @@ Qed.
 Theorem subst_compose {N M P'} (a : adj P M P') (b : adj P N M) (t : term N) :
   subst a (subst b t) = subst (compose a b) t.
 Proof.
-  unfold subst; rewrite kleisli_comp_here.
+  rewrite kleisli_comp_here.
   apply kleisli_ext; intros; apply apply_compose.
 Qed.
 
-(** [names] fuses nested substitutions and drops identity ones. *)
-Global Hint Rewrite @subst_compose @subst_identity : names.
+(** ** Variables *)
+
+Lemma apply_here_rename {N M} (a : adj P N M) (v : var N) (w : var M) :
+  Indexed.apply_var a v = Rename w -> apply a N M ext_here v = tvar w.
+Proof. intros E; rewrite <- (kleisli_var _ _ (apply a) _ _ ext_here v); exact (subst_tvar_rename a v w E). Qed.
+
+Lemma apply_here_bind {N M} (a : adj P N M) (v : var N) u ρ :
+  Indexed.apply_var a v = Bind u ρ -> apply a N M ext_here v = psubst ρ u.
+Proof.
+  intros E.
+  assert (Hr : rapply (adj_raw a) (var_raw v) = inr (u, padj_raw ρ)).
+  { revert E; unfold Indexed.apply_var; generalize (apply_wf a v); unfold Indexed.apply.
+    destruct (rapply (adj_raw a) (var_raw v)) as [w0|[u0 ρ0]]; intros H E; [discriminate|].
+    injection E as <- <-; reflexivity. }
+  unfold rapply in Hr.
+  destruct (napply (radj_n (adj_raw a)) (var_raw v)) as [w0|[u0 x]] eqn:En; cbn in Hr; [discriminate|].
+  injection Hr as -> Ex.
+  assert (Hwf : nwf true x) by (apply (nwf_payload false _ (var_raw v) u x (radj_wf (adj_raw a)) eq_refl En)).
+  assert (Hx : x = rpadj_n (padj_raw ρ)) by (rewrite <- Ex; symmetry; exact (rpadj_n_to_padj x Hwf)).
+  assert (Hd : down 0 (var_raw v) = var_raw v)
+    by (destruct v as [[[y|] i] Hv]; unfold down; cbn; [reflexivity|rewrite Nat.sub_0_r; reflexivity]).
+  assert (Hρ : Is_true_s (pok M x))
+    by (apply Is_true_s_intro, (top_payload_ok a (var_raw v) u); [apply Is_true_s_elim, var_ok|exact En]).
+  rewrite <- Hd in En.
+  rewrite (apply_pay a ext_here v u x (W_tHL ext_here) Hρ (fun _ => le_0_n _) En).
+  unfold psubst; subst x; reflexivity.
+Qed.
+
+(** Applying a substitution to a variable is the [eval] node, which
+    [names] evaluates. *)
+Theorem apply_here_eval {N M} (a : adj P N M) (v : var N) :
+  apply a N M ext_here v = Indexed.eval tvar psubst a v.
+Proof.
+  unfold Indexed.eval; destruct (Indexed.apply_var a v) eqn:E;
+    [apply apply_here_rename|apply apply_here_bind]; exact E.
+Qed.
+
+Theorem apply_under {N M K L} (a : adj P N M) (e : ext N M K L) (v : var (S K)) :
+  apply a (S K) (S L) (ext_under e) v = apply (lift a) (S K) (S L) (ext_shift e) v.
+Proof. rewrite <- (ext_app_shift e); apply apply_lift_rebase. Qed.
+
+Theorem subst_tvar_eval {N M} (a : adj P N M) (v : var N) :
+  subst a (tvar v) = Indexed.eval tvar psubst a v.
+Proof. rewrite kleisli_var; apply apply_here_eval. Qed.
+
+Theorem eval_fold {N M} (a : adj P N M) (v : var N) :
+  Indexed.eval tvar psubst a v = subst a (tvar v).
+Proof. rewrite kleisli_var; symmetry; apply apply_here_eval. Qed.
+
+(** [names] first applies the monad laws that remove a Kleisli extension
+    or move work into the adjustment: going under a binder lifts the
+    adjustment and nested substitutions fuse ([names_pre]); then
+    substituting into a variable is the [eval] node ([names_var]).  After normalising adjustments and
+    evaluating [eval] nodes, identity substitutions go, and an [eval]
+    node it cannot evaluate is shown as a substitution again. *)
+Global Hint Rewrite @kleisli_apply_under @apply_under @subst_compose : names_pre.
+Global Hint Rewrite @subst_tvar_eval @apply_here_eval : names_var.
+Global Hint Rewrite @subst_identity @eval_fold : names_post.
 
 End Subst.

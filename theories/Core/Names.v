@@ -15,7 +15,7 @@
 
 From Stdlib Require Import List String Arith Bool StrictProp.
 Open Scope bool_scope.
-From ShiftedNames.Core Require Import Label Var Adjustment Indexed Normalise.
+From ShiftedNames.Core Require Import Label Var Adjustment Indexed Syntax Normalise.
 Import ListNotations.
 
 (** ** Reification *)
@@ -678,7 +678,7 @@ Ltac names_rewrite a :=
 
 (** Applying an adjustment to a variable: when the normal form is a single
     context form, the result is read off it. *)
-Ltac names_apply_var t :=
+Ltac names_var_eq t E :=
   lazymatch t with
   | @apply_var ?T ?N ?M ?a ?v =>
       let r := eval cbn [adj_raw identity compose at_scope
@@ -706,15 +706,13 @@ Ltac names_apply_var t :=
                                    | LNone => constr:(@bvar M j stt)
                                    | _ => let x := lab le h' in constr:(@fvar M x j)
                                    end in
-                          let E := fresh "E" in
-                          assert (E : apply_var a v = Rename w);
-                          [ apply apply_var_rename; names_unfold;
-                            change (rapply (aeden le te ae pe e) (mk_rvar (lden le eh) i)
-                                    = inl (mk_rvar (lden le h') j));
-                            refine (apply_result_sound le te ae pe F _ (List.length te) (le_n _) e eh i h' j _);
-                            [ unfold facts_ok; repeat constructor; cbn [lden nth]; assumption
-                            | vm_compute; reflexivity ] .. 
-                          | rewrite E; clear E ]
+                          assert (E : apply_var a v = Rename w)
+                            by (apply apply_var_rename; names_unfold;
+                                change (rapply (aeden le te ae pe e) (mk_rvar (lden le eh) i)
+                                        = inl (mk_rvar (lden le h') j));
+                                refine (apply_result_sound le te ae pe F _ (List.length te) (le_n _) e eh i h' j _);
+                                [ unfold facts_ok; repeat constructor; cbn [lden nth]; assumption
+                                | vm_compute; reflexivity ])
                       end
                   end
               end
@@ -725,6 +723,8 @@ Ltac names_apply_var t :=
 (** Every adjustment in the goal built from context forms and [∘] is
     rewritten to its normal form, shown as context forms, and then every
     [apply_var a v] whose result the normal form of [a] gives. *)
+Ltac names_apply_var t := let E := fresh "E" in names_var_eq t E; rewrite E; clear E.
+
 Ltac names_adjs :=
   repeat match goal with
          | |- context [?a] => is_adj_expr a; names_rewrite a
@@ -735,8 +735,33 @@ Ltac names_apply :=
          | |- context [?t] => lazymatch t with apply_var _ _ => names_apply_var t end
          end.
 
-(** [names] rewrites with the [names] database (the laws of substitution,
-    and whatever a syntax adds) and normalises adjustments and applications
-    of adjustments to variables, until nothing changes. *)
+(** [eval f g a v] nodes whose variable [a]'s normal form renames are
+    evaluated to [f w]. *)
+Ltac names_eval :=
+  repeat match goal with
+  | |- context [@eval ?T ?N ?M ?R ?f ?g ?a ?v] =>
+      let E := fresh "E" in
+      names_var_eq (Indexed.apply_var a v) E;
+      lazymatch type of E with
+      | _ = Rename ?w =>
+          rewrite (@eval_rename T N M R f g a v w E); clear E;
+          let r := eval cbn in (f w) in change (f w) with r
+      end
+  end.
+
+(** [names]:
+    1. rewrites with [names_pre] and then [names_var], the monad laws that
+       remove a Kleisli extension or move work into the adjustment (a
+       syntax's [Subst] functor adds them): under binders and fusing
+       nested substitutions first, then substituting into variables;
+    2. rewrites every adjustment built from context forms and [∘] to its
+       normal form, shown as context forms;
+    3. evaluates [apply_var a v] and [eval] nodes for variables the normal
+       form of [a] renames;
+    4. rewrites with [names_post]: identity substitutions go, and an
+       [eval] node left is shown as a substitution again. *)
 Ltac names :=
-  repeat progress (try autorewrite with names; names_adjs; names_apply).
+  repeat progress (autorewrite with names_pre; cbn [ext_shift]);
+  autorewrite with names_var;
+  names_adjs; names_apply; names_eval;
+  autorewrite with names_post.
