@@ -6,7 +6,7 @@
 
     This file provides:
     - decidable equality on [option label];
-    - a strict total order [label_lt] that computes on concrete labels, used
+    - a strict total order [olabel_lt] that computes on concrete labels, used
       for side conditions about symbolic labels;
     - an injective encoding [label_key] of [option label] into [positive],
       used as the key of canonical tries. *)
@@ -193,6 +193,38 @@ Proof.
 Qed.
 
 
+(** ** The strict total order on labels
+
+    The order the library's side conditions are stated with: [label_lt x y],
+    decided by [label_compare]. *)
+
+Definition label_ltb (x y : label) : bool := is_less_than_label x y.
+
+Definition label_lt (x y : label) : Prop := label_ltb x y = true.
+
+Lemma label_lt_irrefl x : ~ label_lt x x.
+Proof. unfold label_lt, label_ltb; intro H; pose proof (is_less_than_label_asymmetric x x H); congruence. Qed.
+
+Lemma label_lt_asym x y : label_lt x y -> ~ label_lt y x.
+Proof. unfold label_lt, label_ltb; intros H1 H2; rewrite (is_less_than_label_asymmetric x y H1) in H2; discriminate. Qed.
+
+Lemma label_lt_trans x y z : label_lt x y -> label_lt y z -> label_lt x z.
+Proof. apply is_less_than_label_transitive. Qed.
+
+Definition label_compare (x y : label) : comparison :=
+  if label_ltb x y then Lt else if label_ltb y x then Gt else Eq.
+
+Lemma label_compare_spec x y : CompareSpec (x = y) (label_lt x y) (label_lt y x) (label_compare x y).
+Proof.
+  unfold label_compare, label_lt.
+  destruct (label_ltb x y) eqn:H1; [constructor; reflexivity|].
+  destruct (label_ltb y x) eqn:H2; [constructor; reflexivity|].
+  constructor; apply is_less_than_label_total; assumption.
+Qed.
+
+Lemma label_trichotomy x y : label_lt x y \/ x = y \/ label_lt y x.
+Proof. destruct (label_compare_spec x y); auto. Qed.
+
 (** ** Equality on [option label] *)
 
 Definition label_eqb (l1 l2 : option label) : bool :=
@@ -220,60 +252,60 @@ Proof. destruct (label_eqb_spec l1 l2); split; congruence. Qed.
 Definition label_eq_dec (l1 l2 : option label) : {l1 = l2} + {l1 <> l2}.
 Proof. destruct (label_eqb_spec l1 l2); [left|right]; assumption. Defined.
 
-(** ** The strict total order on [option label]
+(** ** The strict total order on [option label] (internal)
 
     Named labels come before the anonymous label. *)
 
-Definition label_ltb (l1 l2 : option label) : bool :=
+Definition olabel_ltb (l1 l2 : option label) : bool :=
   match l1, l2 with
   | None, _ => false
   | Some _, None => true
   | Some s1, Some s2 => is_less_than_label s1 s2
   end.
 
-Definition label_lt (l1 l2 : option label) : Prop := label_ltb l1 l2 = true.
+Definition olabel_lt (l1 l2 : option label) : Prop := olabel_ltb l1 l2 = true.
 
-Lemma label_lt_irrefl l : ~ label_lt l l.
+Lemma olabel_lt_irrefl l : ~ olabel_lt l l.
 Proof.
-  unfold label_lt; destruct l as [s|]; cbn; [|discriminate].
+  unfold olabel_lt; destruct l as [s|]; cbn; [|discriminate].
   intro H; pose proof (is_less_than_label_asymmetric s s H) as H'.
   congruence.
 Qed.
 
-Lemma label_lt_asym l1 l2 : label_lt l1 l2 -> ~ label_lt l2 l1.
+Lemma olabel_lt_asym l1 l2 : olabel_lt l1 l2 -> ~ olabel_lt l2 l1.
 Proof.
-  unfold label_lt; destruct l1 as [s1|], l2 as [s2|]; cbn; try discriminate.
+  unfold olabel_lt; destruct l1 as [s1|], l2 as [s2|]; cbn; try discriminate.
   intros H1 H2; rewrite (is_less_than_label_asymmetric s1 s2 H1) in H2.
   discriminate.
 Qed.
 
-Lemma label_lt_trans l1 l2 l3 :
-  label_lt l1 l2 -> label_lt l2 l3 -> label_lt l1 l3.
+Lemma olabel_lt_trans l1 l2 l3 :
+  olabel_lt l1 l2 -> olabel_lt l2 l3 -> olabel_lt l1 l3.
 Proof.
-  unfold label_lt; destruct l1 as [s1|], l2 as [s2|], l3 as [s3|];
+  unfold olabel_lt; destruct l1 as [s1|], l2 as [s2|], l3 as [s3|];
     cbn; try discriminate; try reflexivity.
   apply is_less_than_label_transitive.
 Qed.
 
-Definition label_compare (l1 l2 : option label) : comparison :=
-  if label_ltb l1 l2 then Lt
-  else if label_ltb l2 l1 then Gt
+Definition olabel_compare (l1 l2 : option label) : comparison :=
+  if olabel_ltb l1 l2 then Lt
+  else if olabel_ltb l2 l1 then Gt
   else Eq.
 
-Lemma label_compare_spec l1 l2 :
-  CompareSpec (l1 = l2) (label_lt l1 l2) (label_lt l2 l1)
-    (label_compare l1 l2).
+Lemma olabel_compare_spec l1 l2 :
+  CompareSpec (l1 = l2) (olabel_lt l1 l2) (olabel_lt l2 l1)
+    (olabel_compare l1 l2).
 Proof.
-  unfold label_compare, label_lt.
-  destruct (label_ltb l1 l2) eqn:H12; [constructor; reflexivity|].
-  destruct (label_ltb l2 l1) eqn:H21; [constructor; reflexivity|].
+  unfold olabel_compare, olabel_lt.
+  destruct (olabel_ltb l1 l2) eqn:H12; [constructor; reflexivity|].
+  destruct (olabel_ltb l2 l1) eqn:H21; [constructor; reflexivity|].
   constructor.
   destruct l1 as [s1|], l2 as [s2|]; cbn in *; try discriminate; auto.
   f_equal; apply is_less_than_label_total; assumption.
 Qed.
 
-Lemma label_trichotomy l1 l2 : label_lt l1 l2 \/ l1 = l2 \/ label_lt l2 l1.
-Proof. destruct (label_compare_spec l1 l2); auto. Qed.
+Lemma olabel_trichotomy l1 l2 : olabel_lt l1 l2 \/ l1 = l2 \/ olabel_lt l2 l1.
+Proof. destruct (olabel_compare_spec l1 l2); auto. Qed.
 
 (** ** Encoding labels as trie keys *)
 
@@ -348,35 +380,7 @@ Proof.
   symmetry; apply label_eqb_neq; intro; apply H; symmetry; assumption.
 Qed.
 
-(** The reflexive closure of [label_lt]. *)
-Definition label_leb (l1 l2 : option label) : bool := label_eqb l1 l2 || label_ltb l1 l2.
 
-Lemma label_leb_trans l1 l2 l3 :
-  label_leb l1 l2 = true -> label_leb l2 l3 = true -> label_leb l1 l3 = true.
-Proof.
-  unfold label_leb; rewrite !orb_true_iff, !label_eqb_eq.
-  intros [<-|H12] [<-|H23]; auto.
-  right; apply (label_lt_trans _ _ _ H12 H23).
-Qed.
-
-Lemma label_leb_lt_trans l1 l2 l3 :
-  label_leb l1 l2 = true -> label_lt l2 l3 -> label_lt l1 l3.
-Proof.
-  unfold label_leb; rewrite orb_true_iff, label_eqb_eq.
-  intros [<-|H12] H23; [exact H23|apply (label_lt_trans _ _ _ H12 H23)].
-Qed.
-
-Lemma label_leb_total l1 l2 : label_leb l1 l2 = true \/ label_lt l2 l1.
-Proof.
-  unfold label_leb; rewrite orb_true_iff, label_eqb_eq.
-  destruct (label_trichotomy l1 l2) as [H|[H|H]]; auto.
-Qed.
-
-Lemma label_leb_lt_false l1 l2 : label_leb l1 l2 = true -> ~ label_lt l2 l1.
-Proof.
-  unfold label_leb; rewrite orb_true_iff, label_eqb_eq.
-  intros [<-|H] H'; [apply (label_lt_irrefl _ H')|apply (label_lt_asym _ _ H H')].
-Qed.
 
 (** ** Decoding keys *)
 

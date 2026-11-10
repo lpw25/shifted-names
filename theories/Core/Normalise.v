@@ -104,15 +104,15 @@ Definition lden (a : lexp) : option label :=
   end.
 
 Definition facts_ok (F : list (lexp * lexp)) : Prop :=
-  Forall (fun '(x, y) => label_lt (lden x) (lden y)) F.
+  Forall (fun '(x, y) => olabel_lt (lden x) (lden y)) F.
 
 Variable F : list (lexp * lexp).
 Hypothesis HF : facts_ok F.
 
-Lemma lt_base_sound a b : lt_base a b = true -> label_lt (lden a) (lden b).
-Proof. destruct a, b; cbn; try discriminate; unfold label_lt; cbn; auto. Qed.
+Lemma lt_base_sound a b : lt_base a b = true -> olabel_lt (lden a) (lden b).
+Proof. destruct a, b; cbn; try discriminate; unfold olabel_lt; cbn; auto. Qed.
 
-Lemma lt_reach_sound fuel : forall a b, lt_reach F fuel a b = true -> label_lt (lden a) (lden b).
+Lemma lt_reach_sound fuel : forall a b, lt_reach F fuel a b = true -> olabel_lt (lden a) (lden b).
 Proof.
   induction fuel as [|f IH]; intros a b H; cbn [lt_reach] in H; apply orb_true_iff in H as [H|H];
     try (apply lt_base_sound, H); [discriminate|].
@@ -121,18 +121,18 @@ Proof.
   pose proof (proj1 (Forall_forall _ F) HF _ Hin) as Hxy; cbn in Hxy.
   apply orb_true_iff in H as [H|H].
   - apply lexp_eqb_eq in H; subst y; exact Hxy.
-  - apply (label_lt_trans _ (lden y)); [exact Hxy|apply IH, H].
+  - apply (olabel_lt_trans _ (lden y)); [exact Hxy|apply IH, H].
 Qed.
 
-Lemma lt_known_sound a b : lt_known F a b = true -> label_lt (lden a) (lden b).
+Lemma lt_known_sound a b : lt_known F a b = true -> olabel_lt (lden a) (lden b).
 Proof. apply lt_reach_sound. Qed.
 
 (** What a comparison tells about the labels. *)
 Definition cmp_holds (c : comparison) (a b : lexp) : Prop :=
   match c with
   | Eq => a = b
-  | Lt => label_lt (lden a) (lden b)
-  | Gt => label_lt (lden b) (lden a)
+  | Lt => olabel_lt (lden a) (lden b)
+  | Gt => olabel_lt (lden b) (lden a)
   end.
 
 Lemma lcmp_sound a b c : lcmp F a b = Some c -> cmp_holds c a b.
@@ -149,7 +149,7 @@ Proof. intros H; apply lcmp_sound in H; cbn in H; subst; reflexivity. Qed.
 Lemma lcmp_neq a b c : lcmp F a b = Some c -> c <> Eq -> lden a <> lden b.
 Proof.
   intros H Hc; apply lcmp_sound in H; destruct c; cbn in H; [contradiction| |];
-    intros E; rewrite E in H; exact (label_lt_irrefl _ H).
+    intros E; rewrite E in H; exact (olabel_lt_irrefl _ H).
 Qed.
 
 End Labels.
@@ -759,6 +759,7 @@ Inductive aexp : Type :=
 with texp : Type :=
 | TVarE (h : lexp) (i : nat)
 | TBindE (u : nat) (p : pexp)
+| TShiftE (h : lexp) (t : texp)
 with pexp : Type :=
 | PId
 | PAtom (n : nat)
@@ -787,6 +788,16 @@ with tnorm (t : texp) : option ntgt :=
   | TBindE u p =>
       if u <? ntm then match pnorm_e p with Some (w, b) => Some (NBind u (bnorm b w) b) | None => None end
       else None
+  | TShiftE h t =>
+      match tnorm t with
+      | Some (NVar h' i) =>
+          match lcmp F h h' with
+          | Some Eq => Some (NVar h' (S i))
+          | Some _ => Some (NVar h' i)
+          | None => None
+          end
+      | _ => None
+      end
   end
 with pnorm_e (p : pexp) : option (word * option nat) :=
   match p with
@@ -878,11 +889,11 @@ Proof.
     + destruct (sdel F h r) as [r'|] eqn:Er; [|discriminate]; intros H; injection H as <-; intros l; cbn.
       rewrite (IH _ eq_refl).
       destruct (label_eqb_spec (lden h') l) as [<-|]; destruct (label_eqb_spec (lden h) (lden h')) as [Heq|];
-        try reflexivity; rewrite Heq in Hc; exfalso; exact (label_lt_irrefl _ Hc).
+        try reflexivity; rewrite Heq in Hc; exfalso; exact (olabel_lt_irrefl _ Hc).
     + destruct (sdel F h r) as [r'|] eqn:Er; [|discriminate]; intros H; injection H as <-; intros l; cbn.
       rewrite (IH _ eq_refl).
       destruct (label_eqb_spec (lden h') l) as [<-|]; destruct (label_eqb_spec (lden h) (lden h')) as [Heq|];
-        try reflexivity; rewrite Heq in Hc; exfalso; exact (label_lt_irrefl _ Hc).
+        try reflexivity; rewrite Heq in Hc; exfalso; exact (olabel_lt_irrefl _ Hc).
 Qed.
 
 Lemma sdel_dist h s s' : sdist s -> sdel F h s = Some s' -> sdist s'.
@@ -1221,7 +1232,7 @@ Proof.
     + intros H; injection H as <-; reflexivity.
     + destruct (ladd F h n L) as [L''|] eqn:EL; [|discriminate]; intros H; injection H as <-.
       rewrite !lifts_cons, (IH _ eq_refl), iter_rlift_comm; [reflexivity|].
-      intros Heq; rewrite Heq in Hc; exact (label_lt_irrefl _ Hc).
+      intros Heq; rewrite Heq in Hc; exact (olabel_lt_irrefl _ Hc).
 Qed.
 
 Lemma lsub_sound h k L L' (x : radj T) : lsub F h k L = Some L' -> lifts L x = iter k (rlift (lden h)) (lifts L' x).
@@ -1234,10 +1245,10 @@ Proof.
     rewrite !lifts_cons, <- iter_add; f_equal; lia.
   - destruct (lsub F h k L) as [L''|] eqn:EL; [|discriminate]; intros H; injection H as <-.
     rewrite !lifts_cons, (IH _ eq_refl), iter_rlift_comm; [reflexivity|].
-    intros Heq; rewrite Heq in Hc; exact (label_lt_irrefl _ Hc).
+    intros Heq; rewrite Heq in Hc; exact (olabel_lt_irrefl _ Hc).
   - destruct (lsub F h k L) as [L''|] eqn:EL; [|discriminate]; intros H; injection H as <-.
     rewrite !lifts_cons, (IH _ eq_refl), iter_rlift_comm; [reflexivity|].
-    intros Heq; rewrite Heq in Hc; exact (label_lt_irrefl _ Hc).
+    intros Heq; rewrite Heq in Hc; exact (olabel_lt_irrefl _ Hc).
 Qed.
 
 (** *** Settling *)
@@ -1409,6 +1420,7 @@ with teden (t : texp) : rtarget T :=
   match t with
   | TVarE h i => RRename (mk_rvar (lden h) i)
   | TBindE u p => match nth_error tenv u with Some x => RBind x (peden p) | None => RRename (mk_rvar None 0) end
+  | TShiftE h t => match teden t with RRename w => RRename (shift_rvar (mk_rvar (lden h) 0) w) | r => r end
   end
 with peden (p : pexp) : rpadj T :=
   match p with
@@ -1440,6 +1452,15 @@ Proof. reflexivity. Qed.
 Lemma tnorm_bind u p :
   tnorm F ntm (TBindE u p)
   = if u <? ntm then match pnorm_e F ntm p with Some (w, b) => Some (NBind u (bnorm b w) b) | None => None end else None.
+Proof. reflexivity. Qed.
+
+Lemma tnorm_shift h t :
+  tnorm F ntm (TShiftE h t)
+  = match tnorm F ntm t with
+    | Some (NVar h' i) =>
+        match lcmp F h h' with Some Eq => Some (NVar h' (S i)) | Some _ => Some (NVar h' i) | None => None end
+    | _ => None
+    end.
 Proof. reflexivity. Qed.
 
 Lemma pnorm_comp a p :
@@ -1487,6 +1508,17 @@ Proof.
     destruct (pnorm_e F ntm p) as [[w b]|] eqn:Ep; [|discriminate]; intros H; injection H as <-.
     destruct (nth_error tenv u) as [x|] eqn:Ex; [|apply nth_error_None in Ex; lia].
     cbn [tden]; rewrite Ex, bnorm_sound, (IH _ _ eq_refl); reflexivity.
+  - intros h t IH t'; rewrite tnorm_shift.
+    destruct (tnorm F ntm t) as [[h' i|]|] eqn:Et; try discriminate.
+    rewrite <- (IH _ eq_refl); cbn [tden].
+    destruct (lcmp F h h') as [c|] eqn:Ec; [|discriminate].
+    apply (lcmp_sound lenv F HF) in Ec; destruct c; intros H; injection H as <-;
+      unfold shift_rvar; cbn [v_label v_index tden]; cbn in Ec.
+    + subst h'; rewrite label_eqb_refl; reflexivity.
+    + rewrite (proj2 (label_eqb_neq _ _)); [reflexivity|].
+      intros E; rewrite E in Ec; exact (olabel_lt_irrefl _ Ec).
+    + rewrite (proj2 (label_eqb_neq _ _)); [reflexivity|].
+      intros E; rewrite E in Ec; exact (olabel_lt_irrefl _ Ec).
   - intros w b H; injection H as <- <-; rewrite wden_id; apply rpcompose_identity.
   - intros n w b H; injection H as <- <-; rewrite wden_id; apply rpcompose_identity.
   - intros a IHa p IHp w b; rewrite pnorm_comp.

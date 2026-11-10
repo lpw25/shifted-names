@@ -36,13 +36,15 @@ condition.
     `rextensionality` and the constructors (`ridentity`, `rcompose`,
     `rpush_inner`, `rpush_outer`, `rlift`).  Raw names carry an `r` prefix;
     the indexed layer takes the plain names.
-  - `Laws.v`: the equational laws of the raw constructors and the primitive
-    adjustments (`rshift`, `rrename1`, `ropen`, `rclose`, `rswap`, `rsubst1`).
+  - `Laws.v`: the equational laws of the raw constructors.
   - `Scoped.v`: scoping of adjustments (from `N` to `M` bound variables),
     checked on the data, with preservation by every constructor.
   - `Indexed.v`: the public indexed types `adj T N M`, `var`, `padj`,
-    `target`, their constructors (`identity`, `compose`, `weaken`, `extend`,
-    `lift`, ...) and laws.
+    `target`; context forms `⟦ I ⇒ O | σ ⟧` with named slots (and the
+    abbreviations `weaken`, `extend`, `lift`, ...), composition `∘`, and
+    their laws.
+  - `Normalise.v`, `Names.v`: the reflective normaliser and the `names`
+    tactic, which proves equations between indexed adjustments.
   - `Syntax.v`, `Subst.v`: the interface a syntax implements (one Kleisli
     extension and its laws) and the substitution functor over it.
 - `theories/Examples/Lambda.v`: the λ-calculus as a client of the library.

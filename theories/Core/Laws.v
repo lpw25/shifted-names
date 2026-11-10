@@ -21,45 +21,13 @@ Context {T : Type}.
 Implicit Types (a b c : radj T) (ρ : rpadj T) (v w : rvar) (h l : option label)
   (t : rtarget T).
 
-(** ** Primitive adjustments as context forms *)
+(** ** Shifting *)
 
 (** [rshift l]: weaken by one [l]; every [l₍ᵢ₎] becomes [l₍ᵢ₊₁₎]. *)
 Definition rshift l : radj T := rpush_outer l ridentity.
 
-(** [rrename1 l1 l2]: the innermost [l1] becomes a new innermost [l2]. *)
-Definition rrename1 l1 l2 : radj T :=
-  rpush_inner l1 (RRename (mk_rvar l2 0)) (rshift l2).
-
-(** Opening a bound variable as [x], and closing [x] into a bound variable. *)
-Definition ropen (x : label) : radj T := rrename1 None (Some x).
-Definition rclose (x : label) : radj T := rrename1 (Some x) None.
-
-(** [rswap l] exchanges the two innermost [l]s. *)
-Definition rswap l : radj T :=
-  rpush_inner l (RRename (mk_rvar l 1)) (rpush_inner l (RRename (mk_rvar l 0)) (rpush_outer l (rshift l))).
-
-(** [rsubst1 l u ρ]: the innermost [l] is replaced by the payload [(u, ρ)]. *)
-Definition rsubst1 l (u : T) ρ : radj T := rpush_inner l (RBind u ρ) ridentity.
-
 Lemma rapply_shift l v : rapply (rshift l) v = inl (shift_rvar (mk_rvar l 0) v).
 Proof. unfold rshift; rewrite rapply_push_outer, rapply_identity; reflexivity. Qed.
-
-Lemma rapply_rename1 l1 l2 v :
-  rapply (rrename1 l1 l2) v
-  = if rvar_eqb v (mk_rvar l1 0) then inl (mk_rvar l2 0)
-    else inl (shift_rvar (mk_rvar l2 0) (unshift_rvar (mk_rvar l1 0) v)).
-Proof.
-  unfold rrename1; rewrite rapply_push_inner, rapply_shift.
-  destruct (rvar_eqb v (mk_rvar l1 0)); reflexivity.
-Qed.
-
-Lemma rapply_subst1 l u ρ v :
-  rapply (rsubst1 l u ρ) v
-  = if rvar_eqb v (mk_rvar l 0) then inr (u, ρ) else inl (unshift_rvar (mk_rvar l 0) v).
-Proof.
-  unfold rsubst1; rewrite rapply_push_inner, rapply_identity.
-  destruct (rvar_eqb v (mk_rvar l 0)); reflexivity.
-Qed.
 
 Lemma rpshift_as_pcompose_depth h n :
   forall ρ, rpdepth ρ < n -> rpshift h ρ = rpcompose (rshift h) ρ.
@@ -252,38 +220,6 @@ Proof.
         by (intro H; apply (Hw (mk_rvar h i) w Hhl E); symmetry; exact H).
       reflexivity.
     + destruct p as [u ρ]; pose proof (Hp _ _ E) as Hq; cbn [snd] in Hq; rewrite Hq; reflexivity.
-Qed.
-
-(** ** The primitives as context forms *)
-
-Theorem rshift_as_push_outer l : rshift l = rpush_outer l (@ridentity T).
-Proof. reflexivity. Qed.
-
-Theorem rrename1_as_context l1 l2 :
-  rrename1 l1 l2 = rpush_inner l1 (RRename (mk_rvar l2 0)) (rpush_outer l2 (@ridentity T)).
-Proof. reflexivity. Qed.
-
-Theorem rsubst1_as_context l u ρ : rsubst1 l u ρ = rpush_inner l (RBind u ρ) (@ridentity T).
-Proof. reflexivity. Qed.
-
-(** ** Opening and closing *)
-
-Theorem rcompose_open_close x : rcompose (ropen x) (rclose x) = @ridentity T.
-Proof.
-  apply rextensionality; intro v.
-  rewrite rapply_compose, rapply_identity; unfold ropen, rclose; rewrite !rapply_rename1.
-  destruct v as [h i]; unfold rvar_eqb, shift_rvar, unshift_rvar; cbn [v_label v_index].
-  case_vars; rewrite ?rapply_rename1; unfold rvar_eqb, shift_rvar, unshift_rvar;
-    cbn [v_label v_index]; case_vars.
-Qed.
-
-Theorem rcompose_close_open x : rcompose (rclose x) (ropen x) = @ridentity T.
-Proof.
-  apply rextensionality; intro v.
-  rewrite rapply_compose, rapply_identity; unfold ropen, rclose; rewrite !rapply_rename1.
-  destruct v as [h i]; unfold rvar_eqb, shift_rvar, unshift_rvar; cbn [v_label v_index].
-  case_vars; rewrite ?rapply_rename1; unfold rvar_eqb, shift_rvar, unshift_rvar;
-    cbn [v_label v_index]; case_vars.
 Qed.
 
 End Laws.

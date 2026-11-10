@@ -1,20 +1,20 @@
 (** * The [names] tactic
 
-    [names] proves an equation between adjustments, scoped ([adj T N M]) or
-    raw ([radj T]), built from [identity], [compose], [weaken],
-    [weaken_free], [extend], [extend_free], [lift], [lift_free] and
-    [at_scope] (or their raw counterparts), with any other adjustment as an
-    atom.  Labels may be concrete strings, the bound label, or variables;
-    the order between label variables comes from hypotheses
-    [label_lt (Some x) (Some y)] in the context.
+    [names] proves an equation between adjustments [adj T N M] built from
+    context forms [⟦ I ⇒ O | σ ⟧] (and so [weaken], [extend], [lift] and
+    their named variants), [∘], [⟦⟧] and [at_scope], with any other
+    adjustment as an atom.  Labels may be concrete strings or variables;
+    the order between label variables comes from hypotheses [label_lt x y]
+    in the context ([label_compare] provides them by case analysis).
 
-    The equation is reified into [aexp], both sides are normalised
+    The goal is taken to the raw layer, reified into [aexp], both sides are
+    normalised
     (Normalise.v), and the normal forms compared.  The tactic fails when
     the normal forms differ, or when normalisation needed the order
     between two labels and no hypothesis gave it. *)
 
 From Stdlib Require Import List String.
-From ShiftedNames.Core Require Import Label Var Adjustment Laws Indexed Normalise.
+From ShiftedNames.Core Require Import Label Var Adjustment Indexed Normalise.
 Import ListNotations.
 
 (** ** Reification *)
@@ -104,13 +104,23 @@ Ltac reify_adj a env :=
       end
   | _ => reify_atom a env
   end
-with reify_target t env :=
-  lazymatch t with
-  | RRename (mk_rvar ?h ?i) =>
+with reify_var w env :=
+  lazymatch w with
+  | mk_rvar ?h ?i =>
       let _ := is_nat_lit i in
       lazymatch reify_label h env with
       | (?eh, ?env1) => constr:((TVarE eh i, env1))
       end
+  | shift_rvar (mk_rvar ?h 0) ?w' =>
+      lazymatch reify_label h env with
+      | (?eh, ?env1) => lazymatch reify_var w' env1 with
+                        | (?ew, ?env2) => constr:((TShiftE eh ew, env2))
+                        end
+      end
+  end
+with reify_target t env :=
+  lazymatch t with
+  | RRename ?w => reify_var w env
   | RBind ?u ?p =>
       lazymatch env with
       | (?le, ?te, ?ae, ?pe) =>
@@ -156,7 +166,7 @@ Ltac reify_adj_top a env :=
 (** The label order facts in the context, as pairs of label expressions. *)
 Ltac collect_facts env F :=
   match goal with
-  | H : label_lt (Some ?x) (Some ?y) |- _ =>
+  | H : label_lt ?x ?y |- _ =>
       lazymatch env with
       | (?le, ?te, ?ae, ?pe) =>
           let px := lookup_add x le in
@@ -178,8 +188,7 @@ Ltac collect_facts env F :=
 
 (** ** The tactic *)
 
-Ltac names_raw :=
-  unfold ropen, rclose, rswap, rsubst1, rrename1, rshift;
+Ltac names_decide :=
   lazymatch goal with
   | |- @eq (radj ?T) ?lhs ?rhs =>
       let env0 := constr:((@nil label, @nil T, @nil (radj T), @nil (rpadj T))) in
@@ -207,8 +216,7 @@ Ltac names :=
   lazymatch goal with
   | |- @eq (adj _ _ _) _ _ =>
       apply adj_eq;
-      cbn [adj_raw identity compose weaken weaken_free extend extend_free lift lift_free at_scope
-           to_target var_raw bvar bvar0 fvar];
-      names_raw
-  | |- @eq (radj _) _ _ => names_raw
+      cbn [adj_raw identity compose ctx oden iden fst snd in_bound in_free out_bound out_free at_scope
+           to_target var_raw bvar bvar0 fvar vshift_bound vshift_free];
+      names_decide
   end.

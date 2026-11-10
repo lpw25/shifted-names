@@ -516,9 +516,7 @@ operations `rpcompose`, `rpshift`.
 payload is composition with `rshift` (`rpshift_as_pcompose`), so
 `rpush_outer h a = rcompose (rshift h) a`. Proved: entry commutation,
 `rpush_outer_inner`, `rcompose_push_inner_r`, `rcompose_push_outer_l`,
-`rcompose_cancel`, `rlift_identity`, `rlift_compose`, `rlift_free`, and the
-primitives (`rshift`, `rrename1`, `ropen`, `rclose`, `rswap`, `rsubst1`) as
-context forms.
+`rcompose_cancel`, `rlift_identity`, `rlift_compose`, `rlift_free`.
 
 **What terms must provide.** Nothing, for the core. Materialising a lookup
 result `(u, ρ)` (applying `ρ` to `u`) is the term layer's job: a term-level
@@ -563,9 +561,11 @@ Implemented in `Normalise.v` (syntax, normal forms, operations, soundness)
 and `Names.v` (reification and the `names` tactic); see `design.md` for
 the normal form. Decisions:
 
-- **Reflection over the raw layer.** Indexed goals become raw goals by
-  `adj_eq`, and the raw constructors are reified. No dependent syntax is
-  needed, and one normaliser serves both layers.
+- **Indexed goals only, reflected through the raw layer.** `names` takes
+  goals between indexed adjustments; they become raw goals by `adj_eq`,
+  and the raw constructors are reified, so no dependent syntax is needed.
+  Slot variables of context forms reach the raw layer as shifted
+  variables, which the normaliser resolves with the label order.
 - **Words with lifted atoms.** Instead of D3's alternating context
   segments and atoms with entries above the atoms, lifts are pushed onto
   the atoms: `⇑σ ∘ ⇑τ` and `⇑(σ ∘ τ)` both normalise to `⇑σ ∘ ⇑τ`, and the
@@ -580,12 +580,37 @@ the normal form. Decisions:
 
 Not yet done:
 - the uniqueness theorem for normal forms;
-- `option label` variables (a label that may be the bound one) are not
-  reified, so entries on them become atoms;
 - payload adjustments are compared as full words, with only the last
   segment's bound entry forgotten; equal payloads written differently
   under atoms can fail to match;
 - `padj` goals and goals about `apply`/terms.
+
+### D13. Context-form notation (as implemented)
+
+`⟦ I ⇒ O | σ ⟧` in `Indexed.v`: the input context `I` (entries `x as v`,
+`x := u`, `· as v`, `· := u`, outermost first), then the output context
+`O` of slots (`a : y`, `a : ·`, outermost first), then the optional tail
+`σ`. Slots are Rocq binders, so input entries refer to them by name;
+`v` may also be any other variable of the output scope.
+
+- `ctx σ o` binds the innermost slot first and hands each slot its
+  variable in the final scope, built by shifting past the slots inside it
+  (`vshift_bound`, `vshift_free`): no label comparisons, no index
+  arithmetic, and the indices of `ictx`/`octx` make every form scoped by
+  construction.
+- `weaken`, `extend`, `lift` and their named variants are parsing-only
+  abbreviations for one-entry context forms, so every adjustment users
+  build prints as a context form; composition prints as `∘`.
+- The tail comes last (`| σ`) because a leading tail and an input context
+  cannot be told apart by the parser.
+- Labels: the bound label is written `·`, named labels are `label`s; the
+  order the library uses is `label_lt` on `label`, decided by
+  `label_compare`. The `option label` order is internal (`olabel_lt`).
+
+Not yet done: adjustments are printed as built; nested context forms and
+compositions that the normaliser would merge into one context form are
+not merged by any tactic yet (a `names_simpl` rewriting adjustments to
+their normal forms would do it).
 
 ### D6. Users see only the indexed form
 

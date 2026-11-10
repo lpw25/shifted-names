@@ -54,13 +54,29 @@ The functor `Subst` (`Core/Subst.v`) gives:
 `Examples/Lambda.v` is a complete client: the λ-calculus with open, close
 and instantiation and their inverse laws.
 
+### Context forms
+
+Adjustments are written and printed as context forms
+
+    ⟦ x as a, · := u ⇒ a : y, b : · | σ ⟧
+
+an input context (each input, `x` or the bound `·`, sent to a variable
+with `as` or to a term with `:=`), `⇒`, an output context of named slots
+(`a : y`, `b : ·`), and an optional tail `σ`. Both contexts list their
+outermost entry first. Slots are binders: input entries refer to them by
+name, or to any other variable of the output scope. `weaken`, `extend`,
+`lift` and their named variants are abbreviations for one-entry context
+forms (`lift σ` is `⟦ · as b ⇒ b : · | σ ⟧`), and composition is `∘`, so
+goals print in this notation. Concrete context forms compute, so closed
+equations hold by `vm_compute` (`Tests/CoreTests.v`).
+
 ### The `names` tactic (`Core/Normalise.v`, `Core/Names.v`)
 
-`names` proves equations between adjustments built from `identity`,
-`compose`, `weaken(_free)`, `extend(_free)`, `lift(_free)` and `at_scope`,
-with any other adjustment as an opaque atom. Labels may be concrete
-strings, the bound label, or label variables; the order between label
-variables comes from hypotheses `label_lt (Some x) (Some y)`.
+`names` proves equations between indexed adjustments built from context
+forms, `∘`, `⟦⟧` and `at_scope`, with any other adjustment as an opaque
+atom. Labels may be concrete strings or label variables; the order
+between label variables comes from hypotheses `label_lt x y`, which a
+case analysis on `label_compare_spec x y` provides.
 
 It works by reflection. Both sides are reified into `aexp` and normalised
 to a *word*

@@ -886,7 +886,7 @@ Proof.
        - rewrite (apply_inner (lift a) e v H El Hi'); reflexivity.
        - assert (Hii : v_index (var_raw v) = d) by lia.
          assert (Hn : napply (radj_n (adj_raw (lift a))) (down d (var_raw v)) = inl (mk_rvar None 0)).
-         { cbn [adj_raw lift]; rewrite napply_rlift'.
+         { rewrite adj_raw_lift, napply_rlift'.
            destruct (var_raw v) as [h j]; cbn in El, Hii |- *; subst h j.
            unfold down; cbn [v_label v_index]; rewrite Nat.sub_diag; reflexivity. }
          assert (H' : Is_true_s (wf_var L (up d (mk_rvar None 0)))).
@@ -905,7 +905,7 @@ Proof.
                     | inl w => inl (shift_rvar (mk_rvar None 0) w)
                     | inr p => inr (fst p, pshift None (snd p))
                     end).
-    { cbn [adj_raw lift]; rewrite napply_rlift', Hd; fold d.
+    { rewrite adj_raw_lift, napply_rlift', Hd; fold d.
       destruct (var_raw v) as [h j]; cbn in El |- *; subst h.
       first [reflexivity|
         (unfold down; cbn [v_label v_index];
@@ -943,7 +943,7 @@ Proof.
                     | inl w => inl (shift_rvar (mk_rvar None 0) w)
                     | inr p => inr (fst p, pshift None (snd p))
                     end).
-    { cbn [adj_raw lift]; rewrite napply_rlift', Hd; fold d.
+    { rewrite adj_raw_lift, napply_rlift', Hd; fold d.
       destruct (var_raw v) as [h j]; cbn in El |- *; subst h.
       first [reflexivity|
         (unfold down; cbn [v_label v_index];
