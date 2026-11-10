@@ -190,6 +190,25 @@ Ltac collect_facts env F :=
   | _ => constr:((env, F))
   end.
 
+(** ** Syntaxes
+
+    What [names] needs to know about a syntax to materialise payloads:
+    its substitution, how a payload adjustment acts on a closed term
+    ([sm_g]), and that substitutions whose results on each variable are
+    related by [mrel sm_g] are equal.  A syntax's [Subst] functor provides
+    an instance. *)
+Class SubstMat (T : Type) := {
+  sm_term : nat -> Type;
+  sm_subst : forall {N M}, adj T N M -> sm_term N -> sm_term M;
+  sm_of : T -> sm_term 0;
+  sm_back : sm_term 0 -> T;
+  sm_g : rpadj T -> T -> T;
+  sm_g_spec : forall (b : adj T 0 0) u, sm_g (rpcompose (adj_raw b) rpidentity) u = sm_back (sm_subst b (sm_of u));
+  sm_mat : forall N (a a' : adj T N 0),
+    (forall v : var N, mrel sm_g (rapply (adj_raw a) (var_raw v)) (rapply (adj_raw a') (var_raw v))) ->
+    forall t, sm_subst a t = sm_subst a' t
+}.
+
 (** ** Displaying normal forms
 
     A normal form is shown as context forms composed with [∘]: each

@@ -12,7 +12,7 @@
     so nothing is tested at runtime. *)
 
 From Stdlib Require Import PArith Arith List Lia Bool StrictProp.
-From ShiftedNames.Core Require Import Trie Label Var Counts Based Skew ATrie Repr Point Deep Compose
+From ShiftedNames.Core Require Import Trie Label Var Counts Based Skew ATrie Repr Point Deep Compose Normalise Names
   Lookup Adjustment Laws Scoped Indexed Syntax.
 Import ListNotations.
 
@@ -1334,6 +1334,127 @@ Proof.
   unfold psubst; transitivity (kleisli unit_m (@ext_here 0 0) u); [|apply kleisli_unit].
   apply kleisli_ext; intros K L e w; apply papply_pidentity.
 Qed.
+
+(** ** Substitutions that agree on variables agree on terms *)
+
+Lemma var_cases {N} (v : var (S N)) : v = bvar0 \/ exists v0 : var N, v = vshift_bound v0.
+Proof.
+  destruct v as [[[y|] i] Hv].
+  - right; exists (mk_var (mk_rvar (Some y) i) stt); apply var_eq; reflexivity.
+  - destruct i as [|i]; [left; apply var_eq; reflexivity|right].
+    assert (H : Is_true_s (wf_var N (mk_rvar None i))).
+    { apply Is_true_s_intro; pose proof (Is_true_s_elim Hv) as H; cbn in H |- *.
+      apply Nat.ltb_lt in H; apply Nat.ltb_lt; lia. }
+    exists (mk_var _ H); apply var_eq; cbn; unfold shift_rvar; cbn; f_equal; lia.
+Qed.
+
+Lemma tvar_shift_bound {N} (v : var N) : tvar (vshift_bound v) = (tvar v) [⟦ \ · as _ ⟧].
+Proof.
+  symmetry; apply subst_tvar_rename, apply_var_rename.
+  change (adj_raw (⟦ \ · as _ ⟧ : adj P N (S N))) with (rpush_outer None (@ridentity P)).
+  rewrite rapply_push_outer, rapply_identity; reflexivity.
+Qed.
+
+Lemma tvar_lift_here {N M} (a : adj P N M) : (tvar bvar0) [lift a] = tvar bvar0.
+Proof.
+  apply subst_tvar_rename, apply_var_rename; rewrite adj_raw_lift, rapply_lift.
+  cbn [var_raw bvar0]; rewrite rvar_eqb_refl; reflexivity.
+Qed.
+
+Lemma weaken_lift {N M} (a : adj P N M) : ⟦ \ · as _ ⟧ ⨾ lift a = a ⨾ ⟦ \ · as _ ⟧.
+Proof.
+  apply adj_eq; cbn [adj_raw compose]; rewrite adj_raw_lift.
+  change (adj_raw (⟦ \ · as _ ⟧ : adj P N (S N))) with (rpush_outer None (@ridentity P)).
+  change (adj_raw (⟦ \ · as _ ⟧ : adj P M (S M))) with (rpush_outer None (@ridentity P)).
+  rewrite !(rpush_outer_as_compose None ridentity), !rcompose_identity_r; apply rcompose_lift_shift.
+Qed.
+
+Lemma lift_agree {N M} (a a' : adj P N M) :
+  (forall v, (tvar v) [a] = (tvar v) [a']) -> forall v, (tvar v) [lift a] = (tvar v) [lift a'].
+Proof.
+  intros H v; destruct (var_cases v) as [->|[v0 ->]]; [rewrite !tvar_lift_here; reflexivity|].
+  rewrite !tvar_shift_bound, !subst_compose, !weaken_lift, <- !subst_compose, H; reflexivity.
+Qed.
+
+Lemma apply_agree d : forall N M (a a' : adj P N M), (forall v, (tvar v) [a] = (tvar v) [a']) ->
+  forall K L (e : ext N M K L), ext_depth e = d -> forall v, apply a K L e v = apply a' K L e v.
+Proof.
+  induction d as [|d IH]; intros N M a a' H K L e; destruct e as [|K0 L0 e0]; cbn [ext_depth]; intros Hd v;
+    try discriminate.
+  - rewrite <- !(kleisli_var _ _ _ _ _ ext_here v); apply H.
+  - rewrite <- (ext_app_shift e0), !apply_lift_rebase.
+    apply (IH _ _ _ _ (lift_agree a a' H)); rewrite ext_depth_shift; lia.
+Qed.
+
+Theorem subst_ext_var {N M} (a a' : adj P N M) :
+  (forall v, (tvar v) [a] = (tvar v) [a']) -> forall t, t [a] = t [a'].
+Proof.
+  intros H t; apply kleisli_ext; intros K L e v; apply (apply_agree (ext_depth e)); [exact H|reflexivity].
+Qed.
+
+(** ** Materialising payloads *)
+
+(** A payload adjustment of the closed scope applied to a closed term. *)
+Definition pg (ρ : rpadj P) (u : P) : P :=
+  match pscoped 0 ρ as b return pscoped 0 ρ = b -> P with
+  | true => fun H => psubst (mk_padj (M := 0) ρ (Is_true_s_intro H)) u
+  | false => fun _ => u
+  end eq_refl.
+
+Lemma pg_ok ρ u (H : Is_true_s (pscoped 0 ρ)) : pg ρ u = psubst (mk_padj (M := 0) ρ H) u.
+Proof.
+  unfold pg; generalize (@eq_refl _ (pscoped 0 ρ)).
+  pose proof (Is_true_s_elim H) as H'.
+  generalize (pscoped 0 ρ) at 2 3; intros b Eb; destruct b; [reflexivity|congruence].
+Qed.
+
+Lemma pg_spec (b : adj P 0 0) u : pg (rpcompose (adj_raw b) rpidentity) u = u [b].
+Proof.
+  rewrite (pg_ok _ _ (padj_ok (pcompose b (@pid P 0)))).
+  transitivity (psubst (pcompose b (@pid P 0)) u); [reflexivity|].
+  rewrite psubst_pcompose, psubst_pid; reflexivity.
+Qed.
+
+Lemma apply_var_same {N M} (a a' : adj P N M) (v : var N) :
+  rapply (adj_raw a) (var_raw v) = rapply (adj_raw a') (var_raw v) -> Indexed.apply_var a v = Indexed.apply_var a' v.
+Proof.
+  unfold Indexed.apply_var; generalize (apply_wf a v) (apply_wf a' v); unfold Indexed.apply.
+  intros H1 H2 E; revert H1 H2; rewrite E; destruct (rapply (adj_raw a') (var_raw v)) as [w|[u ρ]]; reflexivity.
+Qed.
+
+Lemma apply_var_inr {N M} (a : adj P N M) (v : var N) u ρ (H : Is_true_s (pscoped M ρ)) :
+  rapply (adj_raw a) (var_raw v) = inr (u, ρ) -> Indexed.apply_var a v = Bind u (mk_padj ρ H).
+Proof.
+  unfold Indexed.apply_var; generalize (apply_wf a v); unfold Indexed.apply; intros W E; revert W; rewrite E; intros W.
+  reflexivity.
+Qed.
+
+Lemma inr_scoped {N M} (a : adj P N M) (v : var N) u ρ : rapply (adj_raw a) (var_raw v) = inr (u, ρ) -> Is_true_s (pscoped M ρ).
+Proof.
+  intros E; pose proof (apply_wf a v) as W; unfold Indexed.apply in W; rewrite E, result_wf_inr in W.
+  apply Is_true_s_intro, W.
+Qed.
+
+Theorem subst_mat {N} (a a' : adj P N 0) :
+  (forall v : var N, mrel pg (rapply (adj_raw a) (var_raw v)) (rapply (adj_raw a') (var_raw v))) ->
+  forall t, t [a] = t [a'].
+Proof.
+  intros H; apply subst_ext_var; intros v; rewrite !subst_tvar_eval; unfold Indexed.eval.
+  destruct (H v) as [E|[u [ρ [E1 E2]]]]; [rewrite (apply_var_same _ _ _ E); reflexivity|].
+  rewrite (apply_var_inr _ _ _ _ (inr_scoped _ _ _ _ E1) E1), (apply_var_inr _ _ _ _ (inr_scoped _ _ _ _ E2) E2).
+  change (mk_padj (M := 0) (@rpidentity P) (inr_scoped _ _ _ _ E2)) with (@pid P 0).
+  rewrite psubst_pid, (pg_ok _ _ (inr_scoped _ _ _ _ E1)); reflexivity.
+Qed.
+
+Global Instance subst_mat_inst : SubstMat P := {
+  sm_term := term;
+  sm_subst := fun N M a t => t [a];
+  sm_of := fun u => u;
+  sm_back := fun u => u;
+  sm_g := pg;
+  sm_g_spec := pg_spec;
+  sm_mat := @subst_mat
+}.
 
 Global Hint Rewrite @subst_identity @eval_fold @psubst_pcompose @psubst_pid : names_post.
 

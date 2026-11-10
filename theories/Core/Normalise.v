@@ -2100,4 +2100,139 @@ Proof.
   change (@rpidentity T) with (bden None); rewrite <- (pnormw_sound None wb w1 E2); reflexivity.
 Qed.
 
+(** *** Materialised payloads
+
+    Two segments that are the same except that, where the first sends a
+    variable to a term [u⟨w⟩], the second sends it to a term atom [k] with
+    the identity payload adjustment, where [k] is [u] with the payload
+    adjustment applied ([facts], checked against the reified adjustment
+    the payload was shown as). *)
+Fixpoint mfind (facts : list (nat * nat * aexp)) (k : nat) : option (nat * aexp) :=
+  match facts with
+  | [] => None
+  | (k', u, eb) :: r => if Nat.eqb k k' then Some (u, eb) else mfind r k
+  end.
+
+Definition tmat (F : list (lexp * lexp)) (ntm : nat) (facts : list (nat * nat * aexp)) (t t' : ntgt) : bool :=
+  ntgt_eqb t t'
+  || match t, t' with
+     | NBind u wp None, NBind k (WEnd SNil) None =>
+         match mfind facts k with
+         | Some (u', eb) =>
+             Nat.eqb u u' && (u <? ntm) && (k <? ntm)
+             && match anorm F ntm eb with
+                | Some wb =>
+                    match pnormw F ntm None wp, pnormw F ntm None wb with
+                    | Some w1, Some w2 => word_eqb w1 w2
+                    | _, _ => false
+                    end
+                | None => false
+                end
+         | None => false
+         end
+     | _, _ => false
+     end.
+
+Fixpoint tlmat F ntm facts (ts ts' : tlist) : bool :=
+  match ts, ts' with
+  | TNil, TNil => true
+  | TCons t r, TCons t' r' => tmat F ntm facts t t' && tlmat F ntm facts r r'
+  | _, _ => false
+  end.
+
+Fixpoint smat F ntm facts (s s' : seg) : bool :=
+  match s, s' with
+  | SNil, SNil => true
+  | SEnt h ts m r, SEnt h' ts' m' r' =>
+      lexp_eqb h h' && tlmat F ntm facts ts ts' && Nat.eqb m m' && smat F ntm facts r r'
+  | _, _ => false
+  end.
+
+Definition mat_eqb (F : list (lexp * lexp)) (ntm : nat) (facts : list (nat * nat * aexp)) (e e' : aexp) : bool :=
+  match anorm F ntm e, anorm F ntm e' with
+  | Some (WEnd S1), Some (WEnd S2) => sdistb F S1 && sdistb F S2 && smat F ntm facts S1 S2
+  | _, _ => false
+  end.
+
+Section Mat.
+
+Variable g : rpadj T -> T -> T.
+Variable facts : list (nat * nat * aexp).
+Hypothesis Hfacts : Forall (fun f => let '(k, u, eb) := f in
+  forall y, nth_error tenv u = Some y -> nth_error tenv k = Some (g (rpcompose (aeden eb) rpidentity) y)) facts.
+
+Lemma mfind_fact k u eb y : mfind facts k = Some (u, eb) -> nth_error tenv u = Some y ->
+  nth_error tenv k = Some (g (rpcompose (aeden eb) rpidentity) y).
+Proof.
+  revert Hfacts; generalize facts as fs; intros fs Hfs; induction fs as [|[[k' u'] eb'] r IH]; cbn [mfind]; [discriminate|].
+  inversion Hfs as [|f l Hf Hr]; subst.
+  destruct (Nat.eqb_spec k k') as [->|_]; [intros H; injection H as <- <-; exact (Hf y)|exact (IH Hr)].
+Qed.
+
+Definition mrel (r r' : rresult T) : Prop :=
+  r = r' \/ exists u ρ, r = inr (u, ρ) /\ r' = inr (g ρ u, rpidentity).
+
+Lemma tmat_sound t t' : tmat F ntm facts t t' = true -> mrel (rtarget_result (tden t)) (rtarget_result (tden t')).
+Proof.
+  unfold tmat; destruct (ntgt_eqb t t') eqn:E; cbn [orb].
+  { intros _; left; apply (proj1 nf_eqb_eq) in E; subst; reflexivity. }
+  destruct t as [|u wp [b|]]; try discriminate; destruct t' as [|k [[|]|] [b'|]]; try discriminate.
+  destruct (mfind facts k) as [[u' eb]|] eqn:Ef; [|discriminate].
+  destruct (Nat.eqb u u') eqn:Eu; [|discriminate]; apply Nat.eqb_eq in Eu; subst u'.
+  destruct (u <? ntm) eqn:Hu; [|discriminate]; destruct (k <? ntm) eqn:Hk; [|discriminate].
+  apply Nat.ltb_lt in Hu, Hk; cbn [andb].
+  destruct (anorm F ntm eb) as [wb|] eqn:Eb; [|discriminate].
+  destruct (pnormw F ntm None wp) as [w1|] eqn:E1; [|discriminate].
+  destruct (pnormw F ntm None wb) as [w2|] eqn:E2; [|discriminate].
+  intros Ew; apply (proj2 (proj2 (proj2 nf_eqb_eq))) in Ew; subst w2.
+  destruct (nth_error tenv u) as [y|] eqn:Ey; [|apply nth_error_None in Ey; lia].
+  right; exists y, (rpcompose (wden wp) rpidentity).
+  rewrite (tden_bind _ _ _ _ Ey), (tden_bind _ _ _ _ (mfind_fact _ _ _ _ Ef Ey)); cbn [rtarget_result]; split; [reflexivity|].
+  rewrite wden_end; change (sden SNil) with (@ridentity T); rewrite rpcompose_identity.
+  do 3 f_equal; change (bden None) with (@rpidentity T).
+  change (rpcompose (aeden eb) (bden None) = rpcompose (wden wp) (bden None)).
+  rewrite <- (proj1 anorm_sound _ _ Eb), <- (pnormw_sound None wp w1 E1), <- (pnormw_sound None wb w1 E2); reflexivity.
+Qed.
+
+Lemma tlmat_len ts ts' : tlmat F ntm facts ts ts' = true -> tlen ts = tlen ts'.
+Proof.
+  revert ts'; induction ts as [|t r IH] using tlist_spine; intros [|t' r']; cbn; try discriminate; [reflexivity|].
+  intros H; apply andb_true_iff in H as [_ H]; rewrite (IH _ H); reflexivity.
+Qed.
+
+Lemma tlmat_nth ts ts' j : tlmat F ntm facts ts ts' = true -> j < tlen ts -> tmat F ntm facts (tnth ts j) (tnth ts' j) = true.
+Proof.
+  revert ts' j; induction ts as [|t r IH] using tlist_spine; intros [|t' r'] j; cbn; try discriminate; [lia|].
+  intros H Hj; apply andb_true_iff in H as [H1 H2]; destruct j; [exact H1|apply IH; [exact H2|lia]].
+Qed.
+
+Lemma smat_get s s' l : smat F ntm facts s s' = true ->
+  match sget l s, sget l s' with
+  | Some (ts, m), Some (ts', m') => tlmat F ntm facts ts ts' = true /\ m = m'
+  | None, None => True
+  | _, _ => False
+  end.
+Proof.
+  revert s'; induction s as [|h ts m r IH] using seg_spine; intros [|h' ts' m' r']; cbn [smat]; try discriminate; [cbn; tauto|].
+  intros H; apply andb_true_iff in H as [H H4]; apply andb_true_iff in H as [H H3]; apply andb_true_iff in H as [H1 H2].
+  apply lexp_eqb_eq in H1; apply Nat.eqb_eq in H3; subst h' m'; cbn [sget].
+  destruct (label_eqb (lden h) l); [split; [exact H2|reflexivity]|apply IH, H4].
+Qed.
+
+Theorem mat_sound e e' : mat_eqb F ntm facts e e' = true -> forall v, mrel (rapply (aeden e) v) (rapply (aeden e') v).
+Proof.
+  unfold mat_eqb; destruct (anorm F ntm e) as [[S1|]|] eqn:E; try discriminate.
+  destruct (anorm F ntm e') as [[S2|]|] eqn:E'; try discriminate.
+  intros H; apply andb_true_iff in H as [H Hm]; apply andb_true_iff in H as [Hd Hd'].
+  apply sdistb_sound in Hd, Hd'; intros [l j].
+  rewrite <- (proj1 anorm_sound _ _ E), <- (proj1 anorm_sound _ _ E'), !wden_end, !rapply_sden by assumption.
+  cbn [v_label v_index]; pose proof (smat_get _ _ l Hm) as Hg.
+  destruct (sget l S1) as [[ts m]|], (sget l S2) as [[ts' m']|]; try contradiction; [|left; reflexivity].
+  destruct Hg as [Ht <-]; cbn [esem]; rewrite <- (tlmat_len _ _ Ht).
+  destruct (j <? tlen ts) eqn:Ej; [|left; reflexivity].
+  apply tmat_sound, tlmat_nth; [exact Ht|apply Nat.ltb_lt, Ej].
+Qed.
+
+End Mat.
+
 End Sound.
