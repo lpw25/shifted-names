@@ -621,13 +621,21 @@ Ltac names_apply_var t :=
       end
   end.
 
-(** [names] rewrites every adjustment in the goal built from context
-    forms and [∘] to its normal form, shown as context forms, and then
-    every [apply_var a v] whose result the normal form of [a] gives. *)
-Ltac names :=
+(** Every adjustment in the goal built from context forms and [∘] is
+    rewritten to its normal form, shown as context forms, and then every
+    [apply_var a v] whose result the normal form of [a] gives. *)
+Ltac names_adjs :=
   repeat match goal with
          | |- context [?a] => is_adj_expr a; names_rewrite a
-         end;
+         end.
+
+Ltac names_apply :=
   repeat match goal with
          | |- context [?t] => lazymatch t with apply_var _ _ => names_apply_var t end
          end.
+
+(** [names] rewrites with the [names] database (the laws of substitution,
+    and whatever a syntax adds) and normalises adjustments and applications
+    of adjustments to variables, until nothing changes. *)
+Ltac names :=
+  repeat progress (try autorewrite with names; names_adjs; names_apply).

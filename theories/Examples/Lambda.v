@@ -123,42 +123,50 @@ Theorem subst_subst {N M P} (a : adj (tm 0) M P) (b : adj (tm 0) N M) (t : tm N)
   subst a (subst b t) = subst (compose a b) t.
 Proof. apply subst_compose. Qed.
 
+(** [names] pushes substitutions through the constructors. *)
+Global Hint Rewrite @subst_tlam @subst_tapp @subst_tconst : names.
+
 (** ** Locally nameless operations *)
 
 (** Open the innermost bound variable as the name [x]; close [x] into a new
-    innermost bound variable. *)
-Definition open_sub {N} (x : label) : sub (S N) N := ⟦ · \ x ⟧.
-Definition close_sub {N} (x : label) : sub N (S N) := ⟦ x \ · ⟧.
+    innermost bound variable; instantiate it with a closed term. *)
+Notation open_sub x := ⟦ · \ x ⟧ (only parsing).
+Notation close_sub x := ⟦ x \ · ⟧ (only parsing).
+Notation inst u := ⟦ · := u ⟧ (only parsing).
 
 Definition topen {N} (x : label) (t : tm (S N)) : tm N := subst (open_sub x) t.
 Definition tclose {N} (x : label) (t : tm N) : tm (S N) := subst (close_sub x) t.
 
+Definition tinst {N} (u : tm 0) (t : tm (S N)) : tm N := subst (inst u) t.
+
+Lemma tinst_subst {N} u (t : tm (S N)) : tinst u t = subst (inst u) t.
+Proof. reflexivity. Qed.
+
+Lemma topen_subst {N} x (t : tm (S N)) : topen x t = subst (open_sub x) t.
+Proof. reflexivity. Qed.
+
+Lemma tclose_subst {N} x (t : tm N) : tclose x t = subst (close_sub x) t.
+Proof. reflexivity. Qed.
+
+(** [names] sees opening and closing as the substitutions they are. *)
+Global Hint Rewrite @topen_subst @tclose_subst @tinst_subst : names.
+
 Theorem topen_tclose {N} x (t : tm N) : topen x (tclose x t) = t.
-Proof.
-  unfold topen, tclose; rewrite subst_compose.
-  transitivity (subst identity t); [f_equal|apply subst_identity].
-  unfold open_sub, close_sub; names; reflexivity.
-Qed.
+Proof. names; reflexivity. Qed.
 
 Theorem tclose_topen {N} x (t : tm (S N)) : tclose x (topen x t) = t.
-Proof.
-  unfold topen, tclose; rewrite subst_compose.
-  transitivity (subst identity t); [f_equal|apply subst_identity].
-  unfold open_sub, close_sub; names; reflexivity.
-Qed.
+Proof. names; reflexivity. Qed.
 
-(** Instantiating the innermost bound variable with a closed term. *)
-Definition inst {N} (u : tm 0) : sub (S N) N := ⟦ · := u ⟧.
-
-(** Opening after substituting under the binder is one substitution;
-    the adjustment equation is closed by the [names] tactic. *)
+(** Opening after substituting under the binder is one substitution. *)
 Theorem topen_subst_lift {N M} x (a : sub N M) (t : tm (S N)) :
   topen x (subst (lift a) t) = subst ⟦ · | Γ \ x | Γ[a] ⟧ t.
-Proof.
-  unfold topen; rewrite subst_compose; f_equal.
-  unfold open_sub; names; reflexivity.
-Qed.
+Proof. names; reflexivity. Qed.
 
 Theorem inst_subst_lift {N M} (u : tm 0) (a : sub N M) (t : tm (S N)) :
   subst (inst u) (subst (lift a) t) = subst ⟦ · := u | a ⟧ t.
-Proof. rewrite subst_compose; f_equal; unfold inst; names; reflexivity. Qed.
+Proof. names; reflexivity. Qed.
+
+(** Under binders, through applications. *)
+Example names_terms {N} x (t : tm (S N)) (u : tm N) :
+  topen x (tclose x (tapp (tlam t) u)) = tapp (tlam t) u.
+Proof. names; reflexivity. Qed.

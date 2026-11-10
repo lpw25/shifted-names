@@ -21,11 +21,11 @@ let () = print_endline ("round trip ok: " ^ string_of_bool (o = t))
 (* scope 1 body: (#0 #0 x_0); instantiate #0 with closed \.#0 *)
 let body = Tapp (Tapp (bv 0, bv 0), fv "x" 0)
 let u = Tlam (bv 0)
-let r = LS.subst (n 1) z (inst z u) body
+let r = tinst z u body
 let () = print_endline ("inst (\\.#0) (#0 #0 x_0) = " ^ show r)
 (* under a binder: \. (#0 #1) at scope 1, instantiate #1 *)
 let body2 = Tlam (Tapp (bv 0, bv 1))
-let r2 = LS.subst (n 1) z (inst z u) body2
+let r2 = tinst z u body2
 let () = print_endline ("inst (\\.#0) (\\. #0 #1) = " ^ show r2)
 let () = assert (o = t)
 let () = assert (show r = "(((\\. #0) (\\. #0)) x_0)")

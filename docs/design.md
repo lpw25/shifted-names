@@ -93,7 +93,14 @@ compute, so closed equations hold by `vm_compute` (`Tests/CoreTests.v`).
 ### The `names` tactic (`Core/Normalise.v`, `Core/Names.v`)
 
 `names` normalises; it does not close goals (`names; reflexivity` or
-`names; easy` does). It rewrites every adjustment in the goal built from
+`names; easy` does). Until nothing changes, it rewrites with the rewrite
+database `names` and normalises adjustments. The database holds the laws
+of substitution, which the `Subst` functor adds for every syntax
+(`subst a (subst b t) = subst (a ∘ b) t`, `subst ⟦⟧ t = t`), and whatever
+a syntax adds itself: the λ example adds pushing `subst` through its
+constructors and seeing `topen`, `tclose` and `tinst` as substitutions.
+`names` itself knows nothing about any term language. It rewrites every
+adjustment in the goal built from
 context forms, `∘`, `⟦⟧` and `at_scope` (any other adjustment is an
 atom) to its normal form, shown as context forms, and then every
 `apply_var a v` whose result that normal form gives.

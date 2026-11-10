@@ -2,4 +2,4 @@
     settings (run by [tests/extraction/run.sh]). *)
 From ShiftedNames.Extraction Require Import Extraction.
 From ShiftedNames.Examples Require Import Lambda.
-Extraction "lambda.ml" LS.subst topen tclose inst.
+Extraction "lambda.ml" LS.subst topen tclose tinst.

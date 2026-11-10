@@ -1190,4 +1190,7 @@ Proof.
   apply kleisli_ext; intros; apply apply_compose.
 Qed.
 
+(** [names] fuses nested substitutions and drops identity ones. *)
+Global Hint Rewrite @subst_compose @subst_identity : names.
+
 End Subst.

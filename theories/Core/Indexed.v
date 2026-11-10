@@ -567,6 +567,10 @@ Notation "⟦ c | g [ σ ] ⟧" := (cform (fun g => c) σ)
 Notation "⟦ c | g ⟧" := (cform (fun g => c) identity) (c custom adj_out at level 4, g name, format "⟦  c  |  g  ⟧").
 Notation "⟦ ⟧" := identity (format "⟦ ⟧").
 
+(** The rewrite database [names] uses besides normalising adjustments:
+    the substitution functor adds its laws, and each syntax its own. *)
+Create Rewrite HintDb names.
+
 Declare Scope adj_scope.
 Delimit Scope adj_scope with adj.
 Bind Scope adj_scope with adj.
