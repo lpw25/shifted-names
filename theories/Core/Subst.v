@@ -825,6 +825,27 @@ Proof.
     destruct (lt_dec i (ext_depth e)) as [Hb|Hb]; [lia|apply look_pay, Hw].
 Qed.
 
+(** Substituting into a variable the adjustment renames. *)
+Lemma subst_tvar_rename {N M} (a : adj P N M) (v : var N) (w : var M) :
+  Indexed.apply_var a v = Rename w -> subst a (tvar v) = tvar w.
+Proof.
+  intros E; unfold subst; rewrite kleisli_var.
+  assert (Hr : rapply (adj_raw a) (var_raw v) = inl (var_raw w)).
+  { revert E; unfold Indexed.apply_var; generalize (apply_wf a v); unfold Indexed.apply.
+    destruct (rapply (adj_raw a) (var_raw v)) as [w0|[u ρ]]; intros H E; [|discriminate].
+    injection E as <-; reflexivity. }
+  unfold rapply in Hr.
+  destruct (napply (radj_n (adj_raw a)) (var_raw v)) as [w0|[u x]] eqn:En; cbn in Hr; [|discriminate].
+  injection Hr as Hr.
+  assert (Hd : down 0 (var_raw v) = var_raw v)
+    by (destruct v as [[[y|] i] Hv]; unfold down; cbn; [reflexivity|rewrite Nat.sub_0_r; reflexivity]).
+  rewrite <- Hd in En.
+  assert (Hu : up 0 w0 = var_raw w) by (subst w0; destruct w as [[[y|] i] Hw]; unfold up; reflexivity).
+  assert (Hw : Is_true_s (wf_var M (up (ext_depth (@ext_here N M)) w0))) by (cbn [ext_depth]; rewrite Hu; exact (var_ok w)).
+  rewrite (apply_var a ext_here v w0 Hw (fun _ => le_0_n _) En).
+  f_equal; apply var_eq; exact Hu.
+Qed.
+
 End Char.
 
 (** ** Going under a binder is lifting *)
