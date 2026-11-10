@@ -595,10 +595,14 @@ In `Indexed.v`; the syntax is described in `design.md`. Decisions:
   ends up deepest in the term; `octx_den` builds from the outermost slot
   in and gives each slot its variable in the final scope by probing the
   slots inside it (`octx_probe`) for the shifts they add.
-- **The tail name is a binder too**, of the empty-in-practice type
-  `tname`, bound by the output's `Γ[σ]` and referred to by the input's
-  `| Γ`: a mismatch is an unbound name. The tail is written after `|`
-  because a bare tail name after `;` cannot be told from a bare label.
+- **The tail name is a binder too**, of type `tname`, bound by the
+  output's `Γ[σ]`; the output context's type is indexed by the name the
+  input context used (`option tname`), and `cform` requires it to be the
+  bound variable itself, so any other term of type `tname` is a type
+  error. Tails are written after `|` in both forms, because a bare name
+  after `;` cannot be told from a bare label. A bare output tail `| Γ`
+  (identity) is not provided: it would mean the same as no tail, and its
+  token shape clashes with the printing of `lift_free`.
 - **Positional entries** pair up innermost first; the numbers of
   positional inputs and outputs are indices, so a mismatch is a type
   error.
@@ -607,9 +611,11 @@ In `Indexed.v`; the syntax is described in `design.md`. Decisions:
   context after `\` expects a full-form `ictx`, and `⟦ … ⟧` with no `\`
   a short-form `sctx`, or `sclosed` when the last entry is an adjustment.
 - **Terms in inputs are in the tail's scope**: a target `Bind u ρ` carries
-  a payload adjustment, the weakening past the output slots.
-- The indexed constructors are context forms; `lift` and `lift_free` are
-  parsing abbreviations for `⟦ ·; σ ⟧` and `⟦ x; σ ⟧`.
+  a payload adjustment, the weakening past the output slots, computed
+  only for the entries that use it.
+- The core constructors (`identity`, `compose`, `lift`, `lift_free`, the
+  primitive entries) are direct definitions on the raw layer; `lift` and
+  `lift_free` print as `⟦ · | σ ⟧` and `⟦ x | σ ⟧`.
 - Labels: `label_lt`/`label_compare` on `label`; the `option label` order
   is internal (`olabel_lt`).
 

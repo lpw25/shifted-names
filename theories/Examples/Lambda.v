@@ -160,5 +160,5 @@ Proof.
 Qed.
 
 Theorem inst_subst_lift {N M} (u : tm 0) (a : sub N M) (t : tm (S N)) :
-  subst (inst u) (subst (lift a) t) = subst ⟦ · := u; a ⟧ t.
+  subst (inst u) (subst (lift a) t) = subst ⟦ · := u | a ⟧ t.
 Proof. rewrite subst_compose; f_equal; unfold inst; names. Qed.
