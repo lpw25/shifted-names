@@ -1,6 +1,6 @@
 (** * Tests of the context-form notation and the [names] tactic *)
 
-From Stdlib Require Import String.
+From Stdlib Require Import String StrictProp.
 From ShiftedNames.Core Require Import Label Var Adjustment Indexed Names.
 Open Scope string_scope.
 
@@ -23,7 +23,8 @@ Example positional {N M} x y (a : adj T N M) :
   ⟦ x; · | Γ \ y; · | Γ[a] ⟧ = ⟦ x as p; · as q | Γ \ y as p; · as q | Γ[a] ⟧.
 Proof. reflexivity. Qed.
 
-(** Slots and tail names are local to their context form: nothing from
+(** Slots are positions in the output context, of type [slot K]; tail
+    names are local to their context form.  A variable is not a slot, and
     outside can stand for one. *)
 Fail Check (fun (c : var 0) => (⟦ "x" as c \ "x" as d ⟧ : adj T 0 0)).
 Fail Check (fun (W : Type) (Δ : W) (σ : adj T 0 0) => ⟦ "x" | Δ \ "y" | Γ[σ] ⟧).
@@ -106,12 +107,15 @@ Proof. intros; names; reflexivity. Qed.
 
 End Tests.
 
-(** Nested context forms: a form inside a substituted term has its own
-    slots and tail; it cannot use those of the form around it. *)
+(** Nested context forms.  A slot is a position, so a slot of the form
+    around can be used in a form with as many outputs, where it means that
+    position; slots written by number mean the same as named ones.  Tail
+    names stay local: an inner form must use its own. *)
 Definition T0 := adj nat 0 0.
 Definition nested_ok : adj T0 0 0 := ⟦ "y" := (⟦ "z" := 0⟨ "x" as d ⟩ \ "x" as d ⟧ : T0) \ "x" as c ⟧.
-Fail Definition nested_slot : adj T0 0 0 := ⟦ "y" := (⟦ "x" as c \ "x" as d ⟧ : T0) \ "x" as c ⟧.
-Fail Definition nested_payload : adj T0 0 0 := ⟦ "y" := (⟦ "z" := 0⟨ "x" as c ⟩ \ "x" as d ⟧ : T0) \ "x" as c ⟧.
+Definition nested_position : adj T0 0 0 := ⟦ "y" := (⟦ "x" as c \ "x" as d ⟧ : T0) \ "x" as c ⟧.
+Example slot_by_number : (⟦ "x" as (mk_slot 1 0 stt) \ "y" as _ ⟧ : adj nat 0 0) = ⟦ "x" \ "y" ⟧.
+Proof. names; reflexivity. Qed.
 Fail Definition nested_tail (s : T0) : adj T0 0 0 := ⟦ "y" := (⟦ "x" | Γ \ "x" | Δ[s] ⟧ : T0) | Γ \ "x" | Γ[⟦⟧] ⟧.
 Fail Definition slot_in_term : adj (var 0 * nat) 0 0 := ⟦ "y" := (c, 0) \ "x" as c ⟧.
 

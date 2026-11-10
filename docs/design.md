@@ -77,10 +77,13 @@ innermost entry first, and the bound label is written `·`.
   the slots, unless a payload context `u⟨ … ⟩` sends them to slots
   (`x as c`) or substitutes them. With payload contexts, every adjustment
   is a single context form over the identity tail.
-- **Locality.** Slots and tail names are local to their form: the form is
-  elaborated a second time at abstract slot and tail types (parametric
-  higher-order abstract syntax), which only type-checks if nothing from
-  outside stands for one.
+- **Slots** are positions in the output context: `slot K` for `K`
+  output entries, innermost first. `y as a` binds a name for a position,
+  and inputs refer to slots by those names. A slot means its position in
+  whichever form it is used in, so nothing written is ill-defined; names
+  are just the easy way to write them. Tail names are local: the output
+  context's type records which name the input used, and the form demands
+  its own.
 - **Variables** print as their label with a superscript index, `x`, `x¹`
   … `x⁹`, `x ^ n`; bound variables as `·`, `·¹`, …
 

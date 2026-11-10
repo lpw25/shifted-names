@@ -474,19 +474,19 @@ Ltac render_short le te es :=
   end.
 
 Ltac render_piece le te ae p :=
-  lazymatch goal with
-  | |- adj _ _ ?M =>
-      lazymatch p with
-      | DFull ?os ?is None => refine (cform_n _); render_outs le te os is (@nil ((lexp * nat) * var M)) tt
-      | DFull ?os ?is (Some ?n) =>
-          let s := atom ae n in let g := fresh "Γ" in
-          simple refine (cform_nt (fun g => _) s); [shelve|render_outs le te os is (@nil ((lexp * nat) * var M)) g]
-      | DLift nil ?n => let s := atom ae n in exact s
-      | DLift ?hs ?n => let s := atom ae n in refine (cform_n (OShortT (Nt:=0) (STail _ s))); render_lifts le hs
-      | DShort ?es None => refine (cform_n (OShort _)); render_short le te es
-      | DShort ?es (Some ?n) =>
-          let s := atom ae n in refine (cform_n (OShortT (Nt:=0) (STail _ s))); render_short le te es
-      end
+  lazymatch p with
+  | DFull ?os ?is None =>
+      refine (cform_id _);
+      lazymatch goal with |- @octx _ ?K _ _ _ _ _ _ _ _ => render_outs le te os is (@nil ((lexp * nat) * slot K)) tt end
+  | DFull ?os ?is (Some ?n) =>
+      let s := atom ae n in let g := fresh "Γ" in
+      refine (cform (fun g => _) s);
+      lazymatch goal with |- @octx _ ?K _ _ _ _ _ _ _ _ => render_outs le te os is (@nil ((lexp * nat) * slot K)) g end
+  | DLift nil ?n => let s := atom ae n in exact s
+  | DLift ?hs ?n => let s := atom ae n in refine (cform_id (OShortT (Nt:=0) (STail _ s))); render_lifts le hs
+  | DShort ?es None => refine (cform_id (OShort _)); render_short le te es
+  | DShort ?es (Some ?n) =>
+      let s := atom ae n in refine (cform_id (OShortT (Nt:=0) (STail _ s))); render_short le te es
   end.
 
 Ltac render_pieces le te ae ps :=
@@ -528,7 +528,7 @@ Ltac names_unfold :=
        cnil cent cbnd csub csubb
        cnil_full cnil_short cent_full cent_short cbnd_full cbnd_short
        csub_full csub_short csubb_full csubb_short
-       cform cform_id cform_n cform_nt octx_den octx_probe ictx_den sctx_den nth
+       cform cform_id octx_den octx_probe ictx_den sctx_den nth slot_at slot_ix
        in_bound in_free out_bound out_free pctx_den pctx_pay noslot pcompose padj_raw pid
        to_target var_raw bvar bvar0 fvar lvar vdummy vshift_bound vshift_free].
 
@@ -538,9 +538,8 @@ Ltac names_eq := apply adj_eq; names_unfold; names_decide.
 Ltac is_adj_expr a :=
   lazymatch a with
   | compose _ _ => idtac
-  | cform_id _ _ => idtac
-  | cform_n _ => idtac
-  | cform _ _ _ => idtac
+  | cform_id _ => idtac
+  | cform _ _ => idtac
   | at_scope _ => idtac
   end.
 
@@ -554,7 +553,7 @@ Ltac names_rewrite a :=
                          cnil cent cbnd csub csubb
                          cnil_full cnil_short cent_full cent_short cbnd_full cbnd_short
                          csub_full csub_short csubb_full csubb_short
-                         cform cform_id cform_n cform_nt octx_den octx_probe ictx_den sctx_den nth
+                         cform cform_id octx_den octx_probe ictx_den sctx_den nth slot_at slot_ix
                          in_bound in_free out_bound out_free pctx_den pctx_pay noslot pcompose padj_raw pid
                          to_target var_raw bvar bvar0 fvar lvar vdummy vshift_bound vshift_free] in (adj_raw a) in
       let env0 := constr:((@nil label, @nil T, @nil (radj T), @nil (rpadj T))) in
@@ -585,7 +584,7 @@ Ltac names_apply_var t :=
                          cnil cent cbnd csub csubb
                          cnil_full cnil_short cent_full cent_short cbnd_full cbnd_short
                          csub_full csub_short csubb_full csubb_short
-                         cform cform_id cform_n cform_nt octx_den octx_probe ictx_den sctx_den nth
+                         cform cform_id octx_den octx_probe ictx_den sctx_den nth slot_at slot_ix
                          in_bound in_free out_bound out_free pctx_den pctx_pay noslot pcompose padj_raw pid
                          to_target var_raw bvar bvar0 fvar lvar vdummy vshift_bound vshift_free] in (adj_raw a) in
       let vr := eval cbn [var_raw bvar bvar0 fvar lvar] in (var_raw v) in

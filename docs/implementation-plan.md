@@ -594,13 +594,17 @@ In `Indexed.v`; the syntax is described in `design.md`. Decisions:
   left-recursive, so the innermost slot ends up deepest in the term;
   `octx_den` builds from the outermost slot in and gives each slot its
   variable in the final scope by probing the slots inside it.
-- **Locality by PHOAS, printing first-order.** The notation elaborates the
-  same syntax twice: as `forall V W, …` with slots of the abstract type
-  `V` and the tail name of `W`, which type-checks only if every slot and
-  tail name used is the form's own, and at `V := var M`, which is what
-  the form computes and prints. (Rocq cannot print a notation whose term
-  binds variables that do not appear in its syntax, so the checking copy
-  is ignored by the printing notation.)
+- **Slots are positions.** A slot has type `slot K`, a position among
+  the `K` output entries; the output context binds a name for each of its
+  positions, and `octx_den` hands each binder its position and records the
+  variable of each position. A slot used in another form means that
+  position there: well defined, and not made easy to write. (An earlier
+  version made slots local with parametric HOAS, elaborating each form a
+  second time at abstract types; it was replaced by this.)
+- **Tail names** are bound by the output's `Γ[σ]`; the output context's
+  type is indexed by the name the input context used, and `cform` requires
+  it to be the bound variable itself, which a nested form's or any other
+  variable is not.
 - **Tails** are written after `|` in both forms, because a bare name
   after `;` cannot be told from a bare label.
 - **Positional entries** pair up innermost first; the numbers of
