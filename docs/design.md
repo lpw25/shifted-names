@@ -59,40 +59,60 @@ and instantiation and their inverse laws.
 Adjustments are written and printed as context forms. Contexts list their
 innermost entry first, and the bound label is written `·`.
 
-    ⟦ a as x; y := u | Γ \ b; a as x | Γ[σ] ⟧      (full form)
-    ⟦ ·; a; y := u | σ ⟧                             (short form)
+    ⟦ a as x; y := u⟨ b as z ⟩ | Γ \ b as z; a as x | Γ[σ] ⟧     (full form)
+    ⟦ ·; a; y := u | σ ⟧                                       (short form)
 
-In the full form, the input context sends each input to a variable
-(`a as x`, where `x` is a slot of the output context or any variable of
-the output scope), to a term (`y := u`), or, written alone, to the output
-written alone in the same position among those (`⟦ a \ b ⟧` renames `a`
-to `b`). The output context declares slots, `a as x` or positionally just
-`a`. `| Γ` names the rest of the input context and `| Γ[σ]` (or `| Γ`)
-the rest of the output context with `σ` applied to it. The output's `Γ` binds the
-name, and the input context's type records which name it used, so a
-different name (even another variable of the same type) is a type error.
-Without them the tail is the identity.
+- **Full form.** The input context sends each input to a slot (`a as x`),
+  to a term (`y := u`), or, written alone, to the output written alone in
+  the same position among those (`⟦ a \ b ⟧` renames `a` to `b`). The
+  output context declares slots, `a as x`, or positionally just `a`.
+  `| Γ` names the rest of the input context, and `| Γ[σ]` (or `| Γ`) the
+  rest of the output context with `σ` applied to it. Without them the
+  tail is the identity.
+- **Short form.** Only an input context: a label alone is a lift (in both
+  contexts, linked), `x := u` a substitution, `| σ` the tail. `⟦ · | σ ⟧`
+  is `σ` under a binder (`lift σ` abbreviates it), `⟦ x := u ⟧`
+  substitutes, `⟦ · := u ⟧` instantiates.
+- **Terms.** A substituted term's free names go to the output tail, past
+  the slots, unless a payload context `u⟨ … ⟩` sends them to slots
+  (`x as c`) or substitutes them. With payload contexts, every adjustment
+  is a single context form over the identity tail.
+- **Locality.** Slots and tail names are local to their form: the form is
+  elaborated a second time at abstract slot and tail types (parametric
+  higher-order abstract syntax), which only type-checks if nothing from
+  outside stands for one.
+- **Variables** print as their label with a superscript index, `x`, `x¹`
+  … `x⁹`, `x ^ n`; bound variables as `·`, `·¹`, …
 
-The short form has only an input context: a label alone is a lift (the
-label in both contexts, linked), `x := u` a substitution, and `| σ` the
-tail. `⟦ · | σ ⟧` is `σ` under a binder (`lift σ` abbreviates it),
-`⟦ x := u ⟧` substitutes, `⟦ · := u ⟧` instantiates.
-
-Terms `u` are in the scope of the output tail: they are shifted past the
-output context's slots, so in `⟦ a as x; y := u \ a as x ⟧` the `a`s of
-`u` are not the new `a`. Composition is `∘`. Concrete context forms
+Composition is `∘` and the identity `⟦⟧`. Concrete context forms
 compute, so closed equations hold by `vm_compute` (`Tests/CoreTests.v`).
 
 ### The `names` tactic (`Core/Normalise.v`, `Core/Names.v`)
 
-`names` proves equations between indexed adjustments built from context
-forms, `∘`, `⟦⟧` and `at_scope`, with any other adjustment as an opaque
-atom. Labels may be concrete strings or label variables; the order
-between label variables comes from hypotheses `label_lt x y`, which a
-case analysis on `label_compare_spec x y` provides.
+`names` normalises; it does not close goals (`names; reflexivity` or
+`names; easy` does). It rewrites every adjustment in the goal built from
+context forms, `∘`, `⟦⟧` and `at_scope` (any other adjustment is an
+atom) to its normal form, shown as context forms, and then every
+`apply_var a v` whose result that normal form gives.
 
-It works by reflection. Both sides are reified into `aexp` and normalised
-to a *word*
+For each adjustment it:
+
+1. unfolds it to the core's raw constructors and reifies it, with label,
+   adjustment and term atoms, collecting the order facts `label_lt x y`
+   from the context;
+2. computes its normal form (below) by a Gallina function;
+3. turns the normal form into a display description: segments expanded
+   so every target is a slot, inputs written positionally where the order
+   allows, a segment merged with the lifted atom after it into one form
+   with that tail when the lifts match its inputs, and the short form
+   where it says the same;
+4. renders that as a context-form term and proves the rewrite by deciding
+   the equation (normal forms compared, `nf_eq_sound`).
+
+An adjustment it cannot normalise (a label order it needs is missing) or
+display (a payload whose adjustment has atoms) is left as it is.
+
+The normal form is a *word*
 
     S₀ ∘ ⇑ᴸ¹σ₁ ∘ S₁ ∘ … ∘ ⇑ᴸⁿσₙ ∘ Sₙ
 
@@ -114,7 +134,7 @@ each `σᵢ` an atom under a multiset of lifts `Lᵢ`. The rules:
 Every comparison between labels goes through `lcmp`, which knows concrete
 labels, the bound label (the greatest), and the context's facts closed
 under transitivity; when a comparison it needs is unknown, normalisation
-fails, so the tactic fails rather than guess. Soundness
+fails, and the adjustment is left as it is rather than guessed at. Soundness
 (`nf_eq_sound`) is proved and closed under the global context. Uniqueness
 of normal forms is not proved.
 

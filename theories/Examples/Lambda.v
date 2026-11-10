@@ -137,14 +137,14 @@ Theorem topen_tclose {N} x (t : tm N) : topen x (tclose x t) = t.
 Proof.
   unfold topen, tclose; rewrite subst_compose.
   transitivity (subst identity t); [f_equal|apply subst_identity].
-  unfold open_sub, close_sub; names.
+  unfold open_sub, close_sub; names; reflexivity.
 Qed.
 
 Theorem tclose_topen {N} x (t : tm (S N)) : tclose x (topen x t) = t.
 Proof.
   unfold topen, tclose; rewrite subst_compose.
   transitivity (subst identity t); [f_equal|apply subst_identity].
-  unfold open_sub, close_sub; names.
+  unfold open_sub, close_sub; names; reflexivity.
 Qed.
 
 (** Instantiating the innermost bound variable with a closed term. *)
@@ -156,9 +156,9 @@ Theorem topen_subst_lift {N M} x (a : sub N M) (t : tm (S N)) :
   topen x (subst (lift a) t) = subst ⟦ · | Γ \ x | Γ[a] ⟧ t.
 Proof.
   unfold topen; rewrite subst_compose; f_equal.
-  unfold open_sub; names.
+  unfold open_sub; names; reflexivity.
 Qed.
 
 Theorem inst_subst_lift {N M} (u : tm 0) (a : sub N M) (t : tm (S N)) :
   subst (inst u) (subst (lift a) t) = subst ⟦ · := u | a ⟧ t.
-Proof. rewrite subst_compose; f_equal; unfold inst; names. Qed.
+Proof. rewrite subst_compose; f_equal; unfold inst; names; reflexivity. Qed.

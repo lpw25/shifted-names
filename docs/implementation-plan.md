@@ -590,37 +590,48 @@ Not yet done:
 In `Indexed.v`; the syntax is described in `design.md`. Decisions:
 
 - **Slots are binders.** In the full form each output entry `a as x` is a
-  Rocq binder over everything before it, inputs included, so inputs refer
-  to slots by name. The grammar is left-recursive, so the innermost slot
-  ends up deepest in the term; `octx_den` builds from the outermost slot
-  in and gives each slot its variable in the final scope by probing the
-  slots inside it (`octx_probe`) for the shifts they add.
-- **The tail name is a binder too**, of type `tname`, bound by the
-  output's `Γ[σ]`; the output context's type is indexed by the name the
-  input context used (`option tname`), and `cform` requires it to be the
-  bound variable itself, so any other term of type `tname` is a type
-  error. Tails are written after `|` in both forms, because a bare name
+  Rocq binder over everything before it, inputs included. The grammar is
+  left-recursive, so the innermost slot ends up deepest in the term;
+  `octx_den` builds from the outermost slot in and gives each slot its
+  variable in the final scope by probing the slots inside it.
+- **Locality by PHOAS, printing first-order.** The notation elaborates the
+  same syntax twice: as `forall V W, …` with slots of the abstract type
+  `V` and the tail name of `W`, which type-checks only if every slot and
+  tail name used is the form's own, and at `V := var M`, which is what
+  the form computes and prints. (Rocq cannot print a notation whose term
+  binds variables that do not appear in its syntax, so the checking copy
+  is ignored by the printing notation.)
+- **Tails** are written after `|` in both forms, because a bare name
   after `;` cannot be told from a bare label.
 - **Positional entries** pair up innermost first; the numbers of
   positional inputs and outputs are indices, so a mismatch is a type
   error.
 - **One input grammar, two forms.** Input entries build overloaded terms
-  (type classes `CNil`, `CEnt`, `CBnd`, `CSub`, `CSubB`); an output
-  context after `\` expects a full-form `ictx`, and `⟦ … ⟧` with no `\`
-  a short-form `sctx`, or `sclosed` when the last entry is an adjustment.
-- **Terms in inputs are in the tail's scope**: a target `Bind u ρ` carries
-  a payload adjustment, the weakening past the output slots, computed
-  only for the entries that use it.
-- Everything users build is a context form: `lift σ` and `lift_free x σ`
-  are parsing abbreviations for `⟦ · | σ ⟧` and `⟦ x | σ ⟧`. Only
-  `identity` (`⟦⟧`), `compose` (`∘`) and the internal primitive entries
-  the context forms are built from are direct definitions.
+  (type classes `CNil`, `CEnt`, `CBnd`, `CSub`, `CSubB`); after `\` they
+  must be a full-form `ictx`, and otherwise the short form's `sctx`, which
+  is a case (`OShort`, `OShortT`) of the full form's output context.
+- **Payload contexts** `u⟨ … ⟩` say where a term's free names go; the
+  default is the output tail, past the slots. They make single context
+  forms complete.
+- Everything users build is a context form (`lift`, `lift_free` are
+  abbreviations); only `⟦⟧`, `∘` and the internal primitive entries are
+  direct definitions.
 - Labels: `label_lt`/`label_compare` on `label`; the `option label` order
-  is internal (`olabel_lt`).
+  is internal (`olabel_lt`). Variables print with superscript indices.
 
-Not yet done: adjustments print as built; nested context forms and
-compositions that the normaliser would merge into one context form are
-not merged by any tactic yet.
+### D14. `names` normalises (as implemented)
+
+`names` rewrites adjustments in the goal to normal forms shown as context
+forms, and reduces `apply_var` where the normal form gives the result; it
+never closes a goal. Display is computed in Gallina (expansion so every
+target is a slot, positional entries where the order allows, merging a
+segment with the following lifted atom into a tailed form, short forms)
+and rendered by refinement in Ltac; each rewrite is proved by deciding
+the equation, so the display code needs no proof.
+
+Not yet done: uniqueness of normal forms; `apply_var` only reduces when
+the normal form is a single context form and the result is a variable;
+payloads whose adjustment contains atoms are not displayed.
 
 ### D6. Users see only the indexed form
 

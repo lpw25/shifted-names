@@ -1541,4 +1541,35 @@ Proof.
   rewrite <- (proj1 anorm_sound _ _ E1), <- (proj1 anorm_sound _ _ E2); reflexivity.
 Qed.
 
+(** *** Applying a single segment to a variable *)
+
+Definition apply_result (F : list (lexp * lexp)) (ntm : nat) (e : aexp) (h : lexp) (i : nat) : option (lexp * nat) :=
+  match anorm F ntm e with
+  | Some (WEnd Sg) =>
+      if sdistb F Sg then
+        match sfind F h Sg with
+        | Some None => Some (h, i)
+        | Some (Some (ts, m)) =>
+            if i <? tlen ts then match tnth ts i with NVar h' j => Some (h', j) | _ => None end
+            else Some (h, i - tlen ts + m)
+        | None => None
+        end
+      else None
+  | _ => None
+  end.
+
+Theorem apply_result_sound e h i h' j :
+  apply_result F ntm e h i = Some (h', j) ->
+  rapply (aeden e) (mk_rvar (lden h) i) = inl (mk_rvar (lden h') j).
+Proof.
+  unfold apply_result; destruct (anorm F ntm e) as [[Sg|]|] eqn:E; try discriminate.
+  destruct (sdistb F Sg) eqn:Ed; [|discriminate]; apply sdistb_sound in Ed.
+  destruct (sfind F h Sg) as [r|] eqn:Ef; [|discriminate]; apply sfind_sound in Ef.
+  rewrite <- (proj1 anorm_sound _ _ E), wden_end, rapply_sden by exact Ed; cbn [v_label v_index].
+  rewrite <- Ef; destruct r as [[ts m]|]; cbn [esem].
+  - destruct (i <? tlen ts); [|intros H; injection H as <- <-; reflexivity].
+    destruct (tnth ts i) as [h0 j0|]; [|discriminate]; intros H; injection H as <- <-; reflexivity.
+  - intros H; injection H as <- <-; reflexivity.
+Qed.
+
 End Sound.

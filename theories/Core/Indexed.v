@@ -142,6 +142,20 @@ Proof.
   apply (proj2 (proj1 (scoped_spec N M (adj_raw a)) (adj_scoped a))), Is_true_s_elim, var_ok.
 Qed.
 
+(** Applying an adjustment to a variable: a variable or a term. *)
+Definition apply_var {N M} (a : adj T N M) (v : var N) : target T M :=
+  match apply a v as r return result_wf M r = true -> target T M with
+  | inl w => fun H => Rename (mk_var w (Is_true_s_intro H))
+  | inr (u, ρ) => fun H => Bind u (mk_padj ρ (Is_true_s_intro H))
+  end (apply_wf a v).
+
+Lemma apply_var_rename {N M} (a : adj T N M) (v : var N) (w : var M) :
+  rapply (adj_raw a) (var_raw v) = inl (var_raw w) -> apply_var a v = Rename w.
+Proof.
+  unfold apply_var; generalize (apply_wf a v); unfold apply; intros H E.
+  revert H; rewrite E; intros H; f_equal; apply var_eq; reflexivity.
+Qed.
+
 (** Scoped adjustments are equal when they agree on the variables in
     scope. *)
 Theorem extensionality {N M} (a b : adj T N M) : (forall v : var N, apply a v = apply b v) -> a = b.
@@ -386,6 +400,13 @@ Definition cform_id {Nt N M P} (chk : forall V W : Type, octx V W Nt N M P P Nt 
   (o : octx (var M) unit Nt N M P P Nt false) : adj T N M :=
   octx_den o nil (fun _ => @identity T Nt) identity.
 
+(** A context form produced by [names], which needs no check. *)
+Definition cform_n {Nt N M P} (o : octx (var M) unit Nt N M P P Nt false) : adj T N M :=
+  octx_den o nil (fun _ => @identity T Nt) identity.
+
+Definition cform_nt {Nt Mt N M P} (o : unit -> octx (var M) unit Nt N M P P Mt true) (σ : adj T Nt Mt) : adj T N M :=
+  octx_den (o tt) nil (fun _ => @identity T Mt) σ.
+
 Definition cform {Nt Mt N M P} (chk : forall V W : Type, W -> octx V W Nt N M P P Mt true)
   (o : unit -> octx (var M) unit Nt N M P P Mt true) (σ : adj T Nt Mt) : adj T N M :=
   octx_den (o tt) nil (fun _ => @identity T Mt) σ.
@@ -443,6 +464,44 @@ Class CSubB (T V C R : Type) := csubb : C -> T -> @pctx T V -> R.
 
 Declare Custom Entry adj_pay.
 Declare Custom Entry adj_in.
+Declare Custom Entry adj_out.
+
+(** Printing the constructors themselves, as [names] builds them. *)
+Notation "i ; x" := (IPosF i x) (only printing, in custom adj_in at level 2, left associativity, x constr at level 0).
+Notation "i ; '·'" := (IPosB i) (only printing, in custom adj_in at level 2, left associativity).
+Notation "i ; x ':=' u" := (ISubF i x u PEmpty) (only printing, in custom adj_in at level 2, left associativity, x constr at level 0, u constr at level 0).
+Notation "i ; x ':=' u '⟨' p '⟩'" := (ISubF i x u p) (only printing, in custom adj_in at level 2, left associativity, x constr at level 0, u constr at level 0, p custom adj_pay at level 2).
+Notation "i ; '·' ':=' u" := (ISubB i u PEmpty) (only printing, in custom adj_in at level 2, left associativity, u constr at level 0).
+Notation "i ; '·' ':=' u '⟨' p '⟩'" := (ISubB i u p) (only printing, in custom adj_in at level 2, left associativity, u constr at level 0, p custom adj_pay at level 2).
+Notation "x" := (IPosF IEmpty x) (only printing, in custom adj_in at level 1, x constr at level 0).
+Notation "'·'" := (IPosB IEmpty) (only printing, in custom adj_in at level 1).
+Notation "x 'as' v" := (IRenF IEmpty x v) (only printing, in custom adj_in at level 1, x constr at level 0, v constr at level 0).
+Notation "'·' 'as' v" := (IRenB IEmpty v) (only printing, in custom adj_in at level 1, v constr at level 0).
+Notation "x ':=' u" := (ISubF IEmpty x u PEmpty) (only printing, in custom adj_in at level 1, x constr at level 0, u constr at level 0).
+Notation "x ':=' u '⟨' p '⟩'" := (ISubF IEmpty x u p) (only printing, in custom adj_in at level 1, x constr at level 0, u constr at level 0, p custom adj_pay at level 2).
+Notation "'·' ':=' u" := (ISubB IEmpty u PEmpty) (only printing, in custom adj_in at level 1, u constr at level 0).
+Notation "'·' ':=' u '⟨' p '⟩'" := (ISubB IEmpty u p) (only printing, in custom adj_in at level 1, u constr at level 0, p custom adj_pay at level 2).
+Notation "i ; x" := (SLiftF i x) (only printing, in custom adj_in at level 2, left associativity, x constr at level 0).
+Notation "i ; '·'" := (SLiftB i) (only printing, in custom adj_in at level 2, left associativity).
+Notation "x" := (SLiftF SEmpty x) (only printing, in custom adj_in at level 1, x constr at level 0).
+Notation "'·'" := (SLiftB SEmpty) (only printing, in custom adj_in at level 1).
+Notation "i ; x ':=' u" := (SSubF i x u PEmpty) (only printing, in custom adj_in at level 2, left associativity, x constr at level 0, u constr at level 0).
+Notation "i ; '·' ':=' u" := (SSubB i u PEmpty) (only printing, in custom adj_in at level 2, left associativity, u constr at level 0).
+Notation "x ':=' u" := (SSubF SEmpty x u PEmpty) (only printing, in custom adj_in at level 1, x constr at level 0, u constr at level 0).
+Notation "'·' ':=' u" := (SSubB SEmpty u PEmpty) (only printing, in custom adj_in at level 1, u constr at level 0).
+Notation "i" := (OShort i) (only printing, in custom adj_out at level 3, i custom adj_in at level 2).
+Notation "⟦ c | g [ σ ] ⟧" := (cform_nt (fun g => c) σ)
+  (only printing, c custom adj_out at level 4, g name, σ constr at level 200, format "⟦  c  |  g [ σ ]  ⟧").
+Notation "'\'" := (OEnd IEmpty) (only printing, in custom adj_out at level 3).
+Notation "'\' y" := (OPosF (OEnd IEmpty) y) (only printing, in custom adj_out at level 3, y constr at level 0).
+Notation "'\' y 'as' a" := (ONamF y (fun a => OEnd IEmpty)) (only printing, in custom adj_out at level 3, y constr at level 0, a name).
+Notation "'\' '·'" := (OPosB (OEnd IEmpty)) (only printing, in custom adj_out at level 3).
+Notation "'\' '·' 'as' a" := (ONamB (fun a => OEnd IEmpty)) (only printing, in custom adj_out at level 3, a name).
+Notation "'|' g '\' y" := (OPosF (OEndT g IEmpty) y) (only printing, in custom adj_out at level 3, g constr at level 200, y constr at level 0).
+Notation "'|' g '\' y 'as' a" := (ONamF y (fun a => OEndT g IEmpty)) (only printing, in custom adj_out at level 3, g constr at level 200, y constr at level 0, a name).
+Notation "'|' g '\' '·'" := (OPosB (OEndT g IEmpty)) (only printing, in custom adj_out at level 3, g constr at level 200).
+Notation "'|' g '\' '·' 'as' a" := (ONamB (fun a => OEndT g IEmpty)) (only printing, in custom adj_out at level 3, g constr at level 200, a name).
+Notation "'|' g '\'" := (OEndT g IEmpty) (only printing, in custom adj_out at level 3, g constr at level 200).
 
 (** Payload contexts. *)
 Notation "p ; x 'as' c" := (PRen p x c) (in custom adj_pay at level 2, left associativity, x constr at level 0, c constr at level 0).
@@ -451,7 +510,6 @@ Notation "p ; x ':=' u '⟨' q '⟩'" := (PSub p x u q) (in custom adj_pay at le
 Notation "x 'as' c" := (PRen PEmpty x c) (in custom adj_pay at level 1, x constr at level 0, c constr at level 0).
 Notation "x ':=' u" := (PSub PEmpty x u PEmpty) (in custom adj_pay at level 1, x constr at level 0, u constr at level 0).
 Notation "x ':=' u '⟨' q '⟩'" := (PSub PEmpty x u q) (in custom adj_pay at level 1, x constr at level 0, u constr at level 0, q custom adj_pay at level 2).
-Declare Custom Entry adj_out.
 
 Notation "i ; x" := (cent i x) (in custom adj_in at level 2, left associativity, x constr at level 0).
 Notation "i ; x 'as' v" := (IRenF i x v) (in custom adj_in at level 2, left associativity, x constr at level 0, v constr at level 0).
@@ -500,6 +558,7 @@ Notation "'|' g '\' '·' 'as' a" := (ONamB (fun a => OEndT g cnil)) (in custom a
 
 Notation "⟦ c ⟧" := (cform_id (fun (V W : Type) => c) c) (only parsing, c custom adj_out at level 4).
 Notation "⟦ c ⟧" := (cform_id _ c) (only printing, c custom adj_out at level 4, format "⟦  c  ⟧").
+Notation "⟦ c ⟧" := (cform_n c) (only printing, c custom adj_out at level 4, format "⟦  c  ⟧").
 Notation "⟦ c | g [ σ ] ⟧" := (cform (fun (V W : Type) (g : W) => c) (fun g => c) σ)
   (only parsing, c custom adj_out at level 4, g name, σ constr at level 200).
 Notation "⟦ c | g [ σ ] ⟧" := (cform _ (fun g => c) σ)
@@ -507,6 +566,7 @@ Notation "⟦ c | g [ σ ] ⟧" := (cform _ (fun g => c) σ)
 Notation "⟦ c | g ⟧" := (cform (fun (V W : Type) (g : W) => c) (fun g => c) identity)
   (only parsing, c custom adj_out at level 4, g name).
 Notation "⟦ c | g ⟧" := (cform _ (fun g => c) identity) (only printing, c custom adj_out at level 4, g name, format "⟦  c  |  g  ⟧").
+
 Notation "⟦ ⟧" := identity (format "⟦ ⟧").
 
 Declare Scope adj_scope.

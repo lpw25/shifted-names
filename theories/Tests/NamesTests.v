@@ -34,63 +34,75 @@ Fail Check (fun (u : T) => (⟦ "y" := u⟨ "x" as c ⟩ ⟧ : adj T 0 0)).
 
 Example lift_compose' {N M K} (a : adj T M K) (b : adj T N M) :
   ⟦ · | a ⟧ ∘ ⟦ · | b ⟧ = ⟦ · | a ∘ b ⟧.
-Proof. names. Qed.
+Proof. names; reflexivity. Qed.
 
 Example lift_lift_compose {N M K} (a : adj T M K) (b : adj T N M) :
   ⟦ ·; · | a ⟧ ∘ ⟦ ·; · | b ⟧ = ⟦ ·; · | a ∘ b ⟧.
-Proof. names. Qed.
+Proof. names; reflexivity. Qed.
 
 Example lift_weaken {N M} (a : adj T N M) : ⟦ · | a ⟧ ∘ ⟦ \ · as _ ⟧ = ⟦ | Γ \ · as _ | Γ[a] ⟧.
-Proof. names. Qed.
+Proof. names; reflexivity. Qed.
 
 Example lift_identity' {N} : ⟦ · | @identity T N ⟧ = ⟦⟧.
-Proof. names. Qed.
+Proof. names; reflexivity. Qed.
 
 Example instantiate_lift {N M} (a : adj T N M) (u : T) :
   ⟦ · := u ⟧ ∘ ⟦ · | a ⟧ = ⟦ · := u | a ⟧.
-Proof. names. Qed.
+Proof. names; reflexivity. Qed.
 
 Example assoc4 {N M K L P} (a : adj T (S L) P) (b : adj T K L) (c : adj T M K) (d : adj T N (S M)) :
   a ∘ (⟦ · | b ⟧ ∘ (⟦ · | c ⟧ ∘ d)) = a ∘ ⟦ · | b ∘ c ⟧ ∘ d.
-Proof. names. Qed.
+Proof. names; reflexivity. Qed.
 
 (** ** Named labels *)
 
 Example open_close {N} (x : label) : ⟦ · \ x ⟧ ∘ ⟦ x \ · ⟧ = @identity T N.
-Proof. names. Qed.
+Proof. names; reflexivity. Qed.
 
 Example close_open {N} (x : label) : ⟦ x \ · ⟧ ∘ ⟦ · \ x ⟧ = @identity T (S N).
-Proof. names. Qed.
+Proof. names; reflexivity. Qed.
 
 Example open_lift {N M} (a : adj T N M) x : ⟦ · \ x ⟧ ∘ ⟦ · | a ⟧ = ⟦ · | Γ \ x | Γ[a] ⟧.
-Proof. names. Qed.
+Proof. names; reflexivity. Qed.
 
 Example lift_free_comm {N M} x y (a : adj T N M) :
   label_lt x y -> ⟦ x; y | a ⟧ = ⟦ y; x | a ⟧.
-Proof. intros; names. Qed.
+Proof. intros; names; reflexivity. Qed.
 
 Example lift_free_comm_concrete {N M} (a : adj T N M) : ⟦ "x"; "y" | a ⟧ = ⟦ "y"; "x" | a ⟧.
-Proof. names. Qed.
+Proof. names; reflexivity. Qed.
 
 Example two_labels {N M} x y (a : adj T N M) :
   label_lt x y -> ⟦ x as p; y as q | Γ \ x as p; y as q | Γ[a] ⟧ = ⟦ y as q; x as p | Γ \ y as q; x as p | Γ[a] ⟧.
-Proof. intros; names. Qed.
+Proof. intros; names; reflexivity. Qed.
 
 Example swap_swap {N} (x : label) :
   ⟦ x as b; x as a \ x as a; x as b ⟧ ∘ ⟦ x as b; x as a \ x as a; x as b ⟧ = @identity T N.
-Proof. names. Qed.
+Proof. names; reflexivity. Qed.
 
 Example swap_swap_bound {N} :
   ⟦ · as b; · as a \ · as a; · as b ⟧ ∘ ⟦ · as b; · as a \ · as a; · as b ⟧ = @identity T (S (S N)).
-Proof. names. Qed.
+Proof. names; reflexivity. Qed.
 
-(** Without the order between [x] and [y], the tactic fails; a case
-    analysis on [label_compare] supplies it. *)
+(** Without the order between [x] and [y], [names] cannot normalise and
+    leaves the goal; a case analysis on [label_compare] supplies it. *)
 Example lift_free_comm_cases {N M} x y (a : adj T N M) : ⟦ x; y | a ⟧ = ⟦ y; x | a ⟧.
 Proof.
-  Fail names.
-  destruct (label_compare_spec x y) as [<-|H|H]; [reflexivity|names|names].
+  names.
+  destruct (label_compare_spec x y) as [<-|H|H]; [reflexivity|names; reflexivity|names; reflexivity].
 Qed.
+
+(** ** Applying adjustments to variables *)
+
+Example apply_open {N} (x : label) : apply_var (⟦ · \ x ⟧ : adj T (S N) N) bvar0 = Rename x.
+Proof. names; reflexivity. Qed.
+
+Example apply_open_shift {N} (x : label) : apply_var (⟦ · \ x ⟧ : adj T (S N) N) (fvar x 1) = Rename (fvar x 2).
+Proof. names; reflexivity. Qed.
+
+Example apply_composite {N} (x y : label) :
+  label_lt x y -> apply_var (⟦ x \ y ⟧ ∘ ⟦ y \ x ⟧ : adj T N N) (fvar y 0) = Rename y.
+Proof. intros; names; reflexivity. Qed.
 
 End Tests.
 
