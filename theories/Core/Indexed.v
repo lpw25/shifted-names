@@ -595,7 +595,8 @@ Create Rewrite HintDb names_post.
 Declare Scope adj_scope.
 Delimit Scope adj_scope with adj.
 Bind Scope adj_scope with adj.
-Notation "a ∘ b" := (compose a b) (at level 40, left associativity) : adj_scope.
+(** Composition in diagrammatic order: [a ⨾ b] is [a], then [b]. *)
+Notation "a ⨾ b" := (compose b a) (at level 40, left associativity) : adj_scope.
 Global Open Scope adj_scope.
 
 (** Going under a binder, bound or named. *)

@@ -95,40 +95,40 @@ Notation sub N M := (adj (tm 0) N M).
     Kleisli extension of its [apply]: [cbn] pushes it through the
     constructors, and [names] does the rest. *)
 Example subst_tlam {N M} (a : adj (tm 0) N M) (b : tm (S N)) :
-  subst a (tlam b) = tlam (subst (lift a) b).
+  (tlam b) [a] = tlam b [lift a].
 Proof. cbn; names; reflexivity. Qed.
 
 Example subst_two_binders {N M} (a : adj (tm 0) N M) (b c : tm (S (S N))) :
-  subst a (tlam (tlam (tapp b c)))
-  = tlam (tlam (tapp (subst (lift (lift a)) b) (subst (lift (lift a)) c))).
+  (tlam (tlam (tapp b c))) [a]
+  = tlam (tlam (tapp b [lift (lift a)] c [lift (lift a)])).
 Proof. cbn; names; reflexivity. Qed.
 
 (** ** Locally nameless operations
 
-    Opening the innermost bound variable as [x] is [subst ⟦ · \ x ⟧],
-    closing [x] is [subst ⟦ x \ · ⟧], and instantiating with a closed term
-    [u] is [subst ⟦ · := u ⟧]. *)
+    Opening the innermost bound variable as [x] is [t [⟦ · \ x ⟧]],
+    closing [x] is [t [⟦ x \ · ⟧]], and instantiating with a closed term
+    [u] is [t [⟦ · := u ⟧]]. *)
 
-Theorem open_close {N} x (t : tm N) : subst ⟦ · \ x ⟧ (subst ⟦ x \ · ⟧ t) = t.
+Theorem open_close {N} x (t : tm N) : t [⟦ x \ · ⟧] [⟦ · \ x ⟧] = t.
 Proof. names; reflexivity. Qed.
 
-Theorem close_open {N} x (t : tm (S N)) : subst ⟦ x \ · ⟧ (subst ⟦ · \ x ⟧ t) = t.
+Theorem close_open {N} x (t : tm (S N)) : t [⟦ · \ x ⟧] [⟦ x \ · ⟧] = t.
 Proof. names; reflexivity. Qed.
 
 (** Opening after substituting under the binder is one substitution. *)
 Theorem open_subst_lift {N M} x (a : sub N M) (t : tm (S N)) :
-  subst ⟦ · \ x ⟧ (subst (lift a) t) = subst ⟦ · | Γ \ x | Γ[a] ⟧ t.
+  t [lift a] [⟦ · \ x ⟧] = t [⟦ · | Γ \ x | Γ[a] ⟧].
 Proof. names; reflexivity. Qed.
 
 Theorem inst_subst_lift {N M} (u : tm 0) (a : sub N M) (t : tm (S N)) :
-  subst ⟦ · := u ⟧ (subst (lift a) t) = subst ⟦ · := u | a ⟧ t.
+  t [lift a] [⟦ · := u ⟧] = t [⟦ · := u | a ⟧].
 Proof. names; reflexivity. Qed.
 
 (** Under binders, through applications. *)
 Example names_terms {N} x (t : tm (S N)) (u : tm N) :
-  subst ⟦ · \ x ⟧ (subst ⟦ x \ · ⟧ (tapp (tlam t) u)) = tapp (tlam t) u.
+  (tapp (tlam t) u) [⟦ x \ · ⟧] [⟦ · \ x ⟧] = tapp (tlam t) u.
 Proof. names; reflexivity. Qed.
 
 (** Substituting into a variable. *)
-Example subst_var {N} x : subst ⟦ · \ x ⟧ (tvar bvar0 : tm (S N)) = tvar x.
+Example subst_var {N} x : (tvar bvar0 : tm (S N)) [⟦ · \ x ⟧] = tvar x.
 Proof. names; reflexivity. Qed.

@@ -19,7 +19,7 @@ Reserved Notation "Γ ⊢ e ~ A" (at level 70, e at next level).
 Inductive types (Γ : ctx ty) : tm 0 -> ty -> Prop :=
 | VAR (v : var 0) A : Γ ∋ v ~ A -> Γ ⊢ tvar v ~ A
 | BASE k : Γ ⊢ tconst k ~ Base
-| LAM body A B : (forall x, Γ & x ~ A ⊢ subst ⟦ · \ x ⟧ body ~ B) -> Γ ⊢ tlam body ~ Fn A B
+| LAM body A B : (forall x, Γ & x ~ A ⊢ body [⟦ · \ x ⟧] ~ B) -> Γ ⊢ tlam body ~ Fn A B
 | APP f e A B : Γ ⊢ f ~ Fn A B -> Γ ⊢ e ~ A -> Γ ⊢ tapp f e ~ B
 where "Γ ⊢ e ~ A" := (types Γ e A).
 
@@ -30,7 +30,7 @@ Proof. intros H <-; exact H. Qed.
 (** ** Weakening, along any context morphism *)
 
 Theorem weakening {Γ e A} :
-  Γ ⊢ e ~ A -> forall (σ : sub 0 0) Δ, Γ =[σ]=> Δ -> Δ ⊢ subst σ e ~ A.
+  Γ ⊢ e ~ A -> forall (σ : sub 0 0) Δ, Γ =[σ]=> Δ -> Δ ⊢ e [σ] ~ A.
 Proof.
   induction 1 as [Γ v A Hv|Γ k|Γ body A B _ IH|Γ f e A B _ IHf _ IHe]; intros σ Δ Hσ.
   - destruct (Hσ v A Hv) as [w [Ew Hw]]; rewrite subst_tvar_eval, (eval_rename _ _ _ _ _ Ew); constructor; exact Hw.
@@ -44,7 +44,7 @@ Qed.
 
 Theorem substitution {Γ e A} :
   Γ ⊢ e ~ A ->
-  forall (σ : sub 0 0) Δ, forall_has Γ (fun v B => Δ ⊢ subst σ (tvar v) ~ B) -> Δ ⊢ subst σ e ~ A.
+  forall (σ : sub 0 0) Δ, forall_has Γ (fun v B => Δ ⊢ (tvar v) [σ] ~ B) -> Δ ⊢ e [σ] ~ A.
 Proof.
   induction 1 as [Γ v A Hv|Γ k|Γ body A B _ IH|Γ f e A B _ IHf _ IHe]; intros σ Δ Hσ.
   - apply Hσ, Hv.
@@ -54,40 +54,40 @@ Proof.
     + apply (conv (tvar (fvar x 0))); [apply VAR, has_here|names; reflexivity].
     + intros y b Hy.
       apply (conv _ (weakening (Hσ y b Hy) _ _ (ctx_map_weaken _ _ _ x A (ctx_map_id Δ)))).
-      replace (tvar (vshift_free x y)) with (subst ⟦ \ x as _ ⟧ (tvar y))
+      replace (tvar (vshift_free x y)) with ((tvar y) [⟦ \ x as _ ⟧])
         by (apply subst_tvar_rename, apply_var_weaken); names; reflexivity.
   - cbn; econstructor; [apply IHf|apply IHe]; exact Hσ.
 Qed.
 
 (** ** Corollaries *)
 
-Corollary weakening1 {Γ e A} x B : Γ ⊢ e ~ A -> Γ & x ~ B ⊢ subst ⟦ \ x as _ ⟧ e ~ A.
+Corollary weakening1 {Γ e A} x B : Γ ⊢ e ~ A -> Γ & x ~ B ⊢ e [⟦ \ x as _ ⟧] ~ A.
 Proof.
   intros H; apply (conv _ (weakening H _ _ (ctx_map_weaken _ _ _ x B (ctx_map_id Γ)))); names; reflexivity.
 Qed.
 
-Corollary renaming1 {Γ e A} x y B : Γ & x ~ B ⊢ e ~ A -> Γ & y ~ B ⊢ subst ⟦ x \ y ⟧ e ~ A.
+Corollary renaming1 {Γ e A} x y B : Γ & x ~ B ⊢ e ~ A -> Γ & y ~ B ⊢ e [⟦ x \ y ⟧] ~ A.
 Proof.
   intros H; apply (conv _ (weakening H _ _ (ctx_map_under _ _ _ x y B (ctx_map_id Γ)))); names; reflexivity.
 Qed.
 
-Corollary renaming1' {Γ e A} x y B : Γ & y ~ B ⊢ subst ⟦ x \ y ⟧ e ~ A -> Γ & x ~ B ⊢ e ~ A.
+Corollary renaming1' {Γ e A} x y B : Γ & y ~ B ⊢ e [⟦ x \ y ⟧] ~ A -> Γ & x ~ B ⊢ e ~ A.
 Proof.
   intros H; apply (conv _ (renaming1 y x _ H)).
   destruct (label_compare_spec x y) as [<-|Hxy|Hxy]; names; reflexivity.
 Qed.
 
-Corollary substitution1 {Γ e e' A} x B : Γ & x ~ B ⊢ e ~ A -> Γ ⊢ e' ~ B -> Γ ⊢ subst ⟦ x := e' ⟧ e ~ A.
+Corollary substitution1 {Γ e e' A} x B : Γ & x ~ B ⊢ e ~ A -> Γ ⊢ e' ~ B -> Γ ⊢ e [⟦ x := e' ⟧] ~ A.
 Proof.
   intros He He'; apply (substitution He), forall_has_cons.
   - apply (conv _ He'); names; reflexivity.
   - intros y b Hy; apply (conv (tvar y)); [constructor; exact Hy|].
-    replace (tvar (vshift_free x y)) with (subst ⟦ \ x as _ ⟧ (tvar y))
+    replace (tvar (vshift_free x y)) with ((tvar y) [⟦ \ x as _ ⟧])
         by (apply subst_tvar_rename, apply_var_weaken); names; reflexivity.
 Qed.
 
 (** A binder can be typed by opening with one chosen name. *)
-Lemma LAM' x {Γ body A B} : Γ & x ~ A ⊢ subst ⟦ · \ x ⟧ body ~ B -> Γ ⊢ tlam body ~ Fn A B.
+Lemma LAM' x {Γ body A B} : Γ & x ~ A ⊢ body [⟦ · \ x ⟧] ~ B -> Γ ⊢ tlam body ~ Fn A B.
 Proof.
   intros H; apply LAM; intros y; apply (renaming1' y x).
   apply (conv _ H); destruct (label_compare_spec x y) as [<-|Hxy|Hxy]; names; reflexivity.

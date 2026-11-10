@@ -34,36 +34,36 @@ Fail Check (fun (u : T) => (⟦ "y" := u⟨ "x" as c ⟩ ⟧ : adj T 0 0)).
 (** ** The binder fragment *)
 
 Example lift_compose' {N M K} (a : adj T M K) (b : adj T N M) :
-  ⟦ · | a ⟧ ∘ ⟦ · | b ⟧ = ⟦ · | a ∘ b ⟧.
+  ⟦ · | b ⟧ ⨾ ⟦ · | a ⟧ = ⟦ · | b ⨾ a ⟧.
 Proof. names; reflexivity. Qed.
 
 Example lift_lift_compose {N M K} (a : adj T M K) (b : adj T N M) :
-  ⟦ ·; · | a ⟧ ∘ ⟦ ·; · | b ⟧ = ⟦ ·; · | a ∘ b ⟧.
+  ⟦ ·; · | b ⟧ ⨾ ⟦ ·; · | a ⟧ = ⟦ ·; · | b ⨾ a ⟧.
 Proof. names; reflexivity. Qed.
 
-Example lift_weaken {N M} (a : adj T N M) : ⟦ · | a ⟧ ∘ ⟦ \ · as _ ⟧ = ⟦ | Γ \ · as _ | Γ[a] ⟧.
+Example lift_weaken {N M} (a : adj T N M) : ⟦ \ · as _ ⟧ ⨾ ⟦ · | a ⟧ = ⟦ | Γ \ · as _ | Γ[a] ⟧.
 Proof. names; reflexivity. Qed.
 
 Example lift_identity' {N} : ⟦ · | @identity T N ⟧ = ⟦⟧.
 Proof. names; reflexivity. Qed.
 
 Example instantiate_lift {N M} (a : adj T N M) (u : T) :
-  ⟦ · := u ⟧ ∘ ⟦ · | a ⟧ = ⟦ · := u | a ⟧.
+  ⟦ · | a ⟧ ⨾ ⟦ · := u ⟧ = ⟦ · := u | a ⟧.
 Proof. names; reflexivity. Qed.
 
 Example assoc4 {N M K L P} (a : adj T (S L) P) (b : adj T K L) (c : adj T M K) (d : adj T N (S M)) :
-  a ∘ (⟦ · | b ⟧ ∘ (⟦ · | c ⟧ ∘ d)) = a ∘ ⟦ · | b ∘ c ⟧ ∘ d.
+  d ⨾ (⟦ · | c ⟧ ⨾ (⟦ · | b ⟧ ⨾ a)) = d ⨾ ⟦ · | c ⨾ b ⟧ ⨾ a.
 Proof. names; reflexivity. Qed.
 
 (** ** Named labels *)
 
-Example open_close {N} (x : label) : ⟦ · \ x ⟧ ∘ ⟦ x \ · ⟧ = @identity T N.
+Example open_close {N} (x : label) : ⟦ x \ · ⟧ ⨾ ⟦ · \ x ⟧ = @identity T N.
 Proof. names; reflexivity. Qed.
 
-Example close_open {N} (x : label) : ⟦ x \ · ⟧ ∘ ⟦ · \ x ⟧ = @identity T (S N).
+Example close_open {N} (x : label) : ⟦ · \ x ⟧ ⨾ ⟦ x \ · ⟧ = @identity T (S N).
 Proof. names; reflexivity. Qed.
 
-Example open_lift {N M} (a : adj T N M) x : ⟦ · \ x ⟧ ∘ ⟦ · | a ⟧ = ⟦ · | Γ \ x | Γ[a] ⟧.
+Example open_lift {N M} (a : adj T N M) x : ⟦ · | a ⟧ ⨾ ⟦ · \ x ⟧ = ⟦ · | Γ \ x | Γ[a] ⟧.
 Proof. names; reflexivity. Qed.
 
 Example lift_free_comm {N M} x y (a : adj T N M) :
@@ -78,11 +78,11 @@ Example two_labels {N M} x y (a : adj T N M) :
 Proof. intros; names; reflexivity. Qed.
 
 Example swap_swap {N} (x : label) :
-  ⟦ x as b; x as a \ x as a; x as b ⟧ ∘ ⟦ x as b; x as a \ x as a; x as b ⟧ = @identity T N.
+  ⟦ x as b; x as a \ x as a; x as b ⟧ ⨾ ⟦ x as b; x as a \ x as a; x as b ⟧ = @identity T N.
 Proof. names; reflexivity. Qed.
 
 Example swap_swap_bound {N} :
-  ⟦ · as b; · as a \ · as a; · as b ⟧ ∘ ⟦ · as b; · as a \ · as a; · as b ⟧ = @identity T (S (S N)).
+  ⟦ · as b; · as a \ · as a; · as b ⟧ ⨾ ⟦ · as b; · as a \ · as a; · as b ⟧ = @identity T (S (S N)).
 Proof. names; reflexivity. Qed.
 
 (** Without the order between [x] and [y], [names] cannot normalise and
@@ -102,7 +102,7 @@ Example apply_open_shift {N} (x : label) : apply_var (⟦ · \ x ⟧ : adj T (S 
 Proof. names; reflexivity. Qed.
 
 Example apply_composite {N} (x y : label) :
-  label_lt x y -> apply_var (⟦ x \ y ⟧ ∘ ⟦ y \ x ⟧ : adj T N N) (fvar y 0) = Rename y.
+  label_lt x y -> apply_var (⟦ y \ x ⟧ ⨾ ⟦ x \ y ⟧ : adj T N N) (fvar y 0) = Rename y.
 Proof. intros; names; reflexivity. Qed.
 
 End Tests.
@@ -142,15 +142,15 @@ Proof. vm_compute; reflexivity. Qed.
 Section Commute.
 Context {T : Type}.
 
-Example open_commutes_lift {N M} x (σ : adj T N M) : ⟦ x | σ ⟧ ∘ ⟦ · \ x ⟧ = ⟦ · \ x ⟧ ∘ ⟦ · | σ ⟧.
+Example open_commutes_lift {N M} x (σ : adj T N M) : ⟦ · \ x ⟧ ⨾ ⟦ x | σ ⟧ = ⟦ · | σ ⟧ ⨾ ⟦ · \ x ⟧.
 Proof. names; reflexivity. Qed.
 
 Example rename_commutes_lift {N M} x y (σ : adj T N M) :
-  label_lt x y -> ⟦ y | σ ⟧ ∘ ⟦ x \ y ⟧ = ⟦ x \ y ⟧ ∘ ⟦ x | σ ⟧.
+  label_lt x y -> ⟦ x \ y ⟧ ⨾ ⟦ y | σ ⟧ = ⟦ x | σ ⟧ ⨾ ⟦ x \ y ⟧.
 Proof. intros; names; reflexivity. Qed.
 
 Example swap_commutes_lift {N M} x y (σ : adj T N M) :
-  label_lt x y -> ⟦ x; y | σ ⟧ ∘ ⟦ x as a; y as b \ y as b; x as a ⟧ = ⟦ x as a; y as b \ y as b; x as a ⟧ ∘ ⟦ x; y | σ ⟧.
+  label_lt x y -> ⟦ x as a; y as b \ y as b; x as a ⟧ ⨾ ⟦ x; y | σ ⟧ = ⟦ x; y | σ ⟧ ⨾ ⟦ x as a; y as b \ y as b; x as a ⟧.
 Proof. intros; names; reflexivity. Qed.
 
 End Commute.
@@ -158,5 +158,5 @@ End Commute.
 (** Lifts are shown grouped: [names] shows both sides below as
     [⟦ · \ x ⟧ ∘ ⟦ · | a ∘ b ⟧]. *)
 Example grouped {N M K} x (a : adj nat M K) (b : adj nat N M) :
-  ⟦ x | a ⟧ ∘ ⟦ · \ x ⟧ ∘ ⟦ · | b ⟧ = ⟦ · \ x ⟧ ∘ ⟦ · | a ∘ b ⟧.
+  ⟦ · | b ⟧ ⨾ ⟦ · \ x ⟧ ⨾ ⟦ x | a ⟧ = ⟦ · | b ⨾ a ⟧ ⨾ ⟦ · \ x ⟧.
 Proof. names; reflexivity. Qed.

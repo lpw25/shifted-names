@@ -608,10 +608,10 @@ Definition apply {N M} (a : adj P N M) : morph N M :=
       look a e (down (ext_depth e) rv) (W_tdown e rv (var_ok v) (fun H => rel_some rv y Hl H _))
   end eq_refl.
 
-(** Substitution is the Kleisli extension of [apply] at the top; it is an
-    abbreviation, so rewriting sees the Kleisli extension and printing
-    shows [subst]. *)
-Notation subst a := (kleisli (apply a) ext_here).
+(** Substitution [t [a]] is the Kleisli extension of [apply] at the top;
+    it is notation, so rewriting sees the Kleisli extension. *)
+Notation "t [ a ]" := (kleisli (apply a) ext_here t) (at level 1, left associativity, format "t [ a ]").
+Notation subst a := (kleisli (apply a) ext_here) (only parsing).
 
 Lemma padj_pok {M} (ρ : padj P M) : Is_true_s (pok M (rpadj_n (padj_raw ρ))).
 Proof.

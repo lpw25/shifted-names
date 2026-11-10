@@ -15,7 +15,7 @@ git log.
 - Payloads and their lazy adjustments are invisible to users.
 - No fuel anywhere: not at runtime, not in goals.
 - Adjustments are canonical: equal meaning implies Leibniz equality, so
-  goals only ever contain `subst a t` on canonical adjustments.
+  goals only ever contain `t [a]` on canonical adjustments.
 - Extracted OCaml looks like hand-written code: binary numbers, native
   labels, no runtime validity checks, and costs proportional to the data
   touched.
@@ -46,8 +46,8 @@ Constructors then store no scope, and `kleisli` needs no convoy pattern.
 The functor `Subst` (`Core/Subst.v`) gives:
 
 - `apply a : morph N M`, by structural recursion on the adjustment;
-- `subst a t := kleisli (apply a) ext_here t`;
-- rewrite rules that make `subst a (tlam b) = tlam (subst (lift a) b)` hold
+- substitution `t [a] := kleisli (apply a) ext_here t` (notation);
+- rewrite rules that make `(tlam b) [a] = tlam b [lift a]` hold
   by `cbn`, for any binder constructor;
 - `subst_identity` and `subst_compose`.
 
@@ -87,7 +87,8 @@ innermost entry first, and the bound label is written `·`.
 - **Variables** print as their label with a superscript index, `x`, `x¹`
   … `x⁹`, `x ^ n`; bound variables as `·`, `·¹`, …
 
-Composition is `∘` and the identity `⟦⟧`. Concrete context forms
+Composition is `⨾`, in diagrammatic order (`a ⨾ b` is `a`, then `b`, so
+`t [a] [b] = t [a ⨾ b]`), and the identity is `⟦⟧`. Concrete context forms
 compute, so closed equations hold by `vm_compute` (`Tests/CoreTests.v`).
 
 ### The `names` tactic (`Core/Normalise.v`, `Core/Names.v`)
@@ -102,20 +103,20 @@ databases. One pass of `names`:
 1. rewrites with `names_pre` to a fixpoint: going under a binder lifts
    the adjustment (`kleisli (apply a) (ext_under e) = kleisli (apply (lift
    a)) (ext_shift e)`, and the same for `apply` on a variable), and nested
-   substitutions fuse (`subst a (subst b t) = subst (a ∘ b) t`);
+   substitutions fuse (`t [a] [b] = t [a ⨾ b]`);
 2. rewrites with `names_var`: substituting into a variable is the core
-   node `eval tvar psubst a v` (`subst a (tvar v)`, and `apply a ext_here
+   node `eval tvar psubst a v` (`(tvar v) [a]`, and `apply a ext_here
    v` as `cbn` leaves it);
-3. rewrites every adjustment built from context forms, `∘`, `⟦⟧` and
+3. rewrites every adjustment built from context forms, `⨾`, `⟦⟧` and
    `at_scope` (anything else is an atom) to its normal form
    (`docs/normal-forms.md`), shown as context forms, lifts grouped;
 4. evaluates `apply_var a v` and `eval` nodes whose variable `v` is
    concrete and whose result the normal form of `a` determines: a
    variable `w` gives `tvar w`; a term `u` with payload adjustment `ρ`
    gives `psubst ρ u`, with `ρ` shown as `pcompose b pid`;
-5. rewrites with `names_post`: `subst ⟦⟧ t = t`, `psubst (pcompose b ρ) u
-   = subst b (psubst ρ u)`, `psubst pid u = u`, and an `eval` node left
-   is shown as `subst a (tvar v)` again.
+5. rewrites with `names_post`: `t [⟦⟧] = t`, `psubst (pcompose b ρ) u
+   = (psubst ρ u) [b]`, `psubst pid u = u`, and an `eval` node left
+   is shown as `(tvar v) [a]` again.
 
 `names` repeats passes until nothing changes; a pass after the first only
 finds work in the terms that step 4 put in the goal.

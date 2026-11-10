@@ -16,32 +16,32 @@ Ltac adj_compute := apply adj_eq, radj_eq; vm_compute; reflexivity.
 Notation open_x := (⟦ · \ "x" ⟧ : ren 1 0).
 Notation close_x := (⟦ "x" \ · ⟧ : ren 0 1).
 
-Example open_close : open_x ∘ close_x = ⟦⟧.
+Example open_close : close_x ⨾ open_x = ⟦⟧.
 Proof. adj_compute. Qed.
 
-Example close_open : close_x ∘ open_x = ⟦⟧.
+Example close_open : open_x ⨾ close_x = ⟦⟧.
 Proof. adj_compute. Qed.
 
 Example swap_swap :
-  ⟦ "x" as b; "x" as a \ "x" as a; "x" as b ⟧ ∘ ⟦ "x" as b; "x" as a \ "x" as a; "x" as b ⟧ = ⟦⟧ :> ren 0 0.
+  ⟦ "x" as b; "x" as a \ "x" as a; "x" as b ⟧ ⨾ ⟦ "x" as b; "x" as a \ "x" as a; "x" as b ⟧ = ⟦⟧ :> ren 0 0.
 Proof. adj_compute. Qed.
 
 Example swap_bound_swap :
-  ⟦ · as b; · as a \ · as a; · as b ⟧ ∘ ⟦ · as b; · as a \ · as a; · as b ⟧ = ⟦⟧ :> ren 2 2.
+  ⟦ · as b; · as a \ · as a; · as b ⟧ ⨾ ⟦ · as b; · as a \ · as a; · as b ⟧ = ⟦⟧ :> ren 2 2.
 Proof. adj_compute. Qed.
 
 Example lift_identity : lift ⟦⟧ = ⟦⟧ :> ren 1 1.
 Proof. adj_compute. Qed.
 
 Example lift_compose :
-  lift (open_x ∘ ⟦ "y" \ "z" ⟧) = lift open_x ∘ lift ⟦ "y" \ "z" ⟧.
+  lift (⟦ "y" \ "z" ⟧ ⨾ open_x) = lift ⟦ "y" \ "z" ⟧ ⨾ lift open_x.
 Proof. adj_compute. Qed.
 
 (** Renaming [x] to [y] and then [y] to [z] is renaming [x] to [z]: the
     shift of the old [y]s by the first renaming is undone by the second
     ([rw_ren_rename_rename] on [master]). *)
 Example rename_rename :
-  ⟦ "y" \ "z" ⟧ ∘ ⟦ "x" \ "y" ⟧ = ⟦ "x" \ "z" ⟧ :> ren 0 0.
+  ⟦ "x" \ "y" ⟧ ⨾ ⟦ "y" \ "z" ⟧ = ⟦ "x" \ "z" ⟧ :> ren 0 0.
 Proof. adj_compute. Qed.
 
 Example rename_self : ⟦ "x" \ "x" ⟧ = ⟦⟧ :> ren 0 0.
