@@ -106,6 +106,15 @@ Proof. intros; names; reflexivity. Qed.
 
 End Tests.
 
+(** Nested context forms: a form inside a substituted term has its own
+    slots and tail; it cannot use those of the form around it. *)
+Definition T0 := adj nat 0 0.
+Definition nested_ok : adj T0 0 0 := ⟦ "y" := (⟦ "z" := 0⟨ "x" as d ⟩ \ "x" as d ⟧ : T0) \ "x" as c ⟧.
+Fail Definition nested_slot : adj T0 0 0 := ⟦ "y" := (⟦ "x" as c \ "x" as d ⟧ : T0) \ "x" as c ⟧.
+Fail Definition nested_payload : adj T0 0 0 := ⟦ "y" := (⟦ "z" := 0⟨ "x" as c ⟩ \ "x" as d ⟧ : T0) \ "x" as c ⟧.
+Fail Definition nested_tail (s : T0) : adj T0 0 0 := ⟦ "y" := (⟦ "x" | Γ \ "x" | Δ[s] ⟧ : T0) | Γ \ "x" | Γ[⟦⟧] ⟧.
+Fail Definition slot_in_term : adj (var 0 * nat) 0 0 := ⟦ "y" := (c, 0) \ "x" as c ⟧.
+
 (** A term substituted in is in the scope of the output tail, so it is
     shifted past the slots: in [y := u] below, [u]'s [x₀] is the output's
     [x₁], not the slot [c]. *)
