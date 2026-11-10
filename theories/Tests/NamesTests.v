@@ -154,3 +154,9 @@ Example swap_commutes_lift {N M} x y (σ : adj T N M) :
 Proof. intros; names; reflexivity. Qed.
 
 End Commute.
+
+(** Lifts are shown grouped: [names] shows both sides below as
+    [⟦ · \ x ⟧ ∘ ⟦ · | a ∘ b ⟧]. *)
+Example grouped {N M K} x (a : adj nat M K) (b : adj nat N M) :
+  ⟦ x | a ⟧ ∘ ⟦ · \ x ⟧ ∘ ⟦ · | b ⟧ = ⟦ · \ x ⟧ ∘ ⟦ · | a ∘ b ⟧.
+Proof. names; reflexivity. Qed.

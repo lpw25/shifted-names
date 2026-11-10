@@ -223,7 +223,8 @@ Inductive sent : Type :=
 Inductive dpiece : Type :=
 | DFull (outs : list dout) (ins : list din) (tail : option nat)
 | DShort (es : list sent) (tail : option nat)
-| DLift (hs : list lexp) (a : nat).
+| DLift (hs : list lexp) (a : nat)
+| DGroup (hs : list lexp) (inner : list dpiece).
 
 (** A full form whose outputs are all positional, each with the label of
     its input, and whose terms name no slots, is a short form. *)
@@ -368,18 +369,96 @@ Definition merges (ds : list din) (L : list (lexp * nat)) : bool :=
   forallb (fun '(h, n) => Nat.eqb (din_count h ds) n) L
   && forallb (fun d => match d with DISlot x _ _ | DIPos x | DITerm x _ _ => Nat.eqb (din_count x ds) (lget x L) end) ds.
 
-Fixpoint display (w : word) : option (list dpiece) :=
-  match w with
-  | WEnd SNil => Some []
-  | WEnd Sg => match display_seg Sg None with Some d => Some [d] | None => None end
-  | WAtom Sg L a w =>
-      let lift := DLift (rev (flat_map (fun '(h, n) => repeat h n) L)) a in
-      match display w with
+(** Lifts are shown grouped: a run of atoms all lifted by [h], with
+    segments between them that are lifted by [h], is one lifted composite
+    [⟦ h | σ₁ ∘ S ∘ σ₂ ⟧].  Runs are taken greedily from the left, the
+    longest first; inside a group, runs are grouped again. *)
+Inductive gitem : Type :=
+| GSeg (s : seg)
+| GAtom (L : list (lexp * nat)) (a : nat)
+| GGrp (h : lexp) (inner : list gitem).
+
+Fixpoint witems (w : word) : list gitem :=
+  match w with WEnd s => [GSeg s] | WAtom s L a w => GSeg s :: GAtom L a :: witems w end.
+
+Section Group.
+
+Variable F : list (lexp * lexp).
+Variable ntm : nat.
+
+(** [s = ⇑ₕs'], with [s' = unshiftₕ ∘ s ∘ shiftₕ], checked by lifting back. *)
+Definition sunlift (h : lexp) (s : seg) : option seg :=
+  match scomp F ntm s (shseg h 1) with
+  | Some s1 =>
+      match scomp F ntm (unseg h 1) s1 with
+      | Some s' => match slift F ntm h s' with Some s2 => if seg_eqb s2 s then Some s' else None | None => None end
       | None => None
-      | Some ds =>
-          match Sg with
-          | SNil => Some (lift :: ds)
-          | _ =>
+      end
+  | None => None
+  end.
+
+Fixpoint grun (fuel : nat) (h : lexp) (rest : list gitem) : list gitem * list gitem :=
+  match fuel with
+  | 0 => ([], rest)
+  | S f =>
+      match rest with
+      | GSeg Sg :: GAtom L a :: rest' =>
+          match sunlift h Sg, lsub F h 1 L with
+          | Some S', Some L' => let '(more, rem) := grun f h rest' in (GSeg S' :: GAtom L' a :: more, rem)
+          | _, _ => ([], rest)
+          end
+      | _ => ([], rest)
+      end
+  end.
+
+Fixpoint best (fuel : nat) (hs : list lexp) (rest : list gitem) (cur : option (lexp * list gitem * list gitem))
+  : option (lexp * list gitem * list gitem) :=
+  match hs with
+  | [] => cur
+  | h :: hs =>
+      let '(inner, rem) := grun fuel h rest in
+      match inner, cur with
+      | [], _ => best fuel hs rest cur
+      | _, Some (_, inner', _) =>
+          if List.length inner' <? List.length inner then best fuel hs rest (Some (h, inner, rem))
+          else best fuel hs rest cur
+      | _, None => best fuel hs rest (Some (h, inner, rem))
+      end
+  end.
+
+Fixpoint group (fuel : nat) (items : list gitem) : list gitem :=
+  match fuel with
+  | 0 => items
+  | S f =>
+      match items with
+      | [] => []
+      | GAtom L a :: rest =>
+          match best f (map fst L) rest None with
+          | Some (h, inner, rem) =>
+              match lsub F h 1 L with
+              | Some L0 => GGrp h (group f (GAtom L0 a :: inner)) :: group f rem
+              | None => GAtom L a :: group f rest
+              end
+          | None => GAtom L a :: group f rest
+          end
+      | x :: rest => x :: group f rest
+      end
+  end.
+
+End Group.
+
+Fixpoint display_items (fuel : nat) (items : list gitem) : option (list dpiece) :=
+  match fuel with
+  | 0 => None
+  | S f =>
+      match items with
+      | [] => Some []
+      | GSeg SNil :: rest => display_items f rest
+      | GSeg Sg :: GAtom L a :: rest =>
+          let lift := DLift (rev (flat_map (fun '(h, n) => repeat h n) L)) a in
+          match display_items f rest with
+          | None => None
+          | Some ds =>
               match display_seg Sg (Some a) with
               | Some (DFull os is _) =>
                   if merges is L then Some (DFull os is (Some a) :: ds)
@@ -387,11 +466,31 @@ Fixpoint display (w : word) : option (list dpiece) :=
               | _ => None
               end
           end
+      | GSeg Sg :: rest =>
+          match display_seg Sg None, display_items f rest with
+          | Some d, Some ds => Some (d :: ds)
+          | _, _ => None
+          end
+      | GAtom L a :: rest =>
+          match display_items f rest with
+          | Some ds => Some (DLift (rev (flat_map (fun '(h, n) => repeat h n) L)) a :: ds)
+          | None => None
+          end
+      | GGrp h inner :: rest =>
+          match display_items f inner, display_items f rest with
+          | Some [DGroup hs ps], Some ds => Some (DGroup (h :: hs) ps :: ds)
+          | Some [DLift hs n], Some ds => Some (DLift (h :: hs) n :: ds)
+          | Some ps, Some ds => Some (DGroup [h] (map short_or_full ps) :: ds)
+          | _, _ => None
+          end
       end
   end.
 
-Definition display_nf (r : option word) : option (list dpiece) :=
-  match r with Some w => option_map (map short_or_full) (display w) | None => None end.
+Definition display_nf (F : list (lexp * lexp)) (ntm : nat) (r : option word) : option (list dpiece) :=
+  match r with
+  | Some w => option_map (map short_or_full) (display_items 1000 (group F ntm 1000 (witems w)))
+  | None => None
+  end.
 
 (** ** Rendering *)
 
@@ -487,9 +586,11 @@ Ltac render_piece le te ae p :=
   | DShort ?es None => refine (cform_id (OShort _)); render_short le te es
   | DShort ?es (Some ?n) =>
       let s := atom ae n in refine (cform_id (OShortT (Nt:=0) (STail _ s))); render_short le te es
-  end.
+  | DGroup ?hs ?ps =>
+      refine (cform_id (OShortT (Nt:=0) (STail _ _))); [render_lifts le hs|render_pieces le te ae ps]
+  end
 
-Ltac render_pieces le te ae ps :=
+with render_pieces le te ae ps :=
   lazymatch ps with
   | nil => exact identity
   | ?p :: nil => render_piece le te ae p
@@ -561,7 +662,7 @@ Ltac names_rewrite a :=
       | (?e, ?env1) =>
           lazymatch collect_facts env1 (@nil (lexp * lexp)) with
           | ((?le, ?te, ?ae, ?pe), ?F) =>
-              let d := eval vm_compute in (display_nf (anorm F (List.length te) e)) in
+              let d := eval vm_compute in (display_nf F (List.length te) (anorm F (List.length te) e)) in
               lazymatch d with
               | Some ?ps =>
                   let bb := fresh "b" in
