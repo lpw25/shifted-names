@@ -204,7 +204,7 @@ Proof.
   intros Hv E; pose proof (f_equal lower E) as E'; rewrite lower_rpapply in E' by exact Hv; cbn [lower] in E'.
   apply (nest_napply _ v u); [|exact E'].
   intros k e Ek; pose proof (rpadj_local ρ) as Hl; destruct (rpadj_n ρ) as [r es]; cbn [nentries] in Ek.
-  destruct Hl as [_ [_ [_ [Hent _]]]]; destruct (Hent k e Ek) as [Hok _]; destruct e; apply Hok.
+  destruct Hl as [_ [_ [Hent _]]]; destruct (Hent k e Ek) as [Hok _]; destruct e; apply Hok.
 Qed.
 
 (** ** The category laws *)
@@ -298,20 +298,20 @@ Qed.
     nothing. *)
 Lemma rweaken_unused h (r : @result T) :
   (forall w, r = inl w -> label_key (v_label w) <> label_key h) ->
-  (forall u rho, r = inr (u, rho) -> cwf (nroot rho) /\ cget (nroot rho) (label_key h) = None) ->
+  (forall u rho, r = inr (u, rho) -> cget (nroot rho) (label_key h) = None) ->
   rweaken h r = r.
 Proof.
   destruct r as [w|[u [r0 es0]]]; intros Hw Hp; cbn [rweaken].
   - rewrite (proj2 (label_eqb_neq _ _)); [reflexivity|intros E; apply (Hw w eq_refl); rewrite E; reflexivity].
-  - destruct (Hp u _ eq_refl) as [Cr Hr]; cbn [nroot nentries] in *; f_equal; f_equal; f_equal.
-    apply counts_ext; [apply cwf_cmap2|exact Cr|]; intro k; rewrite cget_cadd, cget_cone.
+  - pose proof (Hp u _ eq_refl) as Hr; cbn [nroot nentries] in *; f_equal; f_equal; f_equal.
+    apply counts_ext; intro k; rewrite cget_cadd, cget_cone.
     destruct (Pos.eqb_spec k (label_key h)) as [->|]; [rewrite Hr; reflexivity|destruct (cget r0 k); reflexivity].
 Qed.
 
-Lemma weaken_unused h (x : @nadj T) : cwf (nroot x) -> cget (nroot x) (label_key h) = None -> weaken h x = x.
+Lemma weaken_unused h (x : @nadj T) : cget (nroot x) (label_key h) = None -> weaken h x = x.
 Proof.
-  destruct x as [r es]; cbn [nroot weaken]; intros Cr Hr; f_equal.
-  apply counts_ext; [apply cwf_cmap2|exact Cr|]; intro k; rewrite cget_cadd, cget_cone.
+  destruct x as [r es]; cbn [nroot weaken]; intros Hr; f_equal.
+  apply counts_ext; intro k; rewrite cget_cadd, cget_cone.
   destruct (Pos.eqb_spec k (label_key h)) as [->|]; [rewrite Hr; reflexivity|destruct (cget r k); reflexivity].
 Qed.
 
@@ -319,10 +319,10 @@ Lemma napply_unused Q (x : @nadj T) k v :
   nlocal Q x -> nfin x -> cget (nroot x) k = None -> Q (v_label v) = true ->
   match napply x v with
   | inl w => label_key (v_label w) <> k
-  | inr (u, rho) => cwf (nroot rho) /\ cget (nroot rho) k = None
+  | inr (u, rho) => cget (nroot rho) k = None
   end.
 Proof.
-  destruct x as [r es]; intros Hl Hf Hk HQ; cbn [nroot] in Hk; pose proof Hl as [_ [_ [_ [Hent [HQr _]]]]].
+  destruct x as [r es]; intros Hl Hf Hk HQ; cbn [nroot] in Hk; pose proof Hl as [_ [_ [Hent [HQr _]]]].
   assert (Hv : label_key (v_label v) <> k) by (intros <-; exact (HQr _ HQ Hk)).
   cbn [napply]; destruct (aget (label_key (v_label v)) es) as [e|] eqn:E; [|exact Hv].
   destruct (Hent _ _ E) as [Hok _]; destruct e as [h ts len p]; destruct Hok as [Hkh [G _]].
@@ -335,7 +335,7 @@ Proof.
     destruct (lmin_le _ t k m Hin Em) as [n [En _]]; rewrite En in Hcv; destruct (cget (cone _ p) k); discriminate. }
   destruct t as [y j|u [r0 es0]]; cbn [tunshift tresult v_label].
   - intros Ey; cbn in Ht; rewrite cget_cone, Ey, Pos.eqb_refl in Ht; discriminate.
-  - split; [apply cwf_cmap2|]; cbn [nroot]; rewrite cget_cadd, Hk; cbn in Ht; rewrite Ht; reflexivity.
+  - cbn [nroot]; rewrite cget_cadd, Hk; cbn in Ht; rewrite Ht; reflexivity.
 Qed.
 
 Theorem rpapply_pshift h ρ v :
@@ -350,8 +350,7 @@ Proof.
   pose proof (rpadj_local ρ) as Hl; pose proof (nwf_fin true _ (rpadj_wf ρ)) as Hf.
   destruct (cget (nroot (rpadj_n ρ)) (label_key h)) eqn:Eh.
   - rewrite napply_weaken_used by (rewrite Eh; discriminate); apply rpack_rweaken, Hp.
-  - assert (Cr : cwf (nroot (rpadj_n ρ))) by (destruct (rpadj_n ρ); apply Hl).
-    rewrite (weaken_unused h _ Cr Eh).
+  - rewrite (weaken_unused h _ Eh).
     pose proof (napply_unused Qnamed _ _ v Hl Hf Eh HQ) as Hu.
     rewrite <- (rweaken_unused h (napply (rpadj_n ρ) v)) at 1.
     + apply rpack_rweaken, Hp.
@@ -383,10 +382,7 @@ Theorem rapply_push_inner h t a v :
   = if rvar_eqb v (mk_rvar h 0) then rtarget_result t else rapply a (unshift_rvar (mk_rvar h 0) v).
 Proof.
   unfold rapply at 1; cbn [radj_n rpush_inner].
-  assert (Hok : tok (rtarget_n t))
-    by (destruct t as [w|u ρ]; [exact I|cbn; pose proof (rpadj_local ρ) as Hl;
-        destruct (rpadj_n ρ) as [r es]; destruct Hl as [_ [Hc _]]; exact Hc]).
-  rewrite napply_extend by (apply radj_local || apply radj_fin || exact Hok).
+  rewrite napply_extend by (apply radj_local || apply radj_fin).
   destruct (rvar_eqb v _); [|reflexivity].
   destruct t as [w|u ρ]; cbn; [destruct w; reflexivity|rewrite rto_padj_padj_n; reflexivity].
 Qed.

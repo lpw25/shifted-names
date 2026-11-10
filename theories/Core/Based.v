@@ -17,14 +17,11 @@ Proof.
   intros y Hy; apply H; right; exact Hy.
 Qed.
 
-Lemma map_inj_ok {A B} (g : A -> B) (P : A -> Prop) l1 l2 :
-  (forall x y, P x -> P y -> g x = g y -> x = y) ->
-  (forall x, In x l1 -> P x) -> (forall x, In x l2 -> P x) -> map g l1 = map g l2 -> l1 = l2.
+Lemma map_inj {A B} (g : A -> B) :
+  (forall x y, g x = g y -> x = y) -> forall l1 l2, map g l1 = map g l2 -> l1 = l2.
 Proof.
-  intros Hinj; revert l2; induction l1 as [|x l1 IH]; intros [|y l2] H1 H2 E; try discriminate; [reflexivity|].
-  injection E as Exy E; f_equal.
-  - apply Hinj; [apply H1|apply H2|exact Exy]; left; reflexivity.
-  - apply IH; [intros; apply H1; right; auto|intros; apply H2; right; auto|exact E].
+  intros Hinj l1; induction l1 as [|x l1 IH]; intros [|y l2] E; try discriminate; [reflexivity|].
+  injection E as Exy E; f_equal; [apply Hinj, Exy|apply IH, E].
 Qed.
 
 Lemma app_inj_length {A} (a b c d : list A) :
@@ -41,16 +38,12 @@ Class Based (X : Type) : Type := {
   uses : X -> counts;
   (** [shift d x]: [x] relative to a base [d] higher; [unshift]: lower. *)
   shift : counts -> X -> X;
-  unshift : counts -> X -> X;
-  (** Well-formed elements. *)
-  eok : X -> Prop
+  unshift : counts -> X -> X
 }.
 
 Class BasedLaws (X : Type) `{Based X} : Prop := {
-  ok_shift : forall d x, eok x -> eok (shift d x);
-  ok_unshift : forall d x, eok x -> eok (unshift d x);
-  shift_unshift : forall d x, eok x -> shift d (unshift d x) = x;
-  unshift_shift : forall d x, eok x -> cle d (uses x) -> unshift d (shift d x) = x;
+  shift_unshift : forall d x, shift d (unshift d x) = x;
+  unshift_shift : forall d x, cle d (uses x) -> unshift d (shift d x) = x;
   unshift_unshift : forall d1 d2 x, unshift d1 (unshift d2 x) = unshift (cplus d1 d2) x;
   unshift_ext : forall d d' x,
     (forall k, cget (uses x) k <> None -> dval d k = dval d' k) -> unshift d x = unshift d' x;
@@ -169,7 +162,6 @@ Section Moving.
 
 Variables (a : counts) (L : list X).
 Hypothesis Ha : forall k, cget a k = lmin (map (unshift a) L) k.
-Hypothesis Hok : forall e, In e L -> eok e.
 
 Lemma uses_below e k : In e L -> cget (uses e) k <> None -> cget a k <> None.
 Proof.
@@ -187,7 +179,7 @@ Proof.
     rewrite dval_cplus; unfold dval; rewrite cget_csub.
     destruct (cget a k) as [p|] eqn:E; [|exfalso; apply (uses_below e k Hin Hk), E].
     destruct (cget m k) as [n|] eqn:F; cbn; [specialize (Hm k n p F E)|]; lia. }
-  symmetry; apply shift_unshift, ok_unshift, Hok, Hin.
+  symmetry; apply shift_unshift.
 Qed.
 
 Lemma rebase_list m :
@@ -214,8 +206,8 @@ Lemma omap_unshift2 B a (o : option X) :
   option_map (unshift B) (option_map (unshift a) o) = option_map (unshift (cplus B a)) o.
 Proof. destruct o; cbn; [rewrite unshift_unshift|]; reflexivity. Qed.
 
-Lemma unshift_inj d x y : eok x -> eok y -> unshift d x = unshift d y -> x = y.
-Proof. intros Hx Hy E; rewrite <- (shift_unshift d x Hx), E; apply shift_unshift, Hy. Qed.
+Lemma unshift_inj d x y : unshift d x = unshift d y -> x = y.
+Proof. intros E; rewrite <- (shift_unshift d x), E; apply shift_unshift. Qed.
 
 (** A minimum is attained. *)
 Lemma lmin_attained l k n : lmin l k = Some n -> exists e, In e l /\ cget (uses e) k = Some n.
@@ -271,13 +263,10 @@ Proof.
   cbn [lminc fold_right]; rewrite cget_cmin; fold (lminc l); rewrite IH; reflexivity.
 Qed.
 
-Lemma cwf_lminc l : cwf (lminc l).
-Proof. destruct l; [apply cwf_cnone|apply cwf_cmap2]. Qed.
-
 (** An annotation is the minimum of its elements, decided. *)
-Lemma ceqb_lminc a l : cwf a -> ceqb a (lminc l) = true <-> (forall k, cget a k = lmin l k).
+Lemma ceqb_lminc a l : ceqb a (lminc l) = true <-> (forall k, cget a k = lmin l k).
 Proof.
-  intros Ha; rewrite (ceqb_ext a (lminc l) Ha (cwf_lminc l)); split; intros H k; rewrite H, ?cget_lminc; reflexivity.
+  rewrite (ceqb_ext a (lminc l)); split; intros H k; rewrite H, ?cget_lminc; reflexivity.
 Qed.
 
 (** Below a node, its counts are defined wherever something is used, so

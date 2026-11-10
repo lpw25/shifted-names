@@ -34,41 +34,31 @@ Proof. intros E ->; destruct o'; [discriminate|reflexivity]. Qed.
 Section AgetWith.
 
 Variables (k0 : positive) (t0 : atrie X) (B0 : lbase)
-  (found : forall B x, Squash (option_map (unshift (lcounts B0)) (aget k0 t0) = Some (unshift (lcounts B) x)) ->
-                       Squash (eok x) -> R)
+  (found : forall B x, Squash (option_map (unshift (lcounts B0)) (aget k0 t0) = Some (unshift (lcounts B) x)) -> R)
   (none : Squash (aget k0 t0 = None) -> R).
 
 Local Notation goal k t B := (option_map (unshift (lcounts B)) (aget k t) = option_map (unshift (lcounts B0)) (aget k0 t0)).
 
-Definition ainv_l {a l o r} (H : Squash (ainv (ANode a l o r))) : Squash (ainv l) :=
-  sq_map (fun H => proj1 (proj2 (proj2 (proj2 (proj2 H))))) H.
-Definition ainv_r {a l o r} (H : Squash (ainv (ANode a l o r))) : Squash (ainv r) :=
-  sq_map (fun H => proj2 (proj2 (proj2 (proj2 (proj2 H))))) H.
-Definition ainv_o {a l x r} (H : Squash (ainv (ANode a l (Some x) r))) : Squash (eok x) :=
-  sq_map (fun H => proj1 (proj2 (proj2 (proj2 H)))) H.
-
 Fixpoint aget_with' (k : positive) (t : atrie X) (B : lbase) {struct t} :
-  Squash (ainv t) -> Squash (goal k t B) -> R :=
-  match t as t1 return Squash (ainv t1) -> Squash (goal k t1 B) -> R with
-  | AEmpty => fun _ H => none (sq_map (fun E => omap_none _ _ _ _ E eq_refl) H)
+  Squash (goal k t B) -> R :=
+  match t as t1 return Squash (goal k t1 B) -> R with
+  | AEmpty => fun H => none (sq_map (fun E => omap_none _ _ _ _ E eq_refl) H)
   | ANode a l o r =>
-      match k as k1 return Squash (ainv (ANode a l o r)) -> Squash (goal k1 (ANode a l o r) B) -> R with
+      match k as k1 return Squash (goal k1 (ANode a l o r) B) -> R with
       | xH =>
-          match o as o1 return Squash (ainv (ANode a l o1 r)) -> Squash (goal xH (ANode a l o1 r) B) -> R with
-          | Some x => fun I H => found (LPlus B a) x
-                                  (sq_map (fun E => eq_trans (eq_sym E) (f_equal Some (unshift_unshift (lcounts B) a x))) H)
-                                  (ainv_o I)
-          | None => fun _ H => none (sq_map (fun E => omap_none _ _ _ _ E eq_refl) H)
+          match o as o1 return Squash (goal xH (ANode a l o1 r) B) -> R with
+          | Some x => fun H => found (LPlus B a) x
+                                (sq_map (fun E => eq_trans (eq_sym E) (f_equal Some (unshift_unshift (lcounts B) a x))) H)
+          | None => fun H => none (sq_map (fun E => omap_none _ _ _ _ E eq_refl) H)
           end
-      | xO k' => fun I H => aget_with' k' l (LPlus B a) (ainv_l I)
-                              (sq_map (fun E => eq_trans (eq_sym (omap_unshift2 (lcounts B) a _)) E) H)
-      | xI k' => fun I H => aget_with' k' r (LPlus B a) (ainv_r I)
-                              (sq_map (fun E => eq_trans (eq_sym (omap_unshift2 (lcounts B) a _)) E) H)
+      | xO k' => fun H => aget_with' k' l (LPlus B a)
+                            (sq_map (fun E => eq_trans (eq_sym (omap_unshift2 (lcounts B) a _)) E) H)
+      | xI k' => fun H => aget_with' k' r (LPlus B a)
+                            (sq_map (fun E => eq_trans (eq_sym (omap_unshift2 (lcounts B) a _)) E) H)
       end
   end.
 
-(** The invariant only travels as a strict proposition. *)
-Definition aget_with (I : Squash (ainv t0)) : R := aget_with' k0 t0 B0 I (squash eq_refl).
+Definition aget_with : R := aget_with' k0 t0 B0 (squash eq_refl).
 
 End AgetWith.
 
@@ -138,36 +128,36 @@ End KnthWith.
     element made absolute. *)
 
 Lemma aget_with'_prop k0 t0 B0 found none y (P : R -> Prop)
-  (Hf : forall B x p q, unshift (lcounts B) x = y -> eok x -> P (found B x p q)) (Y : option_map (unshift (lcounts B0)) (aget k0 t0) = Some y) :
-  forall t k B I H, ainv t -> option_map (unshift (lcounts B)) (aget k t) = option_map (unshift (lcounts B0)) (aget k0 t0) ->
-  P (aget_with' k0 t0 B0 found none k t B I H).
+  (Hf : forall B x p, unshift (lcounts B) x = y -> P (found B x p)) (Y : option_map (unshift (lcounts B0)) (aget k0 t0) = Some y) :
+  forall t k B H, option_map (unshift (lcounts B)) (aget k t) = option_map (unshift (lcounts B0)) (aget k0 t0) ->
+  P (aget_with' k0 t0 B0 found none k t B H).
 Proof.
-  induction t as [|a l IHl o r IHr]; intros k B I H Ht E; cbn [aget_with'].
+  induction t as [|a l IHl o r IHr]; intros k B H E; cbn [aget_with'].
   - rewrite Y in E; discriminate.
-  - destruct Ht as [_ [_ [_ [Ho [Hl Hr]]]]]; destruct k as [k|k|].
-    + apply IHr; [exact Hr|]; rewrite <- E; cbn [aget]; rewrite omap_unshift2; reflexivity.
-    + apply IHl; [exact Hl|]; rewrite <- E; cbn [aget]; rewrite omap_unshift2; reflexivity.
+  - destruct k as [k|k|].
+    + apply IHr; rewrite <- E; cbn [aget]; rewrite omap_unshift2; reflexivity.
+    + apply IHl; rewrite <- E; cbn [aget]; rewrite omap_unshift2; reflexivity.
     + destruct o as [x|]; cbn in E; rewrite Y in E; [|discriminate].
-      apply Hf; [injection E as <-; rewrite unshift_unshift; reflexivity|exact Ho].
+      apply Hf; injection E as <-; rewrite unshift_unshift; reflexivity.
 Qed.
 
-Lemma aget_with_prop k0 t0 B0 found none I y (P : R -> Prop)
-  (Hf : forall B x p q, unshift (lcounts B) x = y -> eok x -> P (found B x p q)) :
-  ainv t0 -> option_map (unshift (lcounts B0)) (aget k0 t0) = Some y -> P (aget_with k0 t0 B0 found none I).
-Proof. intros Ht Y; apply (aget_with'_prop k0 t0 B0 found none y P Hf Y); [exact Ht|reflexivity]. Qed.
+Lemma aget_with_prop k0 t0 B0 found none y (P : R -> Prop)
+  (Hf : forall B x p, unshift (lcounts B) x = y -> P (found B x p)) :
+  option_map (unshift (lcounts B0)) (aget k0 t0) = Some y -> P (aget_with k0 t0 B0 found none).
+Proof. intros Y; apply (aget_with'_prop k0 t0 B0 found none y P Hf Y); reflexivity. Qed.
 
-Lemma aget_with_some k0 t0 B0 found none I y (Rv : R)
-  (Hf : forall B x p q, unshift (lcounts B) x = y -> eok x -> found B x p q = Rv) :
-  ainv t0 -> option_map (unshift (lcounts B0)) (aget k0 t0) = Some y -> aget_with k0 t0 B0 found none I = Rv.
-Proof. apply (aget_with_prop k0 t0 B0 found none I y (fun z => z = Rv) Hf). Qed.
+Lemma aget_with_some k0 t0 B0 found none y (Rv : R)
+  (Hf : forall B x p, unshift (lcounts B) x = y -> found B x p = Rv) :
+  option_map (unshift (lcounts B0)) (aget k0 t0) = Some y -> aget_with k0 t0 B0 found none = Rv.
+Proof. apply (aget_with_prop k0 t0 B0 found none y (fun z => z = Rv) Hf). Qed.
 
-Lemma aget_with_none k0 t0 B0 found none I (H : aget k0 t0 = None) :
-  aget_with k0 t0 B0 found none I = none (squash H).
+Lemma aget_with_none k0 t0 B0 found none (H : aget k0 t0 = None) :
+  aget_with k0 t0 B0 found none = none (squash H).
 Proof.
   unfold aget_with.
-  assert (G : forall t k B I' H', option_map (unshift (lcounts B)) (aget k t) = option_map (unshift (lcounts B0)) (aget k0 t0) ->
-                aget_with' k0 t0 B0 found none k t B I' H' = none (squash H)).
-  { induction t as [|a l IHl o r IHr]; intros k B I' H' E; cbn [aget_with']; [reflexivity|].
+  assert (G : forall t k B H', option_map (unshift (lcounts B)) (aget k t) = option_map (unshift (lcounts B0)) (aget k0 t0) ->
+                aget_with' k0 t0 B0 found none k t B H' = none (squash H)).
+  { induction t as [|a l IHl o r IHr]; intros k B H' E; cbn [aget_with']; [reflexivity|].
     destruct k as [k|k|].
     + apply IHr; rewrite <- E; cbn [aget]; rewrite omap_unshift2; reflexivity.
     + apply IHl; rewrite <- E; cbn [aget]; rewrite omap_unshift2; reflexivity.

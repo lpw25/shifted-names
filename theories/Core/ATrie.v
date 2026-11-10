@@ -103,8 +103,6 @@ Fixpoint aupdate (k : positive) (f : option X -> option X) (t : atrie) {struct k
 
 (** ** Invariant *)
 
-Definition ook (o : option X) : Prop := match o with Some x => eok x | None => True end.
-
 Definition anonempty (l : atrie) (o : option X) (r : atrie) : Prop :=
   match l, o, r with AEmpty, None, AEmpty => False | _, _, _ => True end.
 
@@ -112,30 +110,13 @@ Fixpoint ainv (t : atrie) : Prop :=
   match t with
   | AEmpty => True
   | ANode a l o r =>
-      (forall k, cget a k = lmin (aelems t) k) /\ cwf a /\ anonempty l o r
-      /\ ook o /\ ainv l /\ ainv r
+      (forall k, cget a k = lmin (aelems t) k) /\ anonempty l o r /\ ainv l /\ ainv r
   end.
 
 Lemma ainv_ann t : ainv t -> forall k, cget (aann t) k = lmin (aelems t) k.
 Proof. destruct t; cbn [ainv aann]; [reflexivity|tauto]. Qed.
 
-Lemma ainv_ok t : ainv t -> forall e, In e (aelems t) -> eok e.
-Proof.
-  induction t as [|a l IHl o r IHr]; cbn [ainv aelems]; [intros _ _ []|].
-  intros [_ [_ [_ [Ho [Hl Hr]]]]] e Hin; apply in_map_iff in Hin as [e' [<- Hin]].
-  apply ok_unshift; apply in_app_or in Hin as [Hin|Hin]; [apply IHl; assumption|].
-  apply in_app_or in Hin as [Hin|Hin]; [|apply IHr; assumption].
-  destruct o; [destruct Hin as [<-|[]]; exact Ho|destruct Hin].
-Qed.
 
-Lemma ainv_aparts_ok a l o r :
-  ainv (ANode a l o r) -> forall e, In e (aelems l ++ oelems o ++ aelems r) -> eok e.
-Proof.
-  intros [_ [_ [_ [Ho [Hl Hr]]]]] e Hin.
-  apply in_app_or in Hin as [Hin|Hin]; [apply (ainv_ok l Hl _ Hin)|].
-  apply in_app_or in Hin as [Hin|Hin]; [|apply (ainv_ok r Hr _ Hin)].
-  destruct o; [destruct Hin as [<-|[]]; exact Ho|destruct Hin].
-Qed.
 
 (** ** Lookups and elements *)
 
@@ -185,7 +166,7 @@ Lemma aget_arebase m t k :
 Proof.
   destruct t as [|a l o r]; intros Ht Hm; [reflexivity|]; cbn [arebase aget].
   fold (asub k l o r); destruct (asub k l o r) as [e|] eqn:E; [|reflexivity]; cbn [option_map].
-  f_equal; apply (rebase_one a _ (ainv_node_ann _ _ _ _ Ht) (ainv_aparts_ok _ _ _ _ Ht)); [exact Hm|].
+  f_equal; apply (rebase_one a _ (ainv_node_ann _ _ _ _ Ht)); [exact Hm|].
   apply (asub_in k l o r e E).
 Qed.
 
@@ -193,14 +174,14 @@ Lemma aelems_arebase m t :
   ainv t -> cle m (aann t) -> aelems (arebase m t) = map (shift m) (aelems t).
 Proof.
   destruct t as [|a l o r]; intros Ht Hm; [reflexivity|].
-  apply (rebase_list a); [apply (ainv_node_ann _ _ _ _ Ht)|apply (ainv_aparts_ok _ _ _ _ Ht)|exact Hm].
+  apply (rebase_list a); [apply (ainv_node_ann _ _ _ _ Ht)|exact Hm].
 Qed.
 
 Lemma ainv_arebase m t : ainv t -> cle m (aann t) -> ainv (arebase m t).
 Proof.
   intros Ht Hm; pose proof (aelems_arebase m t Ht Hm) as He.
   destruct t as [|a l o r]; [exact I|]; cbn [arebase ainv] in *.
-  destruct Ht as [Ha [_ Hs]]; split; [|split; [apply cwf_cmap2|exact Hs]]; intro k.
+  destruct Ht as [Ha Hs]; split; [|exact Hs]; intro k.
   rewrite He, lmin_shift, cget_csub, Ha; reflexivity.
 Qed.
 
@@ -221,7 +202,7 @@ Lemma ainv_alift d t : ainv t -> ainv (alift d t).
 Proof.
   intros Ht; pose proof (aelems_alift d t Ht) as He.
   destruct t as [|a l o r]; [exact I|]; cbn [alift ainv] in *.
-  destruct Ht as [Ha [_ Hs]]; split; [|split; [apply cwf_cmap2|exact Hs]]; intro k.
+  destruct Ht as [Ha Hs]; split; [|exact Hs]; intro k.
   rewrite He, lmin_unshift, cget_cadd, Ha; reflexivity.
 Qed.
 
@@ -248,58 +229,57 @@ Proof. destruct o as [x|]; cbn; [intros H; rewrite (H x eq_refl); reflexivity|re
 
 Lemma aback_l l o r e : ainv l -> In e (aelems l) -> unshift (anm l o r) (shift (anm l o r) e) = e.
 Proof.
-  intros Hl Hin; apply unshift_shift; [apply (ainv_ok l Hl _ Hin)|].
+  intros Hl Hin; apply unshift_shift.
   apply (cle_mem _ (aann l) (aelems l)); [apply cle_min3_1|apply ainv_ann, Hl|exact Hin].
 Qed.
 
 Lemma aback_r l o r e : ainv r -> In e (aelems r) -> unshift (anm l o r) (shift (anm l o r) e) = e.
 Proof.
-  intros Hr Hin; apply unshift_shift; [apply (ainv_ok r Hr _ Hin)|].
+  intros Hr Hin; apply unshift_shift.
   apply (cle_mem _ (aann r) (aelems r)); [apply cle_min3_3|apply ainv_ann, Hr|exact Hin].
 Qed.
 
-Lemma aback_o l o r x : o = Some x -> eok x -> unshift (anm l o r) (shift (anm l o r) x) = x.
-Proof. intros -> Hx; apply unshift_shift; [exact Hx|apply cle_min3_2]. Qed.
+Lemma aback_o l o r x : o = Some x -> unshift (anm l o r) (shift (anm l o r) x) = x.
+Proof. intros ->; apply unshift_shift, cle_min3_2. Qed.
 
 Lemma aelems_amknode l o r :
-  ainv l -> ook o -> ainv r -> aelems (amknode l o r) = aelems l ++ oelems o ++ aelems r.
+  ainv l -> ainv r -> aelems (amknode l o r) = aelems l ++ oelems o ++ aelems r.
 Proof.
-  intros Hl Ho Hr; unfold amknode; fold (anm l o r); cbn [aelems].
+  intros Hl Hr; unfold amknode; fold (anm l o r); cbn [aelems].
   rewrite !aelems_arebase by (assumption || apply cle_min3_1 || apply cle_min3_3).
   rewrite !map_app, !map_map; f_equal; [apply map_id_in; intros; apply aback_l; assumption|f_equal].
-  - destruct o as [x|]; [cbn; f_equal; apply aback_o; [reflexivity|exact Ho]|reflexivity].
+  - destruct o as [x|]; [cbn; f_equal; apply aback_o; reflexivity|reflexivity].
   - apply map_id_in; intros; apply aback_r; assumption.
 Qed.
 
-Lemma aget_amknode l o r k : ainv l -> ook o -> ainv r -> aget k (amknode l o r) = asub k l o r.
+Lemma aget_amknode l o r k : ainv l -> ainv r -> aget k (amknode l o r) = asub k l o r.
 Proof.
-  intros Hl Ho Hr; unfold amknode; fold (anm l o r); cbn [aget]; destruct k as [k|k|]; cbn [asub].
+  intros Hl Hr; unfold amknode; fold (anm l o r); cbn [aget]; destruct k as [k|k|]; cbn [asub].
   - rewrite aget_arebase by (assumption || apply cle_min3_3).
     destruct (aget k r) as [e|] eqn:E; [|reflexivity]; cbn; f_equal; apply aback_r, (aget_in _ _ _ E); assumption.
   - rewrite aget_arebase by (assumption || apply cle_min3_1).
     destruct (aget k l) as [e|] eqn:E; [|reflexivity]; cbn; f_equal; apply aback_l, (aget_in _ _ _ E); assumption.
-  - destruct o as [x|]; [cbn; f_equal; apply aback_o; [reflexivity|exact Ho]|reflexivity].
+  - destruct o as [x|]; [cbn; f_equal; apply aback_o; reflexivity|reflexivity].
 Qed.
 
-Lemma ainv_amknode l o r : ainv l -> ook o -> ainv r -> anonempty l o r -> ainv (amknode l o r).
+Lemma ainv_amknode l o r : ainv l -> ainv r -> anonempty l o r -> ainv (amknode l o r).
 Proof.
-  intros Hl Ho Hr Hne; pose proof (aelems_amknode l o r Hl Ho Hr) as He.
+  intros Hl Hr Hne; pose proof (aelems_amknode l o r Hl Hr) as He.
   unfold amknode in *; fold (anm l o r) in *.
-  cbn [ainv]; split; [|split; [apply cwf_cmap2|split; [|split; [|split]]]].
+  cbn [ainv]; split; [|split; [|split]].
   - intro k; rewrite He, !lmin_app, lmin_oelems, <- !ainv_ann by assumption.
     unfold anm; rewrite !cget_cmin; reflexivity.
   - destruct l, o, r; cbn in *; tauto.
-  - destruct o; cbn in *; [apply ok_shift, Ho|exact I].
   - apply ainv_arebase; [exact Hl|apply cle_min3_1].
   - apply ainv_arebase; [exact Hr|apply cle_min3_3].
 Qed.
 
 Theorem amk_spec l o r :
-  ainv l -> ook o -> ainv r ->
+  ainv l -> ainv r ->
   ainv (amk l o r) /\ aelems (amk l o r) = aelems l ++ oelems o ++ aelems r
   /\ forall k, aget k (amk l o r) = asub k l o r.
 Proof.
-  intros Hl Ho Hr.
+  intros Hl Hr.
   assert (Hne : anonempty l o r \/ (l = AEmpty /\ o = None /\ r = AEmpty))
     by (destruct l, o, r; cbn; auto).
   destruct Hne as [Hne|[-> [-> ->]]].
@@ -313,35 +293,35 @@ Qed.
 Lemma aparts_spec t :
   ainv t ->
   match aparts t with
-  | (l, o, r) => ainv l /\ ook o /\ ainv r /\ forall k, aget k t = asub k l o r
+  | (l, o, r) => ainv l /\ ainv r /\ forall k, aget k t = asub k l o r
   end.
 Proof.
   destruct t as [|a l o r]; cbn [aparts].
   - intros _; repeat split; intros [k|k|]; reflexivity.
-  - intros Ht; pose proof Ht as [_ [_ [_ [Ho [Hl Hr]]]]].
-    split; [apply ainv_alift, Hl|split; [destruct o; [apply ok_unshift, Ho|exact I]|split; [apply ainv_alift, Hr|]]].
+  - intros Ht; pose proof Ht as [_ [_ [Hl Hr]]].
+    split; [apply ainv_alift, Hl|split; [apply ainv_alift, Hr|]].
     intros [k|k|]; cbn [aget asub]; rewrite ?aget_alift by assumption; reflexivity.
 Qed.
 
 Theorem aupdate_spec k f t :
-  ainv t -> (forall o, ook o -> ook (f o)) ->
+  ainv t ->
   ainv (aupdate k f t)
   /\ forall k', aget k' (aupdate k f t) = if Pos.eqb k' k then f (aget k t) else aget k' t.
 Proof.
-  revert t; induction k as [k IH|k IH|]; intros t Ht Hf; cbn [aupdate];
+  revert t; induction k as [k IH|k IH|]; intros t Ht; cbn [aupdate];
     pose proof (aparts_spec t Ht) as P; destruct (aparts t) as [[l o] r];
-    destruct P as [Hl [Ho [Hr Hg]]].
-  - destruct (IH r Hr Hf) as [Hr' Hg'].
-    destruct (amk_spec l o (aupdate k f r) Hl Ho Hr') as [H1 [_ H3]].
+    destruct P as [Hl [Hr Hg]].
+  - destruct (IH r Hr) as [Hr' Hg'].
+    destruct (amk_spec l o (aupdate k f r) Hl Hr') as [H1 [_ H3]].
     split; [exact H1|]; intros k'; rewrite H3, !Hg.
     destruct k' as [k'|k'|]; cbn [asub Pos.eqb]; [rewrite Hg'|reflexivity|reflexivity].
     reflexivity.
-  - destruct (IH l Hl Hf) as [Hl' Hg'].
-    destruct (amk_spec (aupdate k f l) o r Hl' Ho Hr) as [H1 [_ H3]].
+  - destruct (IH l Hl) as [Hl' Hg'].
+    destruct (amk_spec (aupdate k f l) o r Hl' Hr) as [H1 [_ H3]].
     split; [exact H1|]; intros k'; rewrite H3, !Hg.
     destruct k' as [k'|k'|]; cbn [asub Pos.eqb]; [reflexivity|rewrite Hg'|reflexivity].
     reflexivity.
-  - destruct (amk_spec l (f o) r Hl (Hf o Ho) Hr) as [H1 [_ H3]].
+  - destruct (amk_spec l (f o) r Hl Hr) as [H1 [_ H3]].
     split; [exact H1|]; intros k'; rewrite H3, !Hg.
     destruct k' as [k'|k'|]; reflexivity.
 Qed.
@@ -432,17 +412,14 @@ Lemma araise_node D a1 l o r : anonempty l o r -> araise D a1 l o r = araisenode
 Proof. destruct l, o, r; cbn; tauto. Qed.
 
 Theorem araise_spec D a1 l o r :
-  ainv l -> ook o -> ainv r ->
+  ainv l -> ainv r ->
   (forall k, ~ In k D -> amin3 l o r k = match cget a1 k with Some _ => Some 0 | None => None end) ->
   ainv (araise D a1 l o r)
   /\ (forall k, aget k (araise D a1 l o r) = option_map (unshift a1) (asub k l o r))
   /\ (forall k, ~ In k D -> cget (aann (araise D a1 l o r)) k = cget a1 k).
 Proof.
-  intros Hl Ho Hr Hout.
+  intros Hl Hr Hout.
   set (L := aelems l ++ oelems o ++ aelems r).
-  assert (HokL : forall x, In x L -> eok x).
-  { intros x Hx; apply in_app_or in Hx as [Hx|Hx]; [apply (ainv_ok l Hl _ Hx)|].
-    apply in_app_or in Hx as [Hx|Hx]; [destruct o; [destruct Hx as [<-|[]]; exact Ho|destruct Hx]|apply (ainv_ok r Hr _ Hx)]. }
   assert (Hne : anonempty l o r \/ (l = AEmpty /\ o = None /\ r = AEmpty))
     by (destruct l, o, r; cbn; auto).
   destruct Hne as [Hne|[-> [-> ->]]].
@@ -471,7 +448,7 @@ Proof.
       try (injection En as <-); lia. }
   assert (Hback : forall x, In x L -> unshift a2 (shift e x) = unshift a1 x).
   { intros x Hx.
-    rewrite <- (unshift_shift e x (HokL x Hx) (Hle x Hx)) at 2.
+    rewrite <- (unshift_shift e x (Hle x Hx)) at 2.
     rewrite unshift_unshift; apply unshift_ext; intros q Hq.
     rewrite uses_shift in Hq.
     rewrite dval_cplus; unfold dval; rewrite Ea2, Ee.
@@ -484,14 +461,13 @@ Proof.
   assert (Hel : aelems (arebase e l) ++ oelems (option_map (shift e) o) ++ aelems (arebase e r) = map (shift e) L).
   { unfold L; rewrite !aelems_arebase, !map_app by assumption; f_equal; f_equal; destruct o; reflexivity. }
   split; [|split].
-  - cbn [ainv]; split; [|split; [apply cwf_all|split; [|split; [|split]]]].
+  - cbn [ainv]; split; [|split; [|split]].
     + intro q; cbn [aelems]; rewrite Hel, map_map, (map_ext_in _ _ L Hback), lmin_unshift, <- Hmin, Ea2.
       destruct (existsb (Pos.eqb q) D) eqn:Ex.
       * destruct (amin3 l o r q); [cbn; destruct (cget a1 q); reflexivity|reflexivity].
       * rewrite Hout by (intro H; apply existsb_in in H; congruence).
         destruct (cget a1 q); cbn; [f_equal; lia|reflexivity].
     + destruct l, o, r; cbn in Hne |- *; tauto.
-    + destruct o as [x|]; [apply ok_shift, Ho|exact I].
     + apply ainv_arebase; assumption.
     + apply ainv_arebase; assumption.
   - intros k; cbn [aget]; fold (asub k (arebase e l) (option_map (shift e) o) (arebase e r)); rewrite Hsub.
@@ -540,27 +516,25 @@ Section Aupd.
     change only affects uses at [D]. *)
 Variables (f : lbase -> option X -> option X) (F : option X -> option X) (D : list positive)
   (Eabs : counts) (Pa : X -> Prop).
-Hypothesis Hfok : forall B' o, ook o -> ook (f B' o).
-Hypothesis HfF : forall B' o, ook o -> (forall x, o = Some x -> Pa (unshift (lcounts B') x)) ->
+Hypothesis HfF : forall B' o, (forall x, o = Some x -> Pa (unshift (lcounts B') x)) ->
   cle (lcounts B') Eabs ->
   option_map (unshift (lcounts B')) (f B' o) = F (option_map (unshift (lcounts B')) o).
-Hypothesis HFD : forall o, ook o -> (forall x, o = Some x -> Pa x) ->
+Hypothesis HFD : forall o, (forall x, o = Some x -> Pa x) ->
   forall q, ~ In q D -> cget (ouses (F o)) q = cget (ouses o) q.
 
 Lemma frame_f B' E' o :
-  ook o -> (forall x, o = Some x -> Pa (unshift (lcounts B') x)) ->
+  (forall x, o = Some x -> Pa (unshift (lcounts B') x)) ->
   (forall q, cget (cadd (lcounts B') E') q = cget Eabs q) ->
   option_map (unshift (lcounts B')) (f B' o) = F (option_map (unshift (lcounts B')) o)
   /\ forall q, ~ In q D -> cget (ouses (f B' o)) q = cget (ouses o) q.
 Proof.
-  intros Ho HP HE.
-  assert (Hok' : ook (option_map (unshift (lcounts B')) o)) by (destruct o; [apply ok_unshift, Ho|exact I]).
+  intros HP HE.
   assert (E1 : option_map (unshift (lcounts B')) (f B' o) = F (option_map (unshift (lcounts B')) o))
-    by (apply HfF; [exact Ho|exact HP|apply (frame_cle B' E' Eabs HE)]).
+    by (apply HfF; [exact HP|apply (frame_cle B' E' Eabs HE)]).
   split; [exact E1|]; intros q Hq.
   assert (HPa : forall x, option_map (unshift (lcounts B')) o = Some x -> Pa x)
     by (intros x Ex; destruct o as [y|]; [injection Ex as <-; apply HP; reflexivity|discriminate]).
-  pose proof (HFD _ Hok' HPa q Hq) as H; rewrite <- E1, !ouses_unshift in H; apply oadd_inj in H; exact H.
+  pose proof (HFD _ HPa q Hq) as H; rewrite <- E1, !ouses_unshift in H; apply oadd_inj in H; exact H.
 Qed.
 
 Theorem aupd_spec k : forall E B t,
@@ -578,14 +552,13 @@ Proof.
   all: destruct t as [|a l o r].
   (* an empty trie: a path of new nodes *)
   1,3,5: cbn [aupd];
-    destruct (frame_f B E None I (fun x H => match H with end) HE) as [Ef Df];
+    destruct (frame_f B E None (fun x H => match H with end) HE) as [Ef Df];
     match goal with |- context [aupdate ?kk _ AEmpty] =>
-      destruct (aupdate_spec kk (f B) AEmpty I (fun o Ho => Hfok B o Ho)) as [Hi Hg] end;
+      destruct (aupdate_spec kk (f B) AEmpty I) as [Hi Hg] end;
     (split; [exact Hi|split; [intros q Hq; rewrite Hg; apply Pos.eqb_neq in Hq; rewrite Hq; reflexivity|split]]);
     [rewrite Hg, Pos.eqb_refl; exact Ef
     |intros q Hq; rewrite (aann_single _ (f B None) _ Hi Hg); apply (Df q Hq)].
-  all: pose proof (ainv_node_ann _ _ _ _ Ht) as Ha; pose proof (ainv_aparts_ok _ _ _ _ Ht) as HokL;
-    destruct Ht as [_ [_ [_ [Ho [Hl Hr]]]]].
+  all: pose proof (ainv_node_ann _ _ _ _ Ht) as Ha; destruct Ht as [_ [_ [Hl Hr]]].
   all: set (L := aelems l ++ oelems o ++ aelems r) in *.
   all: set (a1 := cmin a E); set (d := cexcess a E).
   all: assert (Hd_out : forall q, ~ In q D -> cget d q = None)
@@ -603,7 +576,6 @@ Proof.
          by (intros q Hq; rewrite cget_csub, (HED q Hq); reflexivity).
   all: assert (Hl1 : ainv (alift d l)) by apply ainv_alift, Hl.
   all: assert (Hr1 : ainv (alift d r)) by apply ainv_alift, Hr.
-  all: assert (Ho1 : ook (option_map (unshift d) o)) by (destruct o; [apply ok_unshift, Ho|exact I]).
   (* outside [D], nothing below moved *)
   all: assert (Hout0 : forall q, ~ In q D ->
                  amin3 (alift d l) (option_map (unshift d) o) (alift d r) q
@@ -637,7 +609,7 @@ Proof.
     assert (Hout : forall q, ~ In q D -> amin3 (alift d l) (option_map (unshift d) o) r' q
                                          = match cget a1 q with Some _ => Some 0 | None => None end)
       by (intros q Hq; specialize (Hout0 q Hq); unfold amin3 in *; rewrite Ha' by exact Hq; exact Hout0).
-    destruct (araise_spec D a1 (alift d l) (option_map (unshift d) o) r' Hl1 Ho1 Hi' Hout) as [A1 [A2 A3]].
+    destruct (araise_spec D a1 (alift d l) (option_map (unshift d) o) r' Hl1 Hi' Hout) as [A1 [A2 A3]].
     split; [exact A1|split; [|split]].
     + intros [q|q|] Hq; rewrite A2; cbn [asub]; [rewrite Hg' by congruence|apply Same_l|apply Same_o]; apply Same_r.
     + rewrite A2; cbn [asub]; rewrite Back, Hk', <- Back, Same_r; reflexivity.
@@ -651,7 +623,7 @@ Proof.
     assert (Hout : forall q, ~ In q D -> amin3 l' (option_map (unshift d) o) (alift d r) q
                                          = match cget a1 q with Some _ => Some 0 | None => None end)
       by (intros q Hq; specialize (Hout0 q Hq); unfold amin3 in *; rewrite Ha' by exact Hq; exact Hout0).
-    destruct (araise_spec D a1 l' (option_map (unshift d) o) (alift d r) Hi' Ho1 Hr1 Hout) as [A1 [A2 A3]].
+    destruct (araise_spec D a1 l' (option_map (unshift d) o) (alift d r) Hi' Hr1 Hout) as [A1 [A2 A3]].
     split; [exact A1|split; [|split]].
     + intros [q|q|] Hq; rewrite A2; cbn [asub]; [apply Same_r|rewrite Hg' by congruence; apply Same_l|apply Same_o].
     + rewrite A2; cbn [asub]; rewrite Back, Hk', <- Back, Same_l; reflexivity.
@@ -660,13 +632,12 @@ Proof.
     assert (HP' : forall x, option_map (unshift d) o = Some x -> Pa (unshift (lcounts (LPlus B a1)) x))
       by (intros x Ex; specialize (HPk (unshift a1 x)); rewrite <- Same_o, Ex in HPk;
           cbn [lcounts]; rewrite <- unshift_unshift; exact (HPk eq_refl)).
-    destruct (frame_f (LPlus B a1) (csub E a1) (option_map (unshift d) o) Ho1 HP' HE1) as [Ef Df].
+    destruct (frame_f (LPlus B a1) (csub E a1) (option_map (unshift d) o) HP' HE1) as [Ef Df].
     set (o' := f (LPlus B a1) (option_map (unshift d) o)) in *.
-    assert (Ho' : ook o') by apply Hfok, Ho1.
     assert (Hout : forall q, ~ In q D -> amin3 (alift d l) o' (alift d r) q
                                          = match cget a1 q with Some _ => Some 0 | None => None end)
       by (intros q Hq; specialize (Hout0 q Hq); unfold amin3 in *; rewrite Df by exact Hq; exact Hout0).
-    destruct (araise_spec D a1 (alift d l) o' (alift d r) Hl1 Ho' Hr1 Hout) as [A1 [A2 A3]].
+    destruct (araise_spec D a1 (alift d l) o' (alift d r) Hl1 Hr1 Hout) as [A1 [A2 A3]].
     split; [exact A1|split; [|split]].
     + intros [q|q|] Hq; rewrite A2; cbn [asub]; [apply Same_r|apply Same_l|congruence].
     + rewrite A2; cbn [asub]; rewrite Back, Ef, <- Back, Same_o; reflexivity.
@@ -677,13 +648,10 @@ End Aupd.
 
 (** ** Canonicity *)
 
-Lemma ainv_get_ok t k e : ainv t -> aget k t = Some e -> eok e.
-Proof. intros Ht He; apply (ainv_ok t Ht), (aget_in k t e He). Qed.
-
 Lemma aelems_anonempty t : ainv t -> t <> AEmpty -> aelems t <> [].
 Proof.
   induction t as [|a l IHl o r IHr]; [congruence|]; intros Ht _; cbn [aelems].
-  destruct Ht as [_ [_ [Hne [_ [Hl Hr]]]]].
+  destruct Ht as [_ [Hne [Hl Hr]]].
   intros E; apply map_eq_nil in E; apply app_eq_nil in E as [El E]; apply app_eq_nil in E as [Eo Er].
   destruct l; [|apply (IHl Hl ltac:(discriminate) El)].
   destruct r; [|apply (IHr Hr ltac:(discriminate) Er)].
@@ -700,7 +668,7 @@ Proof.
   - destruct (Hkey _ H2 ltac:(discriminate)) as [k [e He]]; rewrite <- Heq in He; discriminate.
   - destruct (Hkey _ H1 ltac:(discriminate)) as [k [e He]]; rewrite Heq in He; discriminate.
   - assert (Ha : a1 = a2).
-    { apply counts_ext; [apply H1|apply H2|]; intro k.
+    { apply counts_ext; intro k.
       transitivity (lmin (aelems (ANode a1 l1 o1 r1)) k); [apply (ainv_ann _ H1)|].
       transitivity (lmin (aelems (ANode a2 l2 o2 r2)) k); [|symmetry; apply (ainv_ann _ H2)].
       apply lmin_same_members.
@@ -712,10 +680,8 @@ Proof.
     { intros k; specialize (Heq k); cbn [aget] in Heq; fold (asub k l1 o1 r1) (asub k l2 o2 r2) in Heq.
       destruct (asub k l1 o1 r1) as [x|] eqn:E1, (asub k l2 o2 r2) as [y|] eqn:E2;
         cbn in Heq; try discriminate; [|reflexivity].
-      injection Heq as Heq; f_equal; apply (unshift_inj a1); [| |exact Heq].
-      - apply (ainv_aparts_ok _ _ _ _ H1), (asub_in _ _ _ _ _ E1).
-      - apply (ainv_aparts_ok _ _ _ _ H2), (asub_in _ _ _ _ _ E2). }
-    destruct H1 as [_ [_ [_ [_ [Hl1 Hr1]]]]], H2 as [_ [_ [_ [_ [Hl2 Hr2]]]]].
+      injection Heq as Heq; f_equal; apply (unshift_inj a1), Heq. }
+    destruct H1 as [_ [_ [Hl1 Hr1]]], H2 as [_ [_ [Hl2 Hr2]]].
     f_equal; [apply IHl; [assumption|assumption|intro k; apply (Hsub (xO k))]
              |apply (Hsub xH)
              |apply IHr; [assumption|assumption|intro k; apply (Hsub (xI k))]].
@@ -769,9 +735,6 @@ Qed.
 
 Section Decide.
 
-Variable eokb : X -> bool.
-Hypothesis eokb_spec : forall x, eokb x = true <-> eok x.
-
 Definition anonemptyb (l : atrie) (o : option X) (r : atrie) : bool :=
   match l, o, r with AEmpty, None, AEmpty => false | _, _, _ => true end.
 
@@ -779,21 +742,15 @@ Fixpoint ainvb (t : atrie) : bool :=
   match t with
   | AEmpty => true
   | ANode a l o r =>
-      cwfb a && ceqb a (lminc (aelems t)) && anonemptyb l o r
-      && match o with Some x => eokb x | None => true end && ainvb l && ainvb r
+      ceqb a (lminc (aelems t)) && anonemptyb l o r && ainvb l && ainvb r
   end.
 
 Lemma ainvb_spec t : ainvb t = true <-> ainv t.
 Proof.
   induction t as [|a l IHl o r IHr]; cbn [ainvb ainv]; [split; reflexivity|].
-  rewrite !andb_true_iff, cwfb_spec, IHl, IHr.
   assert (Hne : anonemptyb l o r = true <-> anonempty l o r)
     by (destruct l, o, r; cbn; split; (discriminate || tauto || (intros; exact I) || reflexivity)).
-  assert (Ho : (match o with Some x => eokb x | None => true end) = true <-> ook o)
-    by (destruct o; cbn; [apply eokb_spec|split; reflexivity || (intros; exact I)]).
-  rewrite Hne, Ho; split.
-  - intros [[[[[Hw Ha] Hn] Hok] Hl] Hr]; split; [apply (ceqb_lminc a _ Hw), Ha|tauto].
-  - intros [Ha [Hw [Hn [Hok [Hl Hr]]]]]; repeat split; try assumption; apply (ceqb_lminc a _ Hw), Ha.
+  rewrite !andb_true_iff, ceqb_lminc, Hne, IHl, IHr; tauto.
 Qed.
 
 End Decide.

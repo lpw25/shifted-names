@@ -63,7 +63,7 @@ Lemma ktallF_spec t : forall B,
 Proof.
   induction t as [x|a x l IHl r IHr]; intros B Ht; cbn [ktallF ktlist].
   - rewrite HF; split; [intros H y [<-|[]]; exact H|intros H; apply H; left; reflexivity].
-  - destruct Ht as [Ha [_ [_ [Hl Hr]]]]; cbn [ktann ktlist] in Ha.
+  - destruct Ht as [Ha [Hl Hr]]; cbn [ktann ktlist] in Ha.
     rewrite <- (allF_node B a _ Ha), !andb_true_iff, HF, IHl, IHr by assumption.
     split.
     + intros [[Hx Hl'] Hr'] y [<-|Hy]; [exact Hx|apply in_app_or in Hy as [Hy|Hy]; auto].
@@ -96,7 +96,7 @@ Lemma aallF_spec t : forall B,
 Proof.
   induction t as [|a l IHl o r IHr]; intros B Ht; cbn [aallF aelems].
   - split; [intros _ y []|reflexivity].
-  - destruct Ht as [Ha [_ [_ [_ [Hl Hr]]]]]; cbn [aelems] in Ha.
+  - destruct Ht as [Ha [_ [Hl Hr]]]; cbn [aelems] in Ha.
     rewrite <- (allF_node B a _ Ha), !andb_true_iff, IHl, IHr by assumption.
     assert (Ho : (match o with Some x => F (cadd B a) x | None => true end) = true
                  <-> forall y, In y (oelems o) -> G (unshift (cadd B a) y) = true)
@@ -212,7 +212,7 @@ Lemma target_result Q r (es : atrie entry) k h ts len p i t :
   nlocal Q (NAdj r es) -> aget k es = Some (Entry h ts len p) -> knth ts i = Some t ->
   napply (NAdj r es) (mk_rvar h i) = tresult (tunshift r t) /\ Q h = true.
 Proof.
-  intros Hl E Et; pose proof Hl as [_ [_ [_ [Hent _]]]].
+  intros Hl E Et; pose proof Hl as [_ [_ [Hent _]]].
   destruct (Hent _ _ E) as [[Hk [G [Hlen _]]] [HQ _]]; cbn [elabel] in HQ.
   split; [|exact HQ].
   cbn [napply v_label v_index]; rewrite Hk, E; cbn [eapply].
@@ -259,17 +259,17 @@ Proof. reflexivity. Qed.
 Lemma tcheck_unshift B t : tcheck B t = tcheck cnone (unshift B t).
 Proof.
   destruct t as [y j|u [r es]]; [reflexivity|]; cbn [tcheck unshift target_based tunshift].
-  rewrite !nwfc_eq, (cadd_cnone (cadd B r)) by apply cwf_cmap2; reflexivity.
+  rewrite !nwfc_eq, (cadd_cnone (cadd B r)); reflexivity.
 Qed.
 
 Lemma echeck_unshift B e : echeck B e = echeck cnone (unshift B e).
 Proof.
   destruct e as [h [|a w t s] len p]; [reflexivity|]; cbn [echeck unshift entry_based eunshift klift kallF].
-  rewrite (cadd_cnone (cadd B a)) by apply cwf_cmap2; reflexivity.
+  rewrite (cadd_cnone (cadd B a)); reflexivity.
 Qed.
 
-Lemma tcheck_payload u r es : cwf r -> tcheck cnone (TBind u (NAdj r es)) = true <-> nwf true (NAdj r es).
-Proof. intros Cr; cbn [tcheck]; unfold nwf; rewrite !nwfc_eq, cadd_cnone by exact Cr; reflexivity. Qed.
+Lemma tcheck_payload u r es : tcheck cnone (TBind u (NAdj r es)) = true <-> nwf true (NAdj r es).
+Proof. cbn [tcheck]; unfold nwf; rewrite !nwfc_eq, cadd_cnone; reflexivity. Qed.
 
 (** ** What [nwf] means *)
 
@@ -298,13 +298,13 @@ Proof.
   set (FE := fun B e => match e with Entry _ ts _ _ => kallF F B ts end : bool).
   assert (HFE : forall B e, FE B e = FE cnone (unshift B e)).
   { intros B [h [|a w t s] len p]; [reflexivity|]; unfold FE; cbn [unshift entry_based eunshift klift kallF].
-    rewrite (cadd_cnone (cadd B a)) by apply cwf_cmap2; reflexivity. }
+    rewrite (cadd_cnone (cadd B a)); reflexivity. }
   rewrite (aallF_spec FE (FE cnone) HFE es r Hes).
   assert (Hent : forall e, In e (aelems es) ->
                  (FE cnone (unshift r e) = true
                   <-> forall t, In t (klist (klift r (etargets e))) -> F cnone t = true)).
   { intros e He; destruct (aelems_aget es e He) as [k E].
-    pose proof Hl as [_ [_ [_ [Hent _]]]]; destruct (Hent k e E) as [Hok _].
+    pose proof Hl as [_ [_ [Hent _]]]; destruct (Hent k e E) as [Hok _].
     destruct e as [h ts len p]; destruct Hok as [_ [G _]].
     unfold FE; cbn [unshift entry_based eunshift etargets].
     rewrite (kallF_spec F (F cnone) HF _ cnone (kinv_klift r ts (kgood_inv _ G))).
@@ -330,14 +330,13 @@ Proof.
   destruct b as [r es]; unfold nwf in Hw; rewrite nwfc_eq in Hw; cbv beta in Hw; apply andb_prop in Hw as [_ Hw].
   pose proof (proj1 (nwf_targets pay r es Hl) Hw) as Hw2; clear Hw; rename Hw2 into Hw.
   cbn [napply] in E; destruct (aget _ es) as [e|] eqn:Ek; [|discriminate].
-  pose proof Hl as [_ [_ [_ [Hent _]]]]; destruct (Hent _ e Ek) as [Hok _].
+  pose proof Hl as [_ [_ [Hent _]]]; destruct (Hent _ e Ek) as [Hok _].
   destruct e as [h ts len p]; destruct Hok as [_ [G _]]; cbn [eapply] in E.
   destruct (Nat.ltb _ _); [|discriminate].
   destruct (knth ts _) as [t0|] eqn:Et; [|discriminate].
   destruct (tunshift r t0) as [y j|u' [r' es']] eqn:Eu; cbn [tresult] in E; [discriminate|injection E as -> <-].
-  apply (tcheck_payload u); [|rewrite <- Eu; apply (Hw _ _ Ek); cbn [etargets];
-                               rewrite klist_klift by apply kgood_inv, G; apply in_map, (knth_in _ _ _ G Et)].
-  destruct t0 as [y j|u0 [r0 es0]]; cbn in Eu; [discriminate|injection Eu as _ <- _; apply cwf_cmap2].
+  apply (tcheck_payload u); rewrite <- Eu; apply (Hw _ _ Ek); cbn [etargets].
+  rewrite klist_klift by apply kgood_inv, G; apply in_map, (knth_in _ _ _ G Et).
 Qed.
 
 Lemma nwf_intro pay b :
@@ -348,14 +347,14 @@ Proof.
   intros Hl Hf Hp; destruct b as [r es]; unfold nwf; rewrite nwfc_eq; cbv beta.
   unfold nfin in Hf; cbn [nroot] in Hf; rewrite (proj2 (nlocalb_spec pay _) Hl), (proj2 (oeqb_spec _ _) Hf); cbn [andb].
   apply (nwf_targets pay r es Hl); intros k e E t Ht.
-  pose proof Hl as [_ [_ [_ [Hent _]]]]; destruct (Hent k e E) as [Hok [HQ _]].
+  pose proof Hl as [_ [_ [Hent _]]]; destruct (Hent k e E) as [Hok [HQ _]].
   destruct e as [h ts len p]; destruct Hok as [_ [G _]]; cbn [etargets elabel] in *.
   rewrite klist_klift in Ht by apply kgood_inv, G; apply in_map_iff in Ht as [t0 [<- Ht0]].
   destruct (In_nth_error _ _ Ht0) as [i Ei].
   assert (Et : knth ts i = Some t0) by (rewrite knth_spec by apply kgood_shape, G; exact Ei).
   destruct (target_result _ r es k h ts len p i t0 Hl E Et) as [Hn _].
   destruct t0 as [y j|u0 [r0 es0]]; [reflexivity|]; cbn [tunshift tresult] in Hn |- *.
-  apply (tcheck_payload u0); [apply cwf_cmap2|apply (Hp (mk_rvar h i) u0 _ HQ Hn)].
+  apply (tcheck_payload u0), (Hp (mk_rvar h i) u0 _ HQ Hn).
 Qed.
 
 End Deep.

@@ -105,9 +105,6 @@ Record counts : Type :=
 Definition cget (c : counts) (k : positive) : option nat :=
   match get k (c_exc c) with Some v => v | None => c_def c end.
 
-Definition cwf (c : counts) : Prop :=
-  forall k v, get k (c_exc c) = Some v -> v <> c_def c.
-
 Lemma cwfr_spec d e : cwfr d e = true <-> forall k v, get k e = Some v -> v <> d.
 Proof.
   unfold cwfr; rewrite tall_spec; split; intros H k v E; specialize (H k v E).
@@ -115,8 +112,8 @@ Proof.
   - apply negb_true_iff; destruct (oeqb v d) eqn:Ev; [apply oeqb_spec in Ev; contradiction|reflexivity].
 Qed.
 
-Lemma cwf_all c : cwf c.
-Proof. unfold cwf; apply cwfr_spec, Is_true_s_elim, c_ok. Qed.
+Lemma counts_wf c : forall k v, get k (c_exc c) = Some v -> v <> c_def c.
+Proof. apply cwfr_spec, Is_true_s_elim, c_ok. Qed.
 
 (** *** A key outside two tries *)
 
@@ -156,10 +153,10 @@ Proof. apply get_ikey; lia. Qed.
 
 (** *** Canonicity *)
 
-Theorem counts_ext c1 c2 :
-  cwf c1 -> cwf c2 -> (forall k, cget c1 k = cget c2 k) -> c1 = c2.
+Theorem counts_ext c1 c2 : (forall k, cget c1 k = cget c2 k) -> c1 = c2.
 Proof.
-  destruct c1 as [d1 e1 p1], c2 as [d2 e2 p2]; unfold cwf, cget; cbn; intros W1 W2 H.
+  pose proof (counts_wf c1) as W1; pose proof (counts_wf c2) as W2.
+  destruct c1 as [d1 e1 p1], c2 as [d2 e2 p2]; unfold cget in *; cbn in *; intros H.
   assert (Hd : d1 = d2).
   { specialize (H (fresh e1 e2)); rewrite fresh_l, fresh_r in H; exact H. }
   subst d2; assert (He : e1 = e2); [|subst e2; reflexivity].
@@ -259,9 +256,6 @@ Proof.
     end.
 Qed.
 
-Lemma cwf_cmap2 o c1 c2 : cwf (cmap2 o c1 c2).
-Proof. apply cwf_all. Qed.
-
 (** The operations.  Defaults are [None] or [Some 0] in practice, and
     for those every operation keeps or drops, except [cadd] and [cplus],
     which map the side whose other default is [Some 0]. *)
@@ -326,12 +320,6 @@ Definition cone_ok k n := Is_true_s_intro (cone_ok_eq k n).
 (** Only [k], from [n]. *)
 Definition cone (k : positive) (n : nat) : counts := mk_counts None (set k (Some n) Empty) (cone_ok k n).
 
-Lemma cwf_cnone : cwf cnone.
-Proof. apply cwf_all. Qed.
-
-Lemma cwf_cone k n : cwf (cone k n).
-Proof. apply cwf_all. Qed.
-
 Lemma cget_cnone k : cget cnone k = None.
 Proof. reflexivity. Qed.
 
@@ -382,7 +370,7 @@ Proof. unfold cget, csome; cbn [c_exc c_def]; rewrite get_map_filter; destruct (
 Lemma cset_ok_eq c k v :
   cwfr (c_def c) (if oeqb v (c_def c) then remove k (c_exc c) else set k v (c_exc c)) = true.
 Proof.
-  apply cwfr_spec; intros k' v'; pose proof (cwf_all c k') as Hc.
+  apply cwfr_spec; intros k' v'; pose proof (counts_wf c k') as Hc.
   destruct (oeqb v (c_def c)) eqn:E.
   - rewrite get_remove; destruct (Pos.eqb k' k); [discriminate|apply Hc].
   - rewrite get_set; destruct (Pos.eqb k' k); [intros [= <-] H; rewrite H, oeqb_refl in E; discriminate|apply Hc].
@@ -401,9 +389,6 @@ Proof.
     destruct (Pos.eqb k' k); try reflexivity.
   apply oeqb_spec in E; symmetry; exact E.
 Qed.
-
-Lemma cwf_cset c k v : cwf c -> cwf (cset c k v).
-Proof. intros _; apply cwf_all. Qed.
 
 (** ** Factoring a node's counts out of its children
 
@@ -549,15 +534,15 @@ Qed.
 
 (** ** Equations between count maps *)
 
-Lemma csub_cadd d r : cwf r -> csub (cadd d r) d = r.
+Lemma csub_cadd d r : csub (cadd d r) d = r.
 Proof.
-  intros Hr; apply counts_ext; [apply cwf_cmap2|exact Hr|]; intro k.
+  apply counts_ext; intro k.
   rewrite cget_csub, cget_cadd; destruct (cget d k), (cget r k); cbn; f_equal; lia.
 Qed.
 
-Lemma cadd_csub d r : cwf r -> cle d r -> cadd d (csub r d) = r.
+Lemma cadd_csub d r : cle d r -> cadd d (csub r d) = r.
 Proof.
-  intros Hr Hle; apply counts_ext; [apply cwf_cmap2|exact Hr|]; intro k.
+  intros Hle; apply counts_ext; intro k.
   rewrite cget_cadd, cget_csub.
   destruct (cget d k) as [n|] eqn:Ed, (cget r k) as [m|] eqn:Er; cbn; try reflexivity.
   - specialize (Hle k n m Ed Er); f_equal; lia.
@@ -566,14 +551,14 @@ Qed.
 
 Lemma cadd_cadd d1 d2 r : cadd d1 (cadd d2 r) = cadd (cplus d1 d2) r.
 Proof.
-  apply counts_ext; try apply cwf_cmap2; intro k.
+  apply counts_ext; intro k.
   rewrite !cget_cadd, cget_cplus; apply oadd_oadd.
 Qed.
 
 Lemma cadd_ext d d' r :
   (forall k, cget r k <> None -> dval d k = dval d' k) -> cadd d r = cadd d' r.
 Proof.
-  intros H; apply counts_ext; try apply cwf_cmap2; intro k.
+  intros H; apply counts_ext; intro k.
   rewrite !cget_cadd; destruct (cget r k) as [m|] eqn:E; [|reflexivity].
   specialize (H k ltac:(congruence)); unfold dval in H.
   destruct (cget d k), (cget d' k); cbn in *; subst; reflexivity.
@@ -617,16 +602,13 @@ Proof.
 Qed.
 
 (** Adding nothing. *)
-Lemma cadd_cnone c : cwf c -> cadd cnone c = c.
+Lemma cadd_cnone c : cadd cnone c = c.
 Proof.
-  intros Hc; apply counts_ext; [apply cwf_cmap2|exact Hc|].
+  apply counts_ext.
   intro k; rewrite cget_cadd, cget_cnone; destruct (cget c k); reflexivity.
 Qed.
 
-(** ** Deciding the invariants
-
-    The invariants are decided by boolean checks, so that a proof of one can
-    be kept in SProp (as [Is_true_s]) and still be used. *)
+(** ** Deciding equality *)
 
 Definition ceqb (c1 c2 : counts) : bool :=
   oeqb (c_def c1) (c_def c2) && teqb oeqb (c_exc c1) (c_exc c2).
@@ -638,14 +620,6 @@ Proof.
   split; [intros [-> ->]; reflexivity|intros [= -> ->]; split; reflexivity].
 Qed.
 
-Definition cwfb (c : counts) : bool := cwfr (c_def c) (c_exc c).
-
-Lemma cwfb_spec c : cwfb c = true <-> cwf c.
-Proof. apply cwfr_spec. Qed.
-
 (** Pointwise equality of canonical count maps is equality. *)
-Lemma ceqb_ext c1 c2 :
-  cwf c1 -> cwf c2 -> ceqb c1 c2 = true <-> (forall k, cget c1 k = cget c2 k).
-Proof.
-  intros W1 W2; rewrite ceqb_spec; split; [intros ->; reflexivity|apply counts_ext; assumption].
-Qed.
+Lemma ceqb_ext c1 c2 : ceqb c1 c2 = true <-> (forall k, cget c1 k = cget c2 k).
+Proof. rewrite ceqb_spec; split; [intros ->; reflexivity|apply counts_ext]. Qed.

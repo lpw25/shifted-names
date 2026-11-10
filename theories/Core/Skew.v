@@ -149,13 +149,12 @@ Definition klength (s : kseq) : nat :=
 
 (** ** Invariants *)
 
-(** Every node's counts are the minimum over what it denotes, and stored
-    elements are well formed. *)
+(** Every node's counts are the minimum over what it denotes. *)
 Fixpoint ktinv (t : ktree) : Prop :=
   (forall k, cget (ktann t) k = lmin (ktlist t) k)
   /\ match t with
-     | KLeaf x => eok x
-     | KNode a x l r => cwf a /\ eok x /\ ktinv l /\ ktinv r
+     | KLeaf _ => True
+     | KNode _ _ l r => ktinv l /\ ktinv r
      end.
 
 Fixpoint spinv (s : kspine) : Prop :=
@@ -165,7 +164,7 @@ Definition kinv (s : kseq) : Prop :=
   (forall k, cget (ksann s) k = lmin (klist s) k)
   /\ match s with
      | KNil => True
-     | KSeq a _ t s' => cwf a /\ ktinv t /\ spinv s'
+     | KSeq _ _ t s' => ktinv t /\ spinv s'
      end.
 
 (** Sizes: a tree of size [w] has children of size [div2 w]. *)
@@ -205,38 +204,24 @@ Definition kcanon (s : kseq) : Prop := kweights s = cweights (klength s).
 Lemma ktinv_ann t : ktinv t -> forall k, cget (ktann t) k = lmin (ktlist t) k.
 Proof. destruct t; cbn [ktinv]; tauto. Qed.
 
-Lemma ktinv_ok t : ktinv t -> forall e, In e (ktlist t) -> eok e.
-Proof.
-  induction t as [x|a x l IHl r IHr]; cbn [ktinv ktlist].
-  - intros [_ H] e [<-|[]]; exact H.
-  - intros [_ [_ [Hx [Hl Hr]]]] e Hin; apply in_map_iff in Hin as [e' [<- Hin]].
-    apply ok_unshift; destruct Hin as [<-|Hin]; [exact Hx|].
-    apply in_app_or in Hin as [Hin|Hin]; [apply IHl|apply IHr]; assumption.
-Qed.
 
 
 
 (** ** Trees *)
 
-Lemma ktinv_node_ok a x l r :
-  ktinv (KNode a x l r) -> forall e, In e (x :: ktlist l ++ ktlist r) -> eok e.
-Proof.
-  intros [_ [_ [Hx [Hl Hr]]]] e [<-|Hin]; [exact Hx|].
-  apply in_app_or in Hin as [Hin|Hin]; [apply (ktinv_ok l Hl)|apply (ktinv_ok r Hr)]; exact Hin.
-Qed.
 
 Lemma ktlist_ktrebase m t : ktinv t -> cle m (ktann t) -> ktlist (ktrebase m t) = map (shift m) (ktlist t).
 Proof.
   destruct t as [x|a x l r]; intros Ht Hm; [reflexivity|].
-  apply (rebase_list a); [apply (ktinv_ann _ Ht)|apply (ktinv_node_ok _ _ _ _ Ht)|exact Hm].
+  apply (rebase_list a); [apply (ktinv_ann _ Ht)|exact Hm].
 Qed.
 
 Lemma ktinv_ktrebase m t : ktinv t -> cle m (ktann t) -> ktinv (ktrebase m t).
 Proof.
   intros Ht Hm; pose proof (ktlist_ktrebase m t Ht Hm) as Hl.
   destruct t as [x|a x l r]; cbn [ktrebase ktinv ktann] in *.
-  - destruct Ht as [_ Hx]; split; [intro k; cbn [ktlist]; rewrite lmin_single; reflexivity|apply ok_shift, Hx].
-  - destruct Ht as [Ha [_ Hs]]; split; [|split; [apply cwf_cmap2|exact Hs]]; intro k.
+  - split; [intro k; cbn [ktlist]; rewrite lmin_single; reflexivity|exact I].
+  - destruct Ht as [Ha Hs]; split; [|exact Hs]; intro k.
     rewrite Hl, lmin_shift, cget_csub, Ha; reflexivity.
 Qed.
 
@@ -250,29 +235,29 @@ Lemma ktinv_ktlift d t : ktinv t -> ktinv (ktlift d t).
 Proof.
   intros Ht; pose proof (ktlist_ktlift d t Ht) as Hl.
   destruct t as [x|a x l r]; cbn [ktlift ktinv ktann] in *.
-  - destruct Ht as [_ Hx]; split; [intro k; cbn [ktlist]; rewrite lmin_single; reflexivity|apply ok_unshift, Hx].
-  - destruct Ht as [Ha [_ Hs]]; split; [|split; [apply cwf_cmap2|exact Hs]]; intro k.
+  - split; [intro k; cbn [ktlist]; rewrite lmin_single; reflexivity|exact I].
+  - destruct Ht as [Ha Hs]; split; [|exact Hs]; intro k.
     cbn [ksann]; rewrite Hl, lmin_unshift, cget_cadd, Ha; reflexivity.
 Qed.
 
 Lemma ktlist_ktnode x t1 t2 :
-  eok x -> ktinv t1 -> ktinv t2 -> ktlist (ktnode x t1 t2) = x :: ktlist t1 ++ ktlist t2.
+  ktinv t1 -> ktinv t2 -> ktlist (ktnode x t1 t2) = x :: ktlist t1 ++ ktlist t2.
 Proof.
-  intros Hx H1 H2; unfold ktnode; set (m := cmin (uses x) (cmin (ktann t1) (ktann t2))).
+  intros H1 H2; unfold ktnode; set (m := cmin (uses x) (cmin (ktann t1) (ktann t2))).
   cbn [ktlist]; rewrite !ktlist_ktrebase by (assumption || apply cle_min3_2 || apply cle_min3_3).
   cbn [map]; rewrite map_app, !map_map.
-  f_equal; [apply unshift_shift; [exact Hx|apply cle_min3_1]|f_equal; apply map_id_in].
-  - intros e Hin; apply unshift_shift; [apply (ktinv_ok _ H1 _ Hin)|].
+  f_equal; [apply unshift_shift, cle_min3_1|f_equal; apply map_id_in].
+  - intros e Hin; apply unshift_shift.
     apply (cle_mem m (ktann t1) (ktlist t1)); [apply cle_min3_2|apply ktinv_ann, H1|exact Hin].
-  - intros e Hin; apply unshift_shift; [apply (ktinv_ok _ H2 _ Hin)|].
+  - intros e Hin; apply unshift_shift.
     apply (cle_mem m (ktann t2) (ktlist t2)); [apply cle_min3_3|apply ktinv_ann, H2|exact Hin].
 Qed.
 
-Lemma ktinv_ktnode x t1 t2 : eok x -> ktinv t1 -> ktinv t2 -> ktinv (ktnode x t1 t2).
+Lemma ktinv_ktnode x t1 t2 : ktinv t1 -> ktinv t2 -> ktinv (ktnode x t1 t2).
 Proof.
-  intros Hx H1 H2; pose proof (ktlist_ktnode x t1 t2 Hx H1 H2) as Hl.
+  intros H1 H2; pose proof (ktlist_ktnode x t1 t2 H1 H2) as Hl.
   unfold ktnode in *; set (m := cmin (uses x) (cmin (ktann t1) (ktann t2))) in *.
-  cbn [ktinv ktann]; split; [|split; [apply cwf_cmap2|split; [apply ok_shift, Hx|split; apply ktinv_ktrebase]]];
+  cbn [ktinv ktann]; split; [|split; apply ktinv_ktrebase];
     try assumption; try apply cle_min3_2; try apply cle_min3_3.
   intro k; rewrite Hl; cbn [lmin fold_right]; fold (lmin (ktlist t1 ++ ktlist t2) k).
   rewrite lmin_app, <- !ktinv_ann by assumption; unfold m; rewrite !cget_cmin; reflexivity.
@@ -280,11 +265,6 @@ Qed.
 
 (** ** Spines *)
 
-Lemma spinv_ok s : spinv s -> forall e, In e (splist s) -> eok e.
-Proof.
-  induction s as [|w t s IH]; cbn [spinv splist]; [intros _ _ []|].
-  intros [Ht Hs] e Hin; apply in_app_or in Hin as [Hin|Hin]; [apply (ktinv_ok t Ht)|apply IH]; assumption.
-Qed.
 
 Lemma spann_spec s : spinv s -> forall k, cget (spann s) k = lmin (splist s) k.
 Proof.
@@ -342,28 +322,21 @@ Lemma kinv_ann s : kinv s -> forall k, cget (ksann s) k = lmin (klist s) k.
 Proof. intros [H _]; exact H. Qed.
 
 Lemma kinv_spine a w t s : kinv (KSeq a w t s) -> spinv (SCons w t s).
-Proof. intros [_ [_ [Ht Hs]]]; split; assumption. Qed.
+Proof. intros [_ [Ht Hs]]; split; assumption. Qed.
 
-Lemma kinv_cell_ok a w t s : kinv (KSeq a w t s) -> forall e, In e (splist (SCons w t s)) -> eok e.
-Proof. intros H; apply spinv_ok, (kinv_spine _ _ _ _ H). Qed.
 
-Lemma kinv_ok s : kinv s -> forall e, In e (klist s) -> eok e.
-Proof.
-  destruct s as [|a w t s]; [intros _ _ []|]; intros Hs e Hin; cbn [klist] in Hin.
-  apply in_map_iff in Hin as [e' [<- Hin]]; apply ok_unshift, (kinv_cell_ok _ _ _ _ Hs _ Hin).
-Qed.
 
 Lemma klist_krebase m s : kinv s -> cle m (ksann s) -> klist (krebase m s) = map (shift m) (klist s).
 Proof.
   destruct s as [|a w t s]; intros Hs Hm; [reflexivity|].
-  apply (rebase_list a); [apply (kinv_ann _ Hs)|apply (kinv_cell_ok _ _ _ _ Hs)|exact Hm].
+  apply (rebase_list a); [apply (kinv_ann _ Hs)|exact Hm].
 Qed.
 
 Lemma kinv_krebase m s : kinv s -> cle m (ksann s) -> kinv (krebase m s).
 Proof.
   intros Hs Hm; pose proof (klist_krebase m s Hs Hm) as Hl.
   destruct s as [|a w t s]; [exact Hs|]; cbn [krebase kinv ksann] in *.
-  destruct Hs as [Ha [_ Hs]]; split; [|split; [apply cwf_cmap2|exact Hs]]; intro k.
+  destruct Hs as [Ha Hs]; split; [|exact Hs]; intro k.
   cbn [ksann]; rewrite Hl, lmin_shift, cget_csub, Ha; reflexivity.
 Qed.
 
@@ -377,7 +350,7 @@ Lemma kinv_klift d s : kinv s -> kinv (klift d s).
 Proof.
   intros Hs; pose proof (klist_klift d s Hs) as Hl.
   destruct s as [|a w t s]; [exact Hs|]; cbn [klift kinv ksann] in *.
-  destruct Hs as [Ha [_ Hs]]; split; [|split; [apply cwf_cmap2|exact Hs]]; intro k.
+  destruct Hs as [Ha Hs]; split; [|exact Hs]; intro k.
   cbn [ksann]; rewrite Hl, lmin_unshift, cget_cadd, Ha; reflexivity.
 Qed.
 
@@ -395,10 +368,10 @@ Proof.
   assert (El : klist (KSeq m w (ktrebase m t) (sprebase m s)) = splist (SCons w t s)).
   { change (map (unshift m) (splist (sprebase m (SCons w t s))) = splist (SCons w t s)).
     rewrite E, map_map; apply map_id_in; intros e Hin.
-    apply unshift_shift; [apply (spinv_ok (SCons w t s) (conj Ht Hs) _ Hin)|].
+    apply unshift_shift.
     apply (cle_mem m m (splist (SCons w t s))); [apply cle_refl|exact Hann|exact Hin]. }
   split; [|exact El].
-  split; [intro k; rewrite El; apply Hann|split; [apply cwf_cmap2|]].
+  split; [intro k; rewrite El; apply Hann|].
   pose proof (spinv_sprebase m (SCons w t s) (conj Ht Hs) Hm) as H; exact H.
 Qed.
 
@@ -413,23 +386,22 @@ Proof. destruct s; cbn; [tauto|]; intros [H1 H2]; split; [apply ktshape_ktrebase
 Lemma omin_comm a b : omin a b = omin b a.
 Proof. destruct a, b; cbn; try reflexivity; f_equal; lia. Qed.
 
-Theorem kcons_spec x s : eok x -> kinv s -> klist (kcons x s) = x :: klist s /\ kinv (kcons x s).
+Theorem kcons_spec x s : kinv s -> klist (kcons x s) = x :: klist s /\ kinv (kcons x s).
 Proof.
-  intros Hx Hs; destruct s as [|a w1 t1 s'].
+  intros Hs; destruct s as [|a w1 t1 s'].
   - assert (Hl : spinv (SCons 1 (KLeaf x) SNil))
-      by (split; [split; [intro k; cbn [ktlist]; rewrite lmin_single; reflexivity|exact Hx]|exact I]).
+      by (split; [split; [intro k; cbn [ktlist]; rewrite lmin_single; reflexivity|exact I]|exact I]).
     destruct (kmk_spec _ Hl) as [H E]; split; [exact E|exact H].
-  - pose proof (kinv_cell_ok _ _ _ _ Hs) as Hok; pose proof (kinv_ann _ Hs) as Ha.
-    destruct Hs as [_ [Cw [Ht1 Hs']]]; cbn [ksann klist] in Ha.
+  - pose proof (kinv_ann _ Hs) as Ha.
+    destruct Hs as [_ [Ht1 Hs']]; cbn [ksann klist] in Ha.
     set (L := splist (SCons w1 t1 s')) in *.
     set (a' := cmin a (uses x)); set (d := cexcess a (uses x)).
     assert (HL : map (unshift a') (map (unshift d) L) = map (unshift a) L).
     { rewrite map_map; apply map_ext_in; intros e Hin; rewrite unshift_unshift; apply unshift_ext.
       intros k Hk; rewrite dval_cplus; apply dval_cexcess, (uses_below a L Ha e k Hin Hk). }
-    assert (Hx' : eok (shift a' x)) by apply ok_shift, Hx.
-    assert (Ux : unshift a' (shift a' x) = x) by (apply unshift_shift; [exact Hx|apply cle_cmin_r]).
+    assert (Ux : unshift a' (shift a' x) = x) by (apply unshift_shift, cle_cmin_r).
     assert (Hleaf : ktinv (KLeaf (shift a' x)))
-      by (split; [intro k; cbn [ktlist]; rewrite lmin_single; reflexivity|exact Hx']).
+      by (split; [intro k; cbn [ktlist]; rewrite lmin_single; reflexivity|exact I]).
     assert (Ht1' : ktinv (ktlift d t1)) by apply ktinv_ktlift, Ht1.
     assert (Hs'' : spinv (splift d s')) by apply spinv_splift, Hs'.
     assert (E1 : ktlist (ktlift d t1) ++ splist (splift d s') = map (unshift d) L)
@@ -439,7 +411,7 @@ Proof.
                ktinv t -> spinv sp -> ktlist t ++ splist sp = shift a' x :: map (unshift d) L ->
                klist (KSeq a' w t sp) = x :: map (unshift a) L /\ kinv (KSeq a' w t sp)).
     { intros w t sp Ht Hsp E; cbn [klist splist]; rewrite E; cbn [map]; rewrite Ux, HL.
-      split; [reflexivity|]; split; [|split; [apply cwf_cmap2|split; assumption]].
+      split; [reflexivity|]; split; [|split; assumption].
       intro k; cbn [ksann klist splist]; rewrite E; cbn [map]; rewrite Ux, HL.
       change (lmin (x :: map (unshift a) L) k) with (omin (cget (uses x) k) (lmin (map (unshift a) L) k)).
       rewrite <- Ha; unfold a'; rewrite cget_cmin; apply omin_comm. }
@@ -567,15 +539,13 @@ Proof.
   - cbn in S1, S2; destruct S1 as [w1 [Hw1 [Sl1 Sr1]]], S2 as [w2 [Hw2 [Sl2 Sr2]]].
     assert (w1 = w2) as <- by lia.
     assert (Ha : a1 = a2).
-    { apply counts_ext; [apply H1|apply H2|]; intro k.
+    { apply counts_ext; intro k.
       transitivity (lmin (ktlist (KNode a1 x1 l1 r1)) k); [apply (ktinv_ann _ H1)|].
       rewrite E; symmetry; apply (ktinv_ann _ H2). }
     subst a2; cbn [ktlist] in E.
-    apply (map_inj_ok (unshift a1) eok) in E;
-      [|intros x y Hx Hy; apply unshift_inj; assumption
-       |apply (ktinv_node_ok _ _ _ _ H1)|apply (ktinv_node_ok _ _ _ _ H2)].
+    apply (map_inj (unshift a1) (unshift_inj a1)) in E.
     injection E as -> E.
-    destruct H1 as [_ [_ [_ [Hl1 Hr1]]]], H2 as [_ [_ [_ [Hl2 Hr2]]]].
+    destruct H1 as [_ [Hl1 Hr1]], H2 as [_ [Hl2 Hr2]].
     apply app_inj_length in E as [El Er];
       [|rewrite (ktlength _ _ Sl1), (ktlength _ _ Sl2); reflexivity].
     f_equal; [apply (IHl l2 w1)|apply (IHr r2 w1)]; assumption.
@@ -593,9 +563,9 @@ Proof. intros [H _]; exact H. Qed.
 Lemma kgood_nil : kgood KNil.
 Proof. split; [split; [intro k; reflexivity|exact I]|split; reflexivity]. Qed.
 
-Theorem kgood_kcons x s : eok x -> kgood s -> kgood (kcons x s) /\ klist (kcons x s) = x :: klist s.
+Theorem kgood_kcons x s : kgood s -> kgood (kcons x s) /\ klist (kcons x s) = x :: klist s.
 Proof.
-  intros Hx [Hs [Hsh Hc]]; destruct (kcons_spec x s Hx Hs) as [E Hs'].
+  intros [Hs [Hsh Hc]]; destruct (kcons_spec x s Hs) as [E Hs'].
   split; [split; [exact Hs'|split; [apply kshape_kcons, Hsh|apply kcanon_kcons, Hc]]|exact E].
 Qed.
 
@@ -619,13 +589,11 @@ Proof.
   destruct G1 as [H1 [S1 _]], G2 as [H2 [S2 _]].
   destruct s1 as [|a1 w1 t1 s1], s2 as [|a2 w2 t2 s2]; try discriminate; [reflexivity|].
   assert (Ha : a1 = a2).
-  { apply counts_ext; [apply H1|apply H2|]; intro k.
+  { apply counts_ext; intro k.
     transitivity (lmin (klist (KSeq a1 w1 t1 s1)) k); [apply (kinv_ann _ H1)|].
     rewrite E; symmetry; apply (kinv_ann _ H2). }
   subst a2; cbn [klist] in E.
-  apply (map_inj_ok (unshift a1) eok) in E;
-    [|intros x y Hx Hy; apply unshift_inj; assumption
-     |apply (kinv_cell_ok _ _ _ _ H1)|apply (kinv_cell_ok _ _ _ _ H2)].
+  apply (map_inj (unshift a1) (unshift_inj a1)) in E.
   assert (Hs : SCons w1 t1 s1 = SCons w2 t2 s2)
     by (apply spcanonical; try assumption; apply kinv_spine with a1; assumption).
   injection Hs as -> -> ->; reflexivity.
@@ -651,12 +619,12 @@ Definition kapp (l : list X) (s : kseq) : kseq := fold_right kcons s l.
 Definition kof_list (l : list X) : kseq := kapp l KNil.
 
 (** Taking a shift off the top of a sequence keeps it well formed. *)
-Lemma kgood_unlift d s : kgood (klift d s) -> cwf (ksann s) -> kgood s.
+Lemma kgood_unlift d s : kgood (klift d s) -> kgood s.
 Proof.
-  destruct s as [|a w t s']; [intros _ _; apply kgood_nil|].
-  intros [[Ha [_ [Ht Hs]]] [Hsh Hc]] Cw; cbn [ksann] in Cw.
+  destruct s as [|a w t s']; [intros _; apply kgood_nil|].
+  intros [[Ha [Ht Hs]] [Hsh Hc]].
   split; [|split; [exact Hsh|exact Hc]].
-  split; [|split; [exact Cw|split; assumption]].
+  split; [|split; assumption].
   intro k; specialize (Ha k); cbn [ksann klist klift] in Ha |- *.
   rewrite lmin_unshift in Ha |- *; rewrite cget_cadd in Ha.
   destruct (cget a k) as [x|], (lmin (splist (SCons w t s')) k) as [n|]; cbn in Ha |- *;
@@ -665,19 +633,18 @@ Proof.
     destruct (cget d k); discriminate.
 Qed.
 
-Theorem kgood_kapp l s : (forall e, In e l -> eok e) -> kgood s ->
-  kgood (kapp l s) /\ klist (kapp l s) = l ++ klist s.
+Theorem kgood_kapp l s : kgood s -> kgood (kapp l s) /\ klist (kapp l s) = l ++ klist s.
 Proof.
-  intros Hok G; induction l as [|x l IH]; [split; [exact G|reflexivity]|].
-  destruct IH as [G1 E]; [intros e He; apply Hok; right; exact He|].
+  intros G; induction l as [|x l IH]; [split; [exact G|reflexivity]|].
+  destruct IH as [G1 E].
   cbn [kapp fold_right]; fold (kapp l s).
-  destruct (kgood_kcons x (kapp l s) (Hok x (or_introl eq_refl)) G1) as [G' E'].
+  destruct (kgood_kcons x (kapp l s) G1) as [G' E'].
   split; [exact G'|rewrite E', E; reflexivity].
 Qed.
 
-Theorem kgood_of_list l : (forall e, In e l -> eok e) -> kgood (kof_list l) /\ klist (kof_list l) = l.
+Theorem kgood_of_list l : kgood (kof_list l) /\ klist (kof_list l) = l.
 Proof.
-  intros Hok; destruct (kgood_kapp l KNil Hok kgood_nil) as [G E].
+  destruct (kgood_kapp l KNil kgood_nil) as [G E].
   split; [exact G|unfold kof_list; rewrite E, app_nil_r; reflexivity].
 Qed.
 
@@ -720,7 +687,7 @@ Proof.
     split; [split; assumption|reflexivity].
   - destruct Hw as [w' [-> [Hl Hr]]]; destruct i as [|j].
     + cbn [ktdrop]; split; [split; assumption|reflexivity].
-    + destruct Ht as [_ [_ [_ [Tl Tr]]]].
+    + destruct Ht as [_ [Tl Tr]].
       assert (Tl' : ktinv (ktlift a l)) by (apply ktinv_ktlift, Tl).
       assert (Tr' : ktinv (ktlift a r)) by (apply ktinv_ktlift, Tr).
       cbn [ktdrop ktlist]; rewrite div2_succ_double, skipn_map; cbn [skipn].
@@ -880,23 +847,17 @@ Qed.
 
 Section Decide.
 
-Variable eokb : X -> bool.
-Hypothesis eokb_spec : forall x, eokb x = true <-> eok x.
-
 Fixpoint ktinvb (t : ktree) : bool :=
   match t with
-  | KLeaf x => eokb x
-  | KNode a x l r => cwfb a && ceqb a (lminc (ktlist t)) && eokb x && ktinvb l && ktinvb r
+  | KLeaf _ => true
+  | KNode a x l r => ceqb a (lminc (ktlist t)) && ktinvb l && ktinvb r
   end.
 
 Lemma ktinvb_spec t : ktinvb t = true <-> ktinv t.
 Proof.
   induction t as [x|a x l IHl r IHr]; cbn [ktinvb ktinv ktann].
-  - rewrite eokb_spec; split; [intros H; split; [intro k; cbn [ktlist]; rewrite lmin_single; reflexivity|exact H]|intros [_ H]; exact H].
-  - rewrite !andb_true_iff, cwfb_spec, eokb_spec, IHl, IHr.
-    split.
-    + intros [[[[Hw Ha] Hx] Hl] Hr]; split; [apply (ceqb_lminc a _ Hw), Ha|tauto].
-    + intros [Ha [Hw [Hx [Hl Hr]]]]; repeat split; try assumption; apply (ceqb_lminc a _ Hw), Ha.
+  - split; [intros _; split; [intro k; cbn [ktlist]; rewrite lmin_single; reflexivity|exact I]|reflexivity].
+  - rewrite !andb_true_iff, ceqb_lminc, IHl, IHr; tauto.
 Qed.
 
 
@@ -912,17 +873,14 @@ Qed.
 Definition kinvb (s : kseq) : bool :=
   match s with
   | KNil => true
-  | KSeq a _ t s' => cwfb a && ceqb a (lminc (klist s)) && ktinvb t && spinvb s'
+  | KSeq a _ t s' => ceqb a (lminc (klist s)) && ktinvb t && spinvb s'
   end.
 
 Lemma kinvb_spec s : kinvb s = true <-> kinv s.
 Proof.
   destruct s as [|a w t s]; cbn [kinvb kinv ksann].
   - split; [intros _; split; [intro k; reflexivity|exact I]|reflexivity].
-  - rewrite !andb_true_iff, cwfb_spec, ktinvb_spec, spinvb_spec.
-    split.
-    + intros [[[Hw Ha] Ht] Hs]; split; [apply (ceqb_lminc a _ Hw), Ha|tauto].
-    + intros [Ha [Hw [Ht Hs]]]; repeat split; try assumption; apply (ceqb_lminc a _ Hw), Ha.
+  - rewrite !andb_true_iff, ceqb_lminc, ktinvb_spec, spinvb_spec; unfold kinv; cbn [ksann]; tauto.
 Qed.
 
 Fixpoint ktshapeb (w : nat) (t : ktree) : bool :=

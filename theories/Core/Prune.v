@@ -101,9 +101,8 @@ Definition clears (z : X) : Prop :=
 (** [Pd] says which (absolute) elements [G] is known on; every element
     of the structure mapped must satisfy it. *)
 Variable Pd : X -> Prop.
-Hypothesis HF : forall B x, eok x -> Pd (unshift B x) -> F B x = G (unshift B x).
-Hypothesis HG : forall z, eok z -> Pd z -> clears z -> G z = unshift tau (shift th z).
-Hypothesis HGok : forall z, eok z -> Pd z -> eok (G z).
+Hypothesis HF : forall B x, Pd (unshift B x) -> F B x = G (unshift B x).
+Hypothesis HG : forall z, Pd z -> clears z -> G z = unshift tau (shift th z).
 
 (** The blocking map covers every use under a threshold among [L]. *)
 Definition sound (bl : tree nat) (L : list X) : Prop :=
@@ -156,20 +155,18 @@ Qed.
 
 (** The shift arithmetic for a moved node. *)
 Lemma move_shift M P y :
-  eok y ->
   (forall k, cget (uses y) k <> None ->
              exists p, cget M k = Some p /\ cget P k = Some p
                        /\ forall t, cget th k = Some t -> t <= p) ->
   unshift tau (shift th (unshift P y)) = unshift (move M) y.
 Proof.
-  intros Hy HM; set (D := csub P th).
+  intros HM; set (D := csub P th).
   assert (E1 : shift th (unshift P y) = unshift D y).
-  { apply (unshift_inj th); [apply ok_shift, ok_unshift, Hy|apply ok_unshift, Hy|].
+  { apply (unshift_inj th).
     rewrite unshift_shift.
     - rewrite unshift_unshift; apply unshift_ext; intros k Hk.
       destruct (HM k Hk) as [p [_ [Ep Ht]]]; rewrite dval_cplus; unfold dval, D.
       rewrite cget_csub, Ep; destruct (cget th k) as [t|] eqn:Et; cbn; [specialize (Ht t eq_refl)|]; lia.
-    - apply ok_unshift, Hy.
     - intros k t m Et Em; rewrite uses_unshift in Em.
       destruct (cget (uses y) k) as [u|] eqn:Eu; [|destruct (cget P k); discriminate].
       destruct (HM k ltac:(congruence)) as [p [_ [Ep Ht]]]; rewrite Ep in Em; cbn in Em.
@@ -232,14 +229,14 @@ Qed.
 
 (** A moved node: its elements were all above the thresholds. *)
 Lemma moved bl B a (L : list X) :
-  (forall k, cget a k = lmin (map (unshift a) L) k) -> (forall y, In y L -> eok y) ->
+  (forall k, cget a k = lmin (map (unshift a) L) k) ->
   (forall z, In z (map (unshift a) L) -> Pd (unshift B z)) ->
   sound bl (map (unshift B) (map (unshift a) L)) ->
   bempty (below bl (cadd B a)) = true ->
   map (unshift (move (cadd B a))) L = map (fun y => G (unshift B y)) (map (unshift a) L)
   /\ forall k, cget (move (cadd B a)) k = lmin (map (unshift (move (cadd B a))) L) k.
 Proof.
-  intros Ha Hok HP Hs Hb; set (M := cadd B a); set (P := cadd B a).
+  intros Ha HP Hs Hb; set (M := cadd B a); set (P := cadd B a).
   pose proof (pruned_counts bl B a L Ha Hs Hb) as HM; fold M P in HM.
   assert (Hused : forall y k, In y L -> cget (uses y) k <> None -> lmin L k <> None).
   { intros y k Hy Hk; apply (lmin_some L y k Hy Hk). }
@@ -250,9 +247,9 @@ Proof.
                   exists p, cget M k = Some p /\ cget P k = Some p
                             /\ forall t, cget th k = Some t -> t <= p)
       by (intros k Hk; apply HM, (Hused y k Hy Hk)).
-    rewrite HG by (apply ok_unshift, Hok, Hy || apply (Pd_child B a L y Ha HP Hy)
+    rewrite HG by (apply (Pd_child B a L y Ha HP Hy)
                    || apply (pruned_clears bl B a L Ha Hs Hb y Hy)).
-    symmetry; apply move_shift; [apply Hok, Hy|exact Hy'].
+    symmetry; apply move_shift, Hy'.
   - intros k; rewrite lmin_unshift.
     destruct (ann_cases a L k (Ha k)) as [[Ea E]|[x [Ex E]]]; rewrite E.
     + unfold move, M; rewrite cget_cadd, cget_csub, cget_cadd, Ea; reflexivity.
@@ -266,19 +263,15 @@ Theorem ktmap_spec t : forall bl B,
 Proof.
   induction t as [x|a x l IHl r IHr]; intros bl B Ht Hs HP.
   - assert (HPx : Pd (unshift B x)) by (apply HP; left; reflexivity).
-    assert (Hx : eok (F B x)) by (rewrite HF by (apply Ht || exact HPx); apply HGok; [apply ok_unshift, Ht|exact HPx]).
-    split; [split; [intro k; cbn [ktlist ktann]; rewrite lmin_single; reflexivity|exact Hx]|].
-    cbn; rewrite HF by (apply Ht || exact HPx); reflexivity.
-  - pose proof (ktinv_ok _ Ht) as Hok; destruct Ht as [Ha [Hcwf [Hx [Hl Hr]]]].
-    cbn [ktann ktlist] in Ha, Hok |- *; cbn [ktmap].
+    split; [split; [intro k; cbn [ktlist ktann]; rewrite lmin_single; reflexivity|exact I]|].
+    cbn; rewrite HF by exact HPx; reflexivity.
+  - destruct Ht as [Ha [Hl Hr]].
+    cbn [ktann ktlist] in Ha |- *; cbn [ktmap].
     set (L := x :: ktlist l ++ ktlist r) in *.
-    assert (HokL : forall y, In y L -> eok y).
-    { intros y Hy; destruct Hy as [<-|Hy]; [exact Hx|].
-      apply in_app_or in Hy as [Hy|Hy]; [apply (ktinv_ok l Hl _ Hy)|apply (ktinv_ok r Hr _ Hy)]. }
     destruct (bempty (below bl (cadd B a))) eqn:Eb.
-    + destruct (moved bl B a L Ha HokL HP Hs Eb) as [E Hann].
+    + destruct (moved bl B a L Ha HP Hs Eb) as [E Hann].
       split; [|cbn [ktlist]; exact E].
-      split; [exact Hann|split; [apply cwf_cmap2|split; [exact Hx|split; assumption]]].
+      split; [exact Hann|split; assumption].
     + pose proof (sound_below bl B a L Ha Hs) as Hs'.
       pose proof (Pd_child B a L) as HPc.
       set (bl' := below bl (cadd B a)) in *; set (P := cadd B a) in *.
@@ -293,11 +286,9 @@ Proof.
       destruct (IHr bl' P Hr Hsr) as [Hr' Er].
       { intros y Hy; apply (HPc y Ha HP); right; apply in_or_app; right; exact Hy. }
       assert (HPx : Pd (unshift P x)) by (apply (HPc x Ha HP); left; reflexivity).
-      assert (HFx : eok (F P x))
-        by (rewrite HF by (exact Hx || exact HPx); apply HGok; [apply ok_unshift, Hx|exact HPx]).
       split; [apply ktinv_ktnode; assumption|].
       rewrite ktlist_ktnode, El, Er by assumption.
-      rewrite HF by (exact Hx || exact HPx).
+      rewrite HF by exact HPx.
       transitivity (map (fun y => G (unshift P y)) L); [unfold L; cbn [map]; rewrite map_app; reflexivity|].
       rewrite map_map; apply map_ext_in; intros y Hy; unfold P; rewrite (unshift_cadd B a L y Ha Hy); reflexivity.
 Qed.
@@ -324,14 +315,14 @@ Theorem kmap_spec s : forall bl B,
   kinv (kmap bl B s) /\ klist (kmap bl B s) = map (fun y => G (unshift B y)) (klist s).
 Proof.
   destruct s as [|a w t s']; intros bl B Hs Hsd HP; [split; [exact Hs|reflexivity]|].
-  pose proof (kinv_cell_ok _ _ _ _ Hs) as HokL; pose proof (kinv_ann _ Hs) as Ha.
-  pose proof (kinv_spine _ _ _ _ Hs) as Hsp; destruct Hs as [_ [Hcwf _]].
-  cbn [ksann klist] in Ha, HokL, Hsd, HP |- *; cbn [kmap].
+  pose proof (kinv_ann _ Hs) as Ha.
+  pose proof (kinv_spine _ _ _ _ Hs) as Hsp.
+  cbn [ksann klist] in Ha, Hsd, HP |- *; cbn [kmap].
   set (L := splist (SCons w t s')) in *.
   destruct (bempty (below bl (cadd B a))) eqn:Eb.
-  - destruct (moved bl B a L Ha HokL HP Hsd Eb) as [E Hann].
+  - destruct (moved bl B a L Ha HP Hsd Eb) as [E Hann].
     split; [|cbn [klist]; exact E].
-    split; [exact Hann|split; [apply cwf_cmap2|exact Hsp]].
+    split; [exact Hann|exact Hsp].
   - pose proof (sound_below bl B a L Ha Hsd) as Hs2.
     pose proof (Pd_child B a L) as HPc.
     set (bl' := below bl (cadd B a)) in *; set (P := cadd B a) in *.
@@ -401,15 +392,12 @@ Theorem atmap_spec t : forall bl B,
   /\ forall k, aget k (atmap bl B t) = option_map (fun y => G (unshift B y)) (aget k t).
 Proof.
   induction t as [|a l IHl o r IHr]; intros bl B Ht Hs HP; [split; [exact I|reflexivity]|].
-  pose proof (ainv_ok _ Ht) as Hok; destruct Ht as [Ha [Hcwf [Hne [Ho [Hl Hr]]]]].
-  cbn [aelems] in Ha, Hok |- *; cbn [atmap].
+  destruct Ht as [Ha [Hne [Hl Hr]]].
+  cbn [aelems] in Ha |- *; cbn [atmap].
   set (L := aelems l ++ oelems o ++ aelems r) in *.
-  assert (HokL : forall y, In y L -> eok y).
-  { intros y Hy; apply in_app_or in Hy as [Hy|Hy]; [apply (ainv_ok l Hl _ Hy)|].
-    apply in_app_or in Hy as [Hy|Hy]; [destruct o; [destruct Hy as [<-|[]]; exact Ho|destruct Hy]|apply (ainv_ok r Hr _ Hy)]. }
   destruct (bempty (below bl (cadd B a))) eqn:Eb.
-  - destruct (moved bl B a L Ha HokL HP Hs Eb) as [E Hann].
-    split; [split; [exact Hann|split; [apply cwf_cmap2|split; [exact Hne|split; [exact Ho|split; assumption]]]]|].
+  - destruct (moved bl B a L Ha HP Hs Eb) as [E Hann].
+    split; [split; [exact Hann|split; [exact Hne|split; assumption]]|].
     intros k; cbn [aget]; fold (asub k l o r).
     destruct (asub k l o r) as [y|] eqn:Ey; [|reflexivity]; cbn [option_map].
     f_equal; rewrite map_map in E; apply (map_eq_in _ _ _ E), (asub_in _ _ _ _ _ Ey).
@@ -426,10 +414,7 @@ Proof.
     { intros y Hy; apply (HPc y Ha HP); apply in_or_app; right; apply in_or_app; right; exact Hy. }
     assert (HPo : forall x, o = Some x -> Pd (unshift P x))
       by (intros x ->; apply (HPc x Ha HP); apply in_or_app; right; apply in_or_app; left; left; reflexivity).
-    assert (Ho' : ook (option_map (F P) o))
-      by (destruct o as [x|]; [cbn; rewrite HF by (exact Ho || exact (HPo x eq_refl));
-                               apply HGok; [apply ok_unshift, Ho|exact (HPo x eq_refl)]|exact I]).
-    split; [apply ainv_amknode; [assumption|assumption|assumption|apply anonempty_atmap, Hne]|].
+    split; [apply ainv_amknode; [assumption|assumption|apply anonempty_atmap, Hne]|].
     intros k; rewrite aget_amknode by assumption; cbn [aget].
     destruct k as [k|k|]; cbn [asub].
     + rewrite Er; destruct (aget k r) as [y|] eqn:Ey; [|reflexivity]; cbn [option_map]; unfold P.
@@ -449,7 +434,7 @@ Theorem atvisit_spec t : forall bl B kf k e,
   aget k t = Some e -> ~ In (kf k) (atvisit bl B kf t) -> clears (unshift B e).
 Proof.
   induction t as [|a l IHl o r IHr]; intros bl B kf k e Ht Hs E Hv; [discriminate|].
-  destruct Ht as [Ha [_ [_ [_ [Hl Hr]]]]]; cbn [aelems] in Ha, Hs.
+  destruct Ht as [Ha [_ [Hl Hr]]]; cbn [aelems] in Ha, Hs.
   cbn [aget] in E; fold (asub k l o r) in E.
   destruct (asub k l o r) as [y|] eqn:Ey; [|discriminate]; injection E as <-.
   set (L := aelems l ++ oelems o ++ aelems r) in *.

@@ -220,10 +220,10 @@ Proof. reflexivity. Qed.
 
 Lemma kmap_rebase F bl B (ts : kseq target) :
   kmap th tau F bl B ts = kmap th tau F bl cnone (klift B ts).
-Proof. destruct ts as [|c w t s]; [reflexivity|]; cbn [klift kmap]; rewrite cadd_cnone by apply cwf_cmap2; reflexivity. Qed.
+Proof. destruct ts as [|c w t s]; [reflexivity|]; cbn [klift kmap]; rewrite cadd_cnone ; reflexivity. Qed.
 
 Lemma ncomp_rebase pay r es B : ncomp pay (NAdj r es) B = ncomp pay (NAdj (cadd B r) es) cnone.
-Proof. rewrite !ncomp_eq, (cadd_cnone (cadd B r)) by apply cwf_cmap2; reflexivity. Qed.
+Proof. rewrite !ncomp_eq, (cadd_cnone (cadd B r)); reflexivity. Qed.
 
 Lemma tcF_rebase B t : tcF B t = tcF cnone (unshift B t).
 Proof. destruct t as [y j|u [r es]]; [reflexivity|]; cbn [tcF unshift target_based tunshift]; rewrite ncomp_rebase; reflexivity. Qed.
@@ -382,19 +382,15 @@ Qed.
 Lemma lapp_klist h ts p i : eabs (Entry h ts (klength ts) p) i = lapp h (klist ts) p i.
 Proof. reflexivity. Qed.
 
-Lemma kgood_targets_ok (ts : kseq target) : kgood ts -> forall t, In t (klist ts) -> eok t.
-Proof. intros G; apply kinv_ok, kgood_inv, G. Qed.
-
 Definition entry_good (h : option label) (e : entry) : Prop :=
   match e with
   | Entry h' ts len p => h' = h /\ kgood ts /\ klength ts = len /\ strip_ok e
   end.
 
 Lemma kof_list_good (L : list target) :
-  (forall t, In t L -> eok t) -> kgood (kof_list L) /\ klist (kof_list L) = L
-  /\ klength (kof_list L) = length L.
+  kgood (kof_list L) /\ klist (kof_list L) = L /\ klength (kof_list L) = length L.
 Proof.
-  intros H; destruct (kgood_of_list L H) as [G E]; split; [exact G|split; [exact E|]].
+  destruct (kgood_of_list L) as [G E]; split; [exact G|split; [exact E|]].
   rewrite klength_spec by apply (kgood_shape _ G); rewrite E; reflexivity.
 Qed.
 
@@ -403,7 +399,7 @@ Theorem estrip_spec h ts p :
   entry_good h (estrip h ts (klength ts) p)
   /\ forall i, eabs (estrip h ts (klength ts) p) i = lapp h (klist ts) p i.
 Proof.
-  intros G; pose proof (kgood_targets_ok ts G) as Hok.
+  intros G.
   assert (Hl : klength ts = length (klist ts)) by (apply klength_spec, kgood_shape, G).
   assert (Hplain : strip_ok (Entry h ts (klength ts) p) ->
                    entry_good h (Entry h ts (klength ts) p)
@@ -414,17 +410,7 @@ Proof.
   - destruct (tvar_at h p' t) eqn:Tv.
     + destruct (rstrip h (rev (klist ts)) (S p')) as [R p2] eqn:Er.
       destruct (rstrip_spec h _ _ R p2 Er) as [Hm Hn].
-      assert (HokR : forall t, In t (rev R) -> eok t).
-      { intros t' Ht'.
-        (* [R] is a suffix of the reversed list *)
-        assert (Hsuf : forall R0 q R1 q1, rstrip h R0 q = (R1, q1) -> forall x, In x R1 -> In x R0).
-        { induction R0 as [|x0 R0 IH0]; intros q R1 q1 E x Hx; cbn [rstrip] in E.
-          - destruct q; injection E as <- <-; exact Hx.
-          - destruct q as [|q']; [injection E as <- <-; exact Hx|].
-            destruct (tvar_at h q' x0); [right; apply (IH0 _ _ _ E _ Hx)|injection E as <- <-; exact Hx]. }
-        assert (H1 : In t' R) by (apply in_rev; exact Ht').
-        apply (Hsuf _ _ _ _ Er) in H1; apply Hok, in_rev, H1. }
-      destruct (kof_list_good (rev R) HokR) as [G' [E' L']].
+      destruct (kof_list_good (rev R)) as [G' [E' L']].
       split.
       * split; [reflexivity|split; [exact G'|split; [rewrite L', length_rev; reflexivity|]]].
         cbn [strip_ok]; intros [Hlen [Hp Hn']]; apply Hn.
@@ -452,15 +438,7 @@ Definition alist (h : option label) : list target :=
 Lemma esa_ok k e : aget k esa = Some e -> entry_ok k e.
 Proof.
   unfold esa; destruct a as [w es]; cbn; intros E.
-  destruct Ha as [_ [_ [_ [Hent _]]]]; apply (Hent _ _ E).
-Qed.
-
-Lemma alist_ok h t : In t (alist h) -> eok t.
-Proof.
-  unfold alist; destruct (aget (label_key h) esa) as [[h' tsa len p]|] eqn:E; [|intros []].
-  intros Hin; apply in_map_iff in Hin as [t0 [<- Hin]].
-  destruct (esa_ok _ _ E) as [_ [G _]].
-  exact (ok_unshift wa t0 (kgood_targets_ok tsa G _ Hin)).
+  destruct Ha as [_ [_ [Hent _]]]; apply (Hent _ _ E).
 Qed.
 
 Lemma length_alist h : length (alist h) = thv h.
@@ -506,7 +484,7 @@ Lemma ecat_good h ts1 s :
   /\ klength (kapp (klist ts1) (aextra h s)) = klength ts1 + klength (aextra h s).
 Proof.
   intros G; destruct (aextra_spec h s) as [Gx Ex].
-  destruct (kgood_kapp (klist ts1) (aextra h s) (kgood_targets_ok _ G) Gx) as [G2 E2].
+  destruct (kgood_kapp (klist ts1) (aextra h s) Gx) as [G2 E2].
   split; [exact G2|split; [rewrite E2, Ex; reflexivity|]].
   rewrite !klength_spec, E2, length_app by (apply kgood_shape; assumption); reflexivity.
 Qed.
@@ -579,18 +557,6 @@ Qed.
 
 (** ** Proofs: the steps of [finish] *)
 
-Lemma kgood_cwf (ts : kseq target) : kgood ts -> cwf (ksann ts).
-Proof. intros [Hi _]; destruct ts as [|c w t s]; [apply cwf_cnone|destruct Hi as [_ [H _]]; exact H]. Qed.
-
-Lemma entry_good_ok h e : entry_good h e -> eok e.
-Proof. destruct e as [h' ts len p]; intros [_ [G _]]; apply kgood_cwf, G. Qed.
-
-Lemma ook_adrop h n : ook (adrop h n).
-Proof.
-  destruct (adrop h n) as [e|] eqn:E; [|exact I].
-  apply (entry_good_ok h), (proj1 (adrop_spec h n e E)).
-Qed.
-
 Theorem add_aonly_spec pay W es :
   ainv es ->
   ainv (add_aonly pay W es)
@@ -640,8 +606,8 @@ Proof.
           rewrite Sk; cbn [negb andb]; rewrite Hg, Sk, andb_true_r in E0.
           destruct (aget _ es) as [e1|]; [reflexivity|].
           destruct (existsb _ L); cbn [andb orb negb] in *; [reflexivity|discriminate].
-        * destruct (aupdate_spec (label_key (elabel e)) (fun _ => adrop (elabel e) (dval W (label_key (elabel e)))) es' Hi
-                      (fun _ _ => ook_adrop _ _)) as [Ha' Hg'].
+        * destruct (aupdate_spec (label_key (elabel e)) (fun _ => adrop (elabel e) (dval W (label_key (elabel e)))) es' Hi)
+            as [Ha' Hg'].
           split; [exact Ha'|intro k; rewrite Hg', Pos.eqb_sym].
           destruct (Pos.eqb_spec (label_key (elabel e)) k) as [<-|]; cbn [orb].
           -- rewrite Hg in E0; rewrite Ge, Sk; cbn [negb andb].
@@ -690,7 +656,7 @@ Proof.
     by (split; [exact Hes|intro k'; destruct (Pos.eqb_spec k' k) as [->|]; reflexivity]).
   destruct (aget k es) as [[h [|c w t s] [|len] p]|] eqn:E; try exact Hsame.
   destruct (oeqb (cget R k) (Some p)); [|exact Hsame].
-  destruct (aupdate_spec k (fun _ => None) es Hes (fun _ _ => I)) as [Ha' Hg]; split; [exact Ha'|].
+  destruct (aupdate_spec k (fun _ => None) es Hes) as [Ha' Hg]; split; [exact Ha'|].
   intro k'; rewrite Hg; reflexivity.
 Qed.
 
@@ -706,12 +672,6 @@ Definition gapf (I R : counts) (k : positive) (o : option entry) : option entry 
   | None => if Nat.ltb (dval R k) (dval I k) then agap k (dval I k) else None
   end.
 
-Lemma ook_agap k p : ook (agap k p).
-Proof.
-  unfold agap; destruct (key_label k); [|exact I].
-  destruct (Pos.eqb _ _); [apply cwf_cnone|exact I].
-Qed.
-
 Lemma add_gap_step I R es k :
   ainv es -> ainv (add_gap_at I R es k)
   /\ forall k', aget k' (add_gap_at I R es k) = if Pos.eqb k' k then gapf I R k (aget k es) else aget k' es.
@@ -721,7 +681,7 @@ Proof.
     by (split; [exact Hes|intro k'; destruct (Pos.eqb_spec k' k) as [->|]; reflexivity]).
   destruct (aget k es) as [e|] eqn:E; [exact Hsame|].
   destruct (Nat.ltb (dval R k) (dval I k)); [|exact Hsame].
-  destruct (aupdate_spec k (fun _ => agap k (dval I k)) es Hes (fun _ _ => ook_agap _ _)) as [Ha' Hg].
+  destruct (aupdate_spec k (fun _ => agap k (dval I k)) es Hes) as [Ha' Hg].
   split; [exact Ha'|]; intro k'; rewrite Hg; reflexivity.
 Qed.
 
@@ -750,8 +710,7 @@ Proof.
   rewrite klist_krebase by (apply kgood_inv, G || exact Hts).
   rewrite nth_error_map; destruct (nth_error (klist ts) i) as [t|] eqn:Et; cbn [option_map].
   - f_equal; change (unshift R (shift R t) = t); apply unshift_shift.
-    + apply (kgood_targets_ok ts G), (nth_error_In _ _ Et).
-    + apply (cle_mem _ (ksann ts) (klist ts)); [exact Hts|intro k; apply ksann_klist, G|apply (nth_error_In _ _ Et)].
+    apply (cle_mem _ (ksann ts) (klist ts)); [exact Hts|intro k; apply ksann_klist, G|apply (nth_error_In _ _ Et)].
   - apply nth_error_None in Et; lia.
 Qed.
 
@@ -817,9 +776,9 @@ Qed.
 
 (** A count map that is the minimum over elements with keyed uses is keyed. *)
 Lemma keyed_lmin {X} {BX : Based X} (L : list X) c :
-  (forall e, In e L -> keyed (uses e)) -> (forall k, cget c k = lmin L k) -> cwf c -> keyed c.
+  (forall e, In e L -> keyed (uses e)) -> (forall k, cget c k = lmin L k) -> keyed c.
 Proof.
-  intros HL Hc Hw k v E.
+  intros HL Hc k v E.
   assert (Hlab : ~ (exists l, k = label_key l) -> False).
   { intro Hn.
     assert (Hnot : forall e, In e L -> get k (c_exc (uses e)) = None)
@@ -835,7 +794,7 @@ Proof.
       rewrite IH by (intros; first [apply Hnot | apply Hl2]; right; assumption).
       f_equal; unfold cget; rewrite Hnot, Hl2 by (left; reflexivity); reflexivity. }
     rewrite <- !Hc in Hsame; unfold cget in Hsame; rewrite E, Hc' in Hsame.
-    exact (Hw k v E Hsame). }
+    exact (counts_wf c k v E Hsame). }
   destruct (key_label k) as [l|] eqn:Kl; [destruct (Pos.eqb_spec (label_key l) k) as [<-|Hne]; [eauto|]|];
     exfalso; apply Hlab; intros [l' ->]; rewrite key_label_spec in Kl; [injection Kl as ->; congruence|discriminate].
 Qed.
@@ -1045,22 +1004,19 @@ Proof. destruct t as [y j|u [r es']]; cbn; intros Hd Ht; [apply keyed_cone|apply
 
 Lemma keyed_ksann (ts : kseq target) : kgood ts -> (forall t, In t (klist ts) -> keyed (tuses t)) -> keyed (ksann ts).
 Proof.
-  intros G H; apply (keyed_lmin (klist ts)); [exact H|intro k; apply ksann_klist, G|apply kgood_cwf, G].
+  intros G H; apply (keyed_lmin (klist ts)); [exact H|intro k; apply ksann_klist, G].
 Qed.
 
 Lemma keyed_entry h (ts : kseq target) len p :
   kgood ts -> (forall t, In t (klist ts) -> keyed (tuses t)) -> keyed (uses (Entry h ts len p)).
 Proof. intros G H; apply keyed_cmap2; [apply keyed_cone|apply keyed_ksann; assumption]. Qed.
 
-Lemma ainv_cwf_ann (t : atrie entry) : ainv t -> cwf (aann t).
-Proof. destruct t; [intros _; apply cwf_cnone|intros [_ [H _]]; exact H]. Qed.
-
 Hypothesis Hkey : forall k e, aget k es = Some e -> keyed (uses e).
 Hypothesis HkW : keyed W.
 Hypothesis HkA : forall k e, aget k esa = Some e -> forall t, In t (klist (etargets e)) -> keyed (tuses (tunshift wa t)).
 
 Lemma keyed_wa : keyed wa.
-Proof. unfold wa; destruct a as [w es']; destruct Ha as [_ [_ [Hk _]]]; exact Hk. Qed.
+Proof. unfold wa; destruct a as [w es']; destruct Ha as [_ [Hk _]]; exact Hk. Qed.
 
 Lemma keyed_adrop h n e : adrop h n = Some e -> keyed (uses e).
 Proof.
@@ -1082,7 +1038,7 @@ Qed.
 
 Lemma keyed_aann (t : atrie entry) : ainv t -> (forall k e, aget k t = Some e -> keyed (uses e)) -> keyed (aann t).
 Proof.
-  intros Ht H; apply (keyed_lmin (aelems t)); [|apply ainv_ann, Ht|apply ainv_cwf_ann, Ht].
+  intros Ht H; apply (keyed_lmin (aelems t)); [|apply ainv_ann, Ht].
   intros e He; destruct (aelems_aget t e He) as [k E]; apply (H _ _ E).
 Qed.
 
@@ -1322,7 +1278,7 @@ Proof.
   assert (Hes4 : ainv (arebase R es3)) by (apply ainv_arebase; [exact Hes3|exact HR]).
   assert (Hget4 : forall k, aget k (arebase R es3) = option_map (shift R) (aget k es3))
     by (intro k; apply aget_arebase; [exact Hes3|exact HR]).
-  split; [exact Hes4|split; [apply cwf_cmap2|split; [exact keyed_R|split; [|split]]]].
+  split; [exact Hes4|split; [exact keyed_R|split; [|split]]].
   - intros k e E; rewrite Hget4 in E.
     destruct (aget k es3) as [e3|] eqn:E3; [|discriminate]; injection E as <-.
     destruct (es3_good k e3 E3) as [Hk Hge].
@@ -1406,33 +1362,10 @@ Proof.
   unfold thv, tauv; f_equal; lia.
 Qed.
 
-Lemma unshift_cnone (t : target) : eok t -> unshift cnone t = t.
+Lemma unshift_cnone (t : target) : unshift cnone t = t.
 Proof.
-  destruct t as [y j|u [r es]]; [reflexivity|]; cbn; intros Hr.
-  rewrite cadd_cnone by exact Hr; reflexivity.
-Qed.
-
-Lemma napply_a_ok v u rho : napply a v = inr (u, rho) -> cwf (nroot rho).
-Proof.
-  assert (Hn : napply a v = match aget (label_key (v_label v)) esa with
-                            | None => inl (mk_rvar (v_label v) (dval wa (label_key (v_label v)) + v_index v))
-                            | Some e => eapply wa e (v_index v)
-                            end) by (unfold esa, wa; destruct a; reflexivity).
-  rewrite Hn; destruct (aget _ esa) as [e|] eqn:E; [|discriminate].
-  destruct e as [h ts len p]; destruct (esa_ok _ _ E) as [_ [G _]]; cbn [eapply].
-  destruct (Nat.ltb _ _); [|discriminate].
-  destruct (knth ts _) as [t|] eqn:Et; [|discriminate].
-  pose proof (kgood_targets_ok ts G t (knth_in _ _ _ G Et)) as Ht.
-  pose proof (ok_unshift wa t Ht) as Ht'.
-  destruct (tunshift wa t) as [y j|u' rho'] eqn:Eu; cbn; [discriminate|]; intros [= -> <-].
-  change (eok (unshift wa t)) in Ht'; cbn [unshift target_based] in Ht'; rewrite Eu in Ht'; exact Ht'.
-Qed.
-
-Lemma tcF_ok B (t : target) : eok (tcF B t).
-Proof.
-  destruct t as [y j|u rho]; cbn [tcF].
-  - destruct (napply a _) as [v|[u rho]] eqn:E; [exact Logic.I|apply (napply_a_ok _ _ _ E)].
-  - destruct rho as [r es]; rewrite ncomp_eq; unfold finish; apply cwf_cmap2.
+  destruct t as [y j|u [r es]]; [reflexivity|]; cbn.
+  rewrite cadd_cnone; reflexivity.
 Qed.
 
 Lemma estrip_noop h (ts : kseq target) len p :
@@ -1454,23 +1387,21 @@ Proof.
   intros G Hl Hs Hc Ht.
   pose proof (cle_cmin_inv_l _ _ _ Hc) as Hp; apply dval_le_cle in Hp.
   pose proof (cle_cmin_inv_r _ _ _ Hc) as Hts.
-  pose proof (kgood_targets_ok ts G) as Hok.
   (* the targets, mapped, are the moved sequence *)
   assert (Hk : kmap th tau tcF bl0 cnone ts = klift tau (krebase th ts)).
   { destruct (kgood_kmap th tau tcF (tcF cnone) (fun z => In z (klist ts))
-                (fun B x _ _ => tcF_rebase B x)
-                (fun z Hz Hin _ => Ht z Hin)
-                (fun z _ _ => tcF_ok cnone z)
+                (fun B x _ => tcF_rebase B x)
+                (fun z Hin _ => Ht z Hin)
                 bl0 cnone ts G) as [G1 E1].
     - intros z Hz k t0 m Ht0 Hm Hlt; exfalso.
-      apply in_map_iff in Hz as [y [<- Hy]]; rewrite unshift_cnone in Hm by apply Hok, Hy.
+      apply in_map_iff in Hz as [y [<- Hy]]; rewrite unshift_cnone in Hm.
       pose proof (cle_mem _ (ksann ts) (klist ts) y Hts (fun k => ksann_klist ts k G) Hy k t0 m Ht0 Hm); lia.
-    - intros y Hy; rewrite unshift_cnone by apply Hok, Hy; exact Hy.
+    - intros y Hy; rewrite unshift_cnone; exact Hy.
     - apply kcanonical; [exact G1|apply kgood_klift, kgood_krebase; assumption|].
       rewrite E1, klist_klift, klist_krebase
         by first [exact Hts | apply kgood_inv, kgood_krebase; assumption | apply kgood_inv; assumption].
       rewrite map_map; apply map_ext_in; intros y Hy; rewrite unshift_cnone by apply Hok, Hy.
-      rewrite tcF_rebase, unshift_cnone by apply Hok, Hy; apply Ht, Hy. }
+      rewrite tcF_rebase, unshift_cnone; apply Ht, Hy. }
   cbn [ecF]; rewrite Hk, cget_cnone_dval; cbn [Nat.add].
   unfold ecomp, ecomp_with; fold (thv h) (tauv h); destruct (Nat.leb_spec (thv h) p) as [Hle|Hlt]; [|unfold thv in Hlt; lia].
   rewrite estrip_noop.
@@ -1526,15 +1457,7 @@ Proof.
   destruct (tvar_at h p' t); [|exact Hsame].
   destruct (rstrip h (rev (klist ts)) (S p')) as [R p2] eqn:Er.
   destruct (rstrip_le h _ _ R p2 Er) as [Hp Hin].
-  assert (HokR : forall t, In t (rev R) -> eok t).
-  { intros t' Ht'; apply in_rev in Ht'.
-    assert (Hsuf : forall R0 q R1 q1, rstrip h R0 q = (R1, q1) -> forall x, In x R1 -> In x R0).
-    { induction R0 as [|x0 R0 IH0]; intros q R1 q1 E x Hx; cbn [rstrip] in E.
-      - destruct q; injection E as <- <-; exact Hx.
-      - destruct q as [|q']; [injection E as <- <-; exact Hx|].
-        destruct (tvar_at h q' x0); [right; apply (IH0 _ _ _ E _ Hx)|injection E as <- <-; exact Hx]. }
-    apply (Hsuf _ _ _ _ Er), in_rev in Ht'; apply (kgood_targets_ok ts G), Ht'. }
-  destruct (kof_list_good (rev R) HokR) as [G' [E' _]].
+  destruct (kof_list_good (rev R)) as [G' [E' _]].
   rewrite uses_entry_klist by exact G'; rewrite E'.
   rewrite uses_entry_klist in Hm by exact G.
   rewrite cget_cone in Hm |- *.
@@ -1604,8 +1527,7 @@ Proof.
       - destruct q as [|q']; [injection E as <- <-; exact Hx'|].
         destruct (tvar_at h q' x0); [right; apply (IH0 _ _ _ E _ Hx')|injection E as <- <-; exact Hx']. }
     apply (Hsuf _ _ _ _ Er _ Hx). }
-  assert (HokR : forall t, In t (rev R) -> eok t) by (intros t' Ht'; apply (kgood_targets_ok ts G), HR, Ht').
-  destruct (kof_list_good (rev R) HokR) as [G' [E' _]].
+  destruct (kof_list_good (rev R)) as [G' [E' _]].
   apply (cle_entry_iff c h _ _ _ G'); rewrite E'; split.
   - destruct (rstrip_p2 h _ _ R p2 Er) as [->|HT]; [exact Hp|].
     apply in_rev in HT; exact (Ht _ HT).
@@ -1693,10 +1615,7 @@ Proof.
   destruct (knth ts len') as [t0|] eqn:Et; [|cbn; exact (fun H => H)].
   destruct (tvar_at h p' t0); [|cbn; exact (fun H => H)].
   destruct (rstrip h (rev (klist ts)) (S p')) as [R p2] eqn:Er; cbn [etargets].
-  assert (HokR : forall t, In t (rev R) -> eok t).
-  { intros t' Ht'; apply in_rev in Ht'; apply (rstrip_sub _ _ _ _ _ Er), in_rev in Ht'.
-    apply (kgood_targets_ok ts G), Ht'. }
-  rewrite (proj1 (proj2 (kof_list_good (rev R) HokR))); intros Ht.
+  rewrite (proj1 (proj2 (kof_list_good (rev R)))); intros Ht.
   apply in_rev in Ht; apply (rstrip_sub _ _ _ _ _ Er), in_rev in Ht; exact Ht.
 Qed.
 
@@ -1770,7 +1689,7 @@ Proof.
                                           | Entry h _ _ p => cset c (label_key h) (Some (dval wa (label_key h) + p))
                                           end) wa L)).
   { induction L as [|e L IH]; intros HL; cbn [fold_right].
-    - unfold wa; destruct a as [w es'] eqn:Ea; destruct Ha as [_ [_ [Hk _]]]; exact Hk.
+    - unfold wa; destruct a as [w es'] eqn:Ea; destruct Ha as [_ [Hk _]]; exact Hk.
     - destruct e as [h ts len p]; apply keyed_cset; [apply IH; intros; apply HL; right; assumption|eauto]. }
   apply H; auto.
 Qed.
@@ -1780,7 +1699,7 @@ Lemma root_covers Q w (es' : atrie entry) k :
   nlocal Q (NAdj w es') -> nfin (NAdj w es') -> cget w k = None ->
   forall k' e, aget k' es' = Some e -> cget (uses e) k = None.
 Proof.
-  intros Hl Hf Hw k' e E; pose proof Hl as [Hes [_ [Hkey [_ [HQ HnQ]]]]].
+  intros Hl Hf Hw k' e E; pose proof Hl as [Hes [Hkey [_ [HQ HnQ]]]].
   destruct (cget (uses e) k) as [m|] eqn:Em; [exfalso|reflexivity].
   destruct (key_label k) as [l|] eqn:Kl.
   - destruct (Pos.eqb_spec (label_key l) k) as [<-|Hne].
@@ -1806,7 +1725,7 @@ Hypothesis Hb : nwf pay b.
 
 (** What is known of payload targets one level down. *)
 Definition Pd_t (t : target) : Prop :=
-  eok t /\ match t with TVar _ _ => True | TBind _ rho => nwf true rho /\ nnest rho < nnest b end.
+  match t with TVar _ _ => True | TBind _ rho => nwf true rho /\ nnest rho < nnest b end.
 
 Definition Pd_e (z : entry) : Prop :=
   match z with
@@ -1821,14 +1740,14 @@ Proof. apply nwf_local with (1 := Hb). Qed.
 
 Lemma b_entries_good : forall k e, aget k (nentries b) = Some e -> kgood (etargets e).
 Proof.
-  intros k e E; pose proof Hloc as [_ [_ [_ [Hent _]]]].
+  intros k e E; pose proof Hloc as [_ [_ [Hent _]]].
   destruct (Hent k e E) as [Hok _]; destruct e as [h ts len p]; apply Hok.
 Qed.
 
 (** Every entry of [b], made absolute, satisfies [Pd_e]. *)
 Lemma Pd_entries k e0 : aget k es = Some e0 -> Pd_e (unshift r e0).
 Proof.
-  intros E; pose proof Hloc as Hl; pose proof Hl as [_ [_ [_ [Hent _]]]].
+  intros E; pose proof Hloc as Hl; pose proof Hl as [_ [_ [Hent _]]].
   destruct e0 as [h ts len p]; destruct (Hent k _ E) as [[Hk [G [Hlen [Hnt Hs]]]] _].
   cbn [unshift entry_based eunshift Pd_e].
   split; [apply kgood_klift, G|split; [rewrite <- Hlen; destruct ts; reflexivity|split]].
@@ -1838,8 +1757,6 @@ Proof.
     apply Hs; split; [exact Hlen'|split; [lia|rewrite Et; f_equal; f_equal; lia]].
   - intros t Ht; rewrite klist_klift in Ht by apply kgood_inv, G.
     apply in_map_iff in Ht as [t0 [<- Ht0]].
-    assert (Hok : eok t0) by apply (kgood_targets_ok ts G _ Ht0).
-    split; [apply ok_unshift, Hok|].
     destruct (unshift r t0) as [y j|u rho] eqn:Eu; [exact Logic.I|].
     destruct (In_nth_error _ _ Ht0) as [i Ei].
     assert (Et : knth ts i = Some t0) by (rewrite knth_spec by apply kgood_shape, G; exact Ei).
@@ -1850,9 +1767,9 @@ Proof.
 Qed.
 
 (** Above the thresholds a target is moved. *)
-Lemma HG_t t : eok t -> Pd_t t -> clears th t -> tcF cnone t = unshift tau (shift th t).
+Lemma HG_t t : Pd_t t -> clears th t -> tcF cnone t = unshift tau (shift th t).
 Proof.
-  intros Hok [_ HP] Hc; destruct t as [y j|u rho]; [apply tcF_var_shift, Hc|].
+  intros HP Hc; destruct t as [y j|u rho]; [apply tcF_var_shift, Hc|].
   destruct HP as [Hw Hn]; cbn [tcF]; rewrite (IH3 rho Hn Hw Hc).
   destruct rho as [r' es']; reflexivity.
 Qed.
@@ -1868,11 +1785,10 @@ Lemma kmap_entry h (ts : kseq target) len p :
   kgood (kmap th tau tcF bl0 cnone ts) /\ klist (kmap th tau tcF bl0 cnone ts) = map (tcF cnone) (klist ts).
 Proof.
   intros [G [_ [_ HP]]].
-  destruct (kgood_kmap th tau tcF (tcF cnone) Pd_t (fun B x _ _ => tcF_rebase B x)
-              (fun z Hz HPz Hc => HG_t z Hz HPz Hc) (fun z _ _ => tcF_ok cnone z)
+  destruct (kgood_kmap th tau tcF (tcF cnone) Pd_t (fun B x _ => tcF_rebase B x) HG_t
               bl0 cnone ts G (sound_bl0 _)) as [G1 E1].
-  - intros y Hy; rewrite unshift_cnone by apply (HP y Hy); apply HP, Hy.
-  - split; [exact G1|rewrite E1; apply map_ext_in; intros y Hy; rewrite unshift_cnone by apply (HP y Hy); reflexivity].
+  - intros y Hy; rewrite unshift_cnone; apply HP, Hy.
+  - split; [exact G1|rewrite E1; apply map_ext_in; intros y Hy; rewrite unshift_cnone; reflexivity].
 Qed.
 
 Lemma ecF_good h ts len p :
@@ -1885,17 +1801,15 @@ Proof.
   rewrite <- Hl1; apply (ecomp_spec h _ p G1).
 Qed.
 
-Lemma HG_e z : eok z -> Pd_e z -> clears th z -> ecF cnone z = unshift tau (shift th z).
+Lemma HG_e z : Pd_e z -> clears th z -> ecF cnone z = unshift tau (shift th z).
 Proof.
-  intros Hok HP Hc; destruct z as [h ts len p]; pose proof HP as [G [Hl [Hs HPt]]].
+  intros HP Hc; destruct z as [h ts len p]; pose proof HP as [G [Hl [Hs HPt]]].
   apply ecF_moved; try assumption.
-  intros t Ht; apply HG_t; [apply HPt, Ht|apply HPt, Ht|].
+  intros t Ht; apply HG_t; [apply HPt, Ht|].
   pose proof (cle_cmin_inv_r _ _ _ Hc) as Hts.
   exact (cle_mem th (ksann ts) (klist ts) t Hts (fun k => ksann_klist ts k G) Ht).
 Qed.
 
-Lemma HGok_e z : eok z -> Pd_e z -> eok (ecF cnone z).
-Proof. intros _ HP; destruct z as [h ts len p]; apply (entry_good_ok h), ecF_good, HP. Qed.
 
 (** The composite trie, absolute. *)
 Definition esC : atrie entry := atmap th tau ecF bl0 r es.
@@ -1903,7 +1817,7 @@ Definition esC : atrie entry := atmap th tau ecF bl0 r es.
 Lemma esC_spec : ainv esC /\ forall k, aget k esC = option_map (fun y => ecF cnone (unshift r y)) (aget k es).
 Proof.
   pose proof Hloc as [Hes _].
-  apply (atmap_spec th tau ecF (ecF cnone) Pd_e (fun B x _ _ => ecF_rebase B x) HG_e HGok_e es bl0 r Hes (sound_bl0 _)).
+  apply (atmap_spec th tau ecF (ecF cnone) Pd_e (fun B x _ => ecF_rebase B x) HG_e es bl0 r Hes (sound_bl0 _)).
   intros y Hy; destruct (aelems_aget es y Hy) as [k E]; apply (Pd_entries k y E).
 Qed.
 
@@ -1913,7 +1827,7 @@ Lemma esC_entry k e0 :
   /\ entry_good (elabel e0) (ecF cnone (unshift r e0))
   /\ forall i, eabs (ecF cnone (unshift r e0)) i = rcomp (napply b (mk_rvar (elabel e0) i)).
 Proof.
-  intros E; pose proof Hloc as Hl; pose proof Hl as [_ [_ [_ [Hent _]]]].
+  intros E; pose proof Hloc as Hl; pose proof Hl as [_ [_ [Hent _]]].
   pose proof (Pd_entries k e0 E) as HP.
   destruct e0 as [h ts0 len p0]; destruct (Hent k _ E) as [[Hk [G0 [Hlen _]]] _]; cbn [elabel].
   split; [symmetry; exact Hk|split; [apply ecF_good, HP|]].
@@ -1957,7 +1871,7 @@ Qed.
 
 Lemma ncomp_b : ncomp pay b cnone = finish pay r esC (@atvisit entry bl0 r (fun k => k) es).
 Proof.
-  rewrite ncomp_eq; pose proof Hloc as [_ [Hcwf _]]; rewrite cadd_cnone by exact Hcwf; reflexivity.
+  rewrite ncomp_eq, cadd_cnone; reflexivity.
 Qed.
 
 Theorem napply_ncomp_b v :
@@ -1975,7 +1889,7 @@ Hypothesis IH4 : forall rho, nnest rho < nnest b -> nwf true rho -> cle wa (nroo
 
 Lemma tcF_ge t : Pd_t t -> cle wa (uses (tcF cnone t)).
 Proof.
-  intros [_ HP]; destruct t as [y j|u rho]; [apply cle_napply_a|].
+  intros HP; destruct t as [y j|u rho]; [apply cle_napply_a|].
   destruct HP as [Hw Hn]; apply (IH4 rho Hn Hw).
 Qed.
 
@@ -2037,7 +1951,7 @@ Hypothesis Hwa : nwf false a.
 Hypothesis IH1 : forall rho, nnest rho < nnest b -> nwf true rho -> nlocal Qnamed (ncomp true rho cnone).
 
 Lemma keyed_root Q (c : nadj) : nlocal Q c -> keyed (nroot c).
-Proof. destruct c as [w es']; intros [_ [_ [Hk _]]]; exact Hk. Qed.
+Proof. destruct c as [w es']; intros [_ [Hk _]]; exact Hk. Qed.
 
 Lemma keyed_a_result v u rho : napply a v = inr (u, rho) -> keyed (nroot rho).
 Proof. intros E; apply (keyed_root Qnamed), (nwf_local true), (nwf_payload false a v u rho Hwa eq_refl E). Qed.
@@ -2065,7 +1979,7 @@ Qed.
 
 Lemma keyed_tcF t : Pd_t t -> keyed (tuses (tcF cnone t)).
 Proof.
-  intros [_ HP]; destruct t as [y j|u rho]; cbn [tcF].
+  intros HP; destruct t as [y j|u rho]; cbn [tcF].
   - rewrite tuses_rtarget; destruct (napply a _) as [v|[u rho]] eqn:E; [apply keyed_cone|apply (keyed_a_result _ _ _ E)].
   - destruct HP as [Hw Hn]; apply (keyed_root Qnamed), IH1; assumption.
 Qed.
@@ -2093,7 +2007,7 @@ Qed.
 Lemma Hpay_esC : pay = true -> aget (label_key None) esC = None.
 Proof.
   intros Hp; rewrite (proj2 esC_spec); destruct (aget (label_key None) es) as [e0|] eqn:E0; [|reflexivity].
-  exfalso; pose proof Hloc as [_ [_ [_ [Hent _]]]]; destruct (Hent _ _ E0) as [Hok [HQ _]].
+  exfalso; pose proof Hloc as [_ [_ [Hent _]]]; destruct (Hent _ _ E0) as [Hok [HQ _]].
   destruct e0 as [h ts len p]; destruct Hok as [Hk _]; apply label_key_inj in Hk; subst h.
   unfold Qof in HQ; rewrite Hp in HQ; discriminate.
 Qed.
@@ -2107,9 +2021,9 @@ Lemma Hvis_esC k h p :
 Proof.
   intros E Hnv Ea; rewrite (proj2 esC_spec) in E.
   destruct (aget k es) as [e0|] eqn:E0; [|discriminate]; cbn [option_map] in E; injection E as E.
-  pose proof Hloc as [Hes [_ [_ [Hent _]]]].
+  pose proof Hloc as [Hes [_ [Hent _]]].
   pose proof (atvisit_spec th es bl0 r (fun k => k) k e0 Hes (sound_bl0 _) E0 Hnv) as Hc.
-  rewrite HG_e in E; [|exact (ok_unshift r e0 (ainv_get_ok es k e0 Hes E0))|apply (Pd_entries k e0 E0)|exact Hc].
+  rewrite HG_e in E; [|apply (Pd_entries k e0 E0)|exact Hc].
   destruct e0 as [h0 ts0 len0 p0]; destruct (Hent _ _ E0) as [[Hk [_ [_ [Hnt _]]]] _].
   cbn [unshift shift entry_based eunshift eshift] in E; injection E as -> Hts Hlen Hp; subst len0.
   destruct Hnt as [Hnt|Hnt]; [lia|].
@@ -2128,7 +2042,7 @@ Lemma tcF_bound t k m :
   Pd_t t -> aget k esa = None -> cget (uses t) k = Some m ->
   exists m', cget (uses (tcF cnone t)) k = Some m' /\ m' <= dval wa k + m.
 Proof.
-  intros [_ HP] Ea Hm; destruct t as [y j|u rho].
+  intros HP Ea Hm; destruct t as [y j|u rho].
   - cbn in Hm; rewrite cget_cone in Hm; destruct (Pos.eqb_spec k (label_key y)) as [->|]; [|discriminate].
     injection Hm as <-; cbn [tcF]; rewrite cget_cnone_dval; cbn [Nat.add].
     assert (Ht0 : thv y = 0) by (unfold thv, dval; rewrite cget_th, Ea; reflexivity).
@@ -2182,7 +2096,7 @@ Lemma Hatt_esC k :
 Proof.
   intros _ HC Ea; rewrite (proj2 esC_spec) in HC.
   destruct (aget k es) as [e0|] eqn:E0; [|contradiction].
-  pose proof Hloc as [_ [_ [_ [Hent [HQ _]]]]].
+  pose proof Hloc as [_ [_ [Hent [HQ _]]]].
   destruct (Hent _ _ E0) as [Hok [HQe Hz]].
   assert (Hk : k = label_key (elabel e0)) by (destruct e0; destruct Hok as [Hk _]; symmetry; exact Hk).
   destruct (cget r k) as [m|] eqn:Hr; [|exfalso; rewrite Hk in Hr; exact (HQ _ HQe Hr)].
@@ -2220,7 +2134,7 @@ Proof.
   intros Ea Hr; rewrite ncomp_b, finish_eq; cbn [nroot]; unfold R; rewrite cget_cmin, cget_jstarts.
   destruct (skipN pay k) eqn:Sk.
   - unfold skipN in Sk; apply andb_prop in Sk as [Hp Hk]; apply Pos.eqb_eq in Hk; subst k.
-    pose proof Hloc as [_ [_ [_ [_ [_ HnQ]]]]].
+    pose proof Hloc as [_ [_ [_ [_ HnQ]]]].
     assert (HQ : Qof pay None = false) by (unfold Qof; rewrite Hp; reflexivity).
     destruct (HnQ None HQ) as [[Hn _]|[_ Hz]]; [rewrite Hr in Hn; discriminate|].
     destruct (witness_bound _ m Ea Hr Hz) as [n [En Hn]]; rewrite En; cbn [omin]; eexists; split; [reflexivity|lia].
@@ -2232,8 +2146,8 @@ Qed.
 
 Lemma nlocal_nmove : nlocal (Qof pay) (nmove b).
 Proof.
-  pose proof Hloc as [Hes [Hcwf [Hkey [Hent [HQ HnQ]]]]]; cbn [nmove nlocal].
-  split; [exact Hes|split; [apply cwf_cmap2|split; [apply keyed_cmap2; [apply keyed_tau|apply keyed_cmap2; [exact Hkey|apply keyed_th]]|]]].
+  pose proof Hloc as [Hes [Hkey [Hent [HQ HnQ]]]]; cbn [nmove nlocal].
+  split; [exact Hes|split; [apply keyed_cmap2; [apply keyed_tau|apply keyed_cmap2; [exact Hkey|apply keyed_th]]|]].
   split; [exact Hent|split].
   - intros l Hl; rewrite cget_cadd, cget_csub; specialize (HQ l Hl).
     destruct (cget r (label_key l)); [destruct (cget tau _), (cget th _); discriminate|contradiction].
@@ -2249,7 +2163,7 @@ Proof. intros Hr; unfold dval; rewrite cget_cadd, cget_csub, Hr; destruct (cget 
 Lemma napply_nmove v :
   cle th r -> Qof pay (v_label v) = true -> napply (nmove b) v = rcomp (napply b v).
 Proof.
-  intros Hc HQv; pose proof Hloc as Hl; pose proof Hl as [Hes [_ [_ [Hent [HQ _]]]]].
+  intros Hc HQv; pose proof Hloc as Hl; pose proof Hl as [Hes [_ [Hent [HQ _]]]].
   destruct v as [h i]; cbn [v_label v_index] in *; cbn [nmove napply v_label v_index].
   set (kh := label_key h).
   assert (Hr : exists q, cget r kh = Some q) by (destruct (cget r kh) eqn:E; [eauto|exfalso; exact (HQ h HQv E)]).
@@ -2264,7 +2178,6 @@ Proof.
     + destruct (knth_some ts i G ltac:(lia)) as [t0 Et]; rewrite Et.
       rewrite rcomp_tresult; f_equal.
       assert (Hin : In t0 (klist ts)) by apply (knth_in _ _ _ G Et).
-      assert (Hok : eok t0) by apply (kgood_targets_ok ts G _ Hin).
       assert (Hcov : forall k, cget (uses t0) k <> None ->
                      exists p0, cget r k = Some p0 /\ cget r k = Some p0 /\ forall t, cget th k = Some t -> t <= p0).
       { intros k Hk; destruct (cget r k) as [p0|] eqn:Ek.
@@ -2278,8 +2191,7 @@ Proof.
       { pose proof (Pd_entries kh _ E0) as [_ [_ [_ HPt]]]; apply HPt; cbn [etargets unshift entry_based eunshift].
         rewrite klist_klift by apply kgood_inv, G; apply in_map, Hin. }
       change (tunshift r t0) with (unshift r t0); rewrite HG_t.
-      * change (cadd tau (csub r th)) with (move th tau r); symmetry; exact (move_shift th tau r r t0 Hok Hcov).
-      * apply ok_unshift, Hok.
+      * change (cadd tau (csub r th)) with (move th tau r); symmetry; exact (move_shift th tau r r t0 Hcov).
       * exact HPd.
       * intros k t m Et' Em; rewrite uses_unshift in Em.
         destruct (cget (uses t0) k) as [u|] eqn:Eu; [|destruct (cget r k); discriminate].
@@ -2397,7 +2309,7 @@ Qed.
 Lemma cadd_assoc_covered d w r0 :
   (forall k, cget r0 k <> None -> cget w k <> None) -> cadd (cadd d w) r0 = cadd d (cadd w r0).
 Proof.
-  intros H; apply counts_ext; try apply cwf_cmap2; intro k; rewrite !cget_cadd.
+  intros H; apply counts_ext; intro k; rewrite !cget_cadd.
   destruct (cget r0 k) as [x|] eqn:Er; [|destruct (cget w k), (cget d k); reflexivity].
   destruct (cget w k) as [y|] eqn:Ew; [|exfalso; apply (H k); congruence].
   destruct (cget d k); cbn; f_equal; lia.
@@ -2409,8 +2321,8 @@ Proof.
   induction n as [|n IH]; intros pay w es d Hn Hb Kd Dd; [lia|].
   pose proof (nwf_local _ _ Hb) as Hl; pose proof (nwf_fin _ _ Hb) as Hf.
   apply nwf_intro.
-  - destruct Hl as [Hes [Cw [Kw [Hent [HQ HnQ]]]]].
-    split; [exact Hes|split; [apply cwf_cmap2|split; [apply keyed_cmap2; assumption|split; [exact Hent|split]]]].
+  - destruct Hl as [Hes [Kw [Hent [HQ HnQ]]]].
+    split; [exact Hes|split; [apply keyed_cmap2; assumption|split; [exact Hent|split]]].
     + intros l Hq; rewrite cget_cadd; specialize (HQ l Hq); destruct (cget w _); [discriminate|contradiction].
     + intros l Hq; rewrite cget_cadd; destruct (HnQ l Hq) as [[-> H]|[H1 H]]; [left; split; [destruct (cget d _); reflexivity|exact H]|].
       right; split; [destruct (cget w _); [discriminate|contradiction]|exact H].
@@ -2418,11 +2330,11 @@ Proof.
   - intros v u rho' Hq E.
     destruct (napply_root_payload w _ es v u rho' E) as [k [e [r0 [es0 [Ek [Et [-> E0]]]]]]].
     assert (G : kgood (etargets e)).
-    { destruct Hl as [_ [_ [_ [Hent _]]]]; destruct (Hent k e Ek) as [Hok _]; destruct e; apply Hok. }
+    { destruct Hl as [_ [_ [Hent _]]]; destruct (Hent k e Ek) as [Hok _]; destruct e; apply Hok. }
     rewrite cadd_assoc_covered.
     + apply IH; [|exact (nwf_payload _ _ v u _ Hb Hq E0)|exact Kd|exact Dd].
       assert (HG : forall k' e', aget k' (nentries (NAdj w es)) = Some e' -> kgood (etargets e')).
-      { intros k' e' E'; destruct Hl as [_ [_ [_ [Hent _]]]]; destruct (Hent k' e' E') as [Hok _]; destruct e'; apply Hok. }
+      { intros k' e' E'; destruct Hl as [_ [_ [Hent _]]]; destruct (Hent k' e' E') as [Hok _]; destruct e'; apply Hok. }
       pose proof (nest_napply (NAdj w es) v u _ HG E0) as Hlt; cbn [nnest] in *; lia.
     + intros k' Hk' Hw.
       pose proof (root_covers (Qof pay) w es k' Hl Hf Hw k e Ek) as Hcv.
@@ -2455,10 +2367,8 @@ Theorem nwf_extend h (t : target) (a : nadj) :
   nwf false a -> twf t -> nwf false (extend h t a).
 Proof.
   intros Ha Ht; pose proof (nwf_local _ _ Ha) as Hl; pose proof (nwf_fin _ _ Ha) as Hf.
-  assert (Hok : tok t)
-    by (destruct t as [y j|u [r es]]; [exact Logic.I|cbn in Ht; destruct (nwf_local _ _ Ht) as [_ [Hc _]]; exact Hc]).
   assert (Hk : keyed (tuses t))
-    by (destruct t as [y j|u [r es]]; [apply keyed_cone|cbn in Ht; destruct (nwf_local _ _ Ht) as [_ [_ [Hk _]]]; exact Hk]).
+    by (destruct t as [y j|u [r es]]; [apply keyed_cone|cbn in Ht; destruct (nwf_local _ _ Ht) as [_ [Hk _]]; exact Hk]).
   apply nwf_intro; [apply nlocal_extend; assumption|apply nfin_extend, Hf|].
   intros v u rho _ E; rewrite napply_extend in E by assumption.
   destruct (rvar_eqb v _).
