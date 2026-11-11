@@ -271,6 +271,343 @@ Definition nf_eq_s (e1 e2 : aexp) : bool :=
 
 End Table.
 
+(** ** Unfolding
+
+    The tree a stored word stands for: each defined atom replaced by its
+    definition, itself unfolded. *)
+
+Section Canon.
+
+Variable np : nat.
+
+Definition unf_t (U : list pdef) (t : ntgt) : ntgt :=
+  match t with
+  | NBind u p (Some β) =>
+      if β <? np then t else match dget U (β - np) with Some (w, b) => NBind u w b | None => t end
+  | _ => t
+  end.
+
+Fixpoint unf_ts (U : list pdef) (ts : tlist) : tlist :=
+  match ts with TNil => TNil | TCons t r => TCons (unf_t U t) (unf_ts U r) end.
+
+Fixpoint unf_s (U : list pdef) (s : seg) : seg :=
+  match s with SNil => SNil | SEnt h ts m r => SEnt h (unf_ts U ts) m (unf_s U r) end.
+
+Definition unf_w (U : list pdef) (w : word) : word :=
+  match w with WEnd s => WEnd (unf_s U s) | WAtom s L a w' => WAtom (unf_s U s) L a w' end.
+
+(** The definitions unfolded, oldest first. *)
+Fixpoint udefs (ds : list pdef) : list pdef :=
+  match ds with
+  | [] => []
+  | (w, b) :: r => let U := udefs r in (unf_w U w, b) :: U
+  end.
+
+Definition unfold (ds : list pdef) (w : word) : word := unf_w (udefs ds) w.
+
+(** Flat: every payload is the identity then an atom. *)
+Definition flat_t (t : ntgt) : Prop := match t with NVar _ _ => True | NBind _ p _ => p = WEnd SNil end.
+
+Fixpoint flat_ts (ts : tlist) : Prop := match ts with TNil => True | TCons t r => flat_t t /\ flat_ts r end.
+
+Fixpoint flat_s (s : seg) : Prop := match s with SNil => True | SEnt _ ts _ r => flat_ts ts /\ flat_s r end.
+
+Definition flatw (w : word) : Prop := flat_s (whead w).
+
+(** Canonical tables: no definition is the identity, none is repeated,
+    and all are flat. *)
+Fixpoint dcan (ds : list pdef) : Prop :=
+  match ds with
+  | [] => True
+  | (w, b) :: r => is_id w = false /\ dfind r (w, b) = None /\ flatw w /\ dcan r
+  end.
+
+Lemma dget_top d r : dget (d :: r) (List.length r) = Some d.
+Proof. unfold dget; cbn [List.length]; replace (S (List.length r) - 1 - List.length r) with 0 by lia; reflexivity. Qed.
+
+Lemma dget_cons d r k : k < List.length r -> dget (d :: r) k = dget r k.
+Proof.
+  intros Hk; unfold dget; cbn [List.length].
+  replace (S (List.length r) - 1 - k) with (S (List.length r - 1 - k)) by lia; reflexivity.
+Qed.
+
+Lemma dget_some (U : list pdef) k : k < List.length U -> exists d, dget U k = Some d.
+Proof.
+  intros Hk; unfold dget; destruct (nth_error U (List.length U - 1 - k)) as [d|] eqn:E; [exists d; reflexivity|].
+  apply nth_error_None in E; lia.
+Qed.
+
+Lemma lifts_eqb_refl L : lifts_eqb L L = true.
+Proof.
+  induction L as [|[h n] L IH]; cbn [lifts_eqb]; [reflexivity|].
+  rewrite (proj2 (lexp_eqb_eq h h) eq_refl), Nat.eqb_refl, IH; reflexivity.
+Qed.
+
+Lemma nf_eqb_refl :
+  (forall t, ntgt_eqb t t = true) /\ (forall ts, tlist_eqb ts ts = true) /\ (forall s, seg_eqb s s = true)
+  /\ (forall w, word_eqb w w = true).
+Proof.
+  apply nf_mind.
+  - intros h i; change (lexp_eqb h h && Nat.eqb i i = true).
+    rewrite (proj2 (lexp_eqb_eq h h) eq_refl), Nat.eqb_refl; reflexivity.
+  - intros u w IH b; change (Nat.eqb u u && word_eqb w w && obeqb b b = true).
+    rewrite Nat.eqb_refl, IH; destruct b as [n|]; cbn [andb obeqb]; [apply Nat.eqb_refl|reflexivity].
+  - reflexivity.
+  - intros t IHt r IHr; change (ntgt_eqb t t && tlist_eqb r r = true); rewrite IHt, IHr; reflexivity.
+  - reflexivity.
+  - intros h ts IHts m r IHr; change (lexp_eqb h h && tlist_eqb ts ts && Nat.eqb m m && seg_eqb r r = true).
+    rewrite (proj2 (lexp_eqb_eq h h) eq_refl), IHts, Nat.eqb_refl, IHr; reflexivity.
+  - intros s IH; exact IH.
+  - intros s IHs L a w IHw; change (seg_eqb s s && lifts_eqb L L && Nat.eqb a a && word_eqb w w = true).
+    rewrite IHs, lifts_eqb_refl, Nat.eqb_refl, IHw; reflexivity.
+Qed.
+
+Lemma pdef_eqb_refl d : pdef_eqb d d = true.
+Proof.
+  unfold pdef_eqb; rewrite (proj2 (proj2 (proj2 nf_eqb_refl))); destruct (snd d); cbn [andb obeqb];
+    [apply Nat.eqb_refl|reflexivity].
+Qed.
+
+Lemma dfind_none ds d : dfind ds d = None -> forall k, k < List.length ds -> dget ds k <> Some d.
+Proof.
+  induction ds as [|d' r IH]; cbn [dfind List.length]; [intros _ k Hk; lia|].
+  destruct (pdef_eqb d d') eqn:E; [discriminate|]; intros H k Hk.
+  destruct (Nat.eq_dec k (List.length r)) as [->|Hne].
+  - rewrite dget_top; intros H'; injection H' as ->; rewrite pdef_eqb_refl in E; discriminate.
+  - rewrite dget_cons by lia; apply IH; [exact H|lia].
+Qed.
+
+Lemma dcan_get ds : dcan ds -> forall k w b, k < List.length ds -> dget ds k = Some (w, b) -> flatw w.
+Proof.
+  induction ds as [|[w0 b0] r IH]; [intros _ k w b Hk; cbn in Hk; lia|].
+  intros [_ [_ [Hf Hc]]] k w b Hk E; cbn [List.length] in Hk.
+  destruct (Nat.eq_dec k (List.length r)) as [->|Hne].
+  - rewrite dget_top in E; injection E as <- _; exact Hf.
+  - rewrite dget_cons in E by lia; exact (IH Hc k w b ltac:(lia) E).
+Qed.
+
+Lemma udefs_len ds : List.length (udefs ds) = List.length ds.
+Proof. induction ds as [|[w b] r IH]; cbn [udefs List.length]; [reflexivity|rewrite IH; reflexivity]. Qed.
+
+Lemma unf_w_id U w : is_id (unf_w U w) = is_id w.
+Proof. destruct w as [[|h ts m r]|s L a w]; reflexivity. Qed.
+
+(** *** Flattening gives flat words and keeps the table canonical *)
+
+Variable F : list (lexp * lexp).
+Variable ntm : nat.
+
+Lemma alloc_can ds w b ds' b' : dcan ds -> flatw w -> alloc np ds w b = (ds', b') -> dcan ds'.
+Proof.
+  unfold alloc; destruct (is_id w) eqn:Ei; [intros H _ E; injection E as <- _; exact H|].
+  destruct (dfind ds (w, b)) as [k|] eqn:Ef; intros H Hw E; injection E as <- _; [exact H|].
+  exact (conj Ei (conj Ef (conj Hw H))).
+Qed.
+
+Definition flcan (f : sst -> word -> option (sst * word)) : Prop :=
+  forall st w st' w', dcan (sdefs st) -> f st w = Some (st', w') -> dcan (sdefs st') /\ flatw w'.
+
+Section FlCan.
+
+Variable rec : sst -> word -> option (sst * word).
+Hypothesis Hrec : flcan rec.
+
+Lemma fl_t_can st t st' t' :
+  dcan (sdefs st) -> fl_t np F ntm rec st t = Some (st', t') -> dcan (sdefs st') /\ flat_t t'.
+Proof.
+  intros Hc; destruct t as [h i|u p b]; cbn [fl_t].
+  - intros H; injection H as <- <-; exact (conj Hc I).
+  - destruct (is_id p) eqn:Ei.
+    { intros H; injection H as <- <-; split; [exact Hc|exact (is_id_eq _ Ei)]. }
+    destruct (rec st p) as [[st1 p1]|] eqn:Er; [|discriminate]; destruct (Hrec _ _ _ _ Hc Er) as [Hc1 Hp1].
+    assert (Hdirect : forall ds b', alloc np (sdefs st1) p1 b = (ds, b') ->
+              dcan (sdefs (mk_sst ds (smemo st1))) /\ flat_t (NBind u (WEnd SNil) b')).
+    { intros ds b' Ea; split; [exact (alloc_can _ _ _ _ _ Hc1 Hp1 Ea)|reflexivity]. }
+    destruct b as [β|].
+    2:{ destruct (alloc np (sdefs st1) p1 None) as [ds b'] eqn:Ea; intros H; injection H as <- <-.
+        exact (Hdirect ds b' eq_refl). }
+    destruct (β <? np).
+    { destruct (alloc np (sdefs st1) p1 (Some β)) as [ds b'] eqn:Ea; intros H; injection H as <- <-.
+      exact (Hdirect ds b' eq_refl). }
+    destruct (mlook (smemo st1) β p1) as [b'|].
+    { intros H; injection H as <- <-; split; [exact Hc1|reflexivity]. }
+    destruct (dget (sdefs st1) (β - np)) as [[w0 b0]|]; [|discriminate].
+    destruct (wcomp F ntm p1 w0) as [q0|]; [|discriminate].
+    destruct (pnormw F ntm b0 q0) as [q|]; [|discriminate].
+    destruct (rec st1 q) as [[st2 q']|] eqn:Er2; [|discriminate]; destruct (Hrec _ _ _ _ Hc1 Er2) as [Hc2 Hq'].
+    destruct (alloc np (sdefs st2) q' b0) as [ds3 b'] eqn:Ea; intros H; injection H as <- <-.
+    split; [exact (alloc_can _ _ _ _ _ Hc2 Hq' Ea)|reflexivity].
+Qed.
+
+Lemma fl_ts_can ts : forall st st' ts',
+  dcan (sdefs st) -> fl_ts np F ntm rec st ts = Some (st', ts') -> dcan (sdefs st') /\ flat_ts ts'.
+Proof.
+  induction ts as [|t r IH] using tlist_spine; intros st st' ts' Hc; cbn [fl_ts].
+  { intros H; injection H as <- <-; exact (conj Hc I). }
+  destruct (fl_t np F ntm rec st t) as [[st1 t1]|] eqn:E1; [|discriminate]; destruct (fl_t_can _ _ _ _ Hc E1) as [Hc1 Ht1].
+  destruct (fl_ts np F ntm rec st1 r) as [[st2 r2]|] eqn:E2; [|discriminate]; intros H; injection H as <- <-.
+  destruct (IH _ _ _ Hc1 E2) as [Hc2 Hr2]; exact (conj Hc2 (conj Ht1 Hr2)).
+Qed.
+
+Lemma fl_s_can s : forall st st' s',
+  dcan (sdefs st) -> fl_s np F ntm rec st s = Some (st', s') -> dcan (sdefs st') /\ flat_s s'.
+Proof.
+  induction s as [|h ts m r IH] using seg_spine; intros st st' s' Hc; cbn [fl_s].
+  { intros H; injection H as <- <-; exact (conj Hc I). }
+  destruct (fl_ts np F ntm rec st ts) as [[st1 ts1]|] eqn:E1; [|discriminate]; destruct (fl_ts_can _ _ _ _ Hc E1) as [Hc1 Ht1].
+  destruct (fl_s np F ntm rec st1 r) as [[st2 r2]|] eqn:E2; [|discriminate]; intros H; injection H as <- <-.
+  destruct (IH _ _ _ Hc1 E2) as [Hc2 Hr2]; exact (conj Hc2 (conj Ht1 Hr2)).
+Qed.
+
+Lemma fl_w_can : flcan (fl_w np F ntm rec).
+Proof.
+  intros st w; revert st; induction w as [s|s L a w IH]; intros st st' w' Hc; cbn [fl_w].
+  - destruct (fl_s np F ntm rec st s) as [[st1 s1]|] eqn:E; [|discriminate]; intros H; injection H as <- <-.
+    exact (fl_s_can _ _ _ _ Hc E).
+  - destruct (fl_s np F ntm rec st s) as [[st1 s1]|] eqn:E; [|discriminate]; destruct (fl_s_can _ _ _ _ Hc E) as [Hc1 Hs1].
+    destruct (fl_w np F ntm rec st1 w) as [[st2 w2]|] eqn:E2; [|discriminate]; intros H; injection H as <- <-.
+    exact (conj (proj1 (IH _ _ _ Hc1 E2)) Hs1).
+Qed.
+
+End FlCan.
+
+Lemma fl_can fuel : flcan (fl np F ntm fuel).
+Proof. induction fuel as [|f IH]; [intros st w st' w' _ H; discriminate|exact (fl_w_can _ IH)]. Qed.
+
+Lemma flatten_can : flcan (flatten np F ntm).
+Proof. intros st; apply fl_can. Qed.
+
+Lemma flatten_t_can st t st' t' :
+  dcan (sdefs st) -> flatten_t np F ntm st t = Some (st', t') -> dcan (sdefs st') /\ flat_t t'.
+Proof. apply fl_t_can, fl_can. Qed.
+
+Local Notation anorm_s := (anorm_s np F ntm).
+Local Notation tnorm_s := (tnorm_s np F ntm).
+Local Notation pnorm_e_s := (pnorm_e_s np F ntm).
+Local Notation then_flatten := (then_flatten np F ntm).
+
+Lemma anorm_s_compose a b st :
+  anorm_s (ACompose a b) st
+  = match anorm_s a st with
+    | Some (st1, wa) =>
+        match anorm_s b st1 with Some (st2, wb) => then_flatten (wcomp F ntm wa wb) st2 | None => None end
+    | None => None
+    end.
+Proof. reflexivity. Qed.
+
+Lemma anorm_s_outer h a st :
+  anorm_s (AOuter h a) st = match anorm_s a st with Some (st1, w) => then_flatten (wouter F ntm h w) st1 | None => None end.
+Proof. reflexivity. Qed.
+
+Lemma anorm_s_inner h t a st :
+  anorm_s (AInner h t a) st
+  = match tnorm_s t st with
+    | Some (st1, t') =>
+        match anorm_s a st1 with Some (st2, w) => then_flatten (wpush F ntm h t' w) st2 | None => None end
+    | None => None
+    end.
+Proof. reflexivity. Qed.
+
+Lemma anorm_s_lift h a st :
+  anorm_s (ALift h a) st = match anorm_s a st with Some (st1, w) => then_flatten (wlift F ntm h w) st1 | None => None end.
+Proof. reflexivity. Qed.
+
+Lemma tnorm_s_bind u p st :
+  tnorm_s (TBindE u p) st
+  = if u <? ntm then
+      match pnorm_e_s p st with
+      | Some (st1, (w, b)) =>
+          match pnormw F ntm b w with Some w' => flatten_t np F ntm st1 (NBind u w' b) | None => None end
+      | None => None
+      end
+    else None.
+Proof. reflexivity. Qed.
+
+Lemma tnorm_s_shift h t st :
+  tnorm_s (TShiftE h t) st
+  = match tnorm_s t st with
+    | Some (st1, NVar h' i) =>
+        match lcmp F h h' with
+        | Some Eq => Some (st1, NVar h' (S i))
+        | Some _ => Some (st1, NVar h' i)
+        | None => None
+        end
+    | _ => None
+    end.
+Proof. reflexivity. Qed.
+
+Lemma pnorm_s_comp a p st :
+  pnorm_e_s (PComp a p) st
+  = match anorm_s a st with
+    | Some (st1, wa) =>
+        match pnorm_e_s p st1 with
+        | Some (st2, (w, b)) =>
+            match then_flatten (wcomp F ntm wa w) st2 with Some (st3, w') => Some (st3, (w', b)) | None => None end
+        | None => None
+        end
+    | None => None
+    end.
+Proof. reflexivity. Qed.
+
+Lemma pnorm_s_shift h p st :
+  pnorm_e_s (PShift h p) st
+  = match pnorm_e_s p st with
+    | Some (st1, (w, b)) =>
+        match then_flatten (wouter F ntm h w) st1 with Some (st2, w') => Some (st2, (w', b)) | None => None end
+    | None => None
+    end.
+Proof. reflexivity. Qed.
+
+Lemma then_flatten_can r st st' w' :
+  dcan (sdefs st) -> then_flatten r st = Some (st', w') -> dcan (sdefs st') /\ flatw w'.
+Proof. destruct r as [w|]; [|discriminate]; intros Hc E; exact (flatten_can _ _ _ _ Hc E). Qed.
+
+Lemma norm_s_can :
+  (forall e st st' w, dcan (sdefs st) -> anorm_s e st = Some (st', w) -> dcan (sdefs st') /\ flatw w)
+  /\ (forall t st st' t', dcan (sdefs st) -> tnorm_s t st = Some (st', t') -> dcan (sdefs st') /\ flat_t t')
+  /\ (forall p st st' w b, dcan (sdefs st) -> pnorm_e_s p st = Some (st', (w, b)) -> dcan (sdefs st') /\ flatw w).
+Proof.
+  apply exp_mind.
+  - intros st st' w Hc H; injection H as <- <-; exact (conj Hc I).
+  - intros n st st' w Hc H; injection H as <- <-; exact (conj Hc I).
+  - intros a IHa b IHb st st' w Hc; rewrite anorm_s_compose.
+    destruct (anorm_s a st) as [[st1 wa]|] eqn:Ea; [|discriminate].
+    destruct (anorm_s b st1) as [[st2 wb]|] eqn:Eb; [|discriminate].
+    apply then_flatten_can; exact (proj1 (IHb _ _ _ (proj1 (IHa _ _ _ Hc Ea)) Eb)).
+  - intros h a IH st st' w Hc; rewrite anorm_s_outer.
+    destruct (anorm_s a st) as [[st1 wa]|] eqn:Ea; [|discriminate].
+    apply then_flatten_can; exact (proj1 (IH _ _ _ Hc Ea)).
+  - intros h t IHt a IHa st st' w Hc; rewrite anorm_s_inner.
+    destruct (tnorm_s t st) as [[st1 t1]|] eqn:Et; [|discriminate].
+    destruct (anorm_s a st1) as [[st2 wa]|] eqn:Ea; [|discriminate].
+    apply then_flatten_can; exact (proj1 (IHa _ _ _ (proj1 (IHt _ _ _ Hc Et)) Ea)).
+  - intros h a IH st st' w Hc; rewrite anorm_s_lift.
+    destruct (anorm_s a st) as [[st1 wa]|] eqn:Ea; [|discriminate].
+    apply then_flatten_can; exact (proj1 (IH _ _ _ Hc Ea)).
+  - intros h i st st' t' Hc H; injection H as <- <-; exact (conj Hc I).
+  - intros u p IH st st' t' Hc; rewrite tnorm_s_bind; destruct (u <? ntm); [|discriminate].
+    destruct (pnorm_e_s p st) as [[st1 [w b]]|] eqn:Ep; [|discriminate].
+    destruct (pnormw F ntm b w) as [w1|]; [|discriminate]; intros E.
+    exact (flatten_t_can _ _ _ _ (proj1 (IH _ _ _ _ Hc Ep)) E).
+  - intros h t IH st st' t' Hc; rewrite tnorm_s_shift.
+    destruct (tnorm_s t st) as [[st1 [h' i|? ? ?]]|] eqn:Et; try discriminate.
+    destruct (lcmp F h h') as [[]|]; try discriminate; intros H; injection H as <- <-;
+      exact (conj (proj1 (IH _ _ _ Hc Et)) I).
+  - intros st st' w b Hc H; injection H as <- <- <-; exact (conj Hc I).
+  - intros n st st' w b Hc H; injection H as <- <- <-; exact (conj Hc I).
+  - intros a IHa p IHp st st' w b Hc; rewrite pnorm_s_comp.
+    destruct (anorm_s a st) as [[st1 wa]|] eqn:Ea; [|discriminate].
+    destruct (pnorm_e_s p st1) as [[st2 [w0 b0]]|] eqn:Ep; [|discriminate].
+    destruct (then_flatten (wcomp F ntm wa w0) st2) as [[st3 w3]|] eqn:E; [|discriminate]; intros H; injection H as <- <- <-.
+    exact (then_flatten_can _ _ _ _ (proj1 (IHp _ _ _ _ (proj1 (IHa _ _ _ Hc Ea)) Ep)) E).
+  - intros h p IH st st' w b Hc; rewrite pnorm_s_shift.
+    destruct (pnorm_e_s p st) as [[st1 [w0 b0]]|] eqn:Ep; [|discriminate].
+    destruct (then_flatten (wouter F ntm h w0) st1) as [[st2 w2]|] eqn:E; [|discriminate]; intros H; injection H as <- <- <-.
+    exact (then_flatten_can _ _ _ _ (proj1 (IH _ _ _ _ Hc Ep)) E).
+Qed.
+
+End Canon.
+
 (** ** Meaning *)
 
 Section Sound.
@@ -488,15 +825,6 @@ Fixpoint dok (ds : list pdef) : Prop :=
   | [] => True
   | (w, b) :: r => wnf (np + List.length r) (bnm b) w /\ bok np b /\ dok r
   end.
-
-Lemma dget_top d r : dget (d :: r) (List.length r) = Some d.
-Proof. unfold dget; cbn [List.length]; replace (S (List.length r) - 1 - List.length r) with 0 by lia; reflexivity. Qed.
-
-Lemma dget_cons d r k : k < List.length r -> dget (d :: r) k = dget r k.
-Proof.
-  intros Hk; unfold dget; cbn [List.length].
-  replace (S (List.length r) - 1 - k) with (S (List.length r - 1 - k)) by lia; reflexivity.
-Qed.
 
 Lemma dlevel ds : dok ds -> forall k w b, k < List.length ds -> dget ds k = Some (w, b) ->
   wnf (np + k) (bnm b) w /\ bok np b
@@ -858,78 +1186,6 @@ Local Notation aeden := (aeden lenv tenv aenv).
 Local Notation teden := (teden lenv tenv aenv).
 Local Notation peden := (peden lenv tenv aenv).
 
-Lemma anorm_s_compose a b st :
-  anorm_s (ACompose a b) st
-  = match anorm_s a st with
-    | Some (st1, wa) =>
-        match anorm_s b st1 with Some (st2, wb) => then_flatten (wcomp F ntm wa wb) st2 | None => None end
-    | None => None
-    end.
-Proof. reflexivity. Qed.
-
-Lemma anorm_s_outer h a st :
-  anorm_s (AOuter h a) st = match anorm_s a st with Some (st1, w) => then_flatten (wouter F ntm h w) st1 | None => None end.
-Proof. reflexivity. Qed.
-
-Lemma anorm_s_inner h t a st :
-  anorm_s (AInner h t a) st
-  = match tnorm_s t st with
-    | Some (st1, t') =>
-        match anorm_s a st1 with Some (st2, w) => then_flatten (wpush F ntm h t' w) st2 | None => None end
-    | None => None
-    end.
-Proof. reflexivity. Qed.
-
-Lemma anorm_s_lift h a st :
-  anorm_s (ALift h a) st = match anorm_s a st with Some (st1, w) => then_flatten (wlift F ntm h w) st1 | None => None end.
-Proof. reflexivity. Qed.
-
-Lemma tnorm_s_bind u p st :
-  tnorm_s (TBindE u p) st
-  = if u <? ntm then
-      match pnorm_e_s p st with
-      | Some (st1, (w, b)) =>
-          match pnormw F ntm b w with Some w' => flatten_t np F ntm st1 (NBind u w' b) | None => None end
-      | None => None
-      end
-    else None.
-Proof. reflexivity. Qed.
-
-Lemma tnorm_s_shift h t st :
-  tnorm_s (TShiftE h t) st
-  = match tnorm_s t st with
-    | Some (st1, NVar h' i) =>
-        match lcmp F h h' with
-        | Some Eq => Some (st1, NVar h' (S i))
-        | Some _ => Some (st1, NVar h' i)
-        | None => None
-        end
-    | _ => None
-    end.
-Proof. reflexivity. Qed.
-
-Lemma pnorm_s_comp a p st :
-  pnorm_e_s (PComp a p) st
-  = match anorm_s a st with
-    | Some (st1, wa) =>
-        match pnorm_e_s p st1 with
-        | Some (st2, (w, b)) =>
-            match then_flatten (wcomp F ntm wa w) st2 with Some (st3, w') => Some (st3, (w', b)) | None => None end
-        | None => None
-        end
-    | None => None
-    end.
-Proof. reflexivity. Qed.
-
-Lemma pnorm_s_shift h p st :
-  pnorm_e_s (PShift h p) st
-  = match pnorm_e_s p st with
-    | Some (st1, (w, b)) =>
-        match then_flatten (wouter F ntm h w) st1 with Some (st2, w') => Some (st2, (w', b)) | None => None end
-    | None => None
-    end.
-Proof. reflexivity. Qed.
-
 (** The operations, on normal forms over any table. *)
 Lemma comp_ok N P wa wb w : wnf N false wa -> wnf N false wb -> wcomp F ntm wa wb = Some w ->
   wnf N false w /\ wden P w = rcompose (wden P wa) (wden P wb).
@@ -1092,6 +1348,257 @@ Proof.
   rewrite <- D1, <- D2; symmetry; exact (wden_up _ _ _ _ Hx2 Hw1).
 Qed.
 
+(** *** Unfolding
+
+    The unfolding of a stored word is a normal form with the same
+    meaning, and different stored words of one table unfold
+    differently. *)
+
+Definition uok (ds U : list pdef) : Prop :=
+  List.length U = List.length ds
+  /\ forall k w b, k < List.length U -> dget U k = Some (w, b) ->
+       wnf np (bnm b) w /\ bok np b /\ nth (np + k) (ext ds) rpidentity = rpcompose (wden penv w) (bden penv b).
+
+Lemma unf_t_spec ds U t : uok ds U -> tnf (np + List.length ds) t -> flat_t t ->
+  tnf np (unf_t np U t) /\ tsim t (unf_t np U t) /\ tden penv (unf_t np U t) = tden (ext ds) t.
+Proof.
+  intros [Hl HU]; destruct t as [h i|u p b]; cbn [unf_t flat_t].
+  - intros Ht _; exact (conj Ht (conj eq_refl eq_refl)).
+  - intros [Hb _] ->; destruct b as [β|]; cbn [unf_t].
+    2:{ refine (conj (conj I (wnf_id np true)) (conj I _)); rewrite !tden_unfold, !wden_id; reflexivity. }
+    destruct (Nat.ltb_spec β np) as [Hβ|Hβ].
+    { refine (conj (conj Hβ (wnf_id np false)) (conj I _)).
+      rewrite !tden_unfold, !wden_id, (bden_real ds (Some β) Hβ); reflexivity. }
+    cbn [bok] in Hb.
+    destruct (dget_some U (β - np)) as [[w b] E]; [lia|]; rewrite E.
+    assert (Hk : β - np < List.length U) by lia.
+    destruct (HU (β - np) w b Hk E) as [Hw [Hb' En]].
+    replace (np + (β - np)) with β in En by lia.
+    refine (conj (conj Hb' Hw) (conj I _)).
+    rewrite !tden_unfold, wden_id, rpcompose_identity; cbn [bden]; rewrite En; reflexivity.
+Qed.
+
+Lemma unf_ts_spec ds U ts : uok ds U -> tlnf (np + List.length ds) ts -> flat_ts ts ->
+  tlnf np (unf_ts np U ts) /\ tlsim ts (unf_ts np U ts)
+  /\ forall h tail, tins penv h (unf_ts np U ts) tail = tins (ext ds) h ts tail.
+Proof.
+  intros HU; induction ts as [|t r IH] using tlist_spine; cbn [unf_ts flat_ts].
+  { intros _ _; exact (conj I (conj I (fun _ _ => eq_refl))). }
+  intros [Ht Hr] [Ft Fr]; destruct (unf_t_spec ds U t HU Ht Ft) as [A [B C]]; destruct (IH Hr Fr) as [A' [B' C']].
+  refine (conj (conj A A') (conj (conj B B') _)); intros h tail; rewrite !tins_cons, C, C'; reflexivity.
+Qed.
+
+Lemma unf_s_spec ds U s : uok ds U -> snf (np + List.length ds) s -> flat_s s ->
+  snf np (unf_s np U s) /\ ssim s (unf_s np U s)
+  /\ forall tail, sins penv (unf_s np U s) tail = sins (ext ds) s tail.
+Proof.
+  intros HU; induction s as [|h ts m r IH] using seg_spine; cbn [unf_s flat_s].
+  { intros _ _; exact (conj I (conj I (fun _ => eq_refl))). }
+  intros [Hts Hr] [Ft Fr]; destruct (unf_ts_spec ds U ts HU Hts Ft) as [A [B C]]; destruct (IH Hr Fr) as [A' [B' C']].
+  refine (conj (conj A A') (conj (conj eq_refl (conj eq_refl (conj B B'))) _)).
+  intros tail; rewrite !sins_ent, C', C; reflexivity.
+Qed.
+
+Lemma unf_w_spec ds U nm w : uok ds U -> wnf (np + List.length ds) nm w -> flatw w ->
+  wnf np nm (unf_w np U w) /\ wden penv (unf_w np U w) = wden (ext ds) w.
+Proof.
+  intros HU; destruct w as [s|s L a w]; cbn [unf_w flatw whead].
+  - intros [Hs Hn] Fs; destruct (unf_s_spec ds U s HU Hn Fs) as [A [B C]].
+    split; [exact (conj (proj1 (sshape_sim _ _ _ B Hs)) A)|].
+    rewrite !wden_end; unfold Normalise.sden; rewrite C, (souts_sim _ _ _ B); reflexivity.
+  - intros [Hs [Hn [Ha Hr]]] Fs; destruct (unf_s_spec ds U s HU Hn Fs) as [A [B C]].
+    split; [exact (conj (proj1 (sshape_sim _ _ _ B Hs)) (conj A (conj Ha Hr)))|].
+    rewrite !wden_atom; unfold Normalise.sden; rewrite C, (souts_sim _ _ _ B).
+    rewrite (wden_agree 0 penv (ext ds) (fun n Hn => match Nat.nlt_0_r _ Hn with end) nm w (rnf_wnf lenv labs 0 nm w Hr)).
+    reflexivity.
+Qed.
+
+Lemma udefs_ok ds : dok ds -> dcan ds -> uok ds (udefs np ds).
+Proof.
+  induction ds as [|[w b] r IH].
+  { intros _ _; split; [reflexivity|intros k w b Hk; cbn in Hk; lia]. }
+  intros [Hw [Hb Hr]] [Hid [Hf [Hfl Hc]]]; pose proof (IH Hr Hc) as HU; cbn [udefs].
+  split; [cbn [List.length]; rewrite udefs_len; reflexivity|].
+  intros k w' b' Hk E; cbn [List.length] in Hk; rewrite udefs_len in Hk.
+  destruct (Nat.eq_dec k (List.length r)) as [->|Hne].
+  - rewrite <- (udefs_len np r), dget_top in E; injection E as <- <-.
+    destruct (unf_w_spec r _ _ w HU Hw Hfl) as [A B]; refine (conj A (conj Hb _)).
+    assert (Hk' : List.length r < List.length ((w, b) :: r)) by (cbn [List.length]; lia).
+    destruct (dlevel ((w, b) :: r) (conj Hw (conj Hb Hr)) (List.length r) w b Hk' (dget_top _ _)) as [_ [_ En]].
+    rewrite En, B; f_equal; exact (wden_ext [(w, b)] r _ w Hw).
+  - rewrite dget_cons in E by (rewrite udefs_len; lia).
+    assert (Hk' : k < List.length (udefs np r)) by (rewrite udefs_len; lia).
+    destruct (proj2 HU k w' b' Hk' E) as [A [B C]]; refine (conj A (conj B _)).
+    assert (Hk2 : np + k < np + List.length r) by lia.
+    rewrite <- C; exact (ext_agree [(w, b)] r _ Hk2).
+Qed.
+
+Lemma unf_t_cons d U t : tnf (np + List.length U) t -> unf_t np (d :: U) t = unf_t np U t.
+Proof.
+  destruct t as [h i|u p [β|]]; cbn [unf_t]; try reflexivity; intros [Hb _]; cbn [bok] in Hb.
+  destruct (Nat.ltb_spec β np); [reflexivity|]; rewrite dget_cons by lia; reflexivity.
+Qed.
+
+Lemma unf_ts_cons d U ts : tlnf (np + List.length U) ts -> unf_ts np (d :: U) ts = unf_ts np U ts.
+Proof.
+  induction ts as [|t r IH] using tlist_spine; cbn [unf_ts]; [reflexivity|]; intros [Ht Hr].
+  rewrite (unf_t_cons _ _ _ Ht), (IH Hr); reflexivity.
+Qed.
+
+Lemma unf_s_cons d U s : snf (np + List.length U) s -> unf_s np (d :: U) s = unf_s np U s.
+Proof.
+  induction s as [|h ts m r IH] using seg_spine; cbn [unf_s]; [reflexivity|]; intros [Ht Hr].
+  rewrite (unf_ts_cons _ _ _ Ht), (IH Hr); reflexivity.
+Qed.
+
+Lemma unf_w_cons d U nm w : wnf (np + List.length U) nm w -> unf_w np (d :: U) w = unf_w np U w.
+Proof.
+  destruct w as [s|s L a w]; cbn [unf_w]; [intros [_ Hn]|intros [_ [Hn _]]]; rewrite (unf_s_cons _ _ _ Hn); reflexivity.
+Qed.
+
+Lemma udefs_get ds : dok ds -> forall k w b, k < List.length ds -> dget ds k = Some (w, b) ->
+  dget (udefs np ds) k = Some (unf_w np (udefs np ds) w, b).
+Proof.
+  induction ds as [|[w0 b0] r IH]; [intros _ k w b Hk; cbn in Hk; lia|].
+  intros [Hw [Hb Hr]] k w b Hk E; cbn [List.length] in Hk; cbn [udefs].
+  destruct (Nat.eq_dec k (List.length r)) as [->|Hne].
+  - rewrite dget_top in E; injection E as -> ->.
+    rewrite <- (udefs_len np r), dget_top, (unf_w_cons _ _ (bnm b) w); [reflexivity|rewrite udefs_len; exact Hw].
+  - assert (Hk' : k < List.length r) by lia.
+    rewrite dget_cons in E by exact Hk'; rewrite dget_cons by (rewrite udefs_len; exact Hk').
+    rewrite (IH Hr k w b Hk' E), (unf_w_cons _ _ (bnm b) w); [reflexivity|].
+    rewrite udefs_len; apply (wnf_mono (np + k)); [lia|exact (proj1 (dlevel r Hr k w b Hk' E))].
+Qed.
+
+Definition uinj (U : list pdef) : Prop :=
+  (forall k w b, k < List.length U -> dget U k = Some (w, b) -> is_id w = false)
+  /\ (forall k1 k2 d, k1 < List.length U -> k2 < List.length U -> dget U k1 = Some d -> dget U k2 = Some d -> k1 = k2).
+
+Lemma unf_t_view U u b : bok (np + List.length U) b ->
+  unf_t np U (NBind u (WEnd SNil) b) = NBind u (WEnd SNil) b
+  \/ (exists k w c, k < List.length U /\ b = Some (np + k) /\ dget U k = Some (w, c)
+        /\ unf_t np U (NBind u (WEnd SNil) b) = NBind u w c).
+Proof.
+  destruct b as [β|]; cbn [unf_t bok]; [|left; reflexivity]; intros Hb.
+  destruct (Nat.ltb_spec β np) as [Hβ|Hβ]; [left; reflexivity|].
+  destruct (dget_some U (β - np)) as [[w c] E]; [lia|]; right; exists (β - np), w, c; rewrite E.
+  split; [lia|split; [f_equal; lia|split; reflexivity]].
+Qed.
+
+Lemma unf_t_inj U t1 t2 : uinj U -> tnf (np + List.length U) t1 -> tnf (np + List.length U) t2 ->
+  flat_t t1 -> flat_t t2 -> unf_t np U t1 = unf_t np U t2 -> t1 = t2.
+Proof.
+  intros [Ha Hb]; destruct t1 as [h1 i1|u1 p1 b1], t2 as [h2 i2|u2 p2 b2].
+  - intros _ _ _ _ H; exact H.
+  - intros _ [B2 _] _ F2; cbn [flat_t] in F2; subst p2.
+    destruct (unf_t_view U u2 b2 B2) as [E|[k [w [c [_ [_ [_ E]]]]]]]; rewrite E; intros H; discriminate H.
+  - intros [B1 _] _ F1 _; cbn [flat_t] in F1; subst p1.
+    destruct (unf_t_view U u1 b1 B1) as [E|[k [w [c [_ [_ [_ E]]]]]]]; rewrite E; intros H; discriminate H.
+  - intros [B1 _] [B2 _] F1 F2; cbn [flat_t] in F1, F2; subst p1 p2.
+    destruct (unf_t_view U u1 b1 B1) as [E1|[k1 [w1 [c1 [K1 [-> [G1 E1]]]]]]];
+      destruct (unf_t_view U u2 b2 B2) as [E2|[k2 [w2 [c2 [K2 [-> [G2 E2]]]]]]]; rewrite E1, E2; intros H.
+    + exact H.
+    + injection H as Hu Hw Hc; subst; pose proof (Ha _ _ _ K2 G2) as X; cbn in X; discriminate X.
+    + injection H as Hu Hw Hc; subst; pose proof (Ha _ _ _ K1 G1) as X; cbn in X; discriminate X.
+    + injection H as Hu Hw Hc; subst; rewrite (Hb k1 k2 _ K1 K2 G1 G2); reflexivity.
+Qed.
+
+Lemma unf_ts_inj U ts1 : uinj U -> forall ts2, tlnf (np + List.length U) ts1 -> tlnf (np + List.length U) ts2 ->
+  flat_ts ts1 -> flat_ts ts2 -> unf_ts np U ts1 = unf_ts np U ts2 -> ts1 = ts2.
+Proof.
+  intros HU; induction ts1 as [|t1 r1 IH] using tlist_spine; intros [|t2 r2]; cbn [unf_ts flat_ts];
+    try (intros _ _ _ _ H; discriminate H); [intros; reflexivity|].
+  intros [N1 M1] [N2 M2] [F1 G1] [F2 G2] H; injection H as Ht Hr.
+  rewrite (unf_t_inj U t1 t2 HU N1 N2 F1 F2 Ht), (IH _ M1 M2 G1 G2 Hr); reflexivity.
+Qed.
+
+Lemma unf_s_inj U s1 : uinj U -> forall s2, snf (np + List.length U) s1 -> snf (np + List.length U) s2 ->
+  flat_s s1 -> flat_s s2 -> unf_s np U s1 = unf_s np U s2 -> s1 = s2.
+Proof.
+  intros HU; induction s1 as [|h1 ts1 m1 r1 IH] using seg_spine; intros [|h2 ts2 m2 r2]; cbn [unf_s flat_s];
+    try (intros _ _ _ _ H; discriminate H); [intros; reflexivity|].
+  intros [N1 M1] [N2 M2] [F1 G1] [F2 G2] H; injection H as Hh Ht Hm Hr.
+  rewrite Hh, Hm, (unf_ts_inj U ts1 HU ts2 N1 N2 F1 F2 Ht), (IH _ M1 M2 G1 G2 Hr); reflexivity.
+Qed.
+
+Lemma unf_w_inj U nm w1 w2 : uinj U -> wnf (np + List.length U) nm w1 -> wnf (np + List.length U) nm w2 ->
+  flatw w1 -> flatw w2 -> unf_w np U w1 = unf_w np U w2 -> w1 = w2.
+Proof.
+  intros HU; destruct w1 as [s1|s1 L1 a1 w1], w2 as [s2|s2 L2 a2 w2]; cbn [unf_w flatw whead];
+    try (intros _ _ _ _ H; discriminate H).
+  - intros [_ N1] [_ N2] F1 F2 H; injection H as H; rewrite (unf_s_inj U s1 HU s2 N1 N2 F1 F2 H); reflexivity.
+  - intros [_ [N1 _]] [_ [N2 _]] F1 F2 H; injection H as Hs HL Ha Hw.
+    rewrite (unf_s_inj U s1 HU s2 N1 N2 F1 F2 Hs), HL, Ha, Hw; reflexivity.
+Qed.
+
+Lemma udefs_inj ds : dok ds -> dcan ds -> uinj (udefs np ds).
+Proof.
+  induction ds as [|[w b] r IH].
+  { intros _ _; split; [intros k w b Hk|intros k1 k2 d Hk]; cbn in Hk; lia. }
+  intros [Hw [Hb Hr]] [Hid [Hf [Hfl Hc]]]; pose proof (IH Hr Hc) as [Ia Ib]; cbn [udefs].
+  pose proof (udefs_len np r) as HlU; pose proof (udefs_get r Hr) as Hget.
+  remember (udefs np r) as U eqn:EU.
+  assert (Hnew : forall k, k < List.length r -> dget U k <> Some (unf_w np U w, b)).
+  { intros k Hk E; destruct (dget_some r k Hk) as [[w2 b2] E2].
+    pose proof (Hget k w2 b2 Hk E2) as E3; rewrite E in E3; injection E3 as Ew Eb; subst b2.
+    assert (Ew2 : w = w2).
+    { apply (unf_w_inj U (bnm b) w w2 (conj Ia Ib)); [rewrite HlU; exact Hw| |exact Hfl|exact (dcan_get r Hc k w2 b Hk E2)|exact Ew].
+      rewrite HlU; apply (wnf_mono (np + k)); [lia|exact (proj1 (dlevel r Hr k w2 b Hk E2))]. }
+    subst w2; exact (dfind_none r (w, b) Hf k Hk E2). }
+  split.
+  - intros k w' b' Hk E; cbn [List.length] in Hk; rewrite HlU in Hk.
+    destruct (Nat.eq_dec k (List.length r)) as [->|Hne].
+    + rewrite <- HlU, dget_top in E; injection E as <- <-; rewrite unf_w_id; exact Hid.
+    + assert (Hk' : k < List.length U) by lia.
+      rewrite dget_cons in E by exact Hk'; exact (Ia k w' b' Hk' E).
+  - intros k1 k2 d Hk1 Hk2 E1 E2; cbn [List.length] in Hk1, Hk2; rewrite HlU in Hk1, Hk2.
+    destruct (Nat.eq_dec k1 (List.length r)) as [->|Hn1]; destruct (Nat.eq_dec k2 (List.length r)) as [->|Hn2].
+    + reflexivity.
+    + exfalso; rewrite <- HlU, dget_top in E1; injection E1 as <-.
+      assert (Hk' : k2 < List.length r) by lia.
+      rewrite dget_cons in E2 by (rewrite HlU; exact Hk'); exact (Hnew k2 Hk' E2).
+    + exfalso; rewrite <- HlU, dget_top in E2; injection E2 as <-.
+      assert (Hk' : k1 < List.length r) by lia.
+      rewrite dget_cons in E1 by (rewrite HlU; exact Hk'); exact (Hnew k1 Hk' E1).
+    + assert (Hk1' : k1 < List.length U) by lia; assert (Hk2' : k2 < List.length U) by lia.
+      rewrite dget_cons in E1 by exact Hk1'; rewrite dget_cons in E2 by exact Hk2'.
+      exact (Ib k1 k2 d Hk1' Hk2' E1 E2).
+Qed.
+
+Lemma unfold_spec ds nm w : dok ds -> dcan ds -> wnf (np + List.length ds) nm w -> flatw w ->
+  wnf np nm (unfold np ds w) /\ wden penv (unfold np ds w) = wden (ext ds) w.
+Proof. intros Hd Hc; exact (unf_w_spec ds _ nm w (udefs_ok ds Hd Hc)). Qed.
+
+Lemma unfold_inj ds nm w1 w2 : dok ds -> dcan ds ->
+  wnf (np + List.length ds) nm w1 -> wnf (np + List.length ds) nm w2 -> flatw w1 -> flatw w2 ->
+  unfold np ds w1 = unfold np ds w2 -> w1 = w2.
+Proof.
+  intros Hd Hc H1 H2; apply (unf_w_inj (udefs np ds) nm w1 w2 (udefs_inj ds Hd Hc)); rewrite udefs_len; assumption.
+Qed.
+
+(** Two expressions normalised in one table. *)
+Theorem two_spec e1 e2 st1 w1 st2 w2 :
+  incl (alabs e1) labs -> incl (alabs e2) labs -> ascope np e1 -> ascope np e2 ->
+  anorm_s e1 (mk_sst [] []) = Some (st1, w1) -> anorm_s e2 st1 = Some (st2, w2) ->
+  wnf np false (unfold np (sdefs st2) w1) /\ wnf np false (unfold np (sdefs st2) w2)
+  /\ wden penv (unfold np (sdefs st2) w1) = aeden penv e1
+  /\ wden penv (unfold np (sdefs st2) w2) = aeden penv e2
+  /\ (unfold np (sdefs st2) w1 = unfold np (sdefs st2) w2 -> w1 = w2).
+Proof.
+  intros Hl1 Hl2 Hs1 Hs2 E1 E2.
+  assert (Hi0 : inv (mk_sst [] [])) by (split; [exact I|constructor]).
+  destruct (proj1 norm_s_spec e1 Hl1 Hs1 _ _ _ Hi0 E1) as [Hi1 [_ [Hw1 D1]]].
+  destruct (proj1 norm_s_spec e2 Hl2 Hs2 _ _ _ Hi1 E2) as [Hi2 [Hx2 [Hw2 D2]]].
+  destruct (proj1 (norm_s_can np F ntm) e1 (mk_sst [] []) _ _ I E1) as [Hc1 Hf1].
+  destruct (proj1 (norm_s_can np F ntm) e2 _ _ _ Hc1 E2) as [Hc2 Hf2].
+  pose proof (wnf_up _ _ _ _ Hx2 Hw1) as Hw1'.
+  destruct (unfold_spec _ _ _ (proj1 Hi2) Hc2 Hw1' Hf1) as [A1 B1].
+  destruct (unfold_spec _ _ _ (proj1 Hi2) Hc2 Hw2 Hf2) as [A2 B2].
+  refine (conj A1 (conj A2 (conj _ (conj _ (unfold_inj _ _ _ _ (proj1 Hi2) Hc2 Hw1' Hw2 Hf1 Hf2))))).
+  - rewrite B1, (wden_up _ _ _ _ Hx2 Hw1); exact D1.
+  - rewrite B2; exact D2.
+Qed.
+
 End Sound.
 
 (** ** The decision
@@ -1102,17 +1609,20 @@ End Sound.
 Definition nf_eq_sh (F : list (lexp * lexp)) (ntm : nat) (e1 e2 : aexp) : bool :=
   nf_eq_s (Nat.max (apmax e1) (apmax e2)) F ntm e1 e2.
 
+Lemma pad_spec {T : Type} N (penv : list (rpadj T)) :
+  exists P, List.length P = N /\ forall n, n < N -> nth n P rpidentity = nth n penv rpidentity.
+Proof.
+  exists (map (fun n => nth n penv rpidentity) (seq 0 N)); split; [rewrite length_map, length_seq; reflexivity|].
+  intros n Hn; rewrite (nth_indep _ rpidentity (nth 0 penv rpidentity)) by (rewrite length_map, length_seq; exact Hn).
+  rewrite (map_nth (fun n => nth n penv rpidentity) (seq 0 N) 0 n), seq_nth by exact Hn; reflexivity.
+Qed.
+
 Theorem nf_eq_sh_sound {T : Type} (lenv : list label) (tenv : list T) (aenv : list (radj T)) (penv : list (rpadj T))
     (F : list (lexp * lexp)) (HF : facts_ok lenv F) (ntm : nat) (Hntm : ntm <= List.length tenv) (e1 e2 : aexp) :
   nf_eq_sh F ntm e1 e2 = true -> aeden lenv tenv aenv penv e1 = aeden lenv tenv aenv penv e2.
 Proof.
   unfold nf_eq_sh; set (N := Nat.max (apmax e1) (apmax e2)); intros H.
-  set (P := map (fun n => nth n penv rpidentity) (seq 0 N)).
-  assert (HP : List.length P = N) by (unfold P; rewrite length_map, length_seq; reflexivity).
-  assert (Hag : forall n, n < N -> nth n P rpidentity = nth n penv rpidentity).
-  { intros n Hn; unfold P.
-    rewrite (nth_indep _ rpidentity (nth 0 penv rpidentity)) by (rewrite length_map, length_seq; exact Hn).
-    rewrite (map_nth (fun n => nth n penv rpidentity) (seq 0 N) 0 n), seq_nth by exact Hn; reflexivity. }
+  destruct (pad_spec N penv) as [P [HP Hag]].
   assert (S1 : ascope N e1) by (apply (proj1 (scope_max N)); unfold N; lia).
   assert (S2 : ascope N e2) by (apply (proj1 (scope_max N)); unfold N; lia).
   rewrite <- (proj1 (eden_agree lenv tenv aenv N P penv Hag) e1 S1), <- (proj1 (eden_agree lenv tenv aenv N P penv Hag) e2 S2).
@@ -1120,4 +1630,67 @@ Proof.
   apply (nf_eq_s_sound lenv tenv aenv P (alabs e1 ++ alabs e2) F HF ntm Hntm e1 e2); try assumption.
   - intros x Hx; apply in_or_app; left; exact Hx.
   - intros x Hx; apply in_or_app; right; exact Hx.
+Qed.
+
+(** ** Completeness
+
+    Theorem 3 of [docs/normal-forms.md] for the shared decision: if two
+    expressions mean the same under every interpretation of the atoms and
+    of the labels satisfying the facts, and both normalise, the decision
+    says so.  The two stored words unfold to normal forms with those
+    meanings, which are then the same tree; and stored words of one table
+    with the same unfolding are the same. *)
+
+Lemma two_spec_at {T : Type} (lenv : list label) (tenv : list T) (aenv : list (radj T)) (penv : list (rpadj T))
+    (labs : list lexp) (F : list (lexp * lexp)) (HF : facts_ok lenv F) (ntm : nat) (Hntm : ntm <= List.length tenv)
+    (N : nat) (e1 e2 : aexp) st1 w1 st2 w2 :
+  List.length penv = N -> incl (alabs e1) labs -> incl (alabs e2) labs -> ascope N e1 -> ascope N e2 ->
+  anorm_s N F ntm e1 (mk_sst [] []) = Some (st1, w1) -> anorm_s N F ntm e2 st1 = Some (st2, w2) ->
+  wnf lenv labs N false (unfold N (sdefs st2) w1) /\ wnf lenv labs N false (unfold N (sdefs st2) w2)
+  /\ wden lenv tenv aenv penv (unfold N (sdefs st2) w1) = aeden lenv tenv aenv penv e1
+  /\ wden lenv tenv aenv penv (unfold N (sdefs st2) w2) = aeden lenv tenv aenv penv e2
+  /\ (unfold N (sdefs st2) w1 = unfold N (sdefs st2) w2 -> w1 = w2).
+Proof. intros <-; apply two_spec; assumption. Qed.
+
+Theorem complete_sh lenv F ntm e1 e2 st1 w1 st2 w2 :
+  facts_ok lenv F ->
+  (forall lenv' (T : Type) (tenv : list T) aenv penv, facts_ok lenv' F -> ntm <= List.length tenv ->
+     aeden lenv' tenv aenv penv e1 = aeden lenv' tenv aenv penv e2) ->
+  anorm_s (Nat.max (apmax e1) (apmax e2)) F ntm e1 (mk_sst [] []) = Some (st1, w1) ->
+  anorm_s (Nat.max (apmax e1) (apmax e2)) F ntm e2 st1 = Some (st2, w2) ->
+  nf_eq_sh F ntm e1 e2 = true.
+Proof.
+  intros HF Heq E1 E2; unfold nf_eq_sh, nf_eq_s; rewrite E1, E2.
+  remember (Nat.max (apmax e1) (apmax e2)) as N eqn:EN.
+  enough (Ew : w1 = w2) by (rewrite Ew; apply nf_eqb_refl).
+  set (S := alabs e1 ++ alabs e2 ++ flat_map (fun p => [fst p; snd p]) F).
+  assert (HFS : forall x y, In (x, y) F -> In x S /\ In y S).
+  { intros x y Hxy; split; apply in_or_app; right; apply in_or_app; right; apply in_flat_map; exists (x, y);
+      (split; [exact Hxy|cbn; tauto]). }
+  destruct (distinct_interp F S HFS lenv HF) as [l [HFl Hinj]].
+  assert (Hl1 : incl (alabs e1) S) by (intros x Hx; apply in_or_app; left; exact Hx).
+  assert (Hl2 : incl (alabs e2) S) by (intros x Hx; apply in_or_app; right; apply in_or_app; left; exact Hx).
+  assert (S1 : ascope N e1) by (apply (proj1 (scope_max N)); lia).
+  assert (S2 : ascope N e2) by (apply (proj1 (scope_max N)); lia).
+  remember (unfold N (sdefs st2) w1) as W1 eqn:EW1; remember (unfold N (sdefs st2) w2) as W2 eqn:EW2.
+  set (nt := Nat.max ntm (Nat.max (wmax W1) (wmax W2))).
+  assert (Hnt : ntm <= List.length (tenvT nt)) by (unfold tenvT; rewrite length_map, length_seq; lia).
+  assert (HH : forall aenv (P : list (rpadj tag)), List.length P = N ->
+            wnf l S N false W1 /\ wnf l S N false W2
+            /\ wden l (tenvT nt) aenv P W1 = aeden l (tenvT nt) aenv P e1
+            /\ wden l (tenvT nt) aenv P W2 = aeden l (tenvT nt) aenv P e2 /\ (W1 = W2 -> w1 = w2)).
+  { intros aenv P HP; subst W1 W2.
+    exact (two_spec_at l (tenvT nt) aenv P S F HFl ntm Hnt N e1 e2 st1 w1 st2 w2 HP Hl1 Hl2 S1 S2 E1 E2). }
+  destruct (pad_spec N (@nil (rpadj tag))) as [P0 [HP0 _]].
+  destruct (HH [] P0 HP0) as [H1 [H2 [_ [_ Hw]]]].
+  apply Hw, (nf_unique l S N Hinj W1 W2 H1 H2), (adequacy l nt W1 W2).
+  - apply (proj2 (proj2 (proj2 (normal_ok l S N nt))) W1 false H1); lia.
+  - apply (proj2 (proj2 (proj2 (normal_ok l S N nt))) W2 false H2); lia.
+  - intros aenv penv; destruct (pad_spec N penv) as [P [HP Hag]].
+    destruct (HH aenv P HP) as [_ [_ [D1 [D2 _]]]].
+    rewrite <- (wden_agree l (tenvT nt) aenv S N P penv Hag false W1 H1).
+    rewrite <- (wden_agree l (tenvT nt) aenv S N P penv Hag false W2 H2), D1, D2.
+    rewrite (proj1 (eden_agree l (tenvT nt) aenv N P penv Hag) e1 S1).
+    rewrite (proj1 (eden_agree l (tenvT nt) aenv N P penv Hag) e2 S2).
+    apply Heq; assumption.
 Qed.

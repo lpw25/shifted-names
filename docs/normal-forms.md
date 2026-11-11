@@ -16,6 +16,12 @@ end of the plan.
 - Theorem 4: `wtrace_sound` (`Core/Normalise.v`) and `eval_stuck`
   (`Core/Complete.v`).
 
+`names` decides equations with the shared form of the last section
+(`Core/Shared.v`): the decision is sound (`nf_eq_sh_sound`) and complete
+(`complete_sh`), and a chain of sixteen substitutions is decided in
+well under a second. Display and evaluation still use the tree
+normaliser (step 4 of that section).
+
 The label order is dense with no least or greatest label (the end of a
 string sorts just above `\000`), so facts `x < y` never force two label
 variables to be equal. Completeness takes one interpretation satisfying
@@ -290,16 +296,20 @@ followed by an atom) and each distinct payload is written once.
   one definition per term occurrence and operation, each of polynomial
   size: the chain above takes about `n²` space.
 
-Steps:
+Steps (1–3 done):
 
 1. Normal forms are well scoped: every payload atom is below a bound
    (part of the predicate, kept by every operation).
 2. The table, its meaning (definitions extend the payload environment),
-   flattening, and the shared normaliser, with soundness: `names`
-   decides equations with it.
-3. Unfolding: the unfolding of the shared normaliser's result satisfies
-   conditions 1–4; unfolding is injective on flat words of one table;
-   hence completeness for the shared decision.
+   flattening, and the shared normaliser, with soundness
+   (`norm_s_spec`, `nf_eq_sh_sound`): `names` decides equations with
+   it. The defined atoms are numbered from above the payload atoms of
+   the two expressions, so there is no side condition.
+3. Unfolding: the unfolding of a stored word is a normal form with the
+   same meaning (`unfold_spec`); in a table with no repeated and no
+   identity definitions, flat words with the same unfolding are the
+   same (`unfold_inj`); hence completeness for the shared decision
+   (`complete_sh`).
 4. Display, evaluation and materialisation from the stored form
    (unfolding only when the result is small), and the tree normaliser
    goes.
