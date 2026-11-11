@@ -230,7 +230,7 @@ or whose payload, once the atoms it was carried past are taken off, is
 still more than one segment. `names` leaves such adjustments as they
 are.
 
-## Sharing (open)
+## Sharing
 
 ### The blow-up
 
@@ -241,106 +241,65 @@ substitutions
     ⟦ x₁ := u₁ ⟧ ⨾ ⟦ x₂ := u₂ ⟧ ⨾ … ⨾ ⟦ xₙ := uₙ ⟧
 
 `u₁`'s payload is the normal form of the rest of the chain, which holds
-`u₂` with its own payload, and so on: the normal form has size about
-`2ⁿ`, although the expression has size `n`. Normalising five steps takes
-seconds and six takes minutes. The expression shares each later step
-among all the earlier terms; the normal form copies it into each.
+`u₂` with its own payload, and so on: written out as a tree, the normal
+form has size about `2ⁿ`, although the expression has size `n`.
 
-### Where a term can sit
+### Why not share through the word itself
 
-A term `u` reached by an input could be placed at any segment along that
-input's path, not only the last. Placed at segment `i`, with the rest of
-the word after it `Rᵢ`, its payload `ρ` must satisfy `ρ ⨾ Rᵢ = k`, where
-`k` is what happens to `u`'s names overall (in the free model, the
-continuation of its result). The last segment always works (`R = id`,
-`ρ = k`); that is the current choice. Sharing wants terms placed early,
-with payloads that leave to the rest of the word whatever it would do
-anyway. That leaves three choices, each of which the normal form must
-make canonically.
+One could try to leave each term where it is substituted, with what
+follows in the word acting on its names, so that later steps are written
+once. This cannot be the general mechanism. An atom passes only finitely
+many variables around it (its lifts), so everything that enters the word
+at some point goes through every later atom. In
 
-### Choice 1: the payload at a given position
+    ⟦ h := u⟨τ⟩ | σ ⟧
 
-When the rest merges variables, several payloads give the same result.
-With `R = ⟦ y as a; z as a \ z as a ⟧`, which sends `y₀` and `z₀` to
-`z₀`, shifts the other `y`s down and leaves the other `z`s alone:
+`u`'s names go through `τ` and the other inputs through `σ`; no single
+sequence of atoms does both, so `τ` has to stay in `u`'s payload. Terms
+inside such payloads can then only be shared with the main word, or
+with each other, by reference. Canonical positions within the word also
+need three separate tie-breaks (which position, which of several equal
+payloads, a variable or a term), with examples of each in the history
+of this file.
 
-    ⟦ x := u⟨ z as a; y as a \ y as a; z as _ ⟩ ⟧ ⨾ R  =  ⟦ x := u ⟧ ⨾ R
+### Named payloads
 
-The payload sends `z₀` to `y₀` and leaves everything else alone; after
-`R` that is the same as doing nothing. A payload is determined only up
-to the classes of results that the rest sends to the same place.
+The normal form already has references: payload atoms. A term whose
+payload is not the identity is stored as the term with a *defined*
+payload atom,
 
-### Choice 2: a variable or a term
+    u⟨β⟩      β := (w, b)
 
-A class can contain both a variable and a term:
+where `w` is a payload word, itself stored this way, and `b` is the
+identity or a payload atom of the expression: `β` denotes `w ⨾ b`.
+Definitions are kept in a table, and equal definitions get the same
+atom. So a stored word is *flat* (every payload is the identity
+followed by an atom) and each distinct payload is written once.
 
-    ⟦ x as a \ w as a ⟧ ⨾ ⟦ w := u ⟧  =  ⟦ x := u⟨ \ w ⟩ \ w as _ ⟧ ⨾ ⟦ w := u ⟧  =  ⟦ x := u ⟧
+- The operations of the normaliser run unchanged on flat words, where a
+  defined atom is as opaque as any payload atom. After each one, the
+  result is flattened: a term `u⟨p ⨾ β⟩` with `β := (w, b)` gets the
+  atom defined as the normal form of `p ⨾ w` for `b`, flattened in
+  turn; results are remembered per `(β, p)`.
+- The tree normal form of this file is the *unfolding* of the stored
+  form, replacing defined atoms by their definitions. Conditions 1–4 and
+  theorems 1–4 are about the unfolding and are unchanged.
+- In one table, two flat words with the same unfolding are the same, so
+  equality of normal forms is equality of stored words.
+- Each term of the expression has one continuation, so there is at most
+  one definition per term occurrence and operation, each of polynomial
+  size: the chain above takes about `n²` space.
 
-On the left `x₀` is renamed to `w₀`, which the second step substitutes;
-in the middle `x₀` is substituted directly, with a payload that adds a
-`w` the second step then removes. A rule that prefers leaving work to
-the rest of the word picks the left, and composing its two segments
-gives `⟦ x := u ⟧`.
+Steps:
 
-### Choice 3: the position
-
-"As early as possible" is not well defined. In
-
-    ⟦ x₁ := u₁ ⟧ ⨾ ⟦ x₂ := u₂ ⟧  =  ⟦ x₂ := u₂⟨ \ x₁ ⟩ ⟧ ⨾ ⟦ x₁ := u₁⟨ x₂ := u₂ ⟩ ⟧
-
-`u₂` can sit first if its payload adds an `x₁` for the second step to
-remove, but then `u₁`'s payload holds `u₂` again. And a term can sit at
-two positions with the same payload: in `⟦ x := u ⟧ ⨾ ⟦ · := v ⟧` the
-second step only touches the bound label, which a payload (applied to
-named variables) never sees, so `u` can sit before it or after it.
-
-### A candidate rule
-
-1. Write each term as few times as possible: among the forms equal to
-   the expression, take those whose payloads contain the fewest terms
-   in total. In the chain each `uᵢ` is then written once, with the
-   identity payload, before the step `⟦ xᵢ₊₁ := uᵢ₊₁ ⟧`.
-2. Among those, put each term as late as possible. This settles the
-   ties of choice 3 (`u` after `⟦ · := v ⟧`) and, when no later step
-   acts on a term's names, gives the current form.
-3. Within a class of choice 1 or 2, prefer leaving the term's variable
-   alone; otherwise a variable over a term; otherwise the first variable
-   in label then index order. For a term, apply the rule to its payload
-   relative to what follows it.
-4. Segment boundaries follow: two adjacent segments are composed unless
-   that would copy a term of the later one into a payload of the
-   earlier one.
-
-The rule depends only on what the expression means, which is what
-canonicity needs, and everything it compares can be decided on normal
-forms. Evaluation decides where the rest of the word sends a variable,
-and theorem 4 says it decides that exactly.
-
-### What is open
-
-- Whether the minimiser of rule 1 is unique once rules 2–3 are applied,
-  or only after further tie-breaks, and how to compute it without
-  searching. A natural candidate is to place each term just before the
-  first later step that substitutes a term into its names. Neither is
-  proved.
-- Terms then sit in any segment. Condition 2 is replaced, condition 3
-  (lift position) must route inputs to terms in the middle of the word,
-  and the uniqueness proof's induction (peeling the first atom) must
-  also peel term substitutions. In the free model they are like atoms
-  that act on a single variable.
-- Payload words then contain fewer terms, but the merging classes of
-  rule 3 depend on the rest of the word, so payloads are normal only
-  relative to their position. Theorem 1 must carry that context.
-
-### The alternative: sharing in the computation
-
-The current normal form can be kept, with its theorems, and computed
-with sharing instead: in the chain, `u₁`'s payload is literally the
-normal form of the rest, which also occurs in the word itself. Words
-stored as graphs with shared nodes, normalisation memoised on its
-subproblems, and equality decided by comparison memoised on pairs of
-nodes would keep the chain polynomial (about `n²` distinct nodes). This
-is engineering, plus a proof that the memo tables agree with the
-functions they cache, but no new mathematics. Display would still need
-the sharing-aware rendering of the previous section to show the result
-compactly.
+1. Normal forms are well scoped: every payload atom is below a bound
+   (part of the predicate, kept by every operation).
+2. The table, its meaning (definitions extend the payload environment),
+   flattening, and the shared normaliser, with soundness: `names`
+   decides equations with it.
+3. Unfolding: the unfolding of the shared normaliser's result satisfies
+   conditions 1–4; unfolding is injective on flat words of one table;
+   hence completeness for the shared decision.
+4. Display, evaluation and materialisation from the stored form
+   (unfolding only when the result is small), and the tree normaliser
+   goes.

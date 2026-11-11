@@ -13,6 +13,7 @@ Section Normal.
 
 Variable lenv : list label.
 Variable labs : list lexp.
+Variable npa : nat.
 Variable F : list (lexp * lexp).
 Hypothesis HF : facts_ok lenv F.
 Variable ntm : nat.
@@ -21,9 +22,10 @@ Local Notation lden := (lden lenv).
 Local Notation ekey := (ekey lenv).
 Local Notation sshape := (sshape lenv labs).
 Local Notation eshape := (eshape lenv labs).
-Local Notation tnf := (tnf lenv labs).
-Local Notation snf := (snf lenv labs).
-Local Notation wnf := (wnf lenv labs).
+Local Notation tnf := (tnf lenv labs npa).
+Local Notation snf := (snf lenv labs npa).
+Local Notation wnf := (wnf lenv labs npa).
+Local Notation bok := (bok npa).
 Local Notation rnf := (rnf lenv labs).
 Local Notation sren := (sren labs).
 Local Notation lok := (lok lenv labs).
@@ -297,9 +299,10 @@ Lemma comp_normal :
   /\ (forall w nm, wnf nm w -> forall w', wapp F ntm S w = Some w' -> wnf nm (if nm then pnorm w' else w')).
 Proof.
   apply nf_mind.
-  - intros h i Hh t' E; destruct (tapp_var_in _ _ _ _ E) as [[j ->]|Hin]; [exact Hh|apply (snf_in _ _ _ HSn _ Hin)].
+  - intros h i Hh t' E; destruct (tapp_var_in _ _ _ _ E) as [[j ->]|Hin]; [exact Hh|apply (snf_in _ _ _ _ HSn _ Hin)].
   - intros u w IH b Hw t'; rewrite tapp_bind; destruct (u <? ntm); [|discriminate].
     destruct (wapp F ntm S w) as [w'|] eqn:E; [|discriminate]; intros H; injection H as <-.
+    destruct Hw as [Hb Hw]; split; [exact Hb|].
     specialize (IH (match b with None => true | Some _ => false end) Hw w' eq_refl); destruct b; exact IH.
   - intros t [].
   - intros t IHt r IHr t0 [<-|Hin]; [exact IHt|apply IHr, Hin].
@@ -311,17 +314,17 @@ Proof.
     destruct (sgo_spec _ _ _ E HS (sshape_labs _ _ Hs)) as [Hs' Ht'].
     assert (Hn' : snf U').
     { apply snf_iff; intros t Ht; destruct (Ht' t Ht) as [Hin|[t0 [Hi Et]]];
-        [apply (snf_in _ _ _ HSn _ Hin)|apply (IH t0 Hi (snf_in _ _ _ Hn _ Hi) t Et)]. }
+        [apply (snf_in _ _ _ _ HSn _ Hin)|apply (IH t0 Hi (snf_in _ _ _ _ Hn _ Hi) t Et)]. }
     destruct nm; cbn [pnorm Unique.wnf].
     + destruct (sdrop_none_shape _ Hs') as [Hs'' Ht'']; split; [exact Hs''|].
-      apply snf_iff; intros t Ht; apply (snf_in _ _ _ Hn'), Ht'', Ht.
+      apply snf_iff; intros t Ht; apply (snf_in _ _ _ _ Hn'), Ht'', Ht.
     + split; assumption.
   - intros U IHs L a w IHw nm [Hs [Hn [Ha Hr]]] w'; rewrite wapp_atom.
     destruct (sgo F ntm S U) as [U'|] eqn:E; [|discriminate]; intros H; injection H as <-.
     destruct (sgo_spec _ _ _ E HS (sshape_labs _ _ Hs)) as [Hs' Ht'].
     assert (Hn' : snf U').
     { apply snf_iff; intros t Ht; destruct (Ht' t Ht) as [Hin|[t0 [Hi Et]]];
-        [apply (snf_in _ _ _ HSn _ Hin)|apply (IHs t0 Hi (snf_in _ _ _ Hn _ Hi) t Et)]. }
+        [apply (snf_in _ _ _ _ HSn _ Hin)|apply (IHs t0 Hi (snf_in _ _ _ _ Hn _ Hi) t Et)]. }
     destruct nm; cbn [pnorm Unique.wnf]; [rewrite (pnorm_rnf w Hr)|]; (split; [exact Hs'|split; [exact Hn'|split; [exact Ha|exact Hr]]]).
 Qed.
 
@@ -332,8 +335,8 @@ Lemma scomp_normal A Q R : scomp F ntm A Q = Some R -> sshape false A -> snf A -
 Proof.
   unfold scomp; intros E HA HAn HQ HQn.
   destruct (sgo_spec _ _ _ E HA (sshape_labs _ _ HQ)) as [Hs Ht]; split; [exact Hs|].
-  apply snf_iff; intros t Hin; destruct (Ht t Hin) as [H|[t0 [Hi Et]]]; [apply (snf_in _ _ _ HAn _ H)|].
-  apply (proj1 (proj2 (proj2 (comp_normal A HA HAn))) Q t0 Hi (snf_in _ _ _ HQn _ Hi) t Et).
+  apply snf_iff; intros t Hin; destruct (Ht t Hin) as [H|[t0 [Hi Et]]]; [apply (snf_in _ _ _ _ HAn _ H)|].
+  apply (proj1 (proj2 (proj2 (comp_normal A HA HAn))) Q t0 Hi (snf_in _ _ _ _ HQn _ Hi) t Et).
 Qed.
 
 Lemma scomp_ren A Q R : scomp F ntm A Q = Some R -> sshape false A -> sren A -> sshape false Q -> sren Q ->
@@ -545,7 +548,7 @@ Proof.
   destruct (u <? ntm); [|discriminate].
   destruct (wc (WAtom SNil L a (WEnd SNil)) w) as [w'|] eqn:E1; [|discriminate].
   destruct (pn b w') as [w''|] eqn:E2; [|discriminate]; intros H; injection H as <-.
-  apply (Hpn b w' w''); [|exact E2].
+  destruct Ht as [Hb Ht]; split; [exact Hb|]; apply (Hpn b w' w''); [|exact E2].
   exact (Hwc _ _ _ (atom_word L a HL) (wnf_false _ _ Ht) E1).
 Qed.
 
@@ -580,7 +583,7 @@ Proof.
   { intros g i Hg; unfold otg, entd; destruct (sfind F g U) as [[[ts m]|]|] eqn:E; cbn [fst snd List.length];
       [|destruct (Nat.ltb_spec i 0); [lia|exact (Hhs g Hg)]|destruct (Nat.ltb_spec i 0); [lia|exact (Hhs g Hg)]].
     destruct (Nat.ltb_spec i (List.length (tl_list ts))) as [Hi|Hi]; [|exact (Hhs g Hg)].
-    apply (snf_in _ _ _ HUn); apply (sfind_sound lenv F HF) in E.
+    apply (snf_in _ _ _ _ HUn); apply (sfind_sound lenv F HF) in E.
     apply (sget_tgts _ (lden g) U ts m (eq_sym E)), nth_In, Hi. }
   (* Q, and the segment before it. *)
   assert (HQ : sshape false Q /\ snf Q).
@@ -756,7 +759,7 @@ Proof.
   induction w as [s|A L a w IH] using word_spine; cbn [pnormf].
   - intros [Hs Hn] w' H; injection H as <-; cbn [Unique.wnf].
     destruct (sdrop_none_shape _ Hs) as [Hs' Ht']; split; [exact Hs'|].
-    apply snf_iff; intros t Ht; apply (snf_in _ _ _ Hn), Ht', Ht.
+    apply snf_iff; intros t Ht; apply (snf_in _ _ _ _ Hn), Ht', Ht.
   - intros Hw w'; destruct Hw as [HA [HAn [[HL [Hp _]] Hr]]].
     destruct w as [s|A' L' a' w1].
     + unfold pfinal.
@@ -769,7 +772,7 @@ Proof.
           exact (lcount_in _ _ HL E). }
         destruct (sset_shape false _ _ _ _ _ Es Hs Hl ltac:(discriminate)) as [Hs' [_ [Ht _]]].
         split; [exact Hs'|]; apply snf_iff; intros t Hin; destruct (Ht t Hin) as [Hin'|[]].
-        apply (snf_in _ _ _ (sren_snf _ Hsr)), Hin'.
+        apply (snf_in _ _ _ _ (sren_snf _ Hsr)), Hin'.
       * intros _; rewrite (sset_none_entd _ _ _ Es), (lcount_lsum _ _ HL); reflexivity.
     + destruct (pnormf F ntm wc pn (WAtom A' L' a' w1)) as [w''|] eqn:E; [|discriminate]; intros H.
       apply (settle_normal true A L a w'' w' HA HAn HL); [|exact H].
@@ -846,7 +849,7 @@ Proof.
   destruct (shseg_shape h Hh) as [Hsh Hshr].
   destruct (scomp_normal _ _ _ E1 Hsh (sren_snf _ Hshr) Hs Hn) as [Hs1 Hn1].
   destruct (sfront_spec _ _ _ _ E Hs1 Hh) as [Hs' Ht']; split; [exact Hs'|].
-  apply snf_iff; intros t Ht; destruct (Ht' t Ht) as [->|H]; [exact Hh|apply (snf_in _ _ _ Hn1), H].
+  apply snf_iff; intros t Ht; destruct (Ht' t Ht) as [->|H]; [exact Hh|apply (snf_in _ _ _ _ Hn1), H].
 Qed.
 
 Local Notation tenvR := (repeat tt ntm).
@@ -978,7 +981,7 @@ Proof.
   intros Hh Ht; destruct w as [s|s L a w]; cbn [wpush].
   - intros [Hs Hn]; destruct (sfront F h t s) as [s'|] eqn:E; [|discriminate]; intros H; injection H as <-.
     destruct (sfront_spec _ _ _ _ E Hs Hh) as [Hs' Ht']; split; [exact Hs'|].
-    apply snf_iff; intros t' Hin; destruct (Ht' t' Hin) as [->|H]; [exact Ht|apply (snf_in _ _ _ Hn), H].
+    apply snf_iff; intros t' Hin; destruct (Ht' t' Hin) as [->|H]; [exact Ht|apply (snf_in _ _ _ _ Hn), H].
   - intros [Hs [Hn [[HL [Hp _]] Hw]]].
     destruct (sfront F h t s) as [s'|] eqn:Es; [|discriminate].
     destruct (ladd F h 1 L) as [L'|] eqn:EL; [|discriminate].
@@ -987,7 +990,7 @@ Proof.
     pose proof (rnf_lift h w Hh Hw w1 Ew) as Hw1.
     destruct (whead_shape _ _ Hw) as [Hh0 Hr0]; destruct (whead_shape _ _ Hw1) as [Hh1 Hr1].
     refine (conj Hs' (conj _ (conj (conj _ (conj _ _)) Hw1))).
-    + apply snf_iff; intros t' Hin; destruct (Ht' t' Hin) as [->|H]; [exact Ht|apply (snf_in _ _ _ Hn), H].
+    + apply snf_iff; intros t' Hin; destruct (Ht' t' Hin) as [->|H]; [exact Ht|apply (snf_in _ _ _ _ Hn), H].
     + exact (proj2 (proj2 (ladd_spec _ _ _ _ EL)) HL Hh ltac:(discriminate)).
     + exact (lpos_lift _ _ _ _ _ Hh Hh0 Hr0 Hh1 Hr1 (whead_lift _ _ _ Ew) EL Hp).
     + intros E'; discriminate E'.
@@ -1021,54 +1024,107 @@ with plabs (p : pexp) : list lexp :=
   | PShift h p => h :: plabs p
   end.
 
+(** The payload atoms of an expression are in scope. *)
+Fixpoint ascope (e : aexp) : Prop :=
+  match e with
+  | AId | AAtom _ => True
+  | ACompose a b => ascope a /\ ascope b
+  | AOuter _ a | ALift _ a => ascope a
+  | AInner _ t a => tscope t /\ ascope a
+  end
+with tscope (t : texp) : Prop :=
+  match t with
+  | TVarE _ _ => True
+  | TBindE _ p => pscope p
+  | TShiftE _ t => tscope t
+  end
+with pscope (p : pexp) : Prop :=
+  match p with
+  | PId => True
+  | PAtom n => n < npa
+  | PComp a p => ascope a /\ pscope p
+  | PShift _ p => pscope p
+  end.
+
 Lemma end_nil : wnf false (WEnd SNil).
 Proof. split; [split; constructor|exact I]. Qed.
 
 Theorem normalise_normal :
-  (forall e, incl (alabs e) labs -> forall w, anorm F ntm e = Some w -> wnf false w)
-  /\ (forall t, incl (tlabs t) labs -> forall t', tnorm F ntm t = Some t' -> tnf t')
-  /\ (forall p, incl (plabs p) labs -> forall w b, pnorm_e F ntm p = Some (w, b) -> wnf false w).
+  (forall e, incl (alabs e) labs -> ascope e -> forall w, anorm F ntm e = Some w -> wnf false w)
+  /\ (forall t, incl (tlabs t) labs -> tscope t -> forall t', tnorm F ntm t = Some t' -> tnf t')
+  /\ (forall p, incl (plabs p) labs -> pscope p -> forall w b, pnorm_e F ntm p = Some (w, b) -> wnf false w /\ bok b).
 Proof.
-  apply exp_mind; cbn [alabs tlabs plabs].
-  - intros _ w H; injection H as <-; exact end_nil.
-  - intros n _ w H; injection H as <-; exact (atom_word [] n (conj (SSorted_nil _) (Forall_nil _))).
-  - intros a IHa b IHb Hl w; rewrite anorm_compose.
+  apply exp_mind; cbn [alabs tlabs plabs ascope tscope pscope].
+  - intros _ _ w H; injection H as <-; exact end_nil.
+  - intros n _ _ w H; injection H as <-; exact (atom_word [] n (conj (SSorted_nil _) (Forall_nil _))).
+  - intros a IHa b IHb Hl [Sa Sb] w; rewrite anorm_compose.
     destruct (anorm F ntm a) as [wa|] eqn:Ea; [|discriminate]; destruct (anorm F ntm b) as [wb|] eqn:Eb; [|discriminate].
     intros H.
-    exact (wcomp_normal wa wb w (IHa (fun x Hx => Hl x (in_or_app _ _ _ (or_introl Hx))) wa eq_refl)
-             (IHb (fun x Hx => Hl x (in_or_app _ _ _ (or_intror Hx))) wb eq_refl) H).
-  - intros h a IH Hl w; rewrite anorm_outer; destruct (anorm F ntm a) as [wa|] eqn:Ea; [|discriminate]; intros H.
-    exact (wouter_normal h wa w (Hl h (or_introl eq_refl)) (IH (fun x Hx => Hl x (or_intror Hx)) wa eq_refl) H).
-  - intros h t IHt a IHa Hl w; rewrite anorm_inner.
+    exact (wcomp_normal wa wb w (IHa (fun x Hx => Hl x (in_or_app _ _ _ (or_introl Hx))) Sa wa eq_refl)
+             (IHb (fun x Hx => Hl x (in_or_app _ _ _ (or_intror Hx))) Sb wb eq_refl) H).
+  - intros h a IH Hl Sa w; rewrite anorm_outer; destruct (anorm F ntm a) as [wa|] eqn:Ea; [|discriminate]; intros H.
+    exact (wouter_normal h wa w (Hl h (or_introl eq_refl)) (IH (fun x Hx => Hl x (or_intror Hx)) Sa wa eq_refl) H).
+  - intros h t IHt a IHa Hl [St Sa] w; rewrite anorm_inner.
     destruct (tnorm F ntm t) as [t'|] eqn:Et; [|discriminate]; destruct (anorm F ntm a) as [wa|] eqn:Ea; [|discriminate].
     intros H; apply (wpush_normal h t' wa w (Hl h (or_introl eq_refl))); [| |exact H].
-    + apply (IHt (fun x Hx => Hl x (or_intror (in_or_app _ _ _ (or_introl Hx)))) t' eq_refl).
-    + apply (IHa (fun x Hx => Hl x (or_intror (in_or_app _ _ _ (or_intror Hx)))) wa eq_refl).
-  - intros h a IH Hl w; rewrite anorm_lift; destruct (anorm F ntm a) as [wa|] eqn:Ea; [|discriminate]; intros H.
-    exact (wlift_normal h wa w (Hl h (or_introl eq_refl)) (IH (fun x Hx => Hl x (or_intror Hx)) wa eq_refl) H).
-  - intros h i Hl t' H; injection H as <-; exact (Hl h (or_introl eq_refl)).
-  - intros u p IH Hl t'; rewrite tnorm_bind; destruct (u <? ntm); [|discriminate].
+    + apply (IHt (fun x Hx => Hl x (or_intror (in_or_app _ _ _ (or_introl Hx)))) St t' eq_refl).
+    + apply (IHa (fun x Hx => Hl x (or_intror (in_or_app _ _ _ (or_intror Hx)))) Sa wa eq_refl).
+  - intros h a IH Hl Sa w; rewrite anorm_lift; destruct (anorm F ntm a) as [wa|] eqn:Ea; [|discriminate]; intros H.
+    exact (wlift_normal h wa w (Hl h (or_introl eq_refl)) (IH (fun x Hx => Hl x (or_intror Hx)) Sa wa eq_refl) H).
+  - intros h i Hl _ t' H; injection H as <-; exact (Hl h (or_introl eq_refl)).
+  - intros u p IH Hl Sp t'; rewrite tnorm_bind; destruct (u <? ntm); [|discriminate].
     destruct (pnorm_e F ntm p) as [[w b]|] eqn:Ep; [|discriminate].
     destruct (pnormw F ntm b w) as [w'|] eqn:Ew; [|discriminate]; intros H; injection H as <-.
-    exact (pnormw_normal b w w' (IH Hl w b eq_refl) Ew).
-  - intros h t IH Hl t'; rewrite tnorm_shift; destruct (tnorm F ntm t) as [[h' i|]|] eqn:Et; try discriminate.
-    pose proof (IH (fun x Hx => Hl x (or_intror Hx)) _ eq_refl) as Ht.
+    destruct (IH Hl Sp w b eq_refl) as [Hw Hb]; split; [exact Hb|exact (pnormw_normal b w w' Hw Ew)].
+  - intros h t IH Hl St t'; rewrite tnorm_shift; destruct (tnorm F ntm t) as [[h' i|]|] eqn:Et; try discriminate.
+    pose proof (IH (fun x Hx => Hl x (or_intror Hx)) St _ eq_refl) as Ht.
     destruct (lcmp F h h') as [[]|]; try discriminate; intros H; injection H as <-; exact Ht.
-  - intros _ w b H; injection H as <- <-; exact end_nil.
-  - intros n _ w b H; injection H as <- <-; exact end_nil.
-  - intros a IHa p IHp Hl w b; rewrite pnorm_comp.
+  - intros _ _ w b H; injection H as <- <-; split; [exact end_nil|exact I].
+  - intros n _ Hn w b H; injection H as <- <-; split; [exact end_nil|exact Hn].
+  - intros a IHa p IHp Hl [Sa Sp] w b; rewrite pnorm_comp.
     destruct (anorm F ntm a) as [wa|] eqn:Ea; [|discriminate]; destruct (pnorm_e F ntm p) as [[w0 b0]|] eqn:Ep; [|discriminate].
     destruct (wcomp F ntm wa w0) as [w'|] eqn:Ew; [|discriminate]; intros H; injection H as <- <-.
-    exact (wcomp_normal wa w0 w' (IHa (fun x Hx => Hl x (in_or_app _ _ _ (or_introl Hx))) wa eq_refl)
-             (IHp (fun x Hx => Hl x (in_or_app _ _ _ (or_intror Hx))) w0 b0 eq_refl) Ew).
-  - intros h p IH Hl w b; rewrite pnorm_shift.
+    destruct (IHp (fun x Hx => Hl x (in_or_app _ _ _ (or_intror Hx))) Sp w0 b0 eq_refl) as [Hw0 Hb0]; split; [|exact Hb0].
+    exact (wcomp_normal wa w0 w' (IHa (fun x Hx => Hl x (in_or_app _ _ _ (or_introl Hx))) Sa wa eq_refl) Hw0 Ew).
+  - intros h p IH Hl Sp w b; rewrite pnorm_shift.
     destruct (pnorm_e F ntm p) as [[w0 b0]|] eqn:Ep; [|discriminate].
     destruct (wouter F ntm h w0) as [w'|] eqn:Ew; [|discriminate]; intros H; injection H as <- <-.
-    exact (wouter_normal h w0 w' (Hl h (or_introl eq_refl)) (IH (fun x Hx => Hl x (or_intror Hx)) w0 b0 eq_refl) Ew).
+    destruct (IH (fun x Hx => Hl x (or_intror Hx)) Sp w0 b0 eq_refl) as [Hw0 Hb0]; split; [|exact Hb0].
+    exact (wouter_normal h w0 w' (Hl h (or_introl eq_refl)) Hw0 Ew).
 Qed.
 
 (** If the normaliser returns a word, it is in normal form. *)
-Corollary anorm_normal e w : incl (alabs e) labs -> anorm F ntm e = Some w -> wnf false w.
-Proof. intros Hl; exact (proj1 normalise_normal e Hl w). Qed.
+Corollary anorm_normal e w : incl (alabs e) labs -> ascope e -> anorm F ntm e = Some w -> wnf false w.
+Proof. intros Hl Hs; exact (proj1 normalise_normal e Hl Hs w). Qed.
 
 End Normal.
+
+(** A bound that puts all the payload atoms of an expression in scope. *)
+Fixpoint apmax (e : aexp) : nat :=
+  match e with
+  | AId | AAtom _ => 0
+  | ACompose a b => Nat.max (apmax a) (apmax b)
+  | AOuter _ a | ALift _ a => apmax a
+  | AInner _ t a => Nat.max (tpmax t) (apmax a)
+  end
+with tpmax (t : texp) : nat :=
+  match t with
+  | TVarE _ _ => 0
+  | TBindE _ p => ppmax p
+  | TShiftE _ t => tpmax t
+  end
+with ppmax (p : pexp) : nat :=
+  match p with
+  | PId => 0
+  | PAtom n => S n
+  | PComp a p => Nat.max (apmax a) (ppmax p)
+  | PShift _ p => ppmax p
+  end.
+
+Lemma scope_max N :
+  (forall e, apmax e <= N -> ascope N e) /\ (forall t, tpmax t <= N -> tscope N t) /\ (forall p, ppmax p <= N -> pscope N p).
+Proof.
+  apply exp_mind; cbn [apmax tpmax ppmax ascope tscope pscope]; intros; try exact I; try split; auto; try lia;
+    match goal with H : _ |- _ => apply H; lia end.
+Qed.
+

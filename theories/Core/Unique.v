@@ -231,6 +231,8 @@ Section Unique.
 
 (** The label expressions in play denote distinct labels. *)
 Variable labs : list lexp.
+(** The payload atoms in scope are those below [npa]. *)
+Variable npa : nat.
 Hypothesis Hinj : forall h h', In h labs -> In h' labs -> lden h = lden h' -> h = h'.
 
 (** *** Entries *)
@@ -589,12 +591,14 @@ Fixpoint rnf (nm : bool) (w : word) : Prop :=
   | WAtom s L a w' => sshape false s /\ sren s /\ aok nm L w' /\ rnf nm w'
   end.
 
+Definition bok (b : option nat) : Prop := match b with Some n => n < npa | None => True end.
+
 (** Normal forms; [wnf true] for payload words applied to named variables
     only. *)
 Fixpoint tnf (t : ntgt) : Prop :=
   match t with
   | NVar h _ => In h labs
-  | NBind _ wp b => wnf (match b with None => true | Some _ => false end) wp
+  | NBind _ wp b => bok b /\ wnf (match b with None => true | Some _ => false end) wp
   end
 with tlnf (ts : tlist) : Prop := match ts with TNil => True | TCons t r => tnf t /\ tlnf r end
 with snf (s : seg) : Prop := match s with SNil => True | SEnt _ ts _ r => tlnf ts /\ snf r end
@@ -898,7 +902,7 @@ Proof.
     + intros t t' [Ht Hnt] Hnt' E.
       destruct t as [h j|u wp b], t' as [h' j'|u' wp' b']; cbn [ft feq tnf] in E, Hnt, Hnt'; try contradiction.
       * injection E as Eh ->; f_equal; apply Hinj; assumption.
-      * destruct E as [<- [<- Ek]]; f_equal.
+      * destruct E as [<- [<- Ek]]; f_equal; destruct Hnt as [_ Hnt]; destruct Hnt' as [_ Hnt'].
         apply (IH wp wp' (match b with None => true | Some _ => false end)); try assumption.
         -- pose proof (stgts_sz s1 _ Ht) as Hs; cbn [tsz wsz] in Hs, Hsz; lia.
         -- intros y Hy; apply Ek; intros Eb; subst b; apply Hy; reflexivity.

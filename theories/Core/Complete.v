@@ -165,6 +165,7 @@ Section Ok.
 
 Variable lenv : list label.
 Variable labs : list lexp.
+Variable npa : nat.
 Variable nt : nat.
 
 Lemma oks_shape s : sshape lenv labs false s -> forall h ts m r, s = SEnt h ts m r -> sget lenv (lden lenv h) r = None.
@@ -177,14 +178,14 @@ Lemma sshape_tail nm h ts m r : sshape lenv labs nm (SEnt h ts m r) -> sshape le
 Proof. intros [Hs Ho]; cbn [sents] in Hs, Ho; inversion Hs; inversion Ho; split; assumption. Qed.
 
 Lemma normal_ok :
-  (forall t, tnf lenv labs t -> tmax t <= nt -> okt lenv (tenvT nt) t)
-  /\ (forall ts, tlnf lenv labs ts -> tlmax ts <= nt -> okts lenv (tenvT nt) ts)
-  /\ (forall s, sshape lenv labs false s -> snf lenv labs s -> smax s <= nt -> oks lenv (tenvT nt) s)
-  /\ (forall w nm, wnf lenv labs nm w -> wmax w <= nt -> okw lenv (tenvT nt) w).
+  (forall t, tnf lenv labs npa t -> tmax t <= nt -> okt lenv (tenvT nt) t)
+  /\ (forall ts, tlnf lenv labs npa ts -> tlmax ts <= nt -> okts lenv (tenvT nt) ts)
+  /\ (forall s, sshape lenv labs false s -> snf lenv labs npa s -> smax s <= nt -> oks lenv (tenvT nt) s)
+  /\ (forall w nm, wnf lenv labs npa nm w -> wmax w <= nt -> okw lenv (tenvT nt) w).
 Proof.
   apply nf_mind; cbn [tmax tlmax smax wmax Unique.tnf Unique.tlnf Unique.snf okt okts oks Unique.okw].
   - intros; exact I.
-  - intros u w IH b Hw Hm; split; [unfold tenvT; rewrite length_map, length_seq; lia|apply (IH _ Hw); lia].
+  - intros u w IH b [_ Hw] Hm; split; [unfold tenvT; rewrite length_map, length_seq; lia|apply (IH _ Hw); lia].
   - intros; exact I.
   - intros t IHt r IHr [Ht Hr] Hm; split; [apply IHt; [exact Ht|lia]|apply IHr; [exact Hr|lia]].
   - intros; exact I.
@@ -212,15 +213,19 @@ Proof.
   { intros x y Hxy; split; apply in_or_app; right; apply in_or_app; right; apply in_flat_map; exists (x, y);
       (split; [exact Hxy|cbn; tauto]). }
   destruct (distinct_interp F S HFS lenv HF) as [l [HFl Hinj]].
-  assert (H1 : wnf l S false w1) by (apply (anorm_normal l S F HFl ntm e1); [intros x Hx; apply in_or_app; left; exact Hx|exact E1]).
-  assert (H2 : wnf l S false w2).
-  { apply (anorm_normal l S F HFl ntm e2); [intros x Hx; apply in_or_app; right; apply in_or_app; left; exact Hx|exact E2]. }
+  set (N := Nat.max (apmax e1) (apmax e2)).
+  assert (H1 : wnf l S N false w1).
+  { apply (anorm_normal l S N F HFl ntm e1); [intros x Hx; apply in_or_app; left; exact Hx| |exact E1].
+    apply (proj1 (scope_max N)); unfold N; lia. }
+  assert (H2 : wnf l S N false w2).
+  { apply (anorm_normal l S N F HFl ntm e2); [intros x Hx; apply in_or_app; right; apply in_or_app; left; exact Hx| |exact E2].
+    apply (proj1 (scope_max N)); unfold N; lia. }
   set (nt := Nat.max ntm (Nat.max (wmax w1) (wmax w2))).
   assert (Hnt : ntm <= List.length (tenvT nt)) by (unfold tenvT; rewrite length_map, length_seq; lia).
-  apply (nf_unique l S Hinj w1 w2 H1 H2).
+  apply (nf_unique l S N Hinj w1 w2 H1 H2).
   apply (adequacy l nt w1 w2).
-  - apply (proj2 (proj2 (proj2 (normal_ok l S nt))) w1 false H1); lia.
-  - apply (proj2 (proj2 (proj2 (normal_ok l S nt))) w2 false H2); lia.
+  - apply (proj2 (proj2 (proj2 (normal_ok l S N nt))) w1 false H1); lia.
+  - apply (proj2 (proj2 (proj2 (normal_ok l S N nt))) w2 false H2); lia.
   - intros aenv penv.
     rewrite (proj1 (anorm_sound l (tenvT nt) aenv penv F HFl ntm Hnt) e1 w1 E1).
     rewrite (proj1 (anorm_sound l (tenvT nt) aenv penv F HFl ntm Hnt) e2 w2 E2).
@@ -284,8 +289,9 @@ Proof.
   intros HF E Hs [t Ht].
   destruct (proj2 (wtrace_free lenv F HF w h i FVar) Hs) as [a [z [k Ef]]].
   set (nt := Nat.max ntm (wmax w)).
-  assert (Hw : wnf lenv (alabs e) false w) by exact (anorm_normal lenv (alabs e) F HF ntm e w (incl_refl _) E).
-  assert (Hok : okw lenv (tenvT nt) w) by (apply (proj2 (proj2 (proj2 (normal_ok lenv (alabs e) nt))) w false Hw); lia).
+  assert (Hw : wnf lenv (alabs e) (apmax e) false w)
+    by exact (anorm_normal lenv (alabs e) (apmax e) F HF ntm e w (incl_refl _) (proj1 (scope_max _) e (le_n _)) E).
+  assert (Hok : okw lenv (tenvT nt) w) by (apply (proj2 (proj2 (proj2 (normal_ok lenv (alabs e) (apmax e) nt))) w false Hw); lia).
   assert (Hnt : ntm <= List.length (tenvT nt)) by (unfold tenvT; rewrite length_map, length_seq; lia).
   set (Λ := [v_label z]); set (N := S (v_index z)); set (na := S a).
   set (aenv := aenvT [] Λ N na); set (penv := penvT [] 1).
