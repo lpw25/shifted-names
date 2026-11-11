@@ -819,6 +819,13 @@ Proof.
     exact (pnormf_normal wc pn IHc IHp w Hw w' H).
 Qed.
 
+Lemma wcomp_normal w1 w2 w : wnf false w1 -> wnf false w2 -> wcomp F ntm w1 w2 = Some w -> wnf false w.
+Proof. exact (proj1 (wops_normal 64) w1 w2 w). Qed.
+
+Lemma pnormw_normal b w w' : wnf false w -> pnormw F ntm b w = Some w' ->
+  wnf (match b with None => true | Some _ => false end) w'.
+Proof. exact (proj2 (wops_normal 64) b w w'). Qed.
+
 (** ** Lifting and pushing *)
 
 Lemma shseg_shape h : In h labs -> sshape false (shseg h 1) /\ sren (shseg h 1).
@@ -1034,8 +1041,8 @@ Proof.
   - intros n _ w H; injection H as <-; exact (atom_word [] n (conj (SSorted_nil _) (Forall_nil _))).
   - intros a IHa b IHb Hl w; rewrite anorm_compose.
     destruct (anorm F ntm a) as [wa|] eqn:Ea; [|discriminate]; destruct (anorm F ntm b) as [wb|] eqn:Eb; [|discriminate].
-    intros H; unfold wcomp in H.
-    exact (proj1 (wops_normal 64) wa wb w (IHa (fun x Hx => Hl x (in_or_app _ _ _ (or_introl Hx))) wa eq_refl)
+    intros H.
+    exact (wcomp_normal wa wb w (IHa (fun x Hx => Hl x (in_or_app _ _ _ (or_introl Hx))) wa eq_refl)
              (IHb (fun x Hx => Hl x (in_or_app _ _ _ (or_intror Hx))) wb eq_refl) H).
   - intros h a IH Hl w; rewrite anorm_outer; destruct (anorm F ntm a) as [wa|] eqn:Ea; [|discriminate]; intros H.
     exact (wouter_normal h wa w (Hl h (or_introl eq_refl)) (IH (fun x Hx => Hl x (or_intror Hx)) wa eq_refl) H).
@@ -1050,7 +1057,7 @@ Proof.
   - intros u p IH Hl t'; rewrite tnorm_bind; destruct (u <? ntm); [|discriminate].
     destruct (pnorm_e F ntm p) as [[w b]|] eqn:Ep; [|discriminate].
     destruct (pnormw F ntm b w) as [w'|] eqn:Ew; [|discriminate]; intros H; injection H as <-.
-    unfold pnormw in Ew; exact (proj2 (wops_normal 64) b w w' (IH Hl w b eq_refl) Ew).
+    exact (pnormw_normal b w w' (IH Hl w b eq_refl) Ew).
   - intros h t IH Hl t'; rewrite tnorm_shift; destruct (tnorm F ntm t) as [[h' i|]|] eqn:Et; try discriminate.
     pose proof (IH (fun x Hx => Hl x (or_intror Hx)) _ eq_refl) as Ht.
     destruct (lcmp F h h') as [[]|]; try discriminate; intros H; injection H as <-; exact Ht.
@@ -1059,8 +1066,7 @@ Proof.
   - intros a IHa p IHp Hl w b; rewrite pnorm_comp.
     destruct (anorm F ntm a) as [wa|] eqn:Ea; [|discriminate]; destruct (pnorm_e F ntm p) as [[w0 b0]|] eqn:Ep; [|discriminate].
     destruct (wcomp F ntm wa w0) as [w'|] eqn:Ew; [|discriminate]; intros H; injection H as <- <-.
-    unfold wcomp in Ew.
-    exact (proj1 (wops_normal 64) wa w0 w' (IHa (fun x Hx => Hl x (in_or_app _ _ _ (or_introl Hx))) wa eq_refl)
+    exact (wcomp_normal wa w0 w' (IHa (fun x Hx => Hl x (in_or_app _ _ _ (or_introl Hx))) wa eq_refl)
              (IHp (fun x Hx => Hl x (in_or_app _ _ _ (or_intror Hx))) w0 b0 eq_refl) Ew).
   - intros h p IH Hl w b; rewrite pnorm_shift.
     destruct (pnorm_e F ntm p) as [[w0 b0]|] eqn:Ep; [|discriminate].
