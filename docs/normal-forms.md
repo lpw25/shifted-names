@@ -3,7 +3,24 @@
 Composition is written `⨾`, in diagrammatic order: `a ⨾ b` is `a`, then
 `b`, so `t [a] [b] = t [a ⨾ b]`.
 
-## Expressions
+## Status
+
+This document is the specification and the plan. The code does not meet
+it yet:
+
+- The normaliser (`Core/Normalise.v`) currently keeps terms before atoms
+  and settles lifted atoms with a fuel-bounded loop of steps. Its normal
+  forms are **not unique**. These two adjustments are equal but
+  normalise differently (the term's `y` goes to `x₀` in one and `x₁` in
+  the other, and the two are merged after `σ`):
+
+      ⟦ z := u⟨ y as c ⟩; x as c; x as d \ x as c; x as d ⟧ ⨾ ⟦ x; x | σ ⟧ ⨾ ⟦ x as c; x as c \ x as c ⟧
+      ⟦ z := u⟨ y as d ⟩; x as c; x as d \ x as c; x as d ⟧ ⨾ ⟦ x; x | σ ⟧ ⨾ ⟦ x as c; x as c \ x as c ⟧
+
+- Of the proof, only the first lemma exists (`Core/Unique.v`): canonical
+  segments whose targets are variables are determined by their action.
+
+## Expressions and their meaning
 
 An adjustment expression is built from adjustment atoms `σ`, the
 identity, composition, output entries (`push_outer h`), input entries
@@ -14,107 +31,178 @@ labels, and label atoms, ordered by the facts in context.
 
 Two expressions are *equal* when they denote the same adjustment for
 every interpretation of their atoms (consistent with the facts). The
-normal form is meant to be a complete invariant: equal expressions have
-the same normal form.
+normal form is a complete invariant: equal expressions have the same
+normal form.
 
-## Words
+## The normal form
 
-Internally a normal form is a *word*
+A normal form is a *word*
 
     U₀ ⨾ ⇑ᴸ¹σ₁ ⨾ U₁ ⨾ ⇑ᴸ²σ₂ ⨾ … ⨾ ⇑ᴸⁿσₙ ⨾ Uₙ
 
-of segments `Uᵢ` and atoms `σᵢ` under multisets of lifts `Lᵢ`. A segment
-is a context form with the identity tail: per label, in label order, the
-targets of its first inputs and its number of outputs, with no
-transparent last entry. Write `Vᵢ` for the variables `⇑ᴸⁱ` passes
-around `σᵢ`: `h₍₀₎ … h₍ₖ₋₁₎` for each `h` lifted `k` times.
+of segments `Uᵢ` and atoms `σᵢ` under multisets of lifts `Lᵢ`; `Uᵢ₋₁` is
+applied just before `σᵢ`. A segment is a context form with the identity
+tail: per label, in label order, the targets of its first inputs and its
+number of outputs. Write `Vᵢ` for the variables `⇑ᴸⁱ` passes around
+`σᵢ`: `h₍₀₎ … h₍ₖ₋₁₎` for each `h` lifted `k` times.
 
 The conditions:
 
-1. **Segments are canonical** (ordered, distinct labels, trimmed).
-2. **The segment before a lifted atom is in lift position.** Let `Pᵢ` be
-   the inputs `Uᵢ₋₁` sends into `Vᵢ`. Then every variable of `Vᵢ` is
-   reached; `Lᵢ` lifts each label `g` as many times as `Pᵢ` has inputs
-   labelled `g`; and `Uᵢ₋₁` sends the `j`-th input of `Pᵢ` labelled `g`
-   to `g₍ⱼ₎`. So the renaming of passed-around variables, merging them,
-   and which labels are lifted all live in the segment after the atom:
-   `⟦ y \ x ⟧ ⨾ ⟦ x | σ ⟧` is `⟦ y | Γ \ x | Γ[σ] ⟧`.
-3. **Terms stay before atoms.** A term the segment before an atom
-   substitutes stays there (`⟦ x := u ⟧ ⨾ σ`). A term after an atom, on a
-   variable passed around it, whose payload starts with that atom, is
-   moved before it.
-4. **Payloads are normal for what they mean.** A payload word is applied
-   to named variables only: condition 2 for its first atom counts named
-   inputs only, and its first segment has no bound-label entry. Payload
-   words satisfy 1–4 themselves.
+1. **Segments are canonical**: labels in order and distinct; no entry is
+   the identity; no entry ends with a transparent target (a last target
+   `h₍ₘ₋₁₎` with `m` outputs is the same as no target and `m - 1`
+   outputs).
+2. **Terms are in the last segment only.** `U₀ … Uₙ₋₁` are renamings. A
+   term substituted before an atom is carried past it: the input is
+   passed around the atom, and the term sits in `Uₙ` with a payload that
+   holds everything that happens to its names afterwards, atoms
+   included.
+3. **The segment before a lifted atom is in lift position.** Let `Pᵢ` be
+   the inputs `Uᵢ₋₁` sends into `Vᵢ`. Then `Lᵢ` lifts each label `g`
+   exactly as many times as `Pᵢ` has inputs labelled `g`, and `Uᵢ₋₁`
+   sends the `j`-th input of `Pᵢ` labelled `g` (in index order) to
+   `g₍ⱼ₎`. So which inputs are passed around `σᵢ` is read off `Uᵢ₋₁`,
+   and what happens to them (renaming, merging, substituting) is in the
+   segments after the atom.
+4. **Payload words are normal for what they mean.** A payload word is
+   applied to named variables only. It satisfies 1–3, except that its
+   first segment has no bound-label entry and condition 3 for its first
+   atom counts named inputs only.
 
-## Expressions shown
+The normal form is internal. It is chosen to be the easiest form to
+prove unique, not to be read.
 
-A word is shown as a sequence of context forms
+## Settling in one pass
 
-    B₀ ⨾ F₁ ⨾ B₁ ⨾ … ⨾ Fₖ ⨾ Bₖ
+Composition meets `A' ⨾ ⇑ᴸσ ⨾ A` with `A'` not in lift position (in the
+code's order, `A ∘ ⇑ᴸσ ∘ A'`). The settled form is computed directly
+from the entries of `A'`:
 
-- Each `Fⱼ` is a form `⟦ I | Γ \ O | Γ[σ ⨾ … ⨾ σ'] ⟧` whose tail is a
-  maximal run of atoms with the same lifts and the identity between
-  them. Its inputs `I` are the variables passed around the run.
+- `P`: the inputs `A'` sends to a variable of `V` or to a term.
+- `L'`: each label `g` lifted once per input of `P` labelled `g`.
+- `U`: `A'` with the `j`-th input of `P` labelled `g` sent to `g₍ⱼ₎`,
+  and every other target `z` re-indexed from `L` to `L'`
+  (`shift_L' (unshift_L z)`).
+- `Q`: per label `g`, the original targets of the inputs of `P` labelled
+  `g`, in order, and `L`'s number of lifts by `g` as its outputs. A term
+  target gets `⇑ᴸσ` composed into its payload.
+
+Then `A' ⨾ ⇑ᴸσ ⨾ A = U ⨾ ⇑ᴸ'σ ⨾ (Q ⨾ A)`, and `U` is in lift position
+for `L'` by construction. This covers a skipped passed-around variable
+(it is not in `P`, so its lift goes and `Q` shifts), renaming, merging
+and terms uniformly. There is no fuel and nothing is checked by
+composing back.
+
+This replaces the current loop of shift, pull, push and peel steps.
+
+## What `names` shows
+
+The expression `names` produces is a function of the normal form, so
+equal adjustments are shown identically whatever that function does; it
+needs no part in the uniqueness proof. Each rewrite to the shown
+expression is proved by deciding the equation, as now. The function:
+
+- A maximal run of atoms with the same lifts and the identity between
+  them is the tail of one context form `⟦ I | Γ \ O | Γ[σ ⨾ … ⨾ σ'] ⟧`,
+  whose inputs `I` are the variables passed around the run.
 - The segment after a run is split into the part on the variables passed
   around it, which gives the form's outputs `O`, and the part on the
-  run's outputs, which is the separate form `Bⱼ` (left out when it is
-  the identity). The split is not made when the second part would put an
+  run's outputs, which is a separate form (left out when it is the
+  identity). The split is not made when the second part would put an
   output of the run underneath one of the form's outputs of the same
   label (`⟦ x | σ ⟧ ⨾ ⟦ y \ x ⟧`); the segment is then shown whole.
+- A term whose payload starts with the atoms it was carried past is
+  shown before them: `⟦ x := u ⟧ ⨾ σ`, not `⟦ x | σ ⟧ ⨾ ⟦ x := u⟨σ⟩ ⟧`.
 - A form with no entries is shown as its tail.
 
-So forms join where they share known variables, and stay apart where the
+So forms join where they share known variables and stay apart where the
 later one only acts on what the earlier one's tail produced:
 `⟦ x | σ ⟧ ⨾ ⟦ x \ y ⟧ ⨾ ⟦ y | τ ⟧` is `⟦ x | Γ \ y | Γ[σ ⨾ τ] ⟧`, while
 `⟦ x | σ ⟧ ⨾ ⟦ y \ z ⟧` stays as it is.
 
-## Uniqueness
+## The theorems
 
-To be proved: two words satisfying 1–4 that denote the same adjustment
-for every interpretation of their atoms are equal; and the evaluation of
-a variable by `names` succeeds whenever its result does not depend on the
-interpretation of the atoms.
+1. *Normal.* If the normaliser returns a word, the word satisfies
+   conditions 1–4. (It fails, rather than returning something else, when
+   a label order it needs is unknown or its bound on payload depth runs
+   out.) Proved, not checked at run time.
+2. *Unique.* Two words satisfying 1–4 that denote the same adjustment
+   for every interpretation of their atoms are equal.
+3. *Complete.* Hence two expressions that are equal, and that the
+   normaliser normalises, have the same normal form.
+4. *Evaluation.* Evaluating a variable through a normal form succeeds
+   exactly when its result does not depend on the interpretation of the
+   atoms.
 
-### Plan of the proof
+## Plan of the proof
 
-The proof reads a word back from what it does under one family of
-interpretations of its atoms, *probes*; equal meanings then give equal
-words.
+### The free model
 
-Interpretations are finitary: an adjustment renames only finitely many
-variables to other labels (a label's tail stays in that label). So
-probes cannot rename whole labels to fresh ones. Instead, a probe for a
-bound `B` larger than every index in the two words (and their lifts)
-sends each variable `l₍ᵢ₎` with `i < B`, for each label `l` of the words
-and `·`, to a term tagged with the atom, `l` and `i`, whose payload
-adjustment is the identity. Results are then compared only on variables
-of index below a bound `B'` derived from `B`.
+Real adjustments are finitary: an adjustment sends only finitely many
+variables of a label anywhere but along that label's tail, so no real
+interpretation of an atom can tag every variable. The proof therefore
+goes through a *free model*, in which applying an adjustment to a
+variable gives one of
 
-1. **Segments** (no atoms). A canonical segment is determined by its
-   action on the variables of index below a bound: each label's targets,
-   output count and trimming are read off directly. Payload words are
-   handled by induction on payload depth, comparing payloads on named
-   variables only.
-2. **The first atom.** Inputs meet `U₀` and then `σ₁` first. Under the
-   probe, a variable that reaches `σ₁` comes back as `σ₁`'s tag, with the
-   variable it reached `σ₁` at; one passed around `σ₁` comes back as
-   something else. Since `U₀` is a renaming in lift position (condition
-   2), this determines `U₀`, `L₁` and `σ₁`, so they agree in the two
-   words.
-3. **The rest.** The payload attached to `σ₁`'s tag records what the rest
-   of the word does after `σ₁`, on named variables. Choosing the probe's
-   payload to send further named variables to each bound variable of
-   interest recovers the action of everything after `σ₁` on all
-   variables. That gives the induction step on the number of atoms.
-4. **Terms and payload words** (conditions 3 and 4) are handled with the
-   segments, using the push step to fix where a term sits.
+- a variable;
+- a term `u` with its continuation `k`;
+- *stuck*: atom `a` applied at variable `z`, with continuation `k`,
 
-Variable evaluation's completeness follows from step 2's
-characterisation: a variable's result does not depend on the atoms
-exactly when it is passed around every atom it meets, which is when
-`wtgt` succeeds.
+where a continuation is a function from variables to such results (what
+the rest of the word does to whatever comes back; for a term, only its
+values on named variables matter). Words are given a meaning in the
+free model directly, by the same case analysis the real meaning
+satisfies. A stuck result shows the atom, where it was applied, and the
+whole of the rest, with no index bounds and no encoding.
 
-The mechanisation is staged: segments; renaming words (no terms);
-terms; payloads.
+### Steps
+
+1. **Internal normal form.** Return terms to the last segment (undo
+   "terms before atoms" in the normaliser; it becomes a display step).
+2. **One-pass settle**, replacing the step loop, with its soundness
+   proof. Needs the action of `⇑ᴸσ` on a variable in terms of
+   multi-label shift and unshift, which later steps reuse.
+3. **The predicate** for conditions 1–4, as a proposition.
+4. **Normal** (theorem 1). One syntactic lemma: setting an entry keeps a
+   segment canonical; every segment operation goes through it.
+   Composing renamings gives a renaming. Lifting a word and pushing an
+   input entry keep lift position. Settle gives lift position by
+   construction. Payload normalisation gives condition 4.
+5. **The free model**, the meaning of words in it, and: words equal in
+   the free model are equal under every real interpretation (a relation
+   between free results and real results, by induction on the word; no
+   bounds).
+6. **Unique in the free model.** For words satisfying 1–4 with equal
+   free meanings, by induction on the number of atoms:
+   - a variable of a label the words do not mention is stuck at each
+     atom in turn, so the sequences of atoms agree, and the number of
+     atoms left in a continuation is determined by it;
+   - an input is passed around `σ₁` exactly when its result is not
+     "stuck at `σ₁` with a continuation of `n - 1` atoms"; by lift
+     position the passed inputs are `V₁`, so `L₁` agrees;
+   - where an input is stuck shows where `U₀` sent it, so `U₀` agrees as
+     a renaming, hence syntactically (the lemma in `Core/Unique.v`);
+   - the rest of the word is determined on `V₁` by the passed inputs and
+     elsewhere by the continuation, so the rests agree by induction;
+   - the last segment's terms agree, and their payload words agree by
+     induction on payload depth, using condition 4.
+7. **Adequacy.** Words equal under every real interpretation are equal
+   in the free model. For any finite set of labels and bound on indices,
+   interpret each atom as sending each of those variables to a term
+   tagged with the atom and the variable, whose payload adjustment sends
+   some names to the bound variables, so that the payload of a result
+   records the continuation on bound variables as well as names. Reading
+   real results back gives the free results on those variables; free
+   results that agree on every such finite part are equal. This is the
+   only step with index bounds, and it does not depend on conditions
+   1–4.
+8. **Complete and evaluation** (theorems 3 and 4), from 4, 6 and 7 and
+   the soundness of the normaliser. For evaluation: it fails exactly
+   when the free result is stuck, and a stuck result changes with the
+   interpretation of its atom.
+9. **Display** as a function of the normal form, including terms before
+   atoms.
+
+Afterwards, the checks of label distinctness that segment composition
+makes at run time are implied by theorem 1 and can be removed, by
+restating the soundness lemmas for canonical segments.
