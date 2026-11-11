@@ -85,12 +85,17 @@ Definition lt_base (a b : lexp) : bool :=
   end.
 
 Fixpoint lt_reach (F : list (lexp * lexp)) (fuel : nat) (a b : lexp) : bool :=
-  lt_base a b
-  || match fuel with
-     | 0 => false
-     | S f => existsb (fun '(x, y) => (lexp_eqb x a || lt_base a x) && (lexp_eqb y b || lt_reach F f y b)) F
-     end.
+  if lt_base a b then true
+  else match fuel with
+       | 0 => false
+       | S f =>
+           existsb (fun '(x, y) =>
+             if lexp_eqb x a || lt_base a x then (if lexp_eqb y b then true else lt_reach F f y b) else false) F
+       end.
 
+(** Written with [if] rather than [&&] and [||], which [vm_compute]
+    evaluates eagerly: otherwise every fact would be followed at every
+    step, exponentially in the number of facts. *)
 Definition lt_known (F : list (lexp * lexp)) (a b : lexp) : bool := lt_reach F (List.length F) a b.
 
 Definition lcmp (F : list (lexp * lexp)) (a b : lexp) : option comparison :=
@@ -121,15 +126,15 @@ Proof. destruct a, b; cbn; try discriminate; unfold olabel_lt; cbn; auto. Qed.
 
 Lemma lt_reach_sound fuel : forall a b, lt_reach F fuel a b = true -> olabel_lt (lden a) (lden b).
 Proof.
-  induction fuel as [|f IH]; intros a b H; cbn [lt_reach] in H; apply orb_true_iff in H as [H|H];
-    try (apply lt_base_sound, H); [discriminate|].
+  induction fuel as [|f IH]; intros a b H; cbn [lt_reach] in H;
+    (destruct (lt_base a b) eqn:Eb; [apply lt_base_sound, Eb|]); [discriminate|].
   apply existsb_exists in H as [[x y] [Hin H]].
-  apply andb_true_iff in H as [Hx H].
+  destruct (lexp_eqb x a || lt_base a x) eqn:Hx; [|discriminate].
   pose proof (proj1 (Forall_forall _ F) HF _ Hin) as Hxy; cbn in Hxy.
   assert (Hax : lden a = lden x \/ olabel_lt (lden a) (lden x)).
   { apply orb_true_iff in Hx as [Hx|Hx]; [left; apply lexp_eqb_eq in Hx; subst; reflexivity|right; apply lt_base_sound, Hx]. }
   assert (Hyb : olabel_lt (lden y) (lden b) \/ lden y = lden b).
-  { apply orb_true_iff in H as [H|H]; [right; apply lexp_eqb_eq in H; subst; reflexivity|left; apply IH, H]. }
+  { destruct (lexp_eqb y b) eqn:Ey; [right; apply lexp_eqb_eq in Ey; subst; reflexivity|left; apply IH, H]. }
   destruct Hax as [Hax|Hax]; destruct Hyb as [Hyb|Hyb].
   - rewrite Hax; exact (olabel_lt_trans _ _ _ Hxy Hyb).
   - rewrite Hax, <- Hyb; exact Hxy.

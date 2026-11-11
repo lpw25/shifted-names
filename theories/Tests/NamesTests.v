@@ -89,6 +89,14 @@ Proof. names; reflexivity. Qed.
 Example bound_term_before_atom {N M} (u : T) (s : adj T N M) : ⟦ · := u ⟧ ⨾ ⟦⟧ ⨾ s = ⟦ · := u ⟧ ⨾ s.
 Proof. names; reflexivity. Qed.
 
+(** A chain of facts is followed without trying every fact at every step
+    (this took 16 seconds when [&&] made the search eager). *)
+Example many_labels {N M} x1 x2 x3 x4 x5 x6 x7 x8 (a : adj T N M) :
+  label_lt x1 x2 -> label_lt x2 x3 -> label_lt x3 x4 -> label_lt x4 x5 ->
+  label_lt x5 x6 -> label_lt x6 x7 -> label_lt x7 x8 ->
+  ⟦ x8; x7; x6; x5; x4; x3; x2; x1 | a ⟧ = ⟦ x1; x2; x3; x4; x5; x6; x7; x8 | a ⟧.
+Proof. intros; names; reflexivity. Qed.
+
 (** The order of [x] and [y] goes through the concrete labels between
     them. *)
 Example lift_free_comm_through {N M} x y (a : adj T N M) :
