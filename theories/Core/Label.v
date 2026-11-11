@@ -17,8 +17,15 @@ Definition label := string.
 
 (** ** The order on ascii characters and strings
 
-    Characters are compared bit by bit, most significant bit first; strings
-    lexicographically. *)
+    Characters are compared bit by bit, most significant bit first.  Strings
+    are compared character by character, with the end of a string placed
+    just above the character [\000] and below every other character: so
+    ["a\000" < "a" < "a\001"].  Strings without [\000] are ordered
+    lexicographically as usual.  The order is dense and has no least or
+    greatest element, like the rationals: below [s] is [s ++ "\000"], above
+    it [s ++ "\255"], and there is always a string between two others.  So
+    facts [x < y] about label variables never force two of them to be
+    equal. *)
 
 Definition is_less_than_ascii (a1 : ascii) (a2 : ascii) :=
   match a1, a2 with
@@ -66,11 +73,13 @@ Definition is_less_than_ascii (a1 : ascii) (a2 : ascii) :=
     end
   end.
 
+Definition is_nul (a : ascii) : bool := Ascii.eqb a "000"%char.
+
 Fixpoint is_less_than_label s1 s2 :=
   match s1, s2 with
   | EmptyString, EmptyString => false
-  | String a1 s1, EmptyString => false
-  | EmptyString, String a2 s2 => true
+  | String a1 s1, EmptyString => is_nul a1
+  | EmptyString, String a2 s2 => negb (is_nul a2)
   | String a1 s1, String a2 s2 =>
     if is_less_than_ascii a1 a2 then true
     else if is_less_than_ascii a2 a1 then false
@@ -128,21 +137,31 @@ Proof.
                 destruct b1, b9, b17; easy.
 Qed.
 
+Lemma is_less_than_ascii_irrefl a : is_less_than_ascii a a = false.
+Proof.
+  destruct (is_less_than_ascii a a) eqn:E; [|reflexivity].
+  pose proof (is_less_than_ascii_asymmetric a a E); congruence.
+Qed.
+
+Lemma nul_min a : is_less_than_ascii a "000"%char = false.
+Proof. destruct a as [[] [] [] [] [] [] [] []]; reflexivity. Qed.
+
+Lemma nul_below a : is_nul a = false -> is_less_than_ascii "000"%char a = true.
+Proof. destruct a as [[] [] [] [] [] [] [] []]; easy. Qed.
+
+Lemma below_nul a : is_less_than_ascii a "000"%char = false /\ (is_nul a = true -> a = "000"%char).
+Proof. split; [apply nul_min|unfold is_nul; intros H; apply Ascii.eqb_eq, H]. Qed.
+
 Lemma is_less_than_label_asymmetric s1 s2 :
   is_less_than_label s1 s2 = true ->
   is_less_than_label s2 s1 = false.
 Proof.
-  generalize dependent s2.
-  induction s1 as [|a1 s1];
-    destruct s2 as [|a2 s2]; cbn; try easy.
-  destruct (is_less_than_ascii a1 a2) eqn:Heq1;
-    [|destruct (is_less_than_ascii a2 a1) eqn:Heq2];
-    try easy.
-  - replace (is_less_than_ascii a2 a1) with false
-      by (symmetry;
-          apply is_less_than_ascii_asymmetric; easy).
-    easy.
-  - apply IHs1.
+  revert s2; induction s1 as [|a1 s1 IH]; destruct s2 as [|a2 s2]; cbn; try easy.
+  - destruct (is_nul a2); easy.
+  - destruct (is_nul a1); easy.
+  - destruct (is_less_than_ascii a1 a2) eqn:Heq1; [|destruct (is_less_than_ascii a2 a1) eqn:Heq2]; try easy.
+    + rewrite (is_less_than_ascii_asymmetric _ _ Heq1); easy.
+    + apply IH.
 Qed.
 
 Lemma is_less_than_label_total s1 s2 :
@@ -150,48 +169,72 @@ Lemma is_less_than_label_total s1 s2 :
   is_less_than_label s2 s1 = false ->
   s1 = s2.
 Proof.
-  generalize dependent s2.
-  induction s1 as [|a1 s1];
-    destruct s2 as [|a2 s2]; cbn; try easy.
-  destruct (is_less_than_ascii a1 a2) eqn:Heq1;
-    [|destruct (is_less_than_ascii a2 a1) eqn:Heq2];
-    try easy.
-  replace a2 with a1
-    by (apply is_less_than_ascii_total; easy).
-  intros; replace s2 with s1 by (apply IHs1; easy).
-  easy.
+  revert s2; induction s1 as [|a1 s1 IH]; destruct s2 as [|a2 s2]; cbn; try easy.
+  - destruct (is_nul a2); easy.
+  - destruct (is_nul a1); easy.
+  - destruct (is_less_than_ascii a1 a2) eqn:Heq1; [|destruct (is_less_than_ascii a2 a1) eqn:Heq2]; try easy.
+    replace a2 with a1 by (apply is_less_than_ascii_total; easy).
+    intros; f_equal; apply IH; easy.
 Qed.
+
+Lemma nul_not_above a : is_nul a = true -> forall b, is_less_than_ascii b a = false.
+Proof. intros H b; apply below_nul in H; subst a; apply nul_min. Qed.
 
 Lemma is_less_than_label_transitive s1 s2 s3 :
   is_less_than_label s1 s2 = true ->
   is_less_than_label s2 s3 = true ->
   is_less_than_label s1 s3 = true.
 Proof.
-  generalize dependent s2.
-  generalize dependent s3.
-  induction s1 as [|a1 s1];
-    destruct s2 as [|a2 s2], s3 as [|a3 s3]; cbn; try easy.
-  destruct (is_less_than_ascii a1 a2) eqn:Heq1;
-    [|destruct (is_less_than_ascii a2 a1) eqn:Heq2];
-    try easy.
-  - destruct (is_less_than_ascii a2 a3) eqn:Heq3;
-      [|destruct (is_less_than_ascii a3 a2) eqn:Heq4];
-      try easy.
-    + replace (is_less_than_ascii a1 a3) with true
-        by (symmetry; apply is_less_than_ascii_transitive
-              with (a2 := a2); easy).
-      easy.
-    + replace a3 with a2
-        by (apply is_less_than_ascii_total; easy).
-      rewrite Heq1; easy.
-  - replace a1 with a2
-      by (apply is_less_than_ascii_total; easy).
-    destruct (is_less_than_ascii a2 a3) eqn:Heq3;
-      [|destruct (is_less_than_ascii a3 a2) eqn:Heq4];
-      try easy.
-    apply IHs1.
+  revert s2 s3; induction s1 as [|a1 s1 IH]; intros [|a2 s2] [|a3 s3] H1 H2; cbn in *; try discriminate.
+  - (* "" < a2 s2 < "" *)
+    rewrite H2 in H1; discriminate.
+  - (* "" < a2 s2 < a3 s3 *)
+    apply negb_true_iff in H1; apply negb_true_iff.
+    destruct (is_nul a3) eqn:N3; [|reflexivity]; exfalso.
+    rewrite (nul_not_above a3 N3 a2) in H2.
+    destruct (is_less_than_ascii a3 a2) eqn:E; [discriminate|].
+    replace a3 with a2 in N3 by (apply is_less_than_ascii_total; [apply (nul_not_above a3 N3)|exact E]).
+    congruence.
+  - (* a1 s1 < "" < a3 s3 *)
+    apply negb_true_iff in H2; apply below_nul in H1; subst a1; rewrite (nul_below _ H2); reflexivity.
+  - (* a1 s1 < a2 s2 < "" *)
+    rewrite (nul_not_above a2 H2 a1) in H1.
+    destruct (is_less_than_ascii a2 a1) eqn:E; [discriminate|].
+    replace a1 with a2 by (apply is_less_than_ascii_total; [exact E|apply (nul_not_above a2 H2)]); exact H2.
+  - destruct (is_less_than_ascii a1 a2) eqn:Heq1; [|destruct (is_less_than_ascii a2 a1) eqn:Heq2]; try discriminate.
+    + destruct (is_less_than_ascii a2 a3) eqn:Heq3; [|destruct (is_less_than_ascii a3 a2) eqn:Heq4]; try discriminate.
+      * rewrite (is_less_than_ascii_transitive a1 a2 a3 Heq1 Heq3); reflexivity.
+      * replace a3 with a2 by (apply is_less_than_ascii_total; assumption); rewrite Heq1; reflexivity.
+    + replace a1 with a2 in * by (apply is_less_than_ascii_total; assumption).
+      destruct (is_less_than_ascii a2 a3) eqn:Heq3; [reflexivity|].
+      destruct (is_less_than_ascii a3 a2) eqn:Heq4; [discriminate|].
+      exact (IH _ _ H1 H2).
 Qed.
 
+(** Density. *)
+
+Lemma is_less_than_label_app_nul s : is_less_than_label (String.append (s) (String "000"%char EmptyString)) s = true.
+Proof. induction s as [|a s IH]; [reflexivity|]; cbn; rewrite is_less_than_ascii_irrefl; exact IH. Qed.
+
+Lemma is_less_than_label_app_max s : is_less_than_label s (String.append (s) (String "255"%char EmptyString)) = true.
+Proof. induction s as [|a s IH]; [reflexivity|]; cbn; rewrite is_less_than_ascii_irrefl; exact IH. Qed.
+
+Lemma is_less_than_label_dense s1 s2 :
+  is_less_than_label s1 s2 = true ->
+  exists s, is_less_than_label s1 s = true /\ is_less_than_label s s2 = true.
+Proof.
+  revert s2; induction s1 as [|a1 s1 IH]; destruct s2 as [|a2 s2]; cbn; try easy.
+  - intros H; exists (String.append (String a2 s2) (String "000"%char EmptyString)); split; [cbn; exact H|].
+    apply is_less_than_label_app_nul.
+  - intros H; exists (String.append (String a1 s1) (String "255"%char EmptyString)); split; [exact (is_less_than_label_app_max (String a1 s1))|].
+    cbn; exact H.
+  - destruct (is_less_than_ascii a1 a2) eqn:Heq1; [|destruct (is_less_than_ascii a2 a1) eqn:Heq2]; try easy.
+    + intros _; exists (String.append (String a1 s1) (String "255"%char EmptyString)); split; [exact (is_less_than_label_app_max (String a1 s1))|].
+      cbn; rewrite Heq1; reflexivity.
+    + replace a2 with a1 by (apply is_less_than_ascii_total; easy).
+      intros H; destruct (IH s2 H) as [s [H1 H2]]; exists (String a1 s); cbn; rewrite is_less_than_ascii_irrefl.
+      split; assumption.
+Qed.
 
 (** ** The strict total order on labels
 
@@ -210,6 +253,14 @@ Proof. unfold label_lt, label_ltb; intros H1 H2; rewrite (is_less_than_label_asy
 
 Lemma label_lt_trans x y z : label_lt x y -> label_lt y z -> label_lt x z.
 Proof. apply is_less_than_label_transitive. Qed.
+
+(** Between two labels there is always a third. *)
+Lemma label_lt_dense x y : label_lt x y -> exists z, label_lt x z /\ label_lt z y.
+Proof. apply is_less_than_label_dense. Qed.
+
+(** Above every label there is another. *)
+Lemma label_lt_above x : label_lt x (String.append x (String "255"%char EmptyString)).
+Proof. apply is_less_than_label_app_max. Qed.
 
 Definition label_compare (x y : label) : comparison :=
   if label_ltb x y then Lt else if label_ltb y x then Gt else Eq.
