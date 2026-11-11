@@ -76,3 +76,45 @@ To be proved: two words satisfying 1–4 that denote the same adjustment
 for every interpretation of their atoms are equal; and the evaluation of
 a variable by `names` succeeds whenever its result does not depend on the
 interpretation of the atoms.
+
+### Plan of the proof
+
+The proof reads a word back from what it does under one family of
+interpretations of its atoms, *probes*; equal meanings then give equal
+words.
+
+Interpretations are finitary: an adjustment renames only finitely many
+variables to other labels (a label's tail stays in that label). So
+probes cannot rename whole labels to fresh ones. Instead, a probe for a
+bound `B` larger than every index in the two words (and their lifts)
+sends each variable `l₍ᵢ₎` with `i < B`, for each label `l` of the words
+and `·`, to a term tagged with the atom, `l` and `i`, whose payload
+adjustment is the identity. Results are then compared only on variables
+of index below a bound `B'` derived from `B`.
+
+1. **Segments** (no atoms). A canonical segment is determined by its
+   action on the variables of index below a bound: each label's targets,
+   output count and trimming are read off directly. Payload words are
+   handled by induction on payload depth, comparing payloads on named
+   variables only.
+2. **The last atom.** Under the probe, a variable that reaches `σₙ` comes
+   back as `σₙ`'s tag, with the variable it reached `σₙ` at. A variable
+   that does not reach `σₙ` comes back as something else. Since the
+   segment before `σₙ` is a renaming in lift position (condition 2),
+   this determines `σₙ`, `Lₙ` and `Uₙ₋₁` (taken in `⨾` order), so they
+   agree in the two words.
+3. **The rest.** The payload attached to `σₙ`'s tag records what the
+   rest of the word does after `σₙ`, on named variables. Choosing the
+   probe's payload to send further named variables to each bound
+   variable of interest recovers the action of everything after `σₙ` on
+   all variables. That gives the induction step on the number of atoms.
+4. **Terms and payload words** (conditions 3 and 4) are handled with the
+   segments, using the push step to fix where a term sits.
+
+Variable evaluation's completeness follows from step 2's
+characterisation: a variable's result does not depend on the atoms
+exactly when it is passed around every atom it meets, which is when
+`wtgt` succeeds.
+
+The mechanisation is staged: segments; renaming words (no terms);
+terms; payloads.
