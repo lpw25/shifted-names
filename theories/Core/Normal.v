@@ -567,9 +567,7 @@ Proof.
   { intros g Hg; apply Hin in Hg as [Hg|[]]; apply in_app_or in Hg as [Hg|Hg].
     - apply in_map_iff in Hg as [[h n] [<- Hp]]; destruct HL as [_ Ho]; rewrite Forall_forall in Ho; exact (proj1 (Ho _ Hp)).
     - exact (seg_labels_in _ HU HUn _ Hg). }
-  destruct (forallb _ hs) eqn:Ef; [|discriminate].
-  assert (Hf : forall g, In g hs -> exists e, sfind F g U = Some e).
-  { intros g Hg; apply (proj1 (forallb_forall _ _) Ef) in Hg; destruct (sfind F g U) as [e|]; [exists e; reflexivity|discriminate]. }
+  pose proof (linss_sfind lenv F HF L U hs Eh) as Hf.
   destruct (omap (qent F ntm wc pn a L U) hs) as [qs|] eqn:Eq; [|discriminate].
   destruct (sbuild F (map (u'ent F L U) hs)) as [U1|] eqn:EU; [|discriminate].
   destruct (lbuild F (map (fun g => (g, olp F L U g)) hs)) as [L1|] eqn:EL; [|discriminate].

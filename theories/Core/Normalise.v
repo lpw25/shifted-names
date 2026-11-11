@@ -800,16 +800,14 @@ Definition settle1 (A : seg) (L : list (lexp * nat)) (U : seg) : option (seg * l
   match linss (map fst L ++ seg_labels U) [] with
   | None => None
   | Some hs =>
-      if forallb (fun g => match sfind g U with Some _ => true | None => false end) hs then
-        match omap (qent L U) hs, sbuild (map (u'ent L U) hs), lbuild (map (fun g => (g, olp L U g)) hs) with
-        | Some qs, Some U', Some L' =>
-            match sbuild qs with
-            | Some Q => match scomp A Q with Some A' => Some (A', L', U') | None => None end
-            | None => None
-            end
-        | _, _, _ => None
-        end
-      else None
+      match omap (qent L U) hs, sbuild (map (u'ent L U) hs), lbuild (map (fun g => (g, olp L U g)) hs) with
+      | Some qs, Some U', Some L' =>
+          match sbuild qs with
+          | Some Q => match scomp A Q with Some A' => Some (A', L', U') | None => None end
+          | None => None
+          end
+      | _, _, _ => None
+      end
   end.
 
 End OneTq.
@@ -1734,6 +1732,66 @@ Proof.
   apply (IH _ H), (lins_nodup _ _ _ E Hn).
 Qed.
 
+(** All comparisons among the labels [linss] collects are known. *)
+Definition lknown (hs : list lexp) : Prop := forall x y, In x hs -> In y hs -> exists c, lcmp F x y = Some c.
+
+Lemma lcmp_known_sym x y c : lcmp F x y = Some c -> exists c', lcmp F y x = Some c'.
+Proof.
+  unfold lcmp; destruct (lexp_eqb x y) eqn:E1.
+  - apply lexp_eqb_eq in E1; subst y; rewrite (proj2 (lexp_eqb_eq x x) eq_refl); eexists; reflexivity.
+  - assert (E1' : lexp_eqb y x = false)
+      by (destruct (lexp_eqb y x) eqn:E; [apply lexp_eqb_eq in E; subst y; rewrite (proj2 (lexp_eqb_eq x x) eq_refl) in E1; discriminate|reflexivity]).
+    rewrite E1'; destruct (lt_known F x y), (lt_known F y x); try discriminate; eexists; reflexivity.
+Qed.
+
+Lemma lins_cmp h hs hs' : lins F h hs = Some hs' ->
+  (forall z, In z hs -> exists c, lcmp F h z = Some c) \/ In h hs.
+Proof.
+  revert hs'; induction hs as [|h' r IH]; intros hs'; cbn [lins]; [intros _; left; intros z []|].
+  destruct (lcmp F h h') as [[]|] eqn:Ec; try discriminate.
+  - intros _; right; apply (lcmp_sound lenv F HF) in Ec; cbn in Ec; subst h'; left; reflexivity.
+  - destruct (lins F h r) as [r'|] eqn:Er; [|discriminate]; intros _.
+    destruct (IH _ eq_refl) as [H|H]; [left; intros z [<-|Hz]; [eexists; exact Ec|apply H, Hz]|right; right; exact H].
+  - destruct (lins F h r) as [r'|] eqn:Er; [|discriminate]; intros _.
+    destruct (IH _ eq_refl) as [H|H]; [left; intros z [<-|Hz]; [eexists; exact Ec|apply H, Hz]|right; right; exact H].
+Qed.
+
+Lemma lins_known h hs hs' : lins F h hs = Some hs' -> lknown hs -> lknown hs'.
+Proof.
+  intros E Hk; destruct (lins_spec _ _ _ E) as [Hi _].
+  assert (Hrefl : forall x, exists c, lcmp F x x = Some c)
+    by (intros x; unfold lcmp; rewrite (proj2 (lexp_eqb_eq x x) eq_refl); eexists; reflexivity).
+  assert (Hh : forall z, In z hs -> exists c, lcmp F h z = Some c).
+  { destruct (lins_cmp _ _ _ E) as [H|H]; [exact H|intros z Hz; exact (Hk h z H Hz)]. }
+  intros x y Hx Hy; apply Hi in Hx as [->|Hx]; apply Hi in Hy as [->|Hy].
+  - apply Hrefl.
+  - apply Hh, Hy.
+  - destruct (Hh x Hx) as [c Ec]; exact (lcmp_known_sym _ _ _ Ec).
+  - apply Hk; assumption.
+Qed.
+
+Lemma linss_known hs acc hs' : linss F hs acc = Some hs' -> lknown acc -> lknown hs'.
+Proof.
+  revert acc; induction hs as [|h hs IH]; intros acc; cbn [linss]; [intros H; injection H as <-; tauto|].
+  destruct (lins F h acc) as [acc'|] eqn:E; [|discriminate]; intros H Hk.
+  apply (IH _ H), (lins_known _ _ _ E Hk).
+Qed.
+
+Lemma sfind_known g s : (forall k, In k (seg_labels s) -> exists c, lcmp F g k = Some c) -> exists e, sfind F g s = Some e.
+Proof.
+  induction s as [|h ts m r IH] using seg_spine; cbn [sfind seg_labels]; [eexists; reflexivity|]; intros H.
+  destruct (H h (or_introl eq_refl)) as [c Ec]; rewrite Ec.
+  destruct c; [eexists; reflexivity| |]; apply IH; intros k Hk; apply H; right; apply in_or_app; right; exact Hk.
+Qed.
+
+Lemma linss_sfind (L : list (lexp * nat)) U hs : linss F (map fst L ++ seg_labels U) [] = Some hs ->
+  forall g, In g hs -> exists e, sfind F g U = Some e.
+Proof.
+  intros Eh g Hg; destruct (linss_spec _ _ _ Eh) as [Hin _].
+  pose proof (linss_known _ _ _ Eh ltac:(intros x y [])) as Hk.
+  apply sfind_known; intros k Hkk; apply Hk; [exact Hg|apply Hin; left; apply in_or_app; right; exact Hkk].
+Qed.
+
 Lemma lsum_lc hs L h :
   ldist hs -> (forall k, In k (map fst L) -> In k hs) -> In h hs -> lsum h L = lc (lden h) L.
 Proof.
@@ -2116,9 +2174,7 @@ Proof.
   assert (Hn : NoDup hs) by (apply (linss_nodup _ _ _ Eh); constructor).
   assert (HL : forall k, In k (map fst L) -> In k hs) by (intros k Hk; apply Hin; left; apply in_or_app; left; exact Hk).
   assert (HU : forall k, In k (seg_labels U) -> In k hs) by (intros k Hk; apply Hin; left; apply in_or_app; right; exact Hk).
-  destruct (forallb _ hs) eqn:Ef; [|discriminate].
-  assert (Hf : forall g, In g hs -> exists e, sfind F g U = Some e).
-  { intros g Hg; apply (proj1 (forallb_forall _ _) Ef) in Hg; destruct (sfind F g U) as [e|]; [exists e; reflexivity|discriminate]. }
+  pose proof (linss_sfind L U hs Eh) as Hf.
   destruct (omap (qent F ntm wc pn a L U) hs) as [qs|] eqn:Eq; [|discriminate].
   destruct (sbuild F (map (u'ent F L U) hs)) as [U1|] eqn:EU; [|discriminate].
   destruct (lbuild F (map (fun g => (g, olp F L U g)) hs)) as [L1|] eqn:EL; [|discriminate].
