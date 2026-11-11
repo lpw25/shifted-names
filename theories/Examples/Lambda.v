@@ -132,3 +132,8 @@ Proof. names; reflexivity. Qed.
 (** Substituting into a variable. *)
 Example subst_var {N} x : (tvar bvar0 : tm (S N)) [⟦ · \ x ⟧] = tvar x.
 Proof. names; reflexivity. Qed.
+
+(** Barendregt's substitution lemma. *)
+Theorem barendregt x y (L N M : tm 0) : label_lt x y ->
+  M [⟦ x := N ⟧] [⟦ y := L ⟧] = M [⟦ y := (L [⟦ \ x as _ ⟧]) ⟧] [⟦ x := (N [⟦ y := L ⟧]) ⟧].
+Proof. intros; names; reflexivity. Qed.
