@@ -15,7 +15,7 @@
 
 From Stdlib Require Import List String Arith Bool StrictProp.
 Open Scope bool_scope.
-From ShiftedNames.Core Require Import Label Var Adjustment Indexed Syntax Normalise.
+From ShiftedNames.Core Require Import Label Var Adjustment Indexed Syntax Normalise Shared.
 Import ListNotations.
 
 (** ** Reification *)
@@ -810,10 +810,10 @@ Ltac names_decide :=
               lazymatch collect_facts env2 (@nil (lexp * lexp)) with
               | ((?le, ?te, ?ae, ?pe), ?F) =>
                   change (aeden le te ae pe e1 = aeden le te ae pe e2);
-                  refine (nf_eq_sound le te ae pe F _ (List.length te) (le_n _) e1 e2 _);
+                  refine (nf_eq_sh_sound le te ae pe F _ (List.length te) (le_n _) e1 e2 _);
                   [ lazymatch goal with
                     | |- facts_ok _ _ => unfold facts_ok; repeat constructor; cbn [lden nth]; assumption
-                    | |- nf_eq _ _ _ _ = true =>
+                    | |- nf_eq_sh _ _ _ _ = true =>
                         vm_compute; first
                           [ reflexivity
                           | fail 2 "names: the two sides have different normal forms, or a label order is missing" ]

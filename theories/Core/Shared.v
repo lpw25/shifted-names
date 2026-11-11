@@ -1093,3 +1093,31 @@ Proof.
 Qed.
 
 End Sound.
+
+(** ** The decision
+
+    The defined atoms are numbered from above the payload atoms of the two
+    expressions. *)
+
+Definition nf_eq_sh (F : list (lexp * lexp)) (ntm : nat) (e1 e2 : aexp) : bool :=
+  nf_eq_s (Nat.max (apmax e1) (apmax e2)) F ntm e1 e2.
+
+Theorem nf_eq_sh_sound {T : Type} (lenv : list label) (tenv : list T) (aenv : list (radj T)) (penv : list (rpadj T))
+    (F : list (lexp * lexp)) (HF : facts_ok lenv F) (ntm : nat) (Hntm : ntm <= List.length tenv) (e1 e2 : aexp) :
+  nf_eq_sh F ntm e1 e2 = true -> aeden lenv tenv aenv penv e1 = aeden lenv tenv aenv penv e2.
+Proof.
+  unfold nf_eq_sh; set (N := Nat.max (apmax e1) (apmax e2)); intros H.
+  set (P := map (fun n => nth n penv rpidentity) (seq 0 N)).
+  assert (HP : List.length P = N) by (unfold P; rewrite length_map, length_seq; reflexivity).
+  assert (Hag : forall n, n < N -> nth n P rpidentity = nth n penv rpidentity).
+  { intros n Hn; unfold P.
+    rewrite (nth_indep _ rpidentity (nth 0 penv rpidentity)) by (rewrite length_map, length_seq; exact Hn).
+    rewrite (map_nth (fun n => nth n penv rpidentity) (seq 0 N) 0 n), seq_nth by exact Hn; reflexivity. }
+  assert (S1 : ascope N e1) by (apply (proj1 (scope_max N)); unfold N; lia).
+  assert (S2 : ascope N e2) by (apply (proj1 (scope_max N)); unfold N; lia).
+  rewrite <- (proj1 (eden_agree lenv tenv aenv N P penv Hag) e1 S1), <- (proj1 (eden_agree lenv tenv aenv N P penv Hag) e2 S2).
+  rewrite <- HP in H, S1, S2.
+  apply (nf_eq_s_sound lenv tenv aenv P (alabs e1 ++ alabs e2) F HF ntm Hntm e1 e2); try assumption.
+  - intros x Hx; apply in_or_app; left; exact Hx.
+  - intros x Hx; apply in_or_app; right; exact Hx.
+Qed.
