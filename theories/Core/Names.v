@@ -167,23 +167,19 @@ Ltac reify_adj_top a env :=
   | _ => reify_atom a env
   end.
 
-(** The label order facts in the context, as pairs of label expressions. *)
+(** The label order facts in the context, as pairs of label expressions
+    (label variables or concrete labels). *)
 Ltac collect_facts env F :=
   match goal with
   | H : label_lt ?x ?y |- _ =>
-      lazymatch env with
-      | (?le, ?te, ?ae, ?pe) =>
-          let px := lookup_add x le in
-          lazymatch px with
-          | (?nx, ?le1) =>
-              let py := lookup_add y le1 in
-              lazymatch py with
-              | (?ny, ?le2) =>
-                  let f := constr:((LAtom nx, LAtom ny)) in
-                  lazymatch F with
-                  | context [f] => fail
-                  | _ => collect_facts (le2, te, ae, pe) (f :: F)
-                  end
+      lazymatch reify_label (Some x) env with
+      | (?ex, ?env1) =>
+          lazymatch reify_label (Some y) env1 with
+          | (?ey, ?env2) =>
+              let f := constr:((ex, ey)) in
+              lazymatch F with
+              | context [f] => fail
+              | _ => collect_facts env2 (f :: F)
               end
           end
       end

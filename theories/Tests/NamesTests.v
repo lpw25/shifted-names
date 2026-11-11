@@ -73,6 +73,12 @@ Proof. intros; names; reflexivity. Qed.
 Example lift_free_comm_concrete {N M} (a : adj T N M) : ⟦ "x"; "y" | a ⟧ = ⟦ "y"; "x" | a ⟧.
 Proof. names; reflexivity. Qed.
 
+(** The order of [x] and [y] goes through the concrete labels between
+    them. *)
+Example lift_free_comm_through {N M} x y (a : adj T N M) :
+  label_lt x "m" -> label_lt "n" y -> ⟦ x; y | a ⟧ = ⟦ y; x | a ⟧.
+Proof. intros; names; reflexivity. Qed.
+
 Example two_labels {N M} x y (a : adj T N M) :
   label_lt x y -> ⟦ x as p; y as q | Γ \ x as p; y as q | Γ[a] ⟧ = ⟦ y as q; x as p | Γ \ y as q; x as p | Γ[a] ⟧.
 Proof. intros; names; reflexivity. Qed.

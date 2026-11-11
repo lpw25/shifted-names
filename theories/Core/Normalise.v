@@ -74,7 +74,8 @@ Proof.
 Qed.
 
 (** Known strict order: the concrete order, the bound label last, and the
-    facts [(x, y)] ("[x < y]"), followed transitively. *)
+    facts [(x, y)] ("[x < y]"), followed transitively; a step of the
+    concrete order may come before or after any fact. *)
 Definition lt_base (a b : lexp) : bool :=
   match a, b with
   | LCon s, LCon s' => is_less_than_label s s'
@@ -87,7 +88,7 @@ Fixpoint lt_reach (F : list (lexp * lexp)) (fuel : nat) (a b : lexp) : bool :=
   lt_base a b
   || match fuel with
      | 0 => false
-     | S f => existsb (fun '(x, y) => lexp_eqb x a && (lexp_eqb y b || lt_reach F f y b)) F
+     | S f => existsb (fun '(x, y) => (lexp_eqb x a || lt_base a x) && (lexp_eqb y b || lt_reach F f y b)) F
      end.
 
 Definition lt_known (F : list (lexp * lexp)) (a b : lexp) : bool := lt_reach F (List.length F) a b.
@@ -123,11 +124,17 @@ Proof.
   induction fuel as [|f IH]; intros a b H; cbn [lt_reach] in H; apply orb_true_iff in H as [H|H];
     try (apply lt_base_sound, H); [discriminate|].
   apply existsb_exists in H as [[x y] [Hin H]].
-  apply andb_true_iff in H as [Hx H]; apply lexp_eqb_eq in Hx; subst x.
+  apply andb_true_iff in H as [Hx H].
   pose proof (proj1 (Forall_forall _ F) HF _ Hin) as Hxy; cbn in Hxy.
-  apply orb_true_iff in H as [H|H].
-  - apply lexp_eqb_eq in H; subst y; exact Hxy.
-  - apply (olabel_lt_trans _ (lden y)); [exact Hxy|apply IH, H].
+  assert (Hax : lden a = lden x \/ olabel_lt (lden a) (lden x)).
+  { apply orb_true_iff in Hx as [Hx|Hx]; [left; apply lexp_eqb_eq in Hx; subst; reflexivity|right; apply lt_base_sound, Hx]. }
+  assert (Hyb : olabel_lt (lden y) (lden b) \/ lden y = lden b).
+  { apply orb_true_iff in H as [H|H]; [right; apply lexp_eqb_eq in H; subst; reflexivity|left; apply IH, H]. }
+  destruct Hax as [Hax|Hax]; destruct Hyb as [Hyb|Hyb].
+  - rewrite Hax; exact (olabel_lt_trans _ _ _ Hxy Hyb).
+  - rewrite Hax, <- Hyb; exact Hxy.
+  - exact (olabel_lt_trans _ _ _ Hax (olabel_lt_trans _ _ _ Hxy Hyb)).
+  - rewrite <- Hyb; exact (olabel_lt_trans _ _ _ Hax Hxy).
 Qed.
 
 Lemma lt_known_sound a b : lt_known F a b = true -> olabel_lt (lden a) (lden b).
