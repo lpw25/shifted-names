@@ -115,7 +115,8 @@ Proof.
   - intros [h [xs [m [He Ht]]]]; exists (h, xs, m); split; assumption.
 Qed.
 
-Lemma sset_shape nm h ts m s s' : sset F h ts m s = Some s' -> sshape nm s -> In h labs -> (nm = true -> lden h <> None) ->
+Lemma sset_shape nm h ts m s s' : sset F h ts m s = Some s' -> sshape nm s ->
+  (In h labs \/ (tl_list ts = [] /\ m = 0)) -> (nm = true -> lden h <> None) ->
   sshape nm s'
   /\ (forall e, In e (sents s') -> In e (sents s) \/ fst (fst e) = h)
   /\ (forall t, In t (stgts s') -> In t (stgts s) \/ In t (tl_list ts))
@@ -143,7 +144,9 @@ Proof.
   - destruct (sput_shape h (tl_of (rev rts)) m' s0 (fun e He => proj2 (Hs0 e He))) as [Hput Hsort].
     split; [split; [apply Hsort, Hsort0, Hs|]|].
     + apply Forall_forall; intros e He; apply Hput in He as [->|He]; [|apply Hold, He].
-      cbn [Unique.eshape]; rewrite tl_list_of; refine (conj Hh (conj Htr (conj _ Hnm))).
+      cbn [Unique.eshape]; rewrite tl_list_of; refine (conj _ (conj Htr (conj _ Hnm))).
+      { destruct Hh as [Hh|[Hts Hm]]; [exact Hh|exfalso]; rewrite Hts, Hm in Et; cbn in Et; injection Et as <- <-.
+        destruct Hne as [Hne|Hne]; apply Hne; reflexivity. }
       destruct Hne as [Hne|Hne]; [left; intros E'; apply Hne; rewrite <- (rev_involutive rts), E'; reflexivity|right; exact Hne].
     + split; [intros e He; apply Hput in He as [->|He]; [right; reflexivity|left; apply (proj1 (Hs0 e He))]|].
       split.
@@ -166,7 +169,7 @@ Proof.
   - intros H _; injection H as <-; split; [split; constructor|split; [intros t []|intros g _ e []]].
   - destruct (sbuild F es) as [s0|] eqn:E0; [|discriminate]; intros E Hl.
     destruct (IH s0 eq_refl (fun h0 xs0 m0 Hi => Hl h0 xs0 m0 (or_intror Hi))) as [Hs0 [Ht0 Hg0]].
-    destruct (sset_shape false h (tl_of xs) m s0 s E Hs0 (Hl h xs m (or_introl eq_refl)) ltac:(discriminate))
+    destruct (sset_shape false h (tl_of xs) m s0 s E Hs0 (or_introl (Hl h xs m (or_introl eq_refl))) ltac:(discriminate))
       as [Hs [He [Ht Hid]]].
     split; [exact Hs|split].
     + intros t Hin; destruct (Ht t Hin) as [Hin'|Hin'].
@@ -262,7 +265,7 @@ Proof.
     destruct (sfind F h S) as [e|] eqn:E2; [|discriminate].
     destruct (ofe e) as [tsS mS] eqn:Eo; intros E HS Hl.
     destruct (IH R0 eq_refl HS (fun h0 xs0 m0 Hi => Hl h0 xs0 m0 (or_intror Hi))) as [Hs0 Ht0].
-    destruct (sset_shape false _ _ _ _ _ E Hs0 (Hl h _ m (or_introl eq_refl)) ltac:(discriminate)) as [Hs [_ [Ht _]]].
+    destruct (sset_shape false _ _ _ _ _ E Hs0 (or_introl (Hl h _ m (or_introl eq_refl))) ltac:(discriminate)) as [Hs [_ [Ht _]]].
     split; [exact Hs|]; intros t Hin; destruct (Ht t Hin) as [Hin'|Hin'].
     + destruct (Ht0 t Hin') as [H'|[t0 [Hi Et]]]; [left; exact H'|].
       right; exists t0; split; [rewrite stgts_cons; apply in_or_app; right; exact Hi|exact Et].
@@ -357,6 +360,461 @@ Lemma wcons_normal S w w' : wcons F ntm S w = Some w' -> sshape false S -> snf S
 Proof.
   unfold wcons; destruct (sdistb F S); [|discriminate]; intros E HS HSn Hw.
   exact (proj2 (proj2 (proj2 (comp_normal S HS HSn))) w false Hw w' E).
+Qed.
+
+(** ** Lifts *)
+
+Lemma ladd_spec h n L L' : ladd F h n L = Some L' ->
+  (forall l, lc lenv l L' = (if label_eqb (lden h) l then n else 0) + lc lenv l L)
+  /\ (forall p, In p L' -> fst p = h \/ exists p0, In p0 L /\ fst p0 = fst p)
+  /\ (lok L -> In h labs -> n <> 0 -> lok L').
+Proof.
+  revert L'; induction L as [|[h' n'] L0 IH]; intros L'; cbn [ladd].
+  - intros H; injection H as <-; split; [intros l; cbn [lc]; lia|split].
+    + intros p [<-|[]]; left; reflexivity.
+    + intros _ Hh Hn; split; [repeat constructor|constructor; [split; assumption|constructor]].
+  - destruct (lcmp F h h') as [c|] eqn:Ec; [|discriminate].
+    pose proof (lcmp_sound lenv F HF _ _ _ Ec) as Hc; destruct c; cbn [cmp_holds] in Hc.
+    + subst h'; intros H; injection H as <-; split; [intros l; rewrite !lc_cons; destruct (label_eqb _ _); lia|split].
+      * intros p [<-|Hp]; [left; reflexivity|right; exists p; split; [right; exact Hp|reflexivity]].
+      * intros [Hs Ho] _ _; inversion Hs as [|x l Hsr Hall]; inversion Ho as [|y l' [Hh Hn'] Hor]; subst.
+        split; [constructor; [exact Hsr|exact Hall]|constructor; [split; [exact Hh|cbn in *; lia]|exact Hor]].
+    + intros H; injection H as <-; split; [intros l; rewrite !lc_cons; lia|split].
+      * intros p [<-|Hp]; [left; reflexivity|right; exists p; split; [exact Hp|reflexivity]].
+      * intros [Hs Ho] Hh Hn; split; [constructor; [exact Hs|]|constructor; [split; assumption|exact Ho]].
+        constructor; [exact Hc|]; inversion Hs as [|x l Hsr Hall]; subst; rewrite Forall_forall in *.
+        intros p Hp; exact (olabel_lt_trans _ _ _ Hc (Hall p Hp)).
+    + destruct (ladd F h n L0) as [L''|] eqn:E; [|discriminate]; intros H; injection H as <-.
+      destruct (IH _ eq_refl) as [H1 [H2 H3]]; split; [intros l; rewrite !lc_cons, H1; lia|split].
+      * intros p [<-|Hp]; [right; exists (h', n'); split; [left; reflexivity|reflexivity]|].
+        destruct (H2 p Hp) as [E'|[p0 [Hi E']]]; [left; exact E'|right; exists p0; split; [right; exact Hi|exact E']].
+      * intros HL Hh Hn; destruct (H3 (lok_tail _ _ _ _ HL) Hh Hn) as [Hs' Ho']; destruct HL as [Hs Ho].
+        inversion Hs as [|x l Hsr Hall]; inversion Ho as [|y l' Hy Hor]; subst; rewrite Forall_forall in Hall.
+        split; [constructor; [exact Hs'|]|constructor; [exact Hy|exact Ho']].
+        apply Forall_forall; intros p Hp; destruct (H2 p Hp) as [E'|[p0 [Hi E']]]; cbn [fst].
+        -- rewrite E'; exact Hc.
+        -- rewrite <- E'; exact (Hall p0 Hi).
+Qed.
+
+Lemma lbuild_spec es L : lbuild F es = Some L ->
+  (forall l, lc lenv l L = lc lenv l es) /\ ((forall p, In p es -> In (fst p) labs) -> lok L).
+Proof.
+  revert L; induction es as [|[h n] es IH]; intros L; cbn [lbuild].
+  - intros H; injection H as <-; split; [reflexivity|intros _; split; constructor].
+  - destruct (lbuild F es) as [L0|] eqn:E0; [|discriminate]; destruct (IH _ eq_refl) as [H1 H2].
+    destruct (Nat.eqb_spec n 0) as [->|Hn].
+    + intros H; injection H as <-; split; [intros l; rewrite lc_cons, H1; destruct (label_eqb _ _); lia|].
+      intros Hl; apply H2; intros p Hp; apply Hl; right; exact Hp.
+    + intros H; destruct (ladd_spec _ _ _ _ H) as [A [_ C]]; split; [intros l; rewrite A, lc_cons, H1; reflexivity|].
+      intros Hl; apply C; [apply H2; intros p Hp; apply Hl; right; exact Hp|apply (Hl (h, n)); left; reflexivity|exact Hn].
+Qed.
+
+(** ** Counting *)
+
+Fixpoint cnt (p : nat -> bool) (n : nat) : nat :=
+  match n with 0 => 0 | S n => cnt p n + (if p n then 1 else 0) end.
+
+Lemma cnt_ext p q n : (forall i, i < n -> p i = q i) -> cnt p n = cnt q n.
+Proof. induction n as [|n IH]; intros H; [reflexivity|]; cbn [cnt]; rewrite IH, (H n) by (try (intros i Hi; apply H); lia); reflexivity. Qed.
+
+Lemma cnt_stable p n m : (forall i, n <= i -> p i = false) -> n <= m -> cnt p m = cnt p n.
+Proof.
+  intros H Hm; induction m as [|m IH]; [assert (n = 0) as -> by lia; reflexivity|].
+  destruct (Nat.eq_dec n (S m)) as [->|Hne]; [reflexivity|].
+  cbn [cnt]; rewrite (H m) by lia; rewrite IH by lia; lia.
+Qed.
+
+Lemma cnt_ivt p n j : j < cnt p n -> exists i, i < n /\ p i = true /\ cnt p i = j.
+Proof.
+  induction n as [|n IH]; cbn [cnt]; [lia|]; intros Hj.
+  destruct (Nat.lt_ge_cases j (cnt p n)) as [Hlt|Hge].
+  - destruct (IH Hlt) as [i [Hi H]]; exists i; split; [lia|exact H].
+  - destruct (p n) eqn:Ep; [|lia]; exists n; split; [lia|split; [exact Ep|lia]].
+Qed.
+
+Lemma filter_lt_cnt p R i : List.length (filter (fun q => q <? i) (filter p (seq 0 R))) = cnt p (Nat.min i R).
+Proof.
+  induction R as [|R IH]; [rewrite Nat.min_0_r; reflexivity|].
+  rewrite seq_S, !filter_app, length_app, IH; cbn [Nat.add].
+  destruct (Nat.le_gt_cases i R) as [Hi|Hi].
+  - rewrite (Nat.min_l i R Hi), (Nat.min_l i (S R)) by lia.
+    cbn [filter]; destruct (p R); cbn [filter]; cbv beta; [destruct (Nat.ltb_spec R i)|]; cbn [List.length]; lia.
+  - rewrite (Nat.min_r i R), (Nat.min_r i (S R)) by lia; cbn [cnt].
+    cbn [filter]; destruct (p R); cbn [filter]; cbv beta; [destruct (Nat.ltb_spec R i)|]; cbn [List.length]; lia.
+Qed.
+
+Lemma filter_cnt p R : List.length (filter p (seq 0 R)) = cnt p R.
+Proof.
+  induction R as [|R IH]; [reflexivity|].
+  rewrite seq_S, filter_app, length_app, IH; cbn [Nat.add cnt filter]; destruct (p R); cbn [List.length]; lia.
+Qed.
+
+Lemma cntV_cnt U L g i : cntV lenv U L g i = cnt (fun i' => inVb lenv L (sv lenv U (mk_rvar g i'))) i.
+Proof. induction i as [|i IH]; [reflexivity|]; cbn [cntV cnt]; rewrite IH; reflexivity. Qed.
+
+(** ** Renamings in the real model *)
+
+Local Notation tenvU := (@nil unit).
+Local Notation aenvU := (@nil (radj unit)).
+Local Notation penvU := (@nil (rpadj unit)).
+
+Lemma esem_sv s l j : sren s -> esem lenv tenvU aenvU penvU l (sget lenv l s) j = inl (sv lenv s (mk_rvar l j)).
+Proof.
+  intros Hr; unfold sv; cbn [v_label v_index]; destruct (sget lenv l s) as [[ts m]|] eqn:E; cbn [esem]; [|reflexivity].
+  destruct (j <? tlen ts) eqn:Ej; [|reflexivity].
+  pose proof (proj1 (Forall_forall _ _) Hr _ (sget_tgts _ _ _ _ _ E _ (tnth_in _ _ (proj1 (Nat.ltb_lt _ _) Ej)))) as Ht.
+  destruct (tnth ts j); [reflexivity|contradiction].
+Qed.
+
+Lemma sshape_dist nm s : sshape nm s -> sdist lenv s.
+Proof.
+  induction s as [|h ts m r IH] using seg_spine; [intros _; exact I|]; intros [Hs Ho]; cbn [sents] in Hs, Ho.
+  inversion Hs as [|e l Hsr Hall]; inversion Ho; subst; split; [|apply IH; split; assumption].
+  apply sget_above; rewrite Forall_forall in Hall; exact Hall.
+Qed.
+
+Lemma rapply_sv s v : sshape false s -> sren s -> rapply (sden lenv tenvU aenvU penvU s) v = inl (sv lenv s v).
+Proof.
+  intros Hs Hr; rewrite rapply_sden by exact (sshape_dist _ _ Hs); destruct v as [l j]; apply esem_sv, Hr.
+Qed.
+
+(** ** Words *)
+
+Lemma wnf_false nm w : wnf nm w -> wnf false w.
+Proof.
+  destruct nm; [|exact (fun H => H)].
+  assert (Hr : forall w, rnf true w -> rnf false w).
+  { induction w0 as [U|s0 L a w0 IH] using word_spine; cbn [Unique.rnf].
+    - intros [H1 H2]; split; [eapply sshape_weak, H1|exact H2].
+    - intros [H1 [H2 [[A [B _]] H3]]]; refine (conj H1 (conj H2 (conj (conj A (conj B _)) (IH H3)))); discriminate. }
+  destruct w as [U|s0 L a w]; cbn [Unique.wnf].
+  - intros [H1 H2]; split; [eapply sshape_weak, H1|exact H2].
+  - intros [H1 [H2 [[A [B _]] H3]]]; refine (conj H1 (conj H2 (conj (conj A (conj B _)) (Hr _ H3)))); discriminate.
+Qed.
+
+Lemma sren_snf s : sren s -> snf s.
+Proof.
+  intros Hr; apply snf_iff; intros t Ht; unfold Unique.sren in Hr; rewrite Forall_forall in Hr.
+  pose proof (Hr t Ht) as H; destruct t; [exact H|contradiction].
+Qed.
+
+Lemma rnf_wnf nm w : rnf nm w -> wnf nm w.
+Proof.
+  destruct w as [U|s0 L a w]; cbn [Unique.rnf Unique.wnf].
+  - intros [H1 H2]; split; [exact H1|apply sren_snf, H2].
+  - intros [H1 [H2 [H3 H4]]]; refine (conj H1 (conj (sren_snf _ H2) (conj H3 H4))).
+Qed.
+
+Lemma cnt_all p n : (forall i, i < n -> p i = true) -> cnt p n = n.
+Proof. induction n as [|n IH]; intros H; [reflexivity|]; cbn [cnt]; rewrite IH, (H n) by (try (intros; apply H); lia); lia. Qed.
+
+Lemma lpos_nil L : lpos lenv SNil L.
+Proof.
+  split.
+  - intros g i Hv; unfold sv in *; cbn [sget v_label v_index] in *; rewrite cntV_cnt; f_equal.
+    unfold sv; cbn [sget]; symmetry; apply cnt_all; intros i' Hi'; unfold inVb in *; cbn [v_label v_index] in *.
+    apply Nat.ltb_lt in Hv; apply Nat.ltb_lt; lia.
+  - intros g j Hj; exists j; reflexivity.
+Qed.
+
+Lemma atom_word L a : lok L -> wnf false (WAtom SNil L a (WEnd SNil)).
+Proof.
+  intros HL; cbn [Unique.wnf Unique.rnf]; refine (conj (conj (SSorted_nil _) (Forall_nil _)) (conj I (conj _ (conj (conj (SSorted_nil _) (Forall_nil _)) (Forall_nil _))))).
+  refine (conj HL (conj (lpos_nil L) _)); discriminate.
+Qed.
+
+Lemma seg_labels_in s : sshape false s -> snf s -> forall k, In k (seg_labels s) -> In k labs.
+Proof.
+  intros Hs Hn; pose proof (proj1 (snf_iff s) Hn) as Hn'; clear Hn; rename Hn' into Hn; revert Hs Hn; induction s as [|h ts m r IH] using seg_spine; [intros _ _ k []|].
+  intros [Hs Ho] Hn k Hk; cbn [sents] in Hs, Ho; inversion Hs as [|e0 l0 Hsr Hall]; inversion Ho as [|e l He Hor]; subst.
+  cbn [seg_labels] in Hk; destruct Hk as [<-|Hk]; [exact (proj1 He)|]; apply in_app_or in Hk as [Hk|Hk].
+  - apply in_flat_map in Hk as [t [Ht Hk]]; destruct t as [h' j|]; [|destruct Hk]; destruct Hk as [<-|[]].
+    exact (Hn (NVar h' j) ltac:(rewrite stgts_cons; apply in_or_app; left; exact Ht)).
+  - apply (IH (conj Hsr Hor)); [intros t Ht; apply Hn; rewrite stgts_cons; apply in_or_app; right; exact Ht|exact Hk].
+Qed.
+
+Lemma Forall2_in_r {A B} (R : A -> B -> Prop) xs ys y : Forall2 R xs ys -> In y ys -> exists x, In x xs /\ R x y.
+Proof.
+  induction 1 as [|x y' xs ys Hxy H2 IH]; [intros []|]; intros [<-|Hy]; [exists x; split; [left; reflexivity|exact Hxy]|].
+  destruct (IH Hy) as [x' [Hx Hr]]; exists x'; split; [right; exact Hx|exact Hr].
+Qed.
+
+Lemma sshape_true_of s : sshape false s -> (forall e, In e (sents s) -> fst (fst e) <> LNone) -> sshape true s.
+Proof.
+  intros [Hs Ho] Hn; split; [exact Hs|]; apply Forall_forall; intros [[h xs] m] Hi; rewrite Forall_forall in Ho.
+  destruct (Ho _ Hi) as [A [B [C _]]]; refine (conj A (conj B (conj C _))); intros _ E; apply (Hn _ Hi), lden_none, E.
+Qed.
+
+Section Settle.
+
+Variable wc : word -> word -> option word.
+Variable pn : option nat -> word -> option word.
+Hypothesis Hwc : forall w1 w2 w, wnf false w1 -> wnf false w2 -> wc w1 w2 = Some w -> wnf false w.
+Hypothesis Hpn : forall b w w', wnf false w -> pn b w = Some w' -> wnf (match b with None => true | Some _ => false end) w'.
+
+Lemma otq_normal a L t t' : lok L -> tnf t -> otq ntm wc pn a L t = Some t' -> tnf t'.
+Proof.
+  intros HL Ht; destruct t as [h i|u w b]; cbn [otq]; [intros H; injection H as <-; exact Ht|].
+  destruct (u <? ntm); [|discriminate].
+  destruct (wc (WAtom SNil L a (WEnd SNil)) w) as [w'|] eqn:E1; [|discriminate].
+  destruct (pn b w') as [w''|] eqn:E2; [|discriminate]; intros H; injection H as <-.
+  apply (Hpn b w' w''); [|exact E2].
+  exact (Hwc _ _ _ (atom_word L a HL) (wnf_false _ _ Ht) E1).
+Qed.
+
+Theorem settle1_normal a A L U A' L' U' :
+  sshape false A -> snf A -> lok L -> sshape false U -> snf U ->
+  settle1 F ntm wc pn a A L U = Some (A', L', U') ->
+  sshape false A' /\ snf A' /\ lok L' /\ sshape false U' /\ sren U' /\ lpos lenv U' L'
+  /\ (entd F U LNone = ([], lsum LNone L) -> sshape true U' /\ lc lenv None L' = 0).
+Proof.
+  intros HA HAn HL HU HUn.
+  unfold settle1; destruct (sdistb F U) eqn:Ed; [|discriminate]; apply (sdistb_sound lenv F HF) in Ed.
+  destruct (linss F (map fst L ++ seg_labels U) []) as [hs|] eqn:Eh; [|discriminate].
+  destruct (linss_spec lenv F HF _ _ _ Eh) as [Hin Hdist].
+  assert (Hd : ldist lenv hs) by (apply Hdist; intros x y []).
+  assert (Hn : NoDup hs) by (apply (linss_nodup lenv F HF _ _ _ Eh); constructor).
+  assert (HLk : forall k, In k (map fst L) -> In k hs) by (intros k Hk; apply Hin; left; apply in_or_app; left; exact Hk).
+  assert (HUk : forall k, In k (seg_labels U) -> In k hs) by (intros k Hk; apply Hin; left; apply in_or_app; right; exact Hk).
+  assert (Hhs : forall g, In g hs -> In g labs).
+  { intros g Hg; apply Hin in Hg as [Hg|[]]; apply in_app_or in Hg as [Hg|Hg].
+    - apply in_map_iff in Hg as [[h n] [<- Hp]]; destruct HL as [_ Ho]; rewrite Forall_forall in Ho; exact (proj1 (Ho _ Hp)).
+    - exact (seg_labels_in _ HU HUn _ Hg). }
+  destruct (forallb _ hs) eqn:Ef; [|discriminate].
+  assert (Hf : forall g, In g hs -> exists e, sfind F g U = Some e).
+  { intros g Hg; apply (proj1 (forallb_forall _ _) Ef) in Hg; destruct (sfind F g U) as [e|]; [exists e; reflexivity|discriminate]. }
+  destruct (omap (qent F ntm wc pn a L U) hs) as [qs|] eqn:Eq; [|discriminate].
+  destruct (sbuild F (map (u'ent F L U) hs)) as [U1|] eqn:EU; [|discriminate].
+  destruct (lbuild F (map (fun g => (g, olp F L U g)) hs)) as [L1|] eqn:EL; [|discriminate].
+  destruct (sbuild F qs) as [Q|] eqn:EQ; [|discriminate].
+  destruct (scomp F ntm A Q) as [A1|] eqn:EA; [|discriminate].
+  intros H; injection H as <- <- <-.
+  assert (Heta : forall g, fst (u'ent F L U g) = g) by (intros g; unfold u'ent; destruct (entd F U g); reflexivity).
+  (* The targets before the atom. *)
+  assert (Hotg : forall g i, In g hs -> tnf (otg F U g i)).
+  { intros g i Hg; unfold otg, entd; destruct (sfind F g U) as [[[ts m]|]|] eqn:E; cbn [fst snd List.length];
+      [|destruct (Nat.ltb_spec i 0); [lia|exact (Hhs g Hg)]|destruct (Nat.ltb_spec i 0); [lia|exact (Hhs g Hg)]].
+    destruct (Nat.ltb_spec i (List.length (tl_list ts))) as [Hi|Hi]; [|exact (Hhs g Hg)].
+    apply (snf_in _ _ _ HUn); apply (sfind_sound lenv F HF) in E.
+    apply (sget_tgts _ (lden g) U ts m (eq_sym E)), nth_In, Hi. }
+  (* Q, and the segment before it. *)
+  assert (HQ : sshape false Q /\ snf Q).
+  { pose proof (omap_f2 _ _ _ Eq) as H2.
+    assert (Hq : forall q, In q qs -> exists g, In g hs /\ qent F ntm wc pn a L U g = Some q)
+      by (intros q Hq; exact (Forall2_in_r _ _ _ _ H2 Hq)).
+    destruct (sbuild_shape _ _ EQ) as [Hs [Ht _]].
+    - intros h xs m Hi; destruct (Hq _ Hi) as [g [Hg E]]; unfold qent in E; revert E.
+      destruct (omap (fun i => otq ntm wc pn a L (otg F U g i)) (oP F L U g)); [|discriminate].
+      intros E; injection E as <- _ _; exact (Hhs g Hg).
+    - split; [exact Hs|]; apply snf_iff; intros t Hin'; destruct (Ht t Hin') as [h [xs [m [Hi Hx]]]].
+      destruct (Hq _ Hi) as [g [Hg E]]; unfold qent in E; revert E.
+      destruct (omap (fun i => otq ntm wc pn a L (otg F U g i)) (oP F L U g)) as [ts|] eqn:Eo; [|discriminate].
+      intros E; injection E as _ <- _.
+      destruct (Forall2_in_r _ _ _ _ (omap_f2 _ _ _ Eo) Hx) as [i [_ Et]].
+      exact (otq_normal _ _ _ _ HL (Hotg g i Hg) Et). }
+  destruct (scomp_normal _ _ _ EA HA HAn (proj1 HQ) (proj2 HQ)) as [HA1 HA1n].
+  (* The lifts. *)
+  destruct (lbuild_spec _ _ EL) as [HLc HLok].
+  assert (HL1 : lok L1).
+  { apply HLok; intros p Hp; apply in_map_iff in Hp as [g [<- Hg]]; exact (Hhs g Hg). }
+  (* The segment after the atom. *)
+  destruct (sbuild_shape _ _ EU) as [HU1 [HU1t HU1g]].
+  { intros h xs m Hi; apply in_map_iff in Hi as [g [E Hg]]; pose proof (Heta g) as Eg; rewrite E in Eg; cbn [fst] in Eg; subst h; exact (Hhs g Hg). }
+  assert (HU1r : sren U1).
+  { unfold Unique.sren; apply Forall_forall; intros t Ht; destruct (HU1t t Ht) as [h [xs [m [Hi Hx]]]].
+    apply in_map_iff in Hi as [g [E Hg]]; unfold u'ent in E; destruct (entd F U g) as [xs0 m0] eqn:Ee.
+    injection E as _ <- _; apply in_map_iff in Hx as [i [<- _]].
+    destruct (inP L (otg F U g i)) eqn:Ep; [exact (Hhs g Hg)|].
+    destruct (otg F U g i) as [h' j|] eqn:Eo; [|discriminate]; cbn [oreidx].
+    exact (Hhs _ (otg_label lenv F HF U hs HUk Hf g i h' j Hg Eo)). }
+  assert (HsvU1 : forall l j, inl (sv lenv U1 (mk_rvar l j)) = esl lenv tenvU aenvU penvU l (map (u'ent F L U) hs) j).
+  { intros l j; rewrite <- (esem_sv _ _ _ HU1r); apply (proj2 (sbuild_sem lenv tenvU aenvU penvU F HF 0 (le_n 0) _ _ EU)). }
+  assert (Hsv_in : forall g i, In g hs -> sv lenv U1 (mk_rvar (lden g) i) = tvar lenv (u'tgt F L U g i)).
+  { intros g i Hg; pose proof (HsvU1 (lden g) i) as E; rewrite (U'_in lenv tenvU aenvU penvU F 0 (le_n 0) L U hs Hd g i Hg) in E.
+    unfold u'tgt in *; destruct (inP L (otg F U g i)) eqn:Ep.
+    - cbn [tden rtarget_result] in E; injection E as E; exact E.
+    - destruct (otg F U g i) as [h j|] eqn:Eo; [|discriminate]; cbn [oreidx tden rtarget_result] in E.
+      injection E as E; exact E. }
+  assert (Hsv_out : forall l j, (forall g, In g hs -> lden g <> l) -> sv lenv U1 (mk_rvar l j) = mk_rvar l j).
+  { intros l j Hl; pose proof (HsvU1 l j) as E; rewrite (U'_out lenv tenvU aenvU penvU F L U hs l j Hl) in E.
+    injection E as E; exact E. }
+  assert (Hlc_in : forall g, In g hs -> lc lenv (lden g) L1 = olp F L U g).
+  { intros g Hg; rewrite HLc; apply (lc_map lenv tenvU 0 (le_n 0) (olp F L U) hs g Hd Hn Hg). }
+  assert (Hlc_out : forall l, (forall g, In g hs -> lden g <> l) -> lc lenv l L1 = 0).
+  { intros l Hl; rewrite HLc; apply (lc_out lenv hs _ l); [|exact Hl].
+    intros k Hk; rewrite map_map in Hk; cbn in Hk; rewrite map_id in Hk; exact Hk. }
+  assert (HinV : forall g i, In g hs -> inVb lenv L1 (sv lenv U1 (mk_rvar (lden g) i)) = inP L (otg F U g i)).
+  { intros g i Hg; rewrite (Hsv_in g i Hg); unfold u'tgt, inVb.
+    destruct (inP L (otg F U g i)) eqn:Ep.
+    - cbn [tvar v_label v_index]; rewrite (Hlc_in g Hg); apply Nat.ltb_lt.
+      exact (proj2 (oP_pos tenvU F 0 (le_n 0) L U hs g i Hg Ep)).
+    - destruct (otg F U g i) as [h j|] eqn:Eo; [|discriminate]; cbn [oreidx tvar v_label v_index].
+      cbn [inP] in Ep; apply Nat.ltb_ge in Ep.
+      rewrite (Hlc_in h (otg_label lenv F HF U hs HUk Hf g i h j Hg Eo)); apply Nat.ltb_ge; lia. }
+  assert (Hopos : forall g i, In g hs -> opos F L U g i = cnt (fun i' => inP L (otg F U g i')) i).
+  { intros g i Hg; unfold opos, oP; rewrite filter_lt_cnt.
+    destruct (Nat.le_ge_cases i (orng F L U g)) as [Hi|Hi]; [rewrite Nat.min_l by exact Hi; reflexivity|].
+    rewrite Nat.min_r by exact Hi; symmetry; apply cnt_stable; [|exact Hi].
+    intros i' Hi'; exact (proj2 (otg_tail tenvU F 0 (le_n 0) L U hs g i' Hg Hi')). }
+  assert (Hcnt : forall g i, In g hs -> cntV lenv U1 L1 (lden g) i = opos F L U g i).
+  { intros g i Hg; rewrite cntV_cnt, Hopos by exact Hg; apply cnt_ext; intros i' _; apply HinV, Hg. }
+  assert (Hcase : forall l, (exists g, In g hs /\ lden g = l) \/ (forall g, In g hs -> lden g <> l)).
+  { intros l; destruct (existsb (fun g => label_eqb (lden g) l) hs) eqn:Ex.
+    - left; apply existsb_exists in Ex as [g [Hg El]]; apply label_eqb_eq in El; exists g; split; assumption.
+    - right; intros g Hg E; subst l.
+      rewrite (proj2 (existsb_exists _ _) (ex_intro _ g (conj Hg (label_eqb_refl _)))) in Ex; discriminate. }
+  refine (conj HA1 (conj HA1n (conj HL1 (conj HU1 (conj HU1r (conj _ _)))))).
+  - split.
+    + intros l j Hv; destruct (Hcase l) as [[g [Hg <-]]|Hl].
+      * rewrite HinV in Hv by exact Hg; rewrite (Hsv_in g j Hg); unfold u'tgt; rewrite Hv; cbn [tvar].
+        rewrite Hcnt by exact Hg; reflexivity.
+      * rewrite (Hsv_out l j Hl) in Hv; unfold inVb in Hv; cbn [v_index v_label] in Hv.
+        rewrite (Hlc_out l Hl) in Hv; destruct j; discriminate.
+    + intros l j Hj; destruct (Hcase l) as [[g [Hg <-]]|Hl]; [|rewrite (Hlc_out l Hl) in Hj; lia].
+      rewrite (Hlc_in g Hg) in Hj; unfold olp, oP in Hj; rewrite filter_cnt in Hj.
+      destruct (cnt_ivt _ _ _ Hj) as [i [_ [Hp Hc]]]; exists i.
+      rewrite (Hsv_in g i Hg); unfold u'tgt; rewrite Hp; cbn [tvar]; rewrite Hopos, Hc by exact Hg; reflexivity.
+  - intros HeN.
+    assert (Horng : orng F L U LNone = 0) by (unfold orng; rewrite HeN; cbn [List.length]; lia).
+    assert (Holp0 : olp F L U LNone = 0) by (unfold olp, oP; rewrite Horng; reflexivity).
+    assert (Hu0 : u'ent F L U LNone = (LNone, ([], 0))).
+    { unfold u'ent; rewrite HeN, Horng, Holp0; cbn [seq map List.length]; f_equal; f_equal; lia. }
+    split.
+    + apply sshape_true_of; [exact HU1|]; apply HU1g; intros h xs m Hi Ehn; subst h.
+      apply in_map_iff in Hi as [g [E Hg]]; pose proof (Heta g) as Eg; rewrite E in Eg; cbn [fst] in Eg; subst g.
+      rewrite Hu0 in E; injection E as <- <-; split; reflexivity.
+    + destruct (Hcase None) as [[g [Hg Eg]]|Hl]; [|apply Hlc_out, Hl].
+      apply lden_none in Eg; subst g; change (lc lenv None L1 = 0) with (lc lenv (lden LNone) L1 = 0); rewrite (Hlc_in LNone Hg); exact Holp0.
+Qed.
+
+Theorem settle_normal nm A L a w w' : sshape false A -> snf A -> lok L ->
+  (if isend w then wnf false w /\ (nm = true -> entd F (whead w) LNone = ([], lsum LNone L)) else wnf nm w) ->
+  settle F ntm wc pn A L a w = Some w' -> wnf nm w'.
+Proof.
+  intros HA HAn HL Hw; unfold settle.
+  destruct (settle1 F ntm wc pn a A L (whead w)) as [[[A' L'] U']|] eqn:E; [|discriminate]; intros H; injection H as <-.
+  assert (Hh : sshape false (whead w) /\ snf (whead w)).
+  { destruct w as [s0|s0 L0 a0 w0]; cbn [isend whead] in *.
+    - destruct Hw as [[Hs Hn] _]; split; assumption.
+    - destruct Hw as [Hs [Hn _]]; split; assumption. }
+  destruct (settle1_normal _ _ _ _ _ _ _ HA HAn HL (proj1 Hh) (proj2 Hh) E) as [HA' [HA'n [HL' [HU' [HU'r [Hp Hnm]]]]]].
+  destruct w as [s0|s0 L0 a0 w0]; cbn [isend whead wsethead] in *; cbn [Unique.wnf Unique.rnf].
+  - destruct Hw as [_ Hc].
+    refine (conj HA' (conj HA'n (conj (conj HL' (conj Hp _)) (conj _ HU'r)))).
+    + intros Et _; exact (proj2 (Hnm (Hc Et))).
+    + destruct nm; [exact (proj1 (Hnm (Hc eq_refl)))|exact HU'].
+  - destruct Hw as [_ [_ [Ha Hr]]].
+    refine (conj HA' (conj HA'n (conj (conj HL' (conj Hp _)) (conj HU' (conj HU'r (conj Ha Hr)))))).
+    intros _ E'; discriminate E'.
+Qed.
+
+Lemma settle_atom A L a w w' : settle F ntm wc pn A L a w = Some w' -> isend w' = false.
+Proof. unfold settle; destruct (settle1 _ _ _ _ _ _ _ _) as [[[? ?] ?]|]; [|discriminate]; intros H; injection H as <-; reflexivity. Qed.
+
+Lemma pnormf_atom w w' : pnormf F ntm wc pn w = Some w' -> isend w = false -> isend w' = false.
+Proof.
+  destruct w as [s0|A L a w]; [intros _ E; discriminate E|]; cbn [pnormf]; intros H _.
+  destruct w as [s|A' L' a' w1].
+  - destruct (pfinal F L s); [exact (settle_atom _ _ _ _ _ H)|discriminate].
+  - destruct (pnormf F ntm wc pn (WAtom A' L' a' w1)); [exact (settle_atom _ _ _ _ _ H)|discriminate].
+Qed.
+
+Lemma lsum_above h L : (forall p, In p L -> olabel_lt (lden h) (lden (fst p))) -> lsum h L = 0.
+Proof.
+  induction L as [|[h' n] L IH]; intros H; [reflexivity|]; cbn [lsum].
+  rewrite IH by (intros p Hp; apply H; right; exact Hp).
+  destruct (lexp_eqb h h') eqn:E; [|reflexivity]; apply lexp_eqb_eq in E; subst h'.
+  exfalso; exact (olabel_lt_irrefl _ (H (h, n) (or_introl eq_refl))).
+Qed.
+
+Lemma lcount_lsum h L : lok L -> lcount h L = lsum h L.
+Proof.
+  induction L as [|[h' n] L IH]; intros HL; [reflexivity|]; cbn [lcount lsum].
+  destruct (lexp_eqb h h') eqn:E; [|apply IH, (lok_tail _ _ _ _ HL)].
+  apply lexp_eqb_eq in E; subst h'; rewrite lsum_above; [lia|].
+  destruct HL as [Hs _]; inversion Hs as [|x l Hsr Hall]; subst; rewrite Forall_forall in Hall; exact Hall.
+Qed.
+
+Lemma lcount_in h L : lok L -> lcount h L <> 0 -> In h labs.
+Proof.
+  induction L as [|[h' n] L IH]; intros HL Hn; [cbn in Hn; lia|]; cbn [lcount] in Hn.
+  destruct (lexp_eqb h h') eqn:E; [apply lexp_eqb_eq in E; subst h'; exact (proj1 (lok_head _ _ _ _ _ HL))|].
+  apply IH; [apply (lok_tail _ _ _ _ HL)|exact Hn].
+Qed.
+
+Lemma sfind_none s : sfind F LNone s = Some (sget lenv None s).
+Proof.
+  induction s as [|h ts m r IH] using seg_spine; [reflexivity|]; cbn [sfind sget].
+  assert (Hc : exists c, lcmp F LNone h = Some c).
+  { unfold lcmp; destruct (lexp_eqb LNone h) eqn:E; [eexists; reflexivity|].
+    destruct (lt_known F LNone h); [eexists; reflexivity|].
+    destruct h; [discriminate E| |]; unfold lt_known; destruct (List.length F); cbn; eexists; reflexivity. }
+  destruct Hc as [c Ec]; rewrite Ec; pose proof (lcmp_sound lenv F HF _ _ _ Ec) as Hs.
+  destruct c; cbn [cmp_holds] in Hs.
+  - subst h; reflexivity.
+  - rewrite (proj2 (label_eqb_neq _ _)); [exact IH|]; intros E; rewrite E in Hs; exact (olabel_lt_irrefl _ Hs).
+  - rewrite (proj2 (label_eqb_neq _ _)); [exact IH|]; intros E; rewrite E in Hs; exact (olabel_lt_irrefl _ Hs).
+Qed.
+
+Lemma sset_none_entd k s s' : sset F LNone TNil k s = Some s' -> entd F s' LNone = ([], k).
+Proof.
+  unfold sset; destruct (sdel F LNone s) as [s0|] eqn:Ed; [|discriminate].
+  pose proof (sdel_sound lenv F HF _ _ _ Ed None) as H0; cbn [lden] in H0; rewrite label_eqb_refl in H0.
+  cbn [tl_list rev trim]; unfold entd; destruct k as [|k]; intros H; injection H as <-; rewrite sfind_none.
+  - rewrite H0; reflexivity.
+  - destruct (sput_sound lenv F LNone TNil (S k) s0 H0) as [H1 _].
+    rewrite (H1 None); cbn [lden]; rewrite label_eqb_refl; reflexivity.
+Qed.
+
+Lemma pnormf_normal w : wnf false w -> forall w', pnormf F ntm wc pn w = Some w' -> wnf true w'.
+Proof.
+  induction w as [s|A L a w IH] using word_spine; cbn [pnormf].
+  - intros [Hs Hn] w' H; injection H as <-; cbn [Unique.wnf].
+    destruct (sdrop_none_shape _ Hs) as [Hs' Ht']; split; [exact Hs'|].
+    apply snf_iff; intros t Ht; apply (snf_in _ _ _ Hn), Ht', Ht.
+  - intros Hw w'; destruct Hw as [HA [HAn [[HL [Hp _]] Hr]]].
+    destruct w as [s|A' L' a' w1].
+    + unfold pfinal; destruct (sdistb F s) eqn:Ed; [|discriminate].
+      destruct (sset F LNone TNil (lcount LNone L) s) as [s'|] eqn:Es; [|discriminate]; intros H.
+      cbn [Unique.rnf] in Hr; destruct Hr as [Hs Hsr].
+      apply (settle_normal true A L a (WEnd s') w' HA HAn HL); [|exact H].
+      cbn [isend whead]; split.
+      * assert (Hl : In LNone labs \/ (tl_list TNil = [] /\ lcount LNone L = 0)).
+        { destruct (Nat.eq_dec (lcount LNone L) 0) as [E|E]; [right; split; [reflexivity|exact E]|left].
+          exact (lcount_in _ _ HL E). }
+        destruct (sset_shape false _ _ _ _ _ Es Hs Hl ltac:(discriminate)) as [Hs' [_ [Ht _]]].
+        split; [exact Hs'|]; apply snf_iff; intros t Hin; destruct (Ht t Hin) as [Hin'|[]].
+        apply (snf_in _ _ _ (sren_snf _ Hsr)), Hin'.
+      * intros _; rewrite (sset_none_entd _ _ _ Es), (lcount_lsum _ _ HL); reflexivity.
+    + destruct (pnormf F ntm wc pn (WAtom A' L' a' w1)) as [w''|] eqn:E; [|discriminate]; intros H.
+      apply (settle_normal true A L a w'' w' HA HAn HL); [|exact H].
+      rewrite (pnormf_atom _ _ E eq_refl).
+      apply (IH (rnf_wnf _ _ Hr) w''); first [exact E|reflexivity].
+Qed.
+
+Lemma wcomp_with_normal w1 : wnf false w1 -> forall w2 w, wnf false w2 -> wcomp_with F ntm wc pn w1 w2 = Some w -> wnf false w.
+Proof.
+  induction w1 as [A|A L a w1 IH] using word_spine; cbn [wcomp_with].
+  - intros [HA HAn] w2 w Hw2 H; exact (wcons_normal _ _ _ H HA HAn Hw2).
+  - intros [HA [HAn [[HL _] Hr]]] w2 w Hw2.
+    destruct (wcomp_with F ntm wc pn w1 w2) as [w'|] eqn:E; [|discriminate]; intros H.
+    pose proof (IH (rnf_wnf _ _ Hr) w2 w' Hw2 E) as Hw'.
+    apply (settle_normal false A L a w' w HA HAn HL); [|exact H].
+    destruct (isend w'); [split; [exact Hw'|intros E'; discriminate E']|exact Hw'].
+Qed.
+
+End Settle.
+
+Lemma wops_normal n :
+  (forall w1 w2 w, wnf false w1 -> wnf false w2 -> fst (wops F ntm n) w1 w2 = Some w -> wnf false w)
+  /\ (forall b w w', wnf false w -> snd (wops F ntm n) b w = Some w' ->
+                     wnf (match b with None => true | Some _ => false end) w').
+Proof.
+  induction n as [|n [IHc IHp]]; [split; intros; discriminate|]; cbn [wops].
+  destruct (wops F ntm n) as [wc pn] eqn:Ew; cbn [fst snd] in *; split.
+  - intros w1 w2 w H1 H2 H; exact (wcomp_with_normal wc pn IHc IHp w1 H1 w2 w H2 H).
+  - intros [m|] w w' Hw H; cbn [bnormf] in H; [injection H as <-; exact Hw|].
+    exact (pnormf_normal wc pn IHc IHp w Hw w' H).
 Qed.
 
 End Normal.
