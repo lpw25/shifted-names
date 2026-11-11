@@ -21,6 +21,7 @@ theories/Core/Indexed.v
 theories/Core/Normalise.v
 theories/Core/Names.v
 theories/Core/Unique.v
+theories/Core/Normal.v
 theories/Core/Context.v
 theories/Core/Syntax.v
 theories/Core/Subst.v
