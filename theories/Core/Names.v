@@ -21,8 +21,14 @@ Import ListNotations.
 (** ** Reification *)
 
 (** The position of [x] in the list [l], up to conversion, adding it at
-    the end if absent; returns the index and the new list. *)
+    the end if absent; returns the index and the new list.  Syntactic
+    equality is tried first, being much cheaper. *)
 Ltac lookup_add x l :=
+  let rec go_syn l n :=
+    lazymatch l with
+    | nil => constr:((n, false))
+    | ?y :: ?r => match y with x => constr:((n, true)) | _ => go_syn r (S n) end
+    end in
   let rec go l n :=
     lazymatch l with
     | nil => constr:((n, false))
@@ -32,9 +38,13 @@ Ltac lookup_add x l :=
         | _ => go r (S n)
         end
     end in
-  lazymatch go l O with
+  lazymatch go_syn l O with
   | (?n, true) => constr:((n, l))
-  | (?n, false) => let l' := eval cbv [app] in (l ++ [x]) in constr:((n, l'))
+  | _ =>
+      lazymatch go l O with
+      | (?n, true) => constr:((n, l))
+      | (?n, false) => let l' := eval cbv [app] in (l ++ [x]) in constr:((n, l'))
+      end
   end.
 
 (** Checks returning [tt], so that they can be used inside reification
@@ -848,9 +858,10 @@ Ltac restore_terms te a :=
   | ?u :: ?r => let u' := restore_term u a in let r' := restore_terms r a in constr:(u' :: r')
   end.
 
-(** Rewriting one adjustment to its normal form, shown as context forms;
-    fails when it is already shown that way, or cannot be shown. *)
-Ltac names_rewrite a :=
+(** Rewriting one adjustment to its normal form, shown as context forms,
+    then running [kt] on its term atoms; runs [kt] alone when it is
+    already shown that way, and [kn] when it cannot be shown. *)
+Ltac names_rewrite_k a kt kn :=
   let ty := type of a in
   lazymatch ty with
   | adj ?T _ _ =>
@@ -874,12 +885,15 @@ Ltac names_rewrite a :=
                   unshelve evar (bb : ty); [render_pieces le te' ae ps|];
                   let b := eval cbv delta [bb] in bb in
                   clear bb;
-                  tryif constr_eq a b then fail
-                  else (let E := fresh "E" in assert (E : a = b) by names_eq; rewrite E; clear E)
+                  tryif constr_eq a b then kt te'
+                  else (let E := fresh "E" in assert (E : a = b) by names_eq; rewrite E; clear E; kt te')
+              | None => kn
               end
           end
       end
   end.
+
+Ltac names_rewrite a := names_rewrite_k a ltac:(fun _ => fail) fail.
 
 (** Applying an adjustment to a variable: when the normal form is a single
     context form, the result is read off it. *)
@@ -966,10 +980,55 @@ Ltac names_var_eq t E :=
     [apply_var a v] whose result the normal form of [a] gives. *)
 Ltac names_apply_var t := let E := fresh "E" in names_var_eq t E; rewrite E; clear E.
 
-Ltac names_adjs :=
-  repeat match goal with
-         | |- context [?a] => is_adj_expr a; names_rewrite a
-         end.
+(** Candidates for rewriting, as nested pairs ending in [tt]: adjustment
+    expressions not inside another candidate.  (Value-returning, so that
+    they can be collected.) *)
+Ltac is_adj_v a :=
+  lazymatch a with compose _ _ => tt | cform_id _ => tt | cform _ _ => tt | at_scope _ => tt end.
+
+Ltac not_in a acc :=
+  lazymatch acc with
+  | tt => tt
+  | (?c, ?r) => lazymatch c with context [a] => fail | _ => not_in a r end
+  end.
+
+Ltac goal_candidates acc :=
+  match goal with
+  | |- context [?a] => let _ := is_adj_v a in let _ := not_in a acc in goal_candidates (a, acc)
+  | _ => acc
+  end.
+
+(** The candidates strictly inside [t]. *)
+Ltac candidates_in t acc :=
+  match t with
+  | context [?a] =>
+      let _ := is_adj_v a in
+      let _ := lazymatch a with t => fail | _ => tt end in
+      let _ := not_in a acc in
+      candidates_in t (a, acc)
+  | _ => acc
+  end.
+
+Ltac candidates_in_terms te acc :=
+  lazymatch te with
+  | nil => acc
+  | ?u :: ?r => let acc' := candidates_in u acc in candidates_in_terms r acc'
+  end.
+
+(** Each candidate is rewritten once, and then the candidates in its
+    terms; one whose normal form cannot be shown is left, and the
+    candidates inside it are tried instead. *)
+Ltac rewrite_each cs :=
+  lazymatch cs with
+  | (?a, ?r) =>
+      try names_rewrite_k a
+            ltac:(fun te => let cs' := candidates_in_terms te tt in rewrite_each cs')
+            ltac:(idtac; let ins := candidates_in a tt in rewrite_each ins);
+      rewrite_each r
+  | tt => idtac
+  end.
+
+Ltac names_adjs := let cs := goal_candidates tt in rewrite_each cs.
 
 Ltac names_apply :=
   repeat match goal with
