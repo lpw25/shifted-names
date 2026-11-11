@@ -160,3 +160,10 @@ End Commute.
 Example grouped {N M K} x (a : adj nat M K) (b : adj nat N M) :
   ⟦ · | b ⟧ ⨾ ⟦ · \ x ⟧ ⨾ ⟦ x | a ⟧ = ⟦ · | b ⨾ a ⟧ ⨾ ⟦ · \ x ⟧.
 Proof. names; reflexivity. Qed.
+
+(** Two variables passed around an atom and merged after it: a term's
+    names sent to either are the same. *)
+Example merged_after_atom (σ : adj nat 0 0) (u : nat) :
+  (⟦ "z" := u⟨ "y" as c ⟩; "x" as c; "x" as d \ "x" as c; "x" as d ⟧ : adj nat 0 0) ⨾ ⟦ "x"; "x" | σ ⟧ ⨾ ⟦ "x" as c; "x" as c \ "x" as c ⟧
+  = (⟦ "z" := u⟨ "y" as d ⟩; "x" as c; "x" as d \ "x" as c; "x" as d ⟧ : adj nat 0 0) ⨾ ⟦ "x"; "x" | σ ⟧ ⨾ ⟦ "x" as c; "x" as c \ "x" as c ⟧.
+Proof. names_eq. Qed.
