@@ -97,17 +97,17 @@ of index below a bound `B'` derived from `B`.
    output count and trimming are read off directly. Payload words are
    handled by induction on payload depth, comparing payloads on named
    variables only.
-2. **The last atom.** Under the probe, a variable that reaches `σₙ` comes
-   back as `σₙ`'s tag, with the variable it reached `σₙ` at. A variable
-   that does not reach `σₙ` comes back as something else. Since the
-   segment before `σₙ` is a renaming in lift position (condition 2),
-   this determines `σₙ`, `Lₙ` and `Uₙ₋₁` (taken in `⨾` order), so they
-   agree in the two words.
-3. **The rest.** The payload attached to `σₙ`'s tag records what the
-   rest of the word does after `σₙ`, on named variables. Choosing the
-   probe's payload to send further named variables to each bound
-   variable of interest recovers the action of everything after `σₙ` on
-   all variables. That gives the induction step on the number of atoms.
+2. **The first atom.** Inputs meet `U₀` and then `σ₁` first. Under the
+   probe, a variable that reaches `σ₁` comes back as `σ₁`'s tag, with the
+   variable it reached `σ₁` at; one passed around `σ₁` comes back as
+   something else. Since `U₀` is a renaming in lift position (condition
+   2), this determines `U₀`, `L₁` and `σ₁`, so they agree in the two
+   words.
+3. **The rest.** The payload attached to `σ₁`'s tag records what the rest
+   of the word does after `σ₁`, on named variables. Choosing the probe's
+   payload to send further named variables to each bound variable of
+   interest recovers the action of everything after `σ₁` on all
+   variables. That gives the induction step on the number of atoms.
 4. **Terms and payload words** (conditions 3 and 4) are handled with the
    segments, using the push step to fix where a term sits.
 
