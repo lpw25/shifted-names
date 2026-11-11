@@ -189,3 +189,187 @@ Proof.
 Qed.
 
 End Unique.
+
+(** ** The free model
+
+    Applying a word to a variable in the free model gives a variable, a
+    term with what happens to its names afterwards, or an atom stuck at a
+    variable with what happens to the atom's outputs afterwards.  Words
+    equal in the free model are equal under every interpretation. *)
+
+Inductive fres : Type :=
+| FVar (v : rvar)
+| FTerm (u : nat) (b : option nat) (k : rvar -> fres)
+| FStuck (a : nat) (z : rvar) (k : rvar -> fres).
+
+Section Free.
+
+Variable lenv : list label.
+Local Notation lden := (lden lenv).
+
+Definition shiftL (L : list (lexp * nat)) (y : rvar) : rvar :=
+  mk_rvar (v_label y) (v_index y + lc lenv (v_label y) L).
+
+(** A lifted atom applied to [x], then [K]. *)
+Definition latom (L : list (lexp * nat)) (a : nat) (K : rvar -> fres) (x : rvar) : fres :=
+  if v_index x <? lc lenv (v_label x) L then K x
+  else FStuck a (mk_rvar (v_label x) (v_index x - lc lenv (v_label x) L)) (fun y => K (shiftL L y)).
+
+Fixpoint fw (w : word) (K : rvar -> fres) (v : rvar) {struct w} : fres :=
+  match w with
+  | WEnd Sg => fs Sg K v
+  | WAtom Sg L a w' => fw w' (latom L a (fun y => fs Sg K y)) v
+  end
+with fs (Sg : seg) (K : rvar -> fres) (v : rvar) {struct Sg} : fres :=
+  match Sg with
+  | SNil => K v
+  | SEnt h ts m r => if label_eqb (lden h) (v_label v) then ftl ts (lden h) m K (v_index v) else fs r K v
+  end
+with ftl (ts : tlist) (l : option label) (m : nat) (K : rvar -> fres) (i : nat) {struct ts} : fres :=
+  match ts with
+  | TNil => K (mk_rvar l (i + m))
+  | TCons t r => match i with 0 => ft t K | S i' => ftl r l m K i' end
+  end
+with ft (t : ntgt) (K : rvar -> fres) {struct t} : fres :=
+  match t with
+  | NVar h j => K (mk_rvar (lden h) j)
+  | NBind u wp b => FTerm u b (fun x => fw wp K x)
+  end.
+
+(** Free results that agree; a term with the identity payload adjustment
+    is compared on named variables only. *)
+Fixpoint feq (f g : fres) : Prop :=
+  match f, g with
+  | FVar v, FVar v' => v = v'
+  | FTerm u b k, FTerm u' b' k' =>
+      u = u' /\ b = b' /\ forall y, (b = None -> v_label y <> None) -> feq (k y) (k' y)
+  | FStuck a z k, FStuck a' z' k' => a = a' /\ z = z' /\ forall y, feq (k y) (k' y)
+  | _, _ => False
+  end.
+
+Context {T : Type}.
+Variable tenv : list T.
+Variable aenv : list (radj T).
+Variable penv : list (rpadj T).
+
+Local Notation wden := (wden lenv tenv aenv penv).
+Local Notation sden := (sden lenv tenv aenv penv).
+Local Notation tden := (tden lenv tenv aenv penv).
+
+(** The real results a free result stands for. *)
+Fixpoint realises (f : fres) (r : rresult T) : Prop :=
+  match f with
+  | FVar v => r = inl v
+  | FTerm u None k =>
+      exists Kr x, nth_error tenv u = Some x /\ (forall y, v_label y <> None -> realises (k y) (rapply Kr y))
+                   /\ r = inr (x, rpcompose Kr rpidentity)
+  | FTerm u (Some n) k =>
+      exists Kr x, nth_error tenv u = Some x /\ (forall y, realises (k y) (rapply Kr y))
+                   /\ r = inr (x, rpcompose Kr (nth n penv rpidentity))
+  | FStuck a z k =>
+      exists Kr, (forall y, realises (k y) (rapply Kr y)) /\ r = cres Kr (rapply (aden aenv a) z)
+  end.
+
+Lemma realises_unique f : forall r1 r2, realises f r1 -> realises f r2 -> r1 = r2.
+Proof.
+  induction f as [v|u [n|] k IH|a z k IH]; cbn [realises]; intros r1 r2.
+  - intros -> ->; reflexivity.
+  - intros [K1 [x1 [E1 [H1 ->]]]] [K2 [x2 [E2 [H2 ->]]]]; rewrite E1 in E2; injection E2 as <-.
+    assert (K1 = K2) as -> by (apply rextensionality; intros y; apply (IH y); [apply H1|apply H2]); reflexivity.
+  - intros [K1 [x1 [E1 [H1 ->]]]] [K2 [x2 [E2 [H2 ->]]]]; rewrite E1 in E2; injection E2 as <-.
+    do 2 f_equal; apply rpcompose_named; intros y Hy; apply (IH y); [apply H1, Hy|apply H2, Hy].
+  - intros [K1 [H1 ->]] [K2 [H2 ->]].
+    assert (K1 = K2) as -> by (apply rextensionality; intros y; apply (IH y); [apply H1|apply H2]); reflexivity.
+Qed.
+
+Lemma realises_feq f : forall g r, feq f g -> realises f r -> realises g r.
+Proof.
+  induction f as [v|u b k IH|a z k IH]; intros [v'|u' b' k'|a' z' k'] r; cbn [feq]; try contradiction.
+  - intros <- H; exact H.
+  - intros [<- [<- Hk]]; destruct b as [n|]; cbn [realises].
+    + intros [Kr [x [E [H ->]]]]; exists Kr, x; split; [exact E|split; [|reflexivity]].
+      intros y; apply (IH y); [apply Hk; discriminate|apply H].
+    + intros [Kr [x [E [H ->]]]]; exists Kr, x; split; [exact E|split; [|reflexivity]].
+      intros y Hy; apply (IH y); [apply Hk; intros _; exact Hy|apply H, Hy].
+  - intros [<- [<- Hk]] [Kr [H ->]]; exists Kr; split; [|reflexivity].
+    intros y; apply (IH y); [apply Hk|apply H].
+Qed.
+
+(** Well-formed words: segments with distinct labels, terms in range. *)
+Fixpoint okt (t : ntgt) : Prop :=
+  match t with NVar _ _ => True | NBind u wp _ => u < List.length tenv /\ okw wp end
+with okts (ts : tlist) : Prop :=
+  match ts with TNil => True | TCons t r => okt t /\ okts r end
+with oks (s : seg) : Prop :=
+  match s with SNil => True | SEnt h ts _ r => sget lenv (lden h) r = None /\ okts ts /\ oks r end
+with okw (w : word) : Prop :=
+  match w with WEnd s => oks s | WAtom s _ _ w => oks s /\ okw w end.
+
+Lemma oks_sdist s : oks s -> sdist lenv s.
+Proof. induction s as [|h ts m r IH] using seg_spine; cbn; [tauto|intros [H1 [_ H2]]; split; [exact H1|apply IH, H2]]. Qed.
+
+Lemma esem_cons l t r m i :
+  esem lenv tenv aenv penv l (Some (TCons t r, m)) (S i) = esem lenv tenv aenv penv l (Some (r, m)) i.
+Proof.
+  cbn [esem tlen tnth]; change (S i <? S (tlen r)) with (i <? tlen r).
+  destruct (i <? tlen r); [reflexivity|do 2 f_equal; lia].
+Qed.
+
+Lemma fw_real :
+  (forall t, okt t -> forall K Kr, (forall y, realises (K y) (rapply Kr y)) ->
+     realises (ft t K) (cres Kr (rtarget_result (tden t))))
+  /\ (forall ts, okts ts -> forall l m K Kr i, (forall y, realises (K y) (rapply Kr y)) ->
+     realises (ftl ts l m K i) (cres Kr (esem lenv tenv aenv penv l (Some (ts, m)) i)))
+  /\ (forall s, oks s -> forall K Kr v, (forall y, realises (K y) (rapply Kr y)) ->
+     realises (fs s K v) (cres Kr (esem lenv tenv aenv penv (v_label v) (sget lenv (v_label v) s) (v_index v))))
+  /\ (forall w, okw w -> forall K Kr v, (forall y, realises (K y) (rapply Kr y)) ->
+     realises (fw w K v) (rapply (rcompose Kr (wden w)) v)).
+Proof.
+  apply nf_mind.
+  - intros h j _ K Kr HK; cbn [ft tden rtarget_result cres]; apply HK.
+  - intros u wp IH b [Hu Hok] K Kr HK; cbn [ft].
+    destruct (nth_error tenv u) as [x|] eqn:Ex; [|apply nth_error_None in Ex; lia].
+    rewrite (tden_bind lenv tenv aenv penv _ _ _ _ Ex); cbn [rtarget_result cres].
+    destruct b as [n|]; cbn [realises bden]; exists (rcompose Kr (wden wp)), x; (split; [exact Ex|split]).
+    + intros y; exact (IH Hok K Kr y HK).
+    + rewrite rpcompose_compose; reflexivity.
+    + intros y _; exact (IH Hok K Kr y HK).
+    + rewrite rpcompose_compose; reflexivity.
+  - intros _ l m K Kr i HK; cbn [ftl esem tlen]; replace (i <? 0) with false by (destruct i; reflexivity).
+    cbn [cres]; replace (i - 0 + m) with (i + m) by lia; apply HK.
+  - intros t IHt r IHr [Ht Hr] l m K Kr i HK; cbn [ftl].
+    destruct i as [|i].
+    + cbn [esem tlen tnth]; apply IHt; assumption.
+    + rewrite esem_cons; apply IHr; assumption.
+  - intros _ K Kr v HK; cbn [fs sget esem cres]; destruct v; apply HK.
+  - intros h ts IHts m r IHr [_ [Hts Hr]] K Kr v HK; cbn [fs sget].
+    destruct (label_eqb (lden h) (v_label v)) eqn:E.
+    + apply label_eqb_eq in E || (destruct (label_eqb_spec (lden h) (v_label v)) as [E'|]; [|discriminate]).
+      all: try (rewrite E || rewrite E'); apply IHts; assumption.
+    + apply IHr; assumption.
+  - intros s IHs Hs K Kr v HK; rewrite wden_end, rapply_compose_cres, rapply_sden by (apply oks_sdist, Hs).
+    apply IHs; assumption.
+  - intros s IHs L a w IHw [Hs Hw] K Kr v HK.
+    rewrite wden_atom, !rcompose_assoc.
+    apply IHw; [exact Hw|]; intros x; destruct x as [l i].
+    rewrite rapply_compose_cres, (lifts_apply lenv tenv _ (le_n _)); unfold latom; cbn [v_label v_index].
+    destruct (i <? lc lenv l L).
+    + cbn [cres]; rewrite rapply_compose_cres, rapply_sden by (apply oks_sdist, Hs); apply IHs; assumption.
+    + cbn [realises]; exists (rcompose (rcompose Kr (sden s)) (SH lenv L)); split.
+      * intros y; destruct y as [ly iy]; rewrite rapply_compose_cres, (SH_apply lenv tenv _ (le_n _)); cbn [cres].
+        rewrite rapply_compose_cres, rapply_sden by (apply oks_sdist, Hs); apply IHs; assumption.
+      * rewrite cres_compose; reflexivity.
+Qed.
+
+Theorem free_to_real w1 w2 : okw w1 -> okw w2 ->
+  (forall v, feq (fw w1 FVar v) (fw w2 FVar v)) -> wden w1 = wden w2.
+Proof.
+  intros H1 H2 Heq; apply rextensionality; intros v.
+  assert (HK : forall y, realises (FVar y) (rapply (@ridentity T) y)) by (intros y; cbn [realises]; apply rapply_identity).
+  pose proof (proj2 (proj2 (proj2 fw_real)) w1 H1 FVar ridentity v HK) as R1.
+  pose proof (proj2 (proj2 (proj2 fw_real)) w2 H2 FVar ridentity v HK) as R2.
+  rewrite rcompose_identity_l in R1, R2.
+  exact (realises_unique _ _ _ (realises_feq _ _ _ (Heq v) R1) R2).
+Qed.
+
+End Free.
