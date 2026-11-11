@@ -5,7 +5,9 @@ Composition is written `⨾`, in diagrammatic order: `a ⨾ b` is `a`, then
 
 ## Status
 
-Theorems 1–4 below are proved; the display (step 9) is not done yet.
+Theorems 1–4 below are proved, and the display (step 9) shows terms
+before the atoms they were carried past. What remains is listed at the
+end of the plan.
 
 - Theorem 1: `anorm_normal` (`Core/Normal.v`).
 - Theorem 2: `nf_unique` in the free model, with `free_to_real` and
@@ -221,3 +223,8 @@ whole of the rest, with no index bounds and no encoding.
 Afterwards, the checks of label distinctness that segment composition
 makes at run time are implied by theorem 1 and can be removed, by
 restating the soundness lemmas for canonical segments.
+
+Not shown yet: a term whose payload adjustment ends in a payload atom,
+or whose payload, once the atoms it was carried past are taken off, is
+still more than one segment. `names` leaves such adjustments as they
+are.

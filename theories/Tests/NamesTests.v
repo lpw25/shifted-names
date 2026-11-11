@@ -73,6 +73,22 @@ Proof. intros; names; reflexivity. Qed.
 Example lift_free_comm_concrete {N M} (a : adj T N M) : ⟦ "x"; "y" | a ⟧ = ⟦ "y"; "x" | a ⟧.
 Proof. names; reflexivity. Qed.
 
+(** A term substituted before an atom is shown before it, though the
+    normal form carries it past. *)
+Example term_before_atom {N M} x (u : T) (s : adj T N M) : ⟦ x := u ⟧ ⨾ ⟦⟧ ⨾ s = ⟦ x := u ⟧ ⨾ s.
+Proof. names; reflexivity. Qed.
+
+Example term_before_atoms {N M} x (u : T) (s : adj T N M) (t : adj T M M) :
+  ⟦ x := u ⟧ ⨾ ⟦⟧ ⨾ s ⨾ t = ⟦ x := u ⟧ ⨾ (s ⨾ t).
+Proof. names; reflexivity. Qed.
+
+Example term_before_lifted_atom {N M} x y (u : T) (s : adj T N M) :
+  ⟦ x | ⟦ y := u ⟧ ⨾ ⟦⟧ ⨾ s ⟧ = ⟦ x | ⟦ y := u ⟧ ⨾ s ⟧.
+Proof. names; reflexivity. Qed.
+
+Example bound_term_before_atom {N M} (u : T) (s : adj T N M) : ⟦ · := u ⟧ ⨾ ⟦⟧ ⨾ s = ⟦ · := u ⟧ ⨾ s.
+Proof. names; reflexivity. Qed.
+
 (** The order of [x] and [y] goes through the concrete labels between
     them. *)
 Example lift_free_comm_through {N M} x y (a : adj T N M) :

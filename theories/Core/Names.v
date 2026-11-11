@@ -505,6 +505,102 @@ Definition split_seg (L : list (lexp * nat)) (S : seg) : option (seg * seg) :=
 
 End Split.
 
+(** *** Terms before atoms
+
+    The normaliser carries a term substituted before an atom past it: the
+    input is passed around the atom, and the term sits in the last
+    segment with the atom in its payload.  For display the term is moved
+    back: it goes to the input passed around the atom, the atom comes off
+    the front of its payload, and the atom loses a lift.  So
+    [⟦ x := u ⟧ ⨾ σ] is shown as that, not as [⟦ x | σ ⟧ ⨾ ⟦ x := u⟨σ⟩ ⟧].
+    The result is checked like any display. *)
+
+Section Unpass.
+
+Variable F : list (lexp * lexp).
+Variable ntm : nat.
+
+Fixpoint tcount (s : seg) : nat := match s with SNil => 0 | SEnt _ ts _ r => tlen ts + tcount r end.
+
+(** The input of label [g] that [U] sends to [g₍ₖ₎]. *)
+Fixpoint find_input (U : seg) (g : lexp) (k p fuel : nat) : option nat :=
+  match fuel with
+  | 0 => None
+  | S f =>
+      match seg_tgt F U g p with
+      | Some (NVar g' k') => if lexp_eqb g' g && Nat.eqb k' k then Some p else find_input U g k (S p) f
+      | _ => find_input U g k (S p) f
+      end
+  end.
+
+Definition sentry (Sg : seg) (g : lexp) : option (list ntgt * nat) :=
+  match sfind F g Sg with Some (Some (ts, m)) => Some (tl_list ts, m) | Some None => Some ([], 0) | None => None end.
+
+(** Sending input [g₍ₚ₎] to [t]. *)
+Definition set_input (Sg : seg) (g : lexp) (p : nat) (t : ntgt) : option seg :=
+  match sentry Sg g with
+  | Some (ts, m) =>
+      let len := List.length ts in
+      let ts' := ts ++ map (fun j => NVar g (j - len + m)) (seq len (S p - len)) in
+      let m' := if p <? len then m else S p - len + m in
+      sset F g (tl_of (firstn p ts' ++ t :: skipn (S p) ts')) m' Sg
+  | None => None
+  end.
+
+(** Dropping the [k]-th input of [g]. *)
+Definition drop_input (Sg : seg) (g : lexp) (k : nat) : option seg :=
+  match sentry Sg g with
+  | Some (ts, m) => if k <? List.length ts then sset F g (tl_of (firstn k ts ++ skipn (S k) ts)) m Sg else None
+  | None => None
+  end.
+
+Fixpoint ldec (g : lexp) (L : list (lexp * nat)) : list (lexp * nat) :=
+  match L with
+  | [] => []
+  | (h, n) :: L => if lexp_eqb g h then (if Nat.eqb n 1 then L else (h, n - 1) :: L) else (h, n) :: ldec g L
+  end.
+
+(** Moving the term at [g₍ₖ₎] of [A], in [A ∘ ⇑ᴸσₐ ∘ w], before the atom. *)
+Definition unpass_at (A : seg) (L : list (lexp * nat)) (a : nat) (w : word) (g : lexp) (k : nat) : option word :=
+  match seg_tgt F A g k with
+  | Some (NBind u (WAtom SNil _ a' q) None) =>
+      if Nat.eqb a a' then
+        let U := whead w in
+        let D := SEnt g (tl_of (map (fun j => NVar g j) (seq 0 k) ++ [NVar g 0])) k SNil in
+        match find_input U g k 0 (S (k + tcount U)), drop_input A g k, scomp F ntm D U with
+        | Some p, Some A', Some U1 =>
+            match set_input U1 g p (NBind u q None) with
+            | Some U' => Some (WAtom A' (ldec g L) a (wsethead w U'))
+            | None => None
+            end
+        | _, _, _ => None
+        end
+      else None
+  | _ => None
+  end.
+
+Fixpoint first_some {A B} (f : A -> option B) (xs : list A) : option B :=
+  match xs with [] => None | x :: xs => match f x with Some y => Some y | None => first_some f xs end end.
+
+Definition unpass_one (A : seg) (L : list (lexp * nat)) (a : nat) (w : word) : option word :=
+  first_some (fun '(g, c) => first_some (unpass_at A L a w g) (seq 0 c)) L.
+
+Fixpoint unpass (fuel : nat) (w : word) : word :=
+  match fuel with
+  | 0 => w
+  | S f =>
+      match w with
+      | WEnd _ => w
+      | WAtom A L a w' =>
+          match unpass_one A L a w' with
+          | Some w2 => unpass f w2
+          | None => WAtom A L a (unpass f w')
+          end
+      end
+  end.
+
+End Unpass.
+
 Definition lift_list (L : list (lexp * nat)) : list lexp := rev (flat_map (fun '(h, n) => repeat h n) L).
 
 Fixpoint display_items (F : list (lexp * lexp)) (ntm : nat) (items : list gitem) : option (list dpiece) :=
@@ -552,7 +648,7 @@ Fixpoint display_items (F : list (lexp * lexp)) (ntm : nat) (items : list gitem)
 
 Definition display_nf (F : list (lexp * lexp)) (ntm : nat) (r : option word) : option (list dpiece) :=
   match r with
-  | Some w => option_map (map short_or_full) (display_items F ntm (witems w))
+  | Some w => option_map (map short_or_full) (display_items F ntm (witems (unpass F ntm 64 w)))
   | None => None
   end.
 
