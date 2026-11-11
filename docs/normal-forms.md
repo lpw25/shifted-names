@@ -5,22 +5,19 @@ Composition is written `⨾`, in diagrammatic order: `a ⨾ b` is `a`, then
 
 ## Status
 
-This document is the specification and the plan. The code does not meet
-it yet:
+Theorems 1–3 below are proved; theorem 4 and the display (step 9) are
+not done yet.
 
-- The normaliser (`Core/Normalise.v`) currently keeps terms before atoms
-  and settles lifted atoms with a fuel-bounded loop of steps. Its normal
-  forms are **not unique**. These two adjustments are equal but
-  normalise differently (the term's `y` goes to `x₀` in one and `x₁` in
-  the other, and the two are merged after `σ`):
+- Theorem 1: `anorm_normal` (`Core/Normal.v`).
+- Theorem 2: `nf_unique` in the free model, with `free_to_real` and
+  `adequacy` (`Core/Unique.v`).
+- Theorem 3: `complete` (`Core/Complete.v`).
 
-      ⟦ z := u⟨ y as c ⟩; x as c; x as d \ x as c; x as d ⟧ ⨾ ⟦ x; x | σ ⟧ ⨾ ⟦ x as c; x as c \ x as c ⟧
-      ⟦ z := u⟨ y as d ⟩; x as c; x as d \ x as c; x as d ⟧ ⨾ ⟦ x; x | σ ⟧ ⨾ ⟦ x as c; x as c \ x as c ⟧
-
-- Of the proof (`Core/Unique.v`), steps 3, 5, 6 and 7 are done: the
-  conditions below as a predicate (`wnf`), the free model with
-  `free_to_real`, uniqueness in the free model (`nf_unique`), and
-  adequacy (`adequacy`).
+The label order is dense with no least or greatest label (the end of a
+string sorts just above `\000`), so facts `x < y` never force two label
+variables to be equal. Completeness takes one interpretation satisfying
+the facts as a hypothesis: when the facts are contradictory there is
+nothing to prove, and the context `names` runs in supplies one.
 
 ## Expressions and their meaning
 
@@ -130,8 +127,10 @@ later one only acts on what the earlier one's tail produced:
    out.) Proved, not checked at run time.
 2. *Unique.* Two words satisfying 1–4 that denote the same adjustment
    for every interpretation of their atoms are equal.
-3. *Complete.* Hence two expressions that are equal, and that the
-   normaliser normalises, have the same normal form.
+3. *Complete.* Hence two expressions that are equal under every
+   interpretation satisfying the facts, and that the normaliser
+   normalises, have the same normal form, provided some interpretation
+   satisfies the facts.
 4. *Evaluation.* Evaluating a variable through a normal form succeeds
    exactly when its result does not depend on the interpretation of the
    atoms.
