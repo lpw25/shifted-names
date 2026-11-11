@@ -220,9 +220,10 @@ whole of the rest, with no index bounds and no encoding.
 9. **Display** as a function of the normal form, including terms before
    atoms.
 
-Afterwards, the checks of label distinctness that segment composition
-makes at run time are implied by theorem 1 and can be removed, by
-restating the soundness lemmas for canonical segments.
+The normaliser makes no run-time checks of label distinctness: its
+soundness lemmas assume of their inputs, and prove of their outputs,
+that every segment of a word, payload words included, has distinct
+labels (`wdist` in `Core/Normalise.v`).
 
 Not shown yet: a term whose payload adjustment ends in a payload atom,
 or whose payload, once the atoms it was carried past are taken off, is

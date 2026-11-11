@@ -244,15 +244,6 @@ Proof.
     destruct (IH _ eq_refl t Ht) as [t2 [Hi E]]; exists t2; split; [right; exact Hi|exact E].
 Qed.
 
-Lemma tcat_list a b : tl_list (tcat a b) = tl_list a ++ tl_list b.
-Proof. induction a as [|t r IH] using tlist_spine; cbn; [reflexivity|rewrite IH; reflexivity]. Qed.
-
-Lemma tskip_in n ts t : In t (tl_list (tskip n ts)) -> In t (tl_list ts).
-Proof.
-  revert ts; induction n as [|n IH]; intros [|t0 r] H; cbn [tskip] in H; try exact H.
-  cbn [tl_list In]; right; apply (IH r), H.
-Qed.
-
 Lemma sgo_spec S U R : sgo F ntm S U = Some R -> sshape false S ->
   (forall h xs m, In (h, xs, m) (sents U) -> In h labs) ->
   sshape false R
@@ -272,7 +263,7 @@ Proof.
     + rewrite tcat_list in Hin'; apply in_app_or in Hin' as [Hin'|Hin'].
       * destruct (tlapp_in _ _ _ E1 t Hin') as [t0 [Hi Et]]; right; exists t0.
         split; [rewrite stgts_cons; apply in_or_app; left; exact Hi|exact Et].
-      * left; apply tskip_in in Hin'.
+      * left; apply tskip_list_in in Hin'.
         apply (sfind_sound lenv F HF) in E2; destruct e as [[ts0 m0]|]; cbn [ofe] in Eo; injection Eo as <- <-;
           [|destruct Hin'].
         apply (sget_tgts _ (lden h) S _ _ (eq_sym E2) _ Hin').
@@ -315,7 +306,7 @@ Proof.
   - intros t [].
   - intros h ts IHts m r IHr t Hin; rewrite stgts_cons in Hin; apply in_app_or in Hin as [Hin|Hin];
       [apply IHts, Hin|apply IHr, Hin].
-  - intros U IH nm [Hs Hn] w'; rewrite wapp_end; destruct (sdistb F U); [|discriminate].
+  - intros U IH nm [Hs Hn] w'; rewrite wapp_end.
     destruct (sgo F ntm S U) as [U'|] eqn:E; [|discriminate]; intros H; injection H as <-.
     destruct (sgo_spec _ _ _ E HS (sshape_labs _ _ Hs)) as [Hs' Ht'].
     assert (Hn' : snf U').
@@ -325,7 +316,7 @@ Proof.
     + destruct (sdrop_none_shape _ Hs') as [Hs'' Ht'']; split; [exact Hs''|].
       apply snf_iff; intros t Ht; apply (snf_in _ _ _ Hn'), Ht'', Ht.
     + split; assumption.
-  - intros U IHs L a w IHw nm [Hs [Hn [Ha Hr]]] w'; rewrite wapp_atom; destruct (sdistb F U); [|discriminate].
+  - intros U IHs L a w IHw nm [Hs [Hn [Ha Hr]]] w'; rewrite wapp_atom.
     destruct (sgo F ntm S U) as [U'|] eqn:E; [|discriminate]; intros H; injection H as <-.
     destruct (sgo_spec _ _ _ E HS (sshape_labs _ _ Hs)) as [Hs' Ht'].
     assert (Hn' : snf U').
@@ -339,7 +330,7 @@ End CompNormal.
 Lemma scomp_normal A Q R : scomp F ntm A Q = Some R -> sshape false A -> snf A -> sshape false Q -> snf Q ->
   sshape false R /\ snf R.
 Proof.
-  unfold scomp; destruct (sdistb F A && sdistb F Q); [|discriminate]; intros E HA HAn HQ HQn.
+  unfold scomp; intros E HA HAn HQ HQn.
   destruct (sgo_spec _ _ _ E HA (sshape_labs _ _ HQ)) as [Hs Ht]; split; [exact Hs|].
   apply snf_iff; intros t Hin; destruct (Ht t Hin) as [H|[t0 [Hi Et]]]; [apply (snf_in _ _ _ HAn _ H)|].
   apply (proj1 (proj2 (proj2 (comp_normal A HA HAn))) Q t0 Hi (snf_in _ _ _ HQn _ Hi) t Et).
@@ -348,7 +339,7 @@ Qed.
 Lemma scomp_ren A Q R : scomp F ntm A Q = Some R -> sshape false A -> sren A -> sshape false Q -> sren Q ->
   sshape false R /\ sren R.
 Proof.
-  unfold scomp; destruct (sdistb F A && sdistb F Q); [|discriminate]; intros E HA HAr HQ HQr.
+  unfold scomp; intros E HA HAr HQ HQr.
   destruct (sgo_spec _ _ _ E HA (sshape_labs _ _ HQ)) as [Hs Ht]; split; [exact Hs|].
   unfold Unique.sren in *; rewrite Forall_forall in HAr, HQr |- *; intros t Hin.
   destruct (Ht t Hin) as [H|[t0 [Hi Et]]]; [apply HAr, H|]; pose proof (HQr _ Hi) as H0.
@@ -358,7 +349,7 @@ Qed.
 
 Lemma wcons_normal S w w' : wcons F ntm S w = Some w' -> sshape false S -> snf S -> wnf false w -> wnf false w'.
 Proof.
-  unfold wcons; destruct (sdistb F S); [|discriminate]; intros E HS HSn Hw.
+  unfold wcons; intros E HS HSn Hw.
   exact (proj2 (proj2 (proj2 (comp_normal S HS HSn))) w false Hw w' E).
 Qed.
 
@@ -535,12 +526,6 @@ Proof.
   - apply (IH (conj Hsr Hor)); [intros t Ht; apply Hn; rewrite stgts_cons; apply in_or_app; right; exact Ht|exact Hk].
 Qed.
 
-Lemma Forall2_in_r {A B} (R : A -> B -> Prop) xs ys y : Forall2 R xs ys -> In y ys -> exists x, In x xs /\ R x y.
-Proof.
-  induction 1 as [|x y' xs ys Hxy H2 IH]; [intros []|]; intros [<-|Hy]; [exists x; split; [left; reflexivity|exact Hxy]|].
-  destruct (IH Hy) as [x' [Hx Hr]]; exists x'; split; [right; exact Hx|exact Hr].
-Qed.
-
 Lemma sshape_true_of s : sshape false s -> (forall e, In e (sents s) -> fst (fst e) <> LNone) -> sshape true s.
 Proof.
   intros [Hs Ho] Hn; split; [exact Hs|]; apply Forall_forall; intros [[h xs] m] Hi; rewrite Forall_forall in Ho.
@@ -571,7 +556,7 @@ Theorem settle1_normal a A L U A' L' U' :
   /\ (entd F U LNone = ([], lsum LNone L) -> sshape true U' /\ lc lenv None L' = 0).
 Proof.
   intros HA HAn HL HU HUn.
-  unfold settle1; destruct (sdistb F U) eqn:Ed; [|discriminate]; apply (sdistb_sound lenv F HF) in Ed.
+  pose proof (sshape_dist false U HU) as Ed; unfold settle1.
   destruct (linss F (map fst L ++ seg_labels U) []) as [hs|] eqn:Eh; [|discriminate].
   destruct (linss_spec lenv F HF _ _ _ Eh) as [Hin Hdist].
   assert (Hd : ldist lenv hs) by (apply Hdist; intros x y []).
@@ -776,7 +761,7 @@ Proof.
     apply snf_iff; intros t Ht; apply (snf_in _ _ _ Hn), Ht', Ht.
   - intros Hw w'; destruct Hw as [HA [HAn [[HL [Hp _]] Hr]]].
     destruct w as [s|A' L' a' w1].
-    + unfold pfinal; destruct (sdistb F s) eqn:Ed; [|discriminate].
+    + unfold pfinal.
       destruct (sset F LNone TNil (lcount LNone L) s) as [s'|] eqn:Es; [|discriminate]; intros H.
       cbn [Unique.rnf] in Hr; destruct Hr as [Hs Hsr].
       apply (settle_normal true A L a (WEnd s') w' HA HAn HL); [|exact H].
@@ -839,7 +824,7 @@ Qed.
 Lemma sfront_spec h t s s' : sfront F h t s = Some s' -> sshape false s -> In h labs ->
   sshape false s' /\ (forall t', In t' (stgts s') -> t' = t \/ In t' (stgts s)).
 Proof.
-  unfold sfront; destruct (sdistb F s); [|discriminate].
+  unfold sfront.
   destruct (sfind F h s) as [e|] eqn:Ef; [|discriminate]; destruct (ofe e) as [ts m] eqn:Eo; intros E Hs Hh.
   destruct (sset_shape false _ _ _ _ _ E Hs (or_introl Hh) ltac:(discriminate)) as [Hs' [_ [Ht _]]].
   split; [exact Hs'|]; intros t' Hin; destruct (Ht t' Hin) as [H|H]; [right; exact H|].
@@ -868,12 +853,22 @@ Qed.
 
 Local Notation tenvR := (repeat tt ntm).
 
+Lemma stgts_stargets s : stgts s = stargets s.
+Proof. induction s as [|h ts m r IH] using seg_spine; [reflexivity|]; rewrite stgts_cons, IH; reflexivity. Qed.
+
+Lemma ren_dd s : sshape false s -> sren s -> sdistd lenv s.
+Proof.
+  intros Hs Hr; apply (proj2 (sdistd_iff lenv s)); split; [exact (sshape_dist _ _ Hs)|].
+  intros t Ht; rewrite <- stgts_stargets in Ht; unfold Unique.sren in Hr; rewrite Forall_forall in Hr.
+  pose proof (Hr t Ht) as H; destruct t; [exact I|contradiction].
+Qed.
+
 Lemma sv_slift h s s' v : slift F ntm h s = Some s' -> sshape false s -> sren s -> sshape false s' -> sren s' ->
   sv lenv s' v = if rvar_eqb v (mk_rvar (lden h) 0) then v
                  else shift_rvar (mk_rvar (lden h) 0) (sv lenv s (unshift_rvar (mk_rvar (lden h) 0) v)).
 Proof.
   intros E Hs Hr Hs' Hr'.
-  pose proof (slift_sound lenv tenvR aenvU penvU F HF ntm (eq_ind_r (fun n => ntm <= n) (le_n ntm) (repeat_length tt ntm)) h s s' E) as Hd.
+  pose proof (proj2 (slift_sound lenv tenvR aenvU penvU F HF ntm (eq_ind_r (fun n => ntm <= n) (le_n ntm) (repeat_length tt ntm)) h s s' (ren_dd s Hs Hr) E)) as Hd.
   pose proof (f_equal (fun a => rapply a v) Hd) as E'; cbv beta in E'.
   rewrite rapply_lift, !(rapply_sv tenvR aenvU penvU) in E' by assumption.
   destruct (rvar_eqb v (mk_rvar (lden h) 0)); injection E' as E'; exact E'.

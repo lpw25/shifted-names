@@ -472,7 +472,6 @@ Fixpoint dedup (hs : list lexp) : list lexp :=
 (** [S = B ∘ P]: [P] on the variables passed around ([L]), [B] on the
     rest, fixing [P]'s outputs and putting nothing underneath them. *)
 Definition split_seg (L : list (lexp * nat)) (S : seg) : option (seg * seg) :=
-  if sdistb F S then
   let pts := map (fun '(h, k) => (h, firsts S h k)) L in
   if forallb (fun '(_, o) => match o with Some _ => true | None => false end) pts then
     let pts := map (fun '(h, o) => (h, match o with Some ts => ts | None => [] end)) pts in
@@ -500,7 +499,6 @@ Definition split_seg (L : list (lexp * nat)) (S : seg) : option (seg * seg) :=
       | _, _ => None
       end
     else None
-  else None
   else None.
 
 End Split.

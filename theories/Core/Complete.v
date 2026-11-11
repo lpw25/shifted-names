@@ -245,7 +245,7 @@ Hypothesis HF : facts_ok lenv F.
 Lemma seg_tgt_free Sg h i t K :
   seg_tgt F Sg h i = Some t -> fs lenv Sg K (mk_rvar (lden lenv h) i) = ft lenv t K.
 Proof.
-  unfold seg_tgt; destruct (sdistb F Sg); [|discriminate].
+  unfold seg_tgt.
   destruct (sfind F h Sg) as [r|] eqn:Ef; [|discriminate]; apply (sfind_sound lenv F HF) in Ef.
   rewrite fs_get; unfold fget; cbn [v_label v_index]; rewrite <- Ef.
   destruct r as [[ts m]|]; intros H; injection H as <-; [|reflexivity].

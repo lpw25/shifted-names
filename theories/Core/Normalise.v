@@ -221,6 +221,9 @@ Fixpoint tl_of (l : list ntgt) : tlist :=
 Lemma tl_list_of l : tl_list (tl_of l) = l.
 Proof. induction l; cbn; congruence. Qed.
 
+Fixpoint stargets (s : seg) : list ntgt :=
+  match s with SNil => [] | SEnt _ ts _ r => tl_list ts ++ stargets r end.
+
 Lemma tl_of_list ts : tl_of (tl_list ts) = ts.
 Proof. induction ts; cbn; congruence. Qed.
 
@@ -368,6 +371,17 @@ Fixpoint sdist (s : seg) : Prop :=
   | SNil => True
   | SEnt h _ _ r => sget (lden h) r = None /\ sdist r
   end.
+
+(** Every segment of a word, payload words included, has distinct labels.
+    The normaliser's operations keep this, so they need not check it. *)
+Fixpoint tdist (t : ntgt) : Prop :=
+  match t with NVar _ _ => True | NBind _ w _ => wdist w end
+with tldist (ts : tlist) : Prop :=
+  match ts with TNil => True | TCons t r => tdist t /\ tldist r end
+with sdistd (s : seg) : Prop :=
+  match s with SNil => True | SEnt h ts _ r => sget (lden h) r = None /\ tldist ts /\ sdistd r end
+with wdist (w : word) : Prop :=
+  match w with WEnd s => sdistd s | WAtom s _ _ w => sdistd s /\ wdist w end.
 
 Fixpoint tlen (ts : tlist) : nat := match ts with TNil => 0 | TCons _ r => S (tlen r) end.
 
@@ -538,19 +552,6 @@ Definition sset (h : lexp) (ts : tlist) (m : nat) (s : seg) : option seg :=
       end
   end.
 
-(** Labels known to be pairwise distinct. *)
-Fixpoint sall_ne (h : lexp) (s : seg) : bool :=
-  match s with
-  | SNil => true
-  | SEnt h' _ _ r => match lcmp F h h' with Some Lt | Some Gt => sall_ne h r | _ => false end
-  end.
-
-Fixpoint sdistb (s : seg) : bool :=
-  match s with
-  | SNil => true
-  | SEnt h _ _ r => sall_ne h r && sdistb r
-  end.
-
 Fixpoint tcat (a b : tlist) : tlist :=
   match a with TNil => b | TCons t r => TCons t (tcat r b) end.
 
@@ -615,19 +616,18 @@ with sgo (U : seg) : option seg :=
   end
 with wapp (w : word) : option word :=
   match w with
-  | WEnd U => if sdistb U then match sgo U with Some U' => Some (WEnd U') | None => None end else None
-  | WAtom U L a w =>
-      if sdistb U then match sgo U with Some U' => Some (WAtom U' L a w) | None => None end else None
+  | WEnd U => match sgo U with Some U' => Some (WEnd U') | None => None end
+  | WAtom U L a w => match sgo U with Some U' => Some (WAtom U' L a w) | None => None end
   end.
 
 End Comp.
 
 (** [scomp S U] is [S ∘ U]; [wcons S w] is [S ∘ w]. *)
 Definition scomp (S U : seg) : option seg :=
-  if sdistb S && sdistb U then sgo S U else None.
+  sgo S U.
 
 Definition wcons (S : seg) (w : word) : option word :=
-  if sdistb S then wapp S w else None.
+  wapp S w.
 
 (** *** Lifts *)
 
@@ -667,12 +667,10 @@ Fixpoint lcnt (h : lexp) (L : list (lexp * nat)) : option nat :=
 Definition shseg (h : lexp) (k : nat) : seg := SEnt h TNil k SNil.
 
 Definition sfront (h : lexp) (t : ntgt) (s : seg) : option seg :=
-  if sdistb s then
-    match sfind h s with
-    | Some e => let '(ts, m) := ofe e in sset h (TCons t ts) m s
-    | None => None
-    end
-  else None.
+  match sfind h s with
+  | Some e => let '(ts, m) := ofe e in sset h (TCons t ts) m s
+  | None => None
+  end.
 
 Definition slift (h : lexp) (s : seg) : option seg :=
   match scomp (shseg h 1) s with Some s' => sfront h (NVar h 0) s' | None => None end.
@@ -799,22 +797,20 @@ Definition qent (L : list (lexp * nat)) (U : seg) (g : lexp) : option (lexp * (l
   end.
 
 Definition settle1 (A : seg) (L : list (lexp * nat)) (U : seg) : option (seg * list (lexp * nat) * seg) :=
-  if sdistb U then
-    match linss (map fst L ++ seg_labels U) [] with
-    | None => None
-    | Some hs =>
-        if forallb (fun g => match sfind g U with Some _ => true | None => false end) hs then
-          match omap (qent L U) hs, sbuild (map (u'ent L U) hs), lbuild (map (fun g => (g, olp L U g)) hs) with
-          | Some qs, Some U', Some L' =>
-              match sbuild qs with
-              | Some Q => match scomp A Q with Some A' => Some (A', L', U') | None => None end
-              | None => None
-              end
-          | _, _, _ => None
-          end
-        else None
-    end
-  else None.
+  match linss (map fst L ++ seg_labels U) [] with
+  | None => None
+  | Some hs =>
+      if forallb (fun g => match sfind g U with Some _ => true | None => false end) hs then
+        match omap (qent L U) hs, sbuild (map (u'ent L U) hs), lbuild (map (fun g => (g, olp L U g)) hs) with
+        | Some qs, Some U', Some L' =>
+            match sbuild qs with
+            | Some Q => match scomp A Q with Some A' => Some (A', L', U') | None => None end
+            | None => None
+            end
+        | _, _, _ => None
+        end
+      else None
+  end.
 
 End OneTq.
 
@@ -832,7 +828,7 @@ Definition settle (wc : word -> word -> option word) (pn : option nat -> word ->
     lift by [·] is kept that only named inputs could reach, and the
     earlier atoms are settled again. *)
 Definition pfinal (L : list (lexp * nat)) (s : seg) : option seg :=
-  if sdistb s then sset LNone TNil (lcount LNone L) s else None.
+  sset LNone TNil (lcount LNone L) s.
 
 Fixpoint pnormf (wc : word -> word -> option word) (pn : option nat -> word -> option word) (w : word) : option word :=
   match w with
@@ -991,6 +987,10 @@ Local Notation sden := (sden lenv tenv aenv penv).
 Local Notation wden := (wden lenv tenv aenv penv).
 Local Notation sget := (sget lenv).
 Local Notation sdist := (sdist lenv).
+Local Notation tdist := (tdist lenv).
+Local Notation tldist := (tldist lenv).
+Local Notation sdistd := (sdistd lenv).
+Local Notation wdist := (wdist lenv).
 Local Notation esem := (esem lenv tenv aenv penv).
 Local Notation lifts := (lifts lenv).
 Local Notation aden := (aden aenv).
@@ -1001,18 +1001,35 @@ Local Notation sins := (sins lenv tenv aenv penv).
 
 (** *** Segments *)
 
-Lemma sdistb_ne h s : sall_ne F h s = true -> sget (lden h) s = None.
+Lemma tldist_iff ts : tldist ts <-> forall t, In t (tl_list ts) -> tdist t.
 Proof.
-  induction s as [|h' ts m r IH] using seg_spine; cbn; [reflexivity|].
-  destruct (lcmp F h h') as [[]|] eqn:E; try discriminate; intros H;
-    (rewrite (proj2 (label_eqb_neq _ _)); [apply IH, H|]);
-    intros Heq; apply (lcmp_neq lenv F HF h h' _ E); [discriminate| |discriminate|]; congruence.
+  induction ts as [|t r IH] using tlist_spine; cbn [tldist tl_list]; [split; [intros _ t []|intros _; exact I]|].
+  rewrite IH; split; [intros [Ht Hr] t' [<-|H]; [exact Ht|apply Hr, H]|].
+  intros H; split; [apply H; left; reflexivity|intros t' Ht'; apply H; right; exact Ht'].
 Qed.
 
-Lemma sdistb_sound s : sdistb F s = true -> sdist s.
+Lemma sdistd_iff s : sdistd s <-> sdist s /\ forall t, In t (stargets s) -> tdist t.
 Proof.
-  induction s as [|h ts m r IH] using seg_spine; cbn; [constructor|].
-  intros H; apply andb_true_iff in H as [H1 H2]; split; [apply sdistb_ne, H1|apply IH, H2].
+  induction s as [|h ts m r IH] using seg_spine; cbn [sdistd sdist stargets]; [split; [intros _; split; [exact I|intros t []]|intros _; exact I]|].
+  rewrite IH, tldist_iff; split.
+  - intros [Hn [Ht [Hd Hr]]]; split; [split; assumption|]; intros t Hin; apply in_app_or in Hin as [Hin|Hin]; [apply Ht|apply Hr]; exact Hin.
+  - intros [[Hn Hd] H]; split; [exact Hn|split; [intros t Ht; apply H, in_or_app; left; exact Ht|split; [exact Hd|]]].
+    intros t Ht; apply H, in_or_app; right; exact Ht.
+Qed.
+
+Lemma sdistd_sdist s : sdistd s -> sdist s.
+Proof. intros H; exact (proj1 (proj1 (sdistd_iff s) H)). Qed.
+
+Lemma sget_stargets l s ts m : sget l s = Some (ts, m) -> forall t, In t (tl_list ts) -> In t (stargets s).
+Proof.
+  induction s as [|h ts' m' r IH] using seg_spine; cbn [sget stargets]; [discriminate|].
+  destruct (label_eqb (lden h) l); [intros E; injection E as <- <-; intros t Ht; apply in_or_app; left; exact Ht|].
+  intros E t Ht; apply in_or_app; right; exact (IH E t Ht).
+Qed.
+
+Lemma sget_dd l s ts m : sdistd s -> sget l s = Some (ts, m) -> tldist ts.
+Proof.
+  intros Hd E; apply (proj2 (tldist_iff ts)); intros t Ht; exact (proj2 (proj1 (sdistd_iff s) Hd) t (sget_stargets _ _ _ _ E _ Ht)).
 Qed.
 
 Lemma sfind_sound h s e : sfind F h s = Some e -> e = sget (lden h) s.
@@ -1134,6 +1151,59 @@ Proof.
   rewrite Hsem, esem_none; reflexivity.
 Qed.
 
+Lemma sdel_tgts h s s' : sdel F h s = Some s' -> forall t, In t (stargets s') -> In t (stargets s).
+Proof.
+  revert s'; induction s as [|h' ts m r IH] using seg_spine; intros s'; cbn [sdel].
+  - intros H; injection H as <-; intros t [].
+  - destruct (lcmp F h h') as [[]|]; try discriminate; cbn [stargets].
+    + intros H t Ht; apply in_or_app; right; exact (IH _ H t Ht).
+    + destruct (sdel F h r) as [r'|] eqn:Er; [|discriminate]; intros H; injection H as <-; cbn [stargets].
+      intros t Ht; apply in_app_or in Ht as [Ht|Ht]; apply in_or_app; [left; exact Ht|right; exact (IH _ eq_refl t Ht)].
+    + destruct (sdel F h r) as [r'|] eqn:Er; [|discriminate]; intros H; injection H as <-; cbn [stargets].
+      intros t Ht; apply in_app_or in Ht as [Ht|Ht]; apply in_or_app; [left; exact Ht|right; exact (IH _ eq_refl t Ht)].
+Qed.
+
+Lemma sput_tgts h ts m s t : In t (stargets (sput F h ts m s)) -> In t (tl_list ts) \/ In t (stargets s).
+Proof.
+  induction s as [|h' ts' m' r IH] using seg_spine; cbn [sput stargets].
+  - rewrite app_nil_r; left; assumption.
+  - destruct (lcmp F h h') as [[]|]; cbn [stargets]; try (intros Ht; apply in_app_or in Ht; exact Ht);
+      intros Ht; apply in_app_or in Ht as [Ht|Ht];
+      try (right; apply in_or_app; left; exact Ht);
+      (destruct (IH Ht) as [H|H]; [left; exact H|right; apply in_or_app; right; exact H]).
+Qed.
+
+Lemma trim_tgts h rts m : forall rts' m', trim h rts m = (rts', m') -> forall t, In t rts' -> In t rts.
+Proof.
+  revert m; induction rts as [|x r IH]; intros m rts' m' E; cbn [trim] in E.
+  - injection E as <- <-; intros t [].
+  - destruct x as [h' j|u w b]; [destruct m as [|m0]|];
+      try (injection E as <- <-; intros t Ht; exact Ht).
+    destruct (lexp_eqb h' h && Nat.eqb j m0); [|injection E as <- <-; intros t Ht; exact Ht].
+    intros t Ht; right; exact (IH _ _ _ E t Ht).
+Qed.
+
+Lemma sset_tgts h ts m s s' : sset F h ts m s = Some s' ->
+  forall t, In t (stargets s') -> In t (stargets s) \/ In t (tl_list ts).
+Proof.
+  unfold sset; destruct (sdel F h s) as [s0|] eqn:Ed; [|discriminate].
+  destruct (trim h (rev (tl_list ts)) m) as [rts m'] eqn:Et.
+  assert (Hput : forall t, In t (stargets (sput F h (tl_of (rev rts)) m' s0)) -> In t (stargets s) \/ In t (tl_list ts)).
+  { intros t Ht; destruct (sput_tgts _ _ _ _ _ Ht) as [H|H].
+    - right; rewrite tl_list_of, <- in_rev in H; apply (trim_tgts _ _ _ _ _ Et) in H; rewrite <- in_rev in H; exact H.
+    - left; exact (sdel_tgts _ _ _ Ed _ H). }
+  destruct rts as [|x rts]; [destruct m' as [|m']|]; intros H; injection H as <-; try exact Hput.
+  intros t Ht; left; exact (sdel_tgts _ _ _ Ed _ Ht).
+Qed.
+
+Lemma sset_dd h ts m s s' : sdistd s -> tldist ts -> sset F h ts m s = Some s' -> sdistd s'.
+Proof.
+  intros Hd Ht E; apply (proj2 (sdistd_iff s')); split; [exact (proj1 (sset_sound _ _ _ _ _ (sdistd_sdist _ Hd) E))|].
+  intros t Hin; destruct (sset_tgts _ _ _ _ _ E t Hin) as [H|H].
+  - exact (proj2 (proj1 (sdistd_iff s) Hd) t H).
+  - exact (proj1 (tldist_iff ts) Ht t H).
+Qed.
+
 (** Segments with the same entries are the same adjustment. *)
 Lemma sden_ext s s' :
   sdist s -> sdist s' -> (forall l j, esem l (sget l s) j = esem l (sget l s') j) -> sden s = sden s'.
@@ -1149,6 +1219,15 @@ Definition cres (a : radj T) (r : rresult T) : rresult T :=
 
 Lemma rapply_compose_cres (a b : radj T) v : rapply (rcompose a b) v = cres a (rapply b v).
 Proof. rewrite rapply_compose; reflexivity. Qed.
+
+Lemma tcat_list a b : tl_list (tcat a b) = tl_list a ++ tl_list b.
+Proof. induction a as [|t r IH] using tlist_spine; cbn; [reflexivity|rewrite IH; reflexivity]. Qed.
+
+Lemma tskip_list_in n ts t : In t (tl_list (tskip n ts)) -> In t (tl_list ts).
+Proof.
+  revert ts; induction n as [|n IH]; intros [|t0 r] H; cbn [tskip] in H; try exact H.
+  cbn [tl_list In]; right; apply (IH r), H.
+Qed.
 
 Lemma tlen_tcat a b : tlen (tcat a b) = tlen a + tlen b.
 Proof. induction a using tlist_spine; cbn; congruence. Qed.
@@ -1217,6 +1296,29 @@ Proof.
   symmetry; apply rpcompose_named, named_pnorm.
 Qed.
 
+Lemma sget_drop l s : sget l (sdrop_none s) = match l with None => None | Some _ => sget l s end.
+Proof.
+  induction s as [|h ts m r IH] using seg_spine; [destruct l; reflexivity|].
+  destruct h as [|x|n]; cbn [sdrop_none sget lden]; rewrite IH; [destruct l; reflexivity| |];
+    destruct l; cbn [label_eqb]; reflexivity.
+Qed.
+
+Lemma sdrop_dd s : sdistd s -> sdistd (sdrop_none s).
+Proof.
+  induction s as [|h ts m r IH] using seg_spine; [intros _; exact I|]; intros [Hn [Ht Hd]].
+  destruct h as [|x|n]; cbn [sdrop_none]; [apply IH, Hd| |];
+    (split; [rewrite sget_drop; exact Hn|split; [exact Ht|apply IH, Hd]]).
+Qed.
+
+Lemma pnorm_dd w : wdist w -> wdist (pnorm w).
+Proof.
+  induction w as [s|s L a w IH] using word_spine; cbn [pnorm wdist]; [apply sdrop_dd|].
+  intros [Hs Hw]; split; [exact Hs|apply IH, Hw].
+Qed.
+
+Lemma bnorm_dd b w : wdist w -> wdist (bnorm b w).
+Proof. destruct b; [exact (fun H => H)|apply pnorm_dd]. Qed.
+
 (** Unfolding the composition functions. *)
 Lemma tapp_var S h i :
   tapp F ntm S (NVar h i)
@@ -1249,103 +1351,111 @@ Lemma sgo_ent S h ts m r :
 Proof. reflexivity. Qed.
 
 Lemma wapp_end S U :
-  wapp F ntm S (WEnd U) = if sdistb F U then match sgo F ntm S U with Some U' => Some (WEnd U') | None => None end else None.
+  wapp F ntm S (WEnd U) = match sgo F ntm S U with Some U' => Some (WEnd U') | None => None end.
 Proof. reflexivity. Qed.
 
 Lemma wapp_atom S U L a w :
   wapp F ntm S (WAtom U L a w)
-  = if sdistb F U then match sgo F ntm S U with Some U' => Some (WAtom U' L a w) | None => None end else None.
+  = match sgo F ntm S U with Some U' => Some (WAtom U' L a w) | None => None end.
 Proof. reflexivity. Qed.
 
 Section CompSound.
 
 Variable S : seg.
-Hypothesis HS : sdist S.
+Hypothesis HS : sdistd S.
 
 Lemma comp_sound :
-  (forall t t', tapp F ntm S t = Some t' -> rtarget_result (tden t') = cres (sden S) (rtarget_result (tden t)))
-  /\ (forall ts ts', tlapp F ntm S ts = Some ts' ->
-        tlen ts' = tlen ts
+  (forall t t', tdist t -> tapp F ntm S t = Some t' ->
+     tdist t' /\ rtarget_result (tden t') = cres (sden S) (rtarget_result (tden t)))
+  /\ (forall ts ts', tldist ts -> tlapp F ntm S ts = Some ts' ->
+        tldist ts' /\ tlen ts' = tlen ts
         /\ forall j, j < tlen ts -> rtarget_result (tden (tnth ts' j)) = cres (sden S) (rtarget_result (tden (tnth ts j))))
-  /\ (forall U, sdist U -> forall R, sgo F ntm S U = Some R ->
-        sdist R /\ forall l j, esem l (sget l R) j = cres (sden S) (esem l (sget l U) j))
-  /\ (forall w w', wapp F ntm S w = Some w' -> wden w' = rcompose (sden S) (wden w)).
+  /\ (forall U, sdistd U -> forall R, sgo F ntm S U = Some R ->
+        sdistd R /\ forall l j, esem l (sget l R) j = cres (sden S) (esem l (sget l U) j))
+  /\ (forall w w', wdist w -> wapp F ntm S w = Some w' -> wdist w' /\ wden w' = rcompose (sden S) (wden w)).
 Proof.
+  pose proof (sdistd_sdist _ HS) as HS'.
   apply nf_mind.
   - (* NVar *)
-    intros h i t'; rewrite tapp_var; destruct (sfind F h S) as [e|] eqn:E; [|discriminate].
+    intros h i t' _; rewrite tapp_var; destruct (sfind F h S) as [e|] eqn:E; [|discriminate].
     apply sfind_sound in E; subst e; cbn [tden rtarget_result cres].
-    rewrite rapply_sden by exact HS; cbn [v_label v_index].
-    destruct (sget (lden h) S) as [[ts m]|]; intros H; injection H as <-; cbn [esem]; [|reflexivity].
-    destruct (i <? tlen ts); reflexivity.
+    rewrite rapply_sden by exact HS'; cbn [v_label v_index].
+    destruct (sget (lden h) S) as [[ts m]|] eqn:Eg; intros H; injection H as <-; cbn [esem]; [|split; [exact I|reflexivity]].
+    destruct (Nat.ltb_spec i (tlen ts)) as [Hi|Hi]; (split; [|reflexivity]); [|exact I].
+    apply (proj1 (tldist_iff ts) (sget_dd _ _ _ _ HS Eg)); rewrite tnth_list; apply nth_In; rewrite <- tlen_list; exact Hi.
   - (* NBind *)
-    intros u w IH b t'; rewrite tapp_bind; destruct (Nat.ltb_spec u ntm) as [Hu|]; [|discriminate].
+    intros u w IH b t' Hw; rewrite tapp_bind; destruct (Nat.ltb_spec u ntm) as [Hu|]; [|discriminate].
     destruct (wapp F ntm S w) as [w'|] eqn:E; [|discriminate]; intros H; injection H as <-.
+    destruct (IH _ Hw eq_refl) as [Hw' Hs]; split; [apply bnorm_dd, Hw'|].
     destruct (nth_error tenv u) as [x|] eqn:Ex; [|apply nth_error_None in Ex; lia].
     cbn [tden]; rewrite Ex; cbn [rtarget_result cres]; f_equal; f_equal.
-    rewrite bnorm_sound, (IH _ eq_refl), rpcompose_compose; reflexivity.
+    rewrite bnorm_sound, Hs, rpcompose_compose; reflexivity.
   - (* TNil *)
-    intros ts' H; injection H as <-; split; [reflexivity|]; intros j Hj; cbn in Hj; lia.
+    intros ts' _ H; injection H as <-; split; [exact I|split; [reflexivity|]]; intros j Hj; cbn in Hj; lia.
   - (* TCons *)
-    intros t IHt r IHr ts'; rewrite tlapp_cons.
+    intros t IHt r IHr ts' [Ht Hr]; rewrite tlapp_cons.
     destruct (tapp F ntm S t) as [t'|] eqn:Et; [|discriminate].
     destruct (tlapp F ntm S r) as [r'|] eqn:Er; [|discriminate]; intros H; injection H as <-.
-    destruct (IHr _ eq_refl) as [Hl Hn]; cbn [tlen]; split; [congruence|].
-    intros [|j] Hj; cbn [tnth]; [apply IHt; reflexivity|apply Hn; lia].
+    destruct (IHt _ Ht eq_refl) as [Ht' Hst]; destruct (IHr _ Hr eq_refl) as [Hr' [Hl Hn]].
+    cbn [tlen tldist]; split; [split; assumption|split; [congruence|]].
+    intros [|j] Hj; cbn [tnth]; [exact Hst|apply Hn; lia].
   - (* SNil *)
     intros _ R H; injection H as <-; split; [exact HS|].
-    intros l j; cbn [sget esem cres]; rewrite rapply_sden by exact HS; reflexivity.
+    intros l j; cbn [sget esem cres]; rewrite rapply_sden by exact HS'; reflexivity.
   - (* SEnt *)
-    intros h ts IHts m r IHr [Hn Hd] R; rewrite sgo_ent.
+    intros h ts IHts m r IHr [Hn [Hts Hd]] R; rewrite sgo_ent.
     destruct (sgo F ntm S r) as [R0|] eqn:ER; [|discriminate].
     destruct (tlapp F ntm S ts) as [ts'|] eqn:Ets; [|discriminate].
     destruct (sfind F h S) as [e|] eqn:Ee; [|discriminate].
     apply sfind_sound in Ee; destruct (IHr Hd _ eq_refl) as [Hd0 Hs0].
-    destruct (IHts _ eq_refl) as [Hlen Hts].
+    destruct (IHts _ Hts eq_refl) as [Hts' [Hlen Hts0]].
     destruct (ofe e) as [tsS mS] eqn:Eo; intros Hset.
-    destruct (sset_sound _ _ _ _ _ Hd0 Hset) as [HdR HsR]; split; [exact HdR|].
+    assert (HtsS : tldist tsS).
+    { destruct e as [[ts1 m1]|]; cbn [ofe] in Eo; injection Eo as <- <-; [|exact I].
+      exact (sget_dd _ _ _ _ HS (eq_sym Ee)). }
+    assert (Hcat : tldist (tcat ts' (tskip m tsS))).
+    { apply tldist_iff; intros t Ht; rewrite tcat_list in Ht; apply in_app_or in Ht as [Ht|Ht].
+      - exact (proj1 (tldist_iff ts') Hts' t Ht).
+      - apply (proj1 (tldist_iff tsS) HtsS); exact (tskip_list_in _ _ _ Ht). }
+    split; [exact (sset_dd _ _ _ _ _ Hd0 Hcat Hset)|].
+    destruct (sset_sound _ _ _ _ _ (sdistd_sdist _ Hd0) Hset) as [HdR HsR].
     intros l j; rewrite HsR; cbn [sget].
     destruct (label_eqb_spec (lden h) l) as [<-|Hne]; [|apply Hs0].
     rewrite !esem_lsem; unfold lsem; rewrite <- !tlen_list, <- !tnth_list, tlen_tcat, tlen_tskip, Hlen.
     destruct (Nat.ltb_spec j (tlen ts)) as [Hj|Hj].
     + rewrite (proj2 (Nat.ltb_lt _ _)) by lia; rewrite tnth_tcat, Hlen, (proj2 (Nat.ltb_lt _ _)) by exact Hj.
-      apply Hts, Hj.
-    + cbn [cres]; rewrite rapply_sden by exact HS; cbn [v_label v_index]; rewrite <- Ee, <- esem_ofe, Eo.
+      apply Hts0, Hj.
+    + cbn [cres]; rewrite rapply_sden by exact HS'; cbn [v_label v_index]; rewrite <- Ee, <- esem_ofe, Eo.
       cbn [esem]; rewrite tnth_tcat, Hlen, (proj2 (Nat.ltb_ge j (tlen ts)) Hj), tnth_tskip.
       destruct (Nat.ltb_spec (j - tlen ts + m) (tlen tsS)) as [Hk|Hk].
       * rewrite (proj2 (Nat.ltb_lt j (tlen ts + (tlen tsS - m)))) by lia; do 3 f_equal; lia.
       * rewrite (proj2 (Nat.ltb_ge j (tlen ts + (tlen tsS - m)))) by lia; do 2 f_equal.
         destruct (Nat.leb_spec (tlen tsS) m); lia.
   - (* WEnd *)
-    intros U IH w'; rewrite wapp_end; destruct (sdistb F U) eqn:Eb; [|discriminate].
-    apply sdistb_sound in Eb; destruct (sgo F ntm S U) as [U'|] eqn:E; [|discriminate].
-    intros H; injection H as <-; destruct (IH Eb _ eq_refl) as [Hd' Hs].
+    intros U IH w' HU; rewrite wapp_end; destruct (sgo F ntm S U) as [U'|] eqn:E; [|discriminate].
+    intros H; injection H as <-; destruct (IH HU _ eq_refl) as [Hd' Hs]; split; [exact Hd'|].
     rewrite !wden_end; apply rextensionality; intros v.
-    rewrite rapply_compose_cres, !rapply_sden by assumption; apply Hs.
+    rewrite rapply_compose_cres, !rapply_sden by (apply sdistd_sdist; assumption); apply Hs.
   - (* WAtom *)
-    intros U IH L a w _ w'; rewrite wapp_atom; destruct (sdistb F U) eqn:Eb; [|discriminate].
-    apply sdistb_sound in Eb; destruct (sgo F ntm S U) as [U'|] eqn:E; [|discriminate].
-    intros H; injection H as <-; destruct (IH Eb _ eq_refl) as [Hd' Hs].
+    intros U IH L a w _ w' [HU Hw]; rewrite wapp_atom; destruct (sgo F ntm S U) as [U'|] eqn:E; [|discriminate].
+    intros H; injection H as <-; destruct (IH HU _ eq_refl) as [Hd' Hs]; split; [split; assumption|].
     rewrite !wden_atom, (rcompose_assoc (sden S)); f_equal.
     apply rextensionality; intros v.
-    rewrite rapply_compose_cres, !rapply_sden by assumption; apply Hs.
+    rewrite rapply_compose_cres, !rapply_sden by (apply sdistd_sdist; assumption); apply Hs.
 Qed.
 
 End CompSound.
 
-Lemma scomp_sound A U R : scomp F ntm A U = Some R -> sdist R /\ sden R = rcompose (sden A) (sden U).
+Lemma scomp_sound A U R : sdistd A -> sdistd U -> scomp F ntm A U = Some R ->
+  sdistd R /\ sden R = rcompose (sden A) (sden U).
 Proof.
-  unfold scomp; destruct (sdistb F A) eqn:EA, (sdistb F U) eqn:EU; try discriminate; cbn [andb]; intros H.
-  apply sdistb_sound in EA, EU.
-  destruct (proj1 (proj2 (proj2 (comp_sound A EA))) U EU R H) as [Hd Hs]; split; [exact Hd|].
-  apply rextensionality; intros v; rewrite rapply_compose_cres, !rapply_sden by assumption; apply Hs.
+  unfold scomp; intros HA HU H.
+  destruct (proj1 (proj2 (proj2 (comp_sound A HA))) U HU R H) as [Hd Hs]; split; [exact Hd|].
+  apply rextensionality; intros v; rewrite rapply_compose_cres, !rapply_sden by (apply sdistd_sdist; assumption); apply Hs.
 Qed.
 
-Lemma wcons_sound A w w' : wcons F ntm A w = Some w' -> wden w' = rcompose (sden A) (wden w).
-Proof.
-  unfold wcons; destruct (sdistb F A) eqn:EA; [|discriminate]; apply sdistb_sound in EA.
-  apply (proj2 (proj2 (proj2 (comp_sound A EA)))).
-Qed.
+Lemma wcons_sound A w w' : sdistd A -> wdist w -> wcons F ntm A w = Some w' -> wdist w' /\ wden w' = rcompose (sden A) (wden w).
+Proof. unfold wcons; intros HA; apply (proj2 (proj2 (proj2 (comp_sound A HA)))). Qed.
 
 (** *** Lifts *)
 
@@ -1394,13 +1504,16 @@ Definition shiftk (h : option label) (k : nat) : radj T := iter k (rpush_outer h
 Lemma sden_shseg h k : sden (shseg h k) = shiftk (lden h) k.
 Proof. reflexivity. Qed.
 
-Lemma sfront_sound h t s s' :
-  sfront F h t s = Some s' -> sdist s' /\ sden s' = rpush_inner (lden h) (tden t) (sden s).
+Lemma sfront_sound h t s s' : sdistd s -> tdist t ->
+  sfront F h t s = Some s' -> sdistd s' /\ sden s' = rpush_inner (lden h) (tden t) (sden s).
 Proof.
-  unfold sfront; destruct (sdistb F s) eqn:Ed; [|discriminate]; apply sdistb_sound in Ed.
+  unfold sfront; intros Hdd Ht; pose proof (sdistd_sdist _ Hdd) as Ed.
   destruct (sfind F h s) as [e|] eqn:Ef; [|discriminate]; apply sfind_sound in Ef.
   destruct (ofe e) as [ts m] eqn:Eo; intros H.
-  destruct (sset_sound _ _ _ _ _ Ed H) as [Hd' Hs]; split; [exact Hd'|].
+  assert (Hts : tldist (TCons t ts)).
+  { split; [exact Ht|]; destruct e as [[ts1 m1]|]; cbn [ofe] in Eo; injection Eo as <- <-; [|exact I].
+    exact (sget_dd _ _ _ _ Hdd (eq_sym Ef)). }
+  destruct (sset_sound _ _ _ _ _ Ed H) as [Hd' Hs]; split; [exact (sset_dd _ _ _ _ _ Hdd Hts H)|].
   apply rextensionality; intros [l j].
   rewrite rapply_push_inner; unfold rvar_eqb, unshift_rvar; cbn [v_label v_index].
   rewrite (label_eqb_sym l (lden h)).
@@ -1416,10 +1529,15 @@ Proof.
     rewrite (proj2 (label_eqb_neq _ _) Hne); reflexivity.
 Qed.
 
-Lemma slift_sound h s s' : slift F ntm h s = Some s' -> sden s' = rlift (lden h) (sden s).
+Lemma shseg_dd h k : sdistd (shseg h k).
+Proof. cbn; repeat split; exact I. Qed.
+
+Lemma slift_sound h s s' : sdistd s -> slift F ntm h s = Some s' -> sdistd s' /\ sden s' = rlift (lden h) (sden s).
 Proof.
-  unfold slift; destruct (scomp F ntm (shseg h 1) s) as [s1|] eqn:E; [|discriminate]; intros H.
-  rewrite (proj2 (sfront_sound _ _ _ _ H)), (proj2 (scomp_sound _ _ _ E)), sden_shseg.
+  unfold slift; intros Hd; destruct (scomp F ntm (shseg h 1) s) as [s1|] eqn:E; [|discriminate]; intros H.
+  destruct (scomp_sound _ _ _ (shseg_dd h 1) Hd E) as [Hd1 Hs1].
+  destruct (sfront_sound h (NVar h 0) _ _ Hd1 I H) as [Hd' Hs']; split; [exact Hd'|].
+  rewrite Hs', Hs1, sden_shseg.
   unfold shiftk; cbn [iter]; rewrite rcompose_identity_push_outer; reflexivity.
 Qed.
 
@@ -1672,6 +1790,12 @@ Proof.
   - apply IH; intros g Hg; apply Hl; right; exact Hg.
 Qed.
 
+Lemma Forall2_in_r {A B} (R : A -> B -> Prop) xs ys y : Forall2 R xs ys -> In y ys -> exists x, In x xs /\ R x y.
+Proof.
+  induction 1 as [|x y' xs ys Hxy H2 IH]; [intros []|]; intros [<-|Hy]; [exists x; split; [left; reflexivity|exact Hxy]|].
+  destruct (IH Hy) as [x' [Hx Hr]]; exists x'; split; [right; exact Hx|exact Hr].
+Qed.
+
 Lemma omap_f2 {A B} (f : A -> option B) xs ys : omap f xs = Some ys -> Forall2 (fun x y => f x = Some y) xs ys.
 Proof.
   revert ys; induction xs as [|x xs IH]; intros ys; cbn [omap].
@@ -1756,6 +1880,16 @@ Proof.
   - intros H; destruct (IH H) as [h0 [H1 [H2 H3]]]; exists h0; split; [right; apply in_or_app; right; exact H1|split; [exact H2|]].
     intros t Ht h' j Et; right; apply in_or_app; right; exact (H3 t Ht h' j Et).
 Qed.
+
+(** What settling needs of payload composition and normalisation. *)
+Definition wc_ok (wc : word -> word -> option word) : Prop :=
+  forall w1 w2 w, wdist w1 -> wdist w2 -> wc w1 w2 = Some w -> wdist w /\ wden w = rcompose (wden w1) (wden w2).
+
+Definition pn_ok (pn : option nat -> word -> option word) : Prop :=
+  forall b w w', wdist w -> pn b w = Some w' -> wdist w' /\ rpcompose (wden w') (bden b) = rpcompose (wden w) (bden b).
+
+Lemma atom_dd L a : wdist (WAtom SNil L a (WEnd SNil)).
+Proof. split; exact I. Qed.
 
 Section OneSound.
 
@@ -1847,10 +1981,21 @@ Proof.
   destruct p as [|p]; [exact Hxy|apply IH; cbn in Hp; lia].
 Qed.
 
+Hypothesis HdUd : sdistd U.
+
+Lemma otg_dd g i u w b : In g hs -> otg F U g i = NBind u w b -> wdist w.
+Proof.
+  intros Hg; destruct (Hf g Hg) as [e Ee]; pose proof (sfind_sound _ _ _ Ee) as Es.
+  unfold otg, entd; rewrite Ee; destruct e as [[ts m]|]; [|cbn; destruct (i <? 0); discriminate].
+  destruct (Nat.ltb_spec i (List.length (tl_list ts))) as [Hi|Hi]; [|discriminate].
+  intros E; pose proof (proj1 (tldist_iff ts) (sget_dd _ _ _ _ HdUd (eq_sym Es)) _ (nth_In _ (NVar LNone 0) Hi)) as H.
+  rewrite E in H; exact H.
+Qed.
+
 Variable wc : word -> word -> option word.
-Hypothesis Hwc : forall w1 w2 w, wc w1 w2 = Some w -> wden w = rcompose (wden w1) (wden w2).
+Hypothesis Hwc : wc_ok wc.
 Variable pn : option nat -> word -> option word.
-Hypothesis Hpn : forall b w w', pn b w = Some w' -> rpcompose (wden w') (bden b) = rpcompose (wden w) (bden b).
+Hypothesis Hpn : pn_ok pn.
 Variable a : nat.
 Variable qs : list (lexp * (list ntgt * nat)).
 Variables Q U' : seg.
@@ -1927,7 +2072,8 @@ Proof.
         destruct (pn b w') as [w''|] eqn:Ep'; [|discriminate]; injection Ht as Ht; rewrite <- Ht.
         destruct (nth_error tenv u) as [y|] eqn:Ey; [|apply nth_error_None in Ey; lia].
         rewrite !(tden_bind _ _ _ _ Ey); cbn [rtarget_result cres].
-        rewrite (Hpn _ _ _ Ep'), (Hwc _ _ _ Ew), rpcompose_compose, wden_atom, wden_end.
+        destruct (Hwc _ _ _ (atom_dd L a) (otg_dd g i u w b Hg Eo) Ew) as [Hw' Ewc].
+        rewrite (proj2 (Hpn _ _ _ Hw' Ep')), Ewc, rpcompose_compose, wden_atom, wden_end.
         change (sden SNil) with (@ridentity T); rewrite rcompose_identity_l, rcompose_identity_r; reflexivity.
     + destruct (otg F U g i) as [h j|u w b] eqn:Eo; cbn [inP] in Ep; [|discriminate].
       apply Nat.ltb_ge in Ep; pose proof (otg_label g i h j Hg Eo) as Hh.
@@ -1947,14 +2093,23 @@ Qed.
 
 End OneSound.
 
-Theorem settle1_sound wc (Hwc : forall w1 w2 w, wc w1 w2 = Some w -> wden w = rcompose (wden w1) (wden w2))
-  pn (Hpn : forall b w w', pn b w = Some w' -> rpcompose (wden w') (bden b) = rpcompose (wden w) (bden b))
-  a A L U A' L' U' rest :
-  settle1 F ntm wc pn a A L U = Some (A', L', U') ->
-  rcompose (sden A') (rcompose (lifts L' (aden a)) (rcompose (sden U') rest))
-  = rcompose (sden A) (rcompose (lifts L (aden a)) (rcompose (sden U) rest)).
+Lemma sbuild_dd es s : (forall h xs m, In (h, (xs, m)) es -> forall t, In t xs -> tdist t) ->
+  sbuild F es = Some s -> sdistd s.
 Proof.
-  unfold settle1; destruct (sdistb F U) eqn:Ed; [|discriminate]; apply sdistb_sound in Ed.
+  revert s; induction es as [|[h [xs m]] es IH]; intros s Ht; cbn [sbuild]; [intros H; injection H as <-; exact I|].
+  destruct (sbuild F es) as [s0|] eqn:E0; [|discriminate]; intros E.
+  apply (sset_dd h (tl_of xs) m s0 s); [apply IH; [intros h' xs' m' Hi; apply (Ht h' xs' m'); right; exact Hi|reflexivity]| |exact E].
+  apply tldist_iff; rewrite tl_list_of; apply (Ht h xs m); left; reflexivity.
+Qed.
+
+Theorem settle1_sound wc (Hwc : wc_ok wc) pn (Hpn : pn_ok pn) a A L U A' L' U' rest :
+  sdistd A -> sdistd U -> settle1 F ntm wc pn a A L U = Some (A', L', U') ->
+  sdistd A' /\ sdistd U'
+  /\ rcompose (sden A') (rcompose (lifts L' (aden a)) (rcompose (sden U') rest))
+     = rcompose (sden A) (rcompose (lifts L (aden a)) (rcompose (sden U) rest)).
+Proof.
+  intros HA HUd; pose proof (sdistd_sdist _ HUd) as Ed.
+  unfold settle1.
   destruct (linss F (map fst L ++ seg_labels U) []) as [hs|] eqn:Eh; [|discriminate].
   destruct (linss_spec _ _ _ Eh) as [Hin Hdist].
   assert (Hd : ldist hs) by (apply Hdist; intros x y []).
@@ -1970,8 +2125,25 @@ Proof.
   destruct (sbuild F qs) as [Q|] eqn:EQ; [|discriminate].
   destruct (scomp F ntm A Q) as [A1|] eqn:EA; [|discriminate].
   intros H; injection H as <- <- <-.
-  rewrite (proj2 (scomp_sound _ _ _ EA)), (lbuild_sound _ _ _ EL).
-  pose proof (one_core L U hs Ed Hd Hn HL HU Hf wc Hwc pn Hpn a qs Q U1 (omap_f2 _ _ _ Eq) EQ EU) as Hc.
+  assert (HQ : sdistd Q).
+  { apply (sbuild_dd qs); [|exact EQ]; intros h xs m Hi t Ht.
+    destruct (Forall2_in_r _ _ _ _ (omap_f2 _ _ _ Eq) Hi) as [g [Hg E]]; unfold qent in E; revert E.
+    destruct (omap (fun i => otq ntm wc pn a L (otg F U g i)) (oP F L U g)) as [ts|] eqn:Eo; [|discriminate].
+    intros E; injection E as _ <- _.
+    destruct (Forall2_in_r _ _ _ _ (omap_f2 _ _ _ Eo) Ht) as [i [_ Et]].
+    destruct (otg F U g i) as [h' j|u w b] eqn:Eg; cbn [otq] in Et; [injection Et as <-; exact I|].
+    destruct (u <? ntm); [|discriminate].
+    destruct (wc (WAtom SNil L a (WEnd SNil)) w) as [w'|] eqn:Ew; [|discriminate].
+    destruct (pn b w') as [w''|] eqn:Ep; [|discriminate]; injection Et as <-.
+    destruct (Hwc _ _ _ (atom_dd L a) ltac:(eapply otg_dd; eassumption) Ew) as [Hw' _].
+    exact (proj1 (Hpn _ _ _ Hw' Ep)). }
+  destruct (scomp_sound _ _ _ HA HQ EA) as [HA1 EA1].
+  split; [exact HA1|split].
+  { refine (sbuild_dd _ _ _ EU); intros h xs m Hi t Ht; apply in_map_iff in Hi as [g [E _]].
+    unfold u'ent in E; destruct (entd F U g); injection E as _ <- _; apply in_map_iff in Ht as [i [<- _]].
+    destruct (inP L (otg F U g i)) eqn:Ep; [exact I|]; destruct (otg F U g i); [exact I|discriminate Ep]. }
+  rewrite EA1, (lbuild_sound _ _ _ EL).
+  pose proof (one_core L U hs Ed Hd Hn HL HU Hf HUd wc Hwc pn Hpn a qs Q U1 (omap_f2 _ _ _ Eq) EQ EU) as Hc.
   rewrite (rcompose_assoc (lifts L (aden a))), Hc, <- !rcompose_assoc; reflexivity.
 Qed.
 
@@ -1984,13 +2156,21 @@ Proof. destruct w; cbn [whead wrest]; [rewrite wden_end, rcompose_identity_r|rew
 Lemma wden_sethead w U : wden (wsethead w U) = rcompose (sden U) (wrest w).
 Proof. destruct w; cbn [wsethead wrest]; [rewrite wden_end, rcompose_identity_r|rewrite wden_atom]; reflexivity. Qed.
 
-Lemma settle_sound wc (Hwc : forall w1 w2 w, wc w1 w2 = Some w -> wden w = rcompose (wden w1) (wden w2))
-  pn (Hpn : forall b w w', pn b w = Some w' -> rpcompose (wden w') (bden b) = rpcompose (wden w) (bden b)) A L a w w' :
-  settle F ntm wc pn A L a w = Some w' -> wden w' = rcompose (sden A) (rcompose (lifts L (aden a)) (wden w)).
+Lemma whead_dd w : wdist w -> sdistd (whead w).
+Proof. destruct w; cbn [wdist whead]; [exact (fun H => H)|intros [H _]; exact H]. Qed.
+
+Lemma wsethead_dd w U : wdist w -> sdistd U -> wdist (wsethead w U).
+Proof. destruct w; cbn [wdist wsethead]; [intros _ H; exact H|intros [_ Hw] H; split; assumption]. Qed.
+
+Lemma settle_sound wc (Hwc : wc_ok wc) pn (Hpn : pn_ok pn) A L a w w' :
+  sdistd A -> wdist w -> settle F ntm wc pn A L a w = Some w' ->
+  wdist w' /\ wden w' = rcompose (sden A) (rcompose (lifts L (aden a)) (wden w)).
 Proof.
-  unfold settle; destruct (settle1 F ntm wc pn a A L (whead w)) as [[[A' L'] U']|] eqn:E; [|discriminate].
+  unfold settle; intros HA Hw; destruct (settle1 F ntm wc pn a A L (whead w)) as [[[A' L'] U']|] eqn:E; [|discriminate].
   intros H; injection H as <-.
-  rewrite wden_atom, wden_sethead, (settle1_sound _ Hwc _ Hpn _ _ _ _ _ _ _ _ E), <- (wden_head w); reflexivity.
+  destruct (settle1_sound _ Hwc _ Hpn _ _ _ _ _ _ _ (wrest w) HA (whead_dd _ Hw) E) as [HA' [HU' Eq]].
+  split; [split; [exact HA'|apply wsethead_dd; assumption]|].
+  rewrite wden_atom, wden_sethead, Eq, <- (wden_head w); reflexivity.
 Qed.
 
 (** *** The constructors *)
@@ -1998,73 +2178,86 @@ Qed.
 Lemma named_compose_l (Y X X' : radj T) : named_eq X X' -> named_eq (rcompose Y X) (rcompose Y X').
 Proof. intros H v Hv; rewrite !rapply_compose_cres, (H v Hv); reflexivity. Qed.
 
-Lemma pnormf_sound wc (Hwc : forall w1 w2 w, wc w1 w2 = Some w -> wden w = rcompose (wden w1) (wden w2))
-  pn (Hpn : forall b w w', pn b w = Some w' -> rpcompose (wden w') (bden b) = rpcompose (wden w) (bden b)) :
-  forall w w', pnormf F ntm wc pn w = Some w' -> named_eq (wden w) (wden w').
+Lemma pnormf_sound wc (Hwc : wc_ok wc) pn (Hpn : pn_ok pn) :
+  forall w w', wdist w -> pnormf F ntm wc pn w = Some w' -> wdist w' /\ named_eq (wden w) (wden w').
 Proof.
   induction w as [s|A L a w IH] using word_spine; cbn [pnormf].
-  - intros w' H; injection H as <-; rewrite !wden_end; apply named_sdrop_none.
-  - intros w0; destruct w as [s|A' L' a' w1].
-    + unfold pfinal; destruct (sdistb F s) eqn:Ed; [|discriminate]; apply sdistb_sound in Ed.
+  - intros w' Hd H; injection H as <-; split; [apply sdrop_dd, Hd|]; rewrite !wden_end; apply named_sdrop_none.
+  - intros w0 [HA Hw]; destruct w as [s|A' L' a' w1].
+    + unfold pfinal; pose proof (sdistd_sdist _ Hw) as Ed.
       destruct (sset F LNone TNil (lcount LNone L) s) as [s'|] eqn:Es; [|discriminate]; intros H.
-      rewrite (settle_sound _ Hwc _ Hpn _ _ _ _ _ H), wden_atom.
+      destruct (settle_sound _ Hwc _ Hpn A L a (WEnd s') w0 HA (sset_dd LNone TNil _ _ _ Hw I Es) H) as [Hd' Eq].
+      split; [exact Hd'|]; rewrite Eq, wden_atom.
       apply named_compose_l, named_compose_l; rewrite !wden_end.
       intros [l j] Hl; rewrite !rapply_sden by first [exact Ed|exact (proj1 (sset_sound _ _ _ _ _ Ed Es))].
       cbn [v_label v_index]; rewrite (proj2 (sset_sound _ _ _ _ _ Ed Es)); cbn [lden].
       destruct l; [reflexivity|contradiction].
     + destruct (pnormf F ntm wc pn (WAtom A' L' a' w1)) as [w''|] eqn:E; [|discriminate]; intros H.
-      rewrite (settle_sound _ Hwc _ Hpn _ _ _ _ _ H), wden_atom.
-      apply named_compose_l, named_compose_l, (IH _ eq_refl).
+      destruct (IH _ Hw eq_refl) as [Hd'' Hn''].
+      destruct (settle_sound _ Hwc _ Hpn _ _ _ _ _ HA Hd'' H) as [Hd' Eq].
+      split; [exact Hd'|]; rewrite Eq, wden_atom.
+      apply named_compose_l, named_compose_l, Hn''.
 Qed.
 
-Lemma wops_sound n :
-  (forall w1 w2 w, fst (wops F ntm n) w1 w2 = Some w -> wden w = rcompose (wden w1) (wden w2))
-  /\ (forall b w w', snd (wops F ntm n) b w = Some w' -> rpcompose (wden w') (bden b) = rpcompose (wden w) (bden b)).
+Lemma wops_sound n : wc_ok (fst (wops F ntm n)) /\ pn_ok (snd (wops F ntm n)).
 Proof.
-  induction n as [|n [IHc IHp]]; [split; discriminate|]; cbn [wops].
+  induction n as [|n [IHc IHp]]; [split; intros; discriminate|]; cbn [wops].
   destruct (wops F ntm n) as [wc pn] eqn:Ew; cbn [fst snd] in *; split.
-  - intros w1; induction w1 as [A|A L a w1 IH] using word_spine; intros w2 w; cbn [wcomp_with].
-    + intros H; rewrite (wcons_sound _ _ _ H); reflexivity.
-    + destruct (wcomp_with F ntm wc pn w1 w2) as [w'|] eqn:E; [|discriminate]; intros H.
-      rewrite (settle_sound _ IHc _ IHp _ _ _ _ _ H), (IH _ _ E), wden_atom, !rcompose_assoc; reflexivity.
-  - intros [m|] w w' H; cbn [bnormf] in H; [injection H as <-; reflexivity|].
-    symmetry; apply rpcompose_named, (pnormf_sound _ IHc _ IHp _ _ H).
+  - intros w1; induction w1 as [A|A L a w1 IH] using word_spine; intros w2 w Hw1 Hw2; cbn [wcomp_with].
+    + intros H; exact (wcons_sound _ _ _ Hw1 Hw2 H).
+    + destruct Hw1 as [HA Hw1].
+      destruct (wcomp_with F ntm wc pn w1 w2) as [w'|] eqn:E; [|discriminate]; intros H.
+      destruct (IH _ _ Hw1 Hw2 E) as [Hd' Eq'].
+      destruct (settle_sound _ IHc _ IHp _ _ _ _ _ HA Hd' H) as [Hd Eq].
+      split; [exact Hd|]; rewrite Eq, Eq', wden_atom, !rcompose_assoc; reflexivity.
+  - intros [m|] w w' Hw H; cbn [bnormf] in H; [injection H as <-; split; [exact Hw|reflexivity]|].
+    destruct (pnormf_sound _ IHc _ IHp _ _ Hw H) as [Hd Hn]; split; [exact Hd|].
+    symmetry; apply rpcompose_named, Hn.
 Qed.
 
-Lemma wcomp_sound w1 w2 w : wcomp F ntm w1 w2 = Some w -> wden w = rcompose (wden w1) (wden w2).
+Lemma wcomp_sound w1 w2 w : wdist w1 -> wdist w2 -> wcomp F ntm w1 w2 = Some w ->
+  wdist w /\ wden w = rcompose (wden w1) (wden w2).
 Proof. apply (proj1 (wops_sound 64)). Qed.
 
-Lemma pnormw_sound b w w' : pnormw F ntm b w = Some w' -> rpcompose (wden w') (bden b) = rpcompose (wden w) (bden b).
+Lemma pnormw_sound b w w' : wdist w -> pnormw F ntm b w = Some w' ->
+  wdist w' /\ rpcompose (wden w') (bden b) = rpcompose (wden w) (bden b).
 Proof. apply (proj2 (wops_sound 64)). Qed.
 
-Lemma wlift_sound h w w' : wlift F ntm h w = Some w' -> wden w' = rlift (lden h) (wden w).
+Lemma wlift_sound h w w' : wdist w -> wlift F ntm h w = Some w' -> wdist w' /\ wden w' = rlift (lden h) (wden w).
 Proof.
-  revert w'; induction w as [s|s L a w IH] using word_spine; intros w'; cbn [wlift].
+  revert w'; induction w as [s|s L a w IH] using word_spine; intros w' Hd; cbn [wlift].
   - destruct (slift F ntm h s) as [s'|] eqn:E; [|discriminate]; intros H; injection H as <-.
-    rewrite !wden_end; apply (slift_sound _ _ _ E).
-  - destruct (slift F ntm h s) as [s'|] eqn:Es; [|discriminate].
+    destruct (slift_sound _ _ _ Hd E) as [Hd' Eq]; split; [exact Hd'|]; rewrite !wden_end; exact Eq.
+  - destruct Hd as [Hs Hw].
+    destruct (slift F ntm h s) as [s'|] eqn:Es; [|discriminate].
     destruct (ladd F h 1 L) as [L'|] eqn:EL; [|discriminate].
     destruct (wlift F ntm h w) as [w1|] eqn:Ew; [|discriminate]; intros H; injection H as <-.
-    rewrite !wden_atom, (slift_sound _ _ _ Es), (ladd_sound _ _ _ _ _ EL), (IH _ eq_refl); cbn [iter].
+    destruct (slift_sound _ _ _ Hs Es) as [Hs' Eqs]; destruct (IH _ Hw eq_refl) as [Hw' Eqw].
+    split; [split; assumption|].
+    rewrite !wden_atom, Eqs, (ladd_sound _ _ _ _ _ EL), Eqw; cbn [iter].
     rewrite !rlift_compose; reflexivity.
 Qed.
 
-Lemma wpush_sound h t w w' : wpush F ntm h t w = Some w' -> wden w' = rpush_inner (lden h) (tden t) (wden w).
+Lemma wpush_sound h t w w' : tdist t -> wdist w -> wpush F ntm h t w = Some w' ->
+  wdist w' /\ wden w' = rpush_inner (lden h) (tden t) (wden w).
 Proof.
-  destruct w as [s|s L a w]; cbn [wpush].
-  - destruct (sfront F h t s) as [s'|] eqn:E; [|discriminate]; intros H; injection H as <-.
-    rewrite !wden_end; apply (proj2 (sfront_sound _ _ _ _ E)).
-  - destruct (sfront F h t s) as [s'|] eqn:Es; [|discriminate].
+  intros Ht; destruct w as [s|s L a w]; cbn [wpush].
+  - intros Hs; destruct (sfront F h t s) as [s'|] eqn:E; [|discriminate]; intros H; injection H as <-.
+    destruct (sfront_sound _ _ _ _ Hs Ht E) as [Hs' Eq]; split; [exact Hs'|]; rewrite !wden_end; exact Eq.
+  - intros [Hs Hw].
+    destruct (sfront F h t s) as [s'|] eqn:Es; [|discriminate].
     destruct (ladd F h 1 L) as [L'|] eqn:EL; [|discriminate].
     destruct (wlift F ntm h w) as [w1|] eqn:Ew; [|discriminate]; intros H; injection H as <-.
-    rewrite !wden_atom, (proj2 (sfront_sound _ _ _ _ Es)), (ladd_sound _ _ _ _ _ EL), (wlift_sound _ _ _ Ew).
+    destruct (sfront_sound _ _ _ _ Hs Ht Es) as [Hs' Eqs]; destruct (wlift_sound _ _ _ Hw Ew) as [Hw' Eqw].
+    split; [split; assumption|].
+    rewrite !wden_atom, Eqs, (ladd_sound _ _ _ _ _ EL), Eqw.
     cbn [iter]; rewrite rpush_inner_compose, rlift_compose; reflexivity.
 Qed.
 
-Lemma wouter_sound h w w' : wouter F ntm h w = Some w' -> wden w' = rpush_outer (lden h) (wden w).
+Lemma wouter_sound h w w' : wdist w -> wouter F ntm h w = Some w' -> wdist w' /\ wden w' = rpush_outer (lden h) (wden w).
 Proof.
-  unfold wouter; intros H; rewrite (wcons_sound _ _ _ H), sden_shseg.
-  unfold shiftk; cbn [iter]; apply rcompose_identity_push_outer.
+  unfold wouter; intros Hw H; destruct (wcons_sound _ _ _ (shseg_dd h 1) Hw H) as [Hd Eq]; split; [exact Hd|].
+  rewrite Eq, sden_shseg; unfold shiftk; cbn [iter]; apply rcompose_identity_push_outer.
 Qed.
 
 (** *** Expressions *)
@@ -2149,57 +2342,79 @@ Proof. reflexivity. Qed.
 Lemma wden_id : wden (WEnd SNil) = ridentity.
 Proof. reflexivity. Qed.
 
-Theorem anorm_sound :
-  (forall e w, anorm F ntm e = Some w -> wden w = aeden e)
-  /\ (forall t t', tnorm F ntm t = Some t' -> tden t' = teden t)
-  /\ (forall p w b, pnorm_e F ntm p = Some (w, b) -> rpcompose (wden w) (bden b) = peden p).
+Lemma anorm_sound_dist :
+  (forall e w, anorm F ntm e = Some w -> wdist w /\ wden w = aeden e)
+  /\ (forall t t', tnorm F ntm t = Some t' -> tdist t' /\ tden t' = teden t)
+  /\ (forall p w b, pnorm_e F ntm p = Some (w, b) -> wdist w /\ rpcompose (wden w) (bden b) = peden p).
 Proof.
   apply exp_mind; cbn [aeden teden peden].
-  - intros w H; injection H as <-; reflexivity.
-  - intros n w H; injection H as <-; rewrite wden_atom, wden_id, rcompose_identity_r.
+  - intros w H; injection H as <-; split; [exact I|reflexivity].
+  - intros n w H; injection H as <-; split; [exact (atom_dd [] n)|]; rewrite wden_atom, wden_id, rcompose_identity_r.
     change (sden SNil) with (@ridentity T); apply rcompose_identity_l.
   - intros a IHa b IHb w; rewrite anorm_compose.
     destruct (anorm F ntm a) as [wa|] eqn:Ea; [|discriminate].
     destruct (anorm F ntm b) as [wb|] eqn:Eb; [|discriminate]; intros H.
-    rewrite (wcomp_sound _ _ _ H), (IHa _ eq_refl), (IHb _ eq_refl); reflexivity.
+    destruct (IHa _ eq_refl) as [Ha Ea']; destruct (IHb _ eq_refl) as [Hb Eb'].
+    destruct (wcomp_sound _ _ _ Ha Hb H) as [Hd Eq]; split; [exact Hd|]; rewrite Eq, Ea', Eb'; reflexivity.
   - intros h a IH w; rewrite anorm_outer; destruct (anorm F ntm a) as [wa|] eqn:Ea; [|discriminate]; intros H.
-    rewrite (wouter_sound _ _ _ H), (IH _ eq_refl); reflexivity.
+    destruct (IH _ eq_refl) as [Ha Ea']; destruct (wouter_sound _ _ _ Ha H) as [Hd Eq].
+    split; [exact Hd|]; rewrite Eq, Ea'; reflexivity.
   - intros h t IHt a IHa w; rewrite anorm_inner.
     destruct (tnorm F ntm t) as [t'|] eqn:Et; [|discriminate].
     destruct (anorm F ntm a) as [wa|] eqn:Ea; [|discriminate]; intros H.
-    rewrite (wpush_sound _ _ _ _ H), (IHt _ eq_refl), (IHa _ eq_refl); reflexivity.
+    destruct (IHt _ eq_refl) as [Ht Et']; destruct (IHa _ eq_refl) as [Ha Ea'].
+    destruct (wpush_sound _ _ _ _ Ht Ha H) as [Hd Eq]; split; [exact Hd|]; rewrite Eq, Et', Ea'; reflexivity.
   - intros h a IH w; rewrite anorm_lift; destruct (anorm F ntm a) as [wa|] eqn:Ea; [|discriminate]; intros H.
-    rewrite (wlift_sound _ _ _ H), (IH _ eq_refl); reflexivity.
-  - intros h i t' H; injection H as <-; reflexivity.
+    destruct (IH _ eq_refl) as [Ha Ea']; destruct (wlift_sound _ _ _ Ha H) as [Hd Eq].
+    split; [exact Hd|]; rewrite Eq, Ea'; reflexivity.
+  - intros h i t' H; injection H as <-; split; [exact I|reflexivity].
   - intros u p IH t'; rewrite tnorm_bind; destruct (Nat.ltb_spec u ntm) as [Hu|]; [|discriminate].
     destruct (pnorm_e F ntm p) as [[w b]|] eqn:Ep; [|discriminate].
     destruct (pnormw F ntm b w) as [w'|] eqn:Ew; [|discriminate]; intros H; injection H as <-.
+    destruct (IH _ _ eq_refl) as [Hw Ep']; destruct (pnormw_sound _ _ _ Hw Ew) as [Hd Eq].
+    split; [exact Hd|].
     destruct (nth_error tenv u) as [x|] eqn:Ex; [|apply nth_error_None in Ex; lia].
-    rewrite (tden_bind _ _ _ _ Ex), (pnormw_sound _ _ _ Ew); rewrite (IH _ _ eq_refl); reflexivity.
+    rewrite (tden_bind _ _ _ _ Ex), Eq, Ep'; reflexivity.
   - intros h t IH t'; rewrite tnorm_shift.
     destruct (tnorm F ntm t) as [[h' i|]|] eqn:Et; try discriminate.
-    rewrite <- (IH _ eq_refl); cbn [tden].
+    destruct (IH _ eq_refl) as [_ Et']; rewrite <- Et'; cbn [tden].
     destruct (lcmp F h h') as [c|] eqn:Ec; [|discriminate].
-    apply (lcmp_sound lenv F HF) in Ec; destruct c; intros H; injection H as <-;
+    apply (lcmp_sound lenv F HF) in Ec; destruct c; intros H; injection H as <-; (split; [exact I|]);
       unfold shift_rvar; cbn [v_label v_index tden]; cbn in Ec.
     + subst h'; rewrite label_eqb_refl; reflexivity.
     + rewrite (proj2 (label_eqb_neq _ _)); [reflexivity|].
       intros E; rewrite E in Ec; exact (olabel_lt_irrefl _ Ec).
     + rewrite (proj2 (label_eqb_neq _ _)); [reflexivity|].
       intros E; rewrite E in Ec; exact (olabel_lt_irrefl _ Ec).
-  - intros w b H; injection H as <- <-; rewrite wden_id; apply rpcompose_identity.
-  - intros n w b H; injection H as <- <-; rewrite wden_id; apply rpcompose_identity.
+  - intros w b H; injection H as <- <-; split; [exact I|]; rewrite wden_id; apply rpcompose_identity.
+  - intros n w b H; injection H as <- <-; split; [exact I|]; rewrite wden_id; apply rpcompose_identity.
   - intros a IHa p IHp w b; rewrite pnorm_comp.
     destruct (anorm F ntm a) as [wa|] eqn:Ea; [|discriminate].
     destruct (pnorm_e F ntm p) as [[w0 b0]|] eqn:Ep; [|discriminate].
     destruct (wcomp F ntm wa w0) as [w'|] eqn:Ew; [|discriminate]; intros H; injection H as <- <-.
-    rewrite (wcomp_sound _ _ _ Ew), <- rpcompose_compose, (IHp _ _ eq_refl), (IHa _ eq_refl); reflexivity.
+    destruct (IHa _ eq_refl) as [Ha Ea']; destruct (IHp _ _ eq_refl) as [Hp Ep'].
+    destruct (wcomp_sound _ _ _ Ha Hp Ew) as [Hd Eq]; split; [exact Hd|].
+    rewrite Eq, <- rpcompose_compose, Ep', Ea'; reflexivity.
   - intros h p IH w b; rewrite pnorm_shift.
     destruct (pnorm_e F ntm p) as [[w0 b0]|] eqn:Ep; [|discriminate].
     destruct (wouter F ntm h w0) as [w'|] eqn:Ew; [|discriminate]; intros H; injection H as <- <-.
-    rewrite (wouter_sound _ _ _ Ew), rpush_outer_as_compose, <- rpcompose_compose, (IH _ _ eq_refl).
+    destruct (IH _ _ eq_refl) as [Hp Ep']; destruct (wouter_sound _ _ _ Hp Ew) as [Hd Eq]; split; [exact Hd|].
+    rewrite Eq, rpush_outer_as_compose, <- rpcompose_compose, Ep'.
     symmetry; apply rpshift_as_pcompose.
 Qed.
+
+Theorem anorm_sound :
+  (forall e w, anorm F ntm e = Some w -> wden w = aeden e)
+  /\ (forall t t', tnorm F ntm t = Some t' -> tden t' = teden t)
+  /\ (forall p w b, pnorm_e F ntm p = Some (w, b) -> rpcompose (wden w) (bden b) = peden p).
+Proof.
+  destruct anorm_sound_dist as [A [B C]].
+  split; [intros e w H; exact (proj2 (A e w H))|split; [intros t t' H; exact (proj2 (B t t' H))|]].
+  intros p w b H; exact (proj2 (C p w b H)).
+Qed.
+
+Lemma anorm_dist e w : anorm F ntm e = Some w -> wdist w.
+Proof. intros H; exact (proj1 (proj1 anorm_sound_dist e w H)). Qed.
 
 Theorem nf_eq_sound e1 e2 : nf_eq F ntm e1 e2 = true -> aeden e1 = aeden e2.
 Proof.
@@ -2212,13 +2427,11 @@ Qed.
 (** *** Applying a single segment to a variable *)
 
 Definition seg_tgt (F : list (lexp * lexp)) (Sg : seg) (h : lexp) (i : nat) : option ntgt :=
-  if sdistb F Sg then
-    match sfind F h Sg with
-    | Some None => Some (NVar h i)
-    | Some (Some (ts, m)) => Some (if i <? tlen ts then tnth ts i else NVar h (i - tlen ts + m))
-    | None => None
-    end
-  else None.
+  match sfind F h Sg with
+  | Some None => Some (NVar h i)
+  | Some (Some (ts, m)) => Some (if i <? tlen ts then tnth ts i else NVar h (i - tlen ts + m))
+  | None => None
+  end.
 
 (** Following a variable through a word, from the right: [Some (Some t)]
     when it reaches the target [t]; [Some None] when, with every label
@@ -2269,37 +2482,40 @@ Definition apply_bind_check (F : list (lexp * lexp)) (ntm : nat) (e : aexp) (h :
   | _, _ => None
   end.
 
-Lemma seg_tgt_sound Sg h i t :
-  seg_tgt F Sg h i = Some t -> rapply (sden Sg) (mk_rvar (lden h) i) = rtarget_result (tden t).
+Lemma seg_tgt_sound Sg h i t : sdistd Sg ->
+  seg_tgt F Sg h i = Some t -> tdist t /\ rapply (sden Sg) (mk_rvar (lden h) i) = rtarget_result (tden t).
 Proof.
-  unfold seg_tgt; destruct (sdistb F Sg) eqn:Ed; [|discriminate]; apply sdistb_sound in Ed.
+  unfold seg_tgt; intros Hdd; pose proof (sdistd_sdist _ Hdd) as Ed.
   destruct (sfind F h Sg) as [r|] eqn:Ef; [|discriminate]; apply sfind_sound in Ef.
   rewrite rapply_sden by exact Ed; cbn [v_label v_index].
-  rewrite <- Ef; destruct r as [[ts m]|]; cbn [esem]; intros H; injection H as <-.
-  - destruct (i <? tlen ts); reflexivity.
-  - reflexivity.
+  rewrite <- Ef; destruct r as [[ts m]|]; cbn [esem]; intros H; injection H as <-; [|split; [exact I|reflexivity]].
+  destruct (Nat.ltb_spec i (tlen ts)) as [Hi|Hi]; (split; [|reflexivity]); [|exact I].
+  apply (proj1 (tldist_iff ts) (sget_dd _ _ _ _ Hdd (eq_sym Ef))); rewrite tnth_list; apply nth_In.
+  rewrite <- tlen_list; exact Hi.
 Qed.
 
-Lemma wtrace_sound w h i t :
-  wtrace F w h i = Some (Some t) -> rapply (wden w) (mk_rvar (lden h) i) = rtarget_result (tden t).
+Lemma wtrace_sound w h i t : wdist w ->
+  wtrace F w h i = Some (Some t) -> tdist t /\ rapply (wden w) (mk_rvar (lden h) i) = rtarget_result (tden t).
 Proof.
-  revert t; induction w as [Sg|Sg L a w IH] using word_spine; intros t; cbn [wtrace].
+  revert t; induction w as [Sg|Sg L a w IH] using word_spine; intros t Hd; cbn [wtrace].
   - rewrite wden_end; destruct (seg_tgt F Sg h i) as [t'|] eqn:E; [|discriminate].
-    intros H; injection H as <-; apply seg_tgt_sound, E.
-  - destruct (wtrace F w h i) as [[[h1 j1|]|]|] eqn:E; try discriminate.
+    intros H; injection H as <-; apply seg_tgt_sound; assumption.
+  - destruct Hd as [Hs Hw].
+    destruct (wtrace F w h i) as [[[h1 j1|]|]|] eqn:E; try discriminate.
     destruct (lcnt F h1 L) as [c|] eqn:EL; [|discriminate].
     destruct (Nat.ltb_spec j1 c) as [Hj|]; [|discriminate].
     destruct (seg_tgt F Sg h1 j1) as [t'|] eqn:Es; [|discriminate]; intros H; injection H as <-.
-    rewrite wden_atom, !rapply_compose_cres, (IH _ eq_refl); cbn [tden rtarget_result cres].
+    destruct (seg_tgt_sound _ _ _ _ Hs Es) as [Ht Eq]; split; [exact Ht|].
+    rewrite wden_atom, !rapply_compose_cres, (proj2 (IH _ Hw eq_refl)); cbn [tden rtarget_result cres].
     rewrite lifts_apply, (lcnt_sound _ _ _ EL), (proj2 (Nat.ltb_lt _ _) Hj); cbn [cres].
-    exact (seg_tgt_sound _ _ _ _ Es).
+    exact Eq.
 Qed.
 
-Lemma wtgt_sound w h i t :
-  wtgt F w h i = Some t -> rapply (wden w) (mk_rvar (lden h) i) = rtarget_result (tden t).
+Lemma wtgt_sound w h i t : wdist w ->
+  wtgt F w h i = Some t -> tdist t /\ rapply (wden w) (mk_rvar (lden h) i) = rtarget_result (tden t).
 Proof.
-  unfold wtgt; destruct (wtrace F w h i) as [[t'|]|] eqn:E; try discriminate.
-  intros H; injection H as <-; exact (wtrace_sound _ _ _ _ E).
+  unfold wtgt; intros Hd; destruct (wtrace F w h i) as [[t'|]|] eqn:E; try discriminate.
+  intros H; injection H as <-; exact (wtrace_sound _ _ _ _ Hd E).
 Qed.
 
 Theorem apply_result_sound e h i h' j :
@@ -2308,7 +2524,7 @@ Theorem apply_result_sound e h i h' j :
 Proof.
   unfold apply_result; destruct (anorm F ntm e) as [w|] eqn:E; [|discriminate].
   destruct (wtgt F w h i) as [[h1 j1|]|] eqn:Et; try discriminate; intros H; injection H as <- <-.
-  rewrite <- (proj1 anorm_sound _ _ E), (wtgt_sound _ _ _ _ Et); reflexivity.
+  rewrite <- (proj1 anorm_sound _ _ E), (proj2 (wtgt_sound _ _ _ _ (anorm_dist _ _ E) Et)); reflexivity.
 Qed.
 
 Theorem apply_bind_sound e h i eb u x :
@@ -2322,10 +2538,11 @@ Proof.
   destruct (pnormw F ntm None wb) as [w2|] eqn:E2; [|discriminate].
   destruct (word_eqb w1 w2) eqn:Ew; [|discriminate]; intros H; injection H as <-; intros Hx.
   apply (proj2 (proj2 (proj2 nf_eqb_eq))) in Ew; subst w2.
-  rewrite <- (proj1 anorm_sound _ _ E), (wtgt_sound _ _ _ _ Et), (tden_bind _ _ _ _ Hx); cbn [rtarget_result].
+  destruct (wtgt_sound _ _ _ _ (anorm_dist _ _ E) Et) as [Hwp Eq].
+  rewrite <- (proj1 anorm_sound _ _ E), Eq, (tden_bind _ _ _ _ Hx); cbn [rtarget_result].
   rewrite <- (proj1 anorm_sound _ _ Eb).
-  rewrite <- (pnormw_sound None wp w1 E1).
-  change (@rpidentity T) with (bden None); rewrite <- (pnormw_sound None wb w1 E2); reflexivity.
+  rewrite <- (proj2 (pnormw_sound None wp w1 Hwp E1)).
+  change (@rpidentity T) with (bden None); rewrite <- (proj2 (pnormw_sound None wb w1 (anorm_dist _ _ Eb) E2)); reflexivity.
 Qed.
 
 (** *** Materialised payloads
@@ -2378,7 +2595,7 @@ Fixpoint smat F ntm facts (s s' : seg) : bool :=
 
 Definition mat_eqb (F : list (lexp * lexp)) (ntm : nat) (facts : list (nat * nat * aexp)) (e e' : aexp) : bool :=
   match anorm F ntm e, anorm F ntm e' with
-  | Some (WEnd S1), Some (WEnd S2) => sdistb F S1 && sdistb F S2 && smat F ntm facts S1 S2
+  | Some (WEnd S1), Some (WEnd S2) => smat F ntm facts S1 S2
   | _, _ => false
   end.
 
@@ -2400,9 +2617,9 @@ Qed.
 Definition mrel (r r' : rresult T) : Prop :=
   r = r' \/ exists u ρ, r = inr (u, ρ) /\ r' = inr (g ρ u, rpidentity).
 
-Lemma tmat_sound t t' : tmat F ntm facts t t' = true -> mrel (rtarget_result (tden t)) (rtarget_result (tden t')).
+Lemma tmat_sound t t' : tdist t -> tmat F ntm facts t t' = true -> mrel (rtarget_result (tden t)) (rtarget_result (tden t')).
 Proof.
-  unfold tmat; destruct (ntgt_eqb t t') eqn:E; cbn [orb].
+  intros Htd; unfold tmat; destruct (ntgt_eqb t t') eqn:E; cbn [orb].
   { intros _; left; apply (proj1 nf_eqb_eq) in E; subst; reflexivity. }
   destruct t as [|u wp [b|]]; try discriminate; destruct t' as [|k [[|]|] [b'|]]; try discriminate.
   destruct (mfind facts k) as [[u' eb]|] eqn:Ef; [|discriminate].
@@ -2419,7 +2636,8 @@ Proof.
   rewrite wden_end; change (sden SNil) with (@ridentity T); rewrite rpcompose_identity.
   do 3 f_equal; change (bden None) with (@rpidentity T).
   change (rpcompose (aeden eb) (bden None) = rpcompose (wden wp) (bden None)).
-  rewrite <- (proj1 anorm_sound _ _ Eb), <- (pnormw_sound None wp w1 E1), <- (pnormw_sound None wb w1 E2); reflexivity.
+  rewrite <- (proj1 anorm_sound _ _ Eb), <- (proj2 (pnormw_sound None wp w1 Htd E1)),
+    <- (proj2 (pnormw_sound None wb w1 (anorm_dist _ _ Eb) E2)); reflexivity.
 Qed.
 
 Lemma tlmat_len ts ts' : tlmat F ntm facts ts ts' = true -> tlen ts = tlen ts'.
@@ -2451,14 +2669,15 @@ Theorem mat_sound e e' : mat_eqb F ntm facts e e' = true -> forall v, mrel (rapp
 Proof.
   unfold mat_eqb; destruct (anorm F ntm e) as [[S1|]|] eqn:E; try discriminate.
   destruct (anorm F ntm e') as [[S2|]|] eqn:E'; try discriminate.
-  intros H; apply andb_true_iff in H as [H Hm]; apply andb_true_iff in H as [Hd Hd'].
-  apply sdistb_sound in Hd, Hd'; intros [l j].
+  intros Hm; pose proof (anorm_dist _ _ E) as HD; pose proof (anorm_dist _ _ E') as HD'.
+  pose proof (sdistd_sdist _ HD) as Hd; pose proof (sdistd_sdist _ HD') as Hd'; intros [l j].
   rewrite <- (proj1 anorm_sound _ _ E), <- (proj1 anorm_sound _ _ E'), !wden_end, !rapply_sden by assumption.
   cbn [v_label v_index]; pose proof (smat_get _ _ l Hm) as Hg.
-  destruct (sget l S1) as [[ts m]|], (sget l S2) as [[ts' m']|]; try contradiction; [|left; reflexivity].
+  destruct (sget l S1) as [[ts m]|] eqn:Eg, (sget l S2) as [[ts' m']|]; try contradiction; [|left; reflexivity].
   destruct Hg as [Ht <-]; cbn [esem]; rewrite <- (tlmat_len _ _ Ht).
   destruct (j <? tlen ts) eqn:Ej; [|left; reflexivity].
-  apply tmat_sound, tlmat_nth; [exact Ht|apply Nat.ltb_lt, Ej].
+  apply tmat_sound; [|apply tlmat_nth; [exact Ht|apply Nat.ltb_lt, Ej]].
+  apply (proj1 (tldist_iff ts) (sget_dd _ _ _ _ HD Eg)); rewrite tnth_list; apply nth_In; rewrite <- tlen_list; apply Nat.ltb_lt, Ej.
 Qed.
 
 End Mat.
