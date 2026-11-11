@@ -651,15 +651,16 @@ Fixpoint lcount (h : lexp) (L : list (lexp * nat)) : nat :=
   | (h', n') :: L' => if lexp_eqb h h' then n' else lcount h L'
   end.
 
-(** Taking [k] lifts by [h] out to the front. *)
-Fixpoint lsub (h : lexp) (k : nat) (L : list (lexp * nat)) : option (list (lexp * nat)) :=
+(** The number of lifts by labels equal to [h], when [h]'s relation to
+    every label of [L] is known. *)
+Fixpoint lcnt (h : lexp) (L : list (lexp * nat)) : option nat :=
   match L with
-  | [] => None
+  | [] => Some 0
   | (h', n') :: L' =>
-      match lcmp F h h' with
-      | None => None
-      | Some Eq => if k <=? n' then Some (if Nat.eqb n' k then L' else (h', n' - k) :: L') else None
-      | Some _ => match lsub h k L' with Some L'' => Some ((h', n') :: L'') | None => None end
+      match lcmp F h h', lcnt h L' with
+      | Some Eq, Some c => Some (n' + c)
+      | Some _, Some c => Some c
+      | _, _ => None
       end
   end.
 
@@ -1384,21 +1385,7 @@ Proof.
       intros Heq; rewrite Heq in Hc; exact (olabel_lt_irrefl _ Hc).
 Qed.
 
-Lemma lsub_sound h k L L' (x : radj T) : lsub F h k L = Some L' -> lifts L x = iter k (rlift (lden h)) (lifts L' x).
-Proof.
-  revert L'; induction L as [|[h' n'] L IH]; intros L'; cbn [lsub]; [discriminate|].
-  destruct (lcmp F h h') as [c|] eqn:E; [|discriminate]; assert (Hc := E).
-  apply (lcmp_sound lenv F HF) in Hc; destruct c; cbn in Hc.
-  - subst h'; destruct (Nat.leb_spec k n') as [Hk|]; [|discriminate]; intros H; injection H as <-.
-    destruct (Nat.eqb_spec n' k) as [->|Hne]; [reflexivity|].
-    rewrite !lifts_cons, <- iter_add; f_equal; lia.
-  - destruct (lsub F h k L) as [L''|] eqn:EL; [|discriminate]; intros H; injection H as <-.
-    rewrite !lifts_cons, (IH _ eq_refl), iter_rlift_comm; [reflexivity|].
-    intros Heq; rewrite Heq in Hc; exact (olabel_lt_irrefl _ Hc).
-  - destruct (lsub F h k L) as [L''|] eqn:EL; [|discriminate]; intros H; injection H as <-.
-    rewrite !lifts_cons, (IH _ eq_refl), iter_rlift_comm; [reflexivity|].
-    intros Heq; rewrite Heq in Hc; exact (olabel_lt_irrefl _ Hc).
-Qed.
+
 
 (** *** Settling *)
 
@@ -1550,6 +1537,18 @@ Proof.
     + rewrite IH; cbn [Nat.add].
       destruct (Nat.ltb_spec j (lc l L)); [cbn [cres]; rewrite shiftk_apply, El; do 2 f_equal; lia|].
       rewrite cres_compose; reflexivity.
+Qed.
+
+Lemma lcnt_sound h L c : lcnt F h L = Some c -> lc (lden h) L = c.
+Proof.
+  revert c; induction L as [|[h' n'] L IH]; intros c; cbn [lcnt lc]; [intros H; injection H as <-; reflexivity|].
+  destruct (lcmp F h h') as [cm|] eqn:E; [|discriminate].
+  destruct (lcnt F h L) as [c'|] eqn:El; [|destruct cm; discriminate].
+  pose proof (lcmp_sound lenv F HF _ _ _ E) as Hc; rewrite (IH c' eq_refl).
+  destruct cm; cbn in Hc; intros H; injection H as <-.
+  - subst h'; rewrite label_eqb_refl; reflexivity.
+  - rewrite (proj2 (label_eqb_neq _ _)); [reflexivity|]; intros Heq; rewrite Heq in Hc; exact (olabel_lt_irrefl _ Hc).
+  - rewrite (proj2 (label_eqb_neq _ _)); [reflexivity|]; intros Heq; rewrite <- Heq in Hc; exact (olabel_lt_irrefl _ Hc).
 Qed.
 
 (** *** Settling in one pass: soundness *)
@@ -2221,18 +2220,29 @@ Definition seg_tgt (F : list (lexp * lexp)) (Sg : seg) (h : lexp) (i : nat) : op
     end
   else None.
 
-(** Where a word sends a variable, from the right: past each lifted atom
-    only when the lifts pass it through; a term only from the outermost
-    segment. *)
-Fixpoint wtgt (F : list (lexp * lexp)) (w : word) (h : lexp) (i : nat) : option ntgt :=
+(** Following a variable through a word, from the right: [Some (Some t)]
+    when it reaches the target [t]; [Some None] when, with every label
+    comparison known, it reaches a lifted atom that does not pass it
+    around; [None] when a label comparison is unknown (or a term turns up
+    before the last segment, which a normal form never has). *)
+Fixpoint wtrace (F : list (lexp * lexp)) (w : word) (h : lexp) (i : nat) : option (option ntgt) :=
   match w with
-  | WEnd Sg => seg_tgt F Sg h i
+  | WEnd Sg => match seg_tgt F Sg h i with Some t => Some (Some t) | None => None end
   | WAtom Sg L a w =>
-      match wtgt F w h i with
-      | Some (NVar h' j) => match lsub F h' (S j) L with Some _ => seg_tgt F Sg h' j | None => None end
+      match wtrace F w h i with
+      | Some (Some (NVar h' j)) =>
+          match lcnt F h' L with
+          | Some c => if j <? c then match seg_tgt F Sg h' j with Some t => Some (Some t) | None => None end
+                      else Some None
+          | None => None
+          end
+      | Some None => Some None
       | _ => None
       end
   end.
+
+Definition wtgt (F : list (lexp * lexp)) (w : word) (h : lexp) (i : nat) : option ntgt :=
+  match wtrace F w h i with Some (Some t) => Some t | _ => None end.
 
 Definition apply_result (F : list (lexp * lexp)) (ntm : nat) (e : aexp) (h : lexp) (i : nat) : option (lexp * nat) :=
   match anorm F ntm e with
@@ -2270,16 +2280,26 @@ Proof.
   - reflexivity.
 Qed.
 
+Lemma wtrace_sound w h i t :
+  wtrace F w h i = Some (Some t) -> rapply (wden w) (mk_rvar (lden h) i) = rtarget_result (tden t).
+Proof.
+  revert t; induction w as [Sg|Sg L a w IH] using word_spine; intros t; cbn [wtrace].
+  - rewrite wden_end; destruct (seg_tgt F Sg h i) as [t'|] eqn:E; [|discriminate].
+    intros H; injection H as <-; apply seg_tgt_sound, E.
+  - destruct (wtrace F w h i) as [[[h1 j1|]|]|] eqn:E; try discriminate.
+    destruct (lcnt F h1 L) as [c|] eqn:EL; [|discriminate].
+    destruct (Nat.ltb_spec j1 c) as [Hj|]; [|discriminate].
+    destruct (seg_tgt F Sg h1 j1) as [t'|] eqn:Es; [|discriminate]; intros H; injection H as <-.
+    rewrite wden_atom, !rapply_compose_cres, (IH _ eq_refl); cbn [tden rtarget_result cres].
+    rewrite lifts_apply, (lcnt_sound _ _ _ EL), (proj2 (Nat.ltb_lt _ _) Hj); cbn [cres].
+    exact (seg_tgt_sound _ _ _ _ Es).
+Qed.
+
 Lemma wtgt_sound w h i t :
   wtgt F w h i = Some t -> rapply (wden w) (mk_rvar (lden h) i) = rtarget_result (tden t).
 Proof.
-  revert t; induction w as [Sg|Sg L a w IH] using word_spine; intros t; cbn [wtgt].
-  - rewrite wden_end; apply seg_tgt_sound.
-  - destruct (wtgt F w h i) as [[h1 j1|]|] eqn:E; try discriminate.
-    destruct (lsub F h1 (S j1) L) as [L0|] eqn:EL; [|discriminate]; intros H.
-    rewrite wden_atom, !rapply_compose_cres, (IH _ eq_refl); cbn [tden rtarget_result cres].
-    rewrite (lsub_sound _ _ _ _ (aden a) EL), iter_rlift_fix by lia; cbn [cres].
-    exact (seg_tgt_sound _ _ _ _ H).
+  unfold wtgt; destruct (wtrace F w h i) as [[t'|]|] eqn:E; try discriminate.
+  intros H; injection H as <-; exact (wtrace_sound _ _ _ _ E).
 Qed.
 
 Theorem apply_result_sound e h i h' j :

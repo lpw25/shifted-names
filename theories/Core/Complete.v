@@ -226,3 +226,77 @@ Proof.
     rewrite (proj1 (anorm_sound l (tenvT nt) aenv penv F HFl ntm Hnt) e2 w2 E2).
     apply Heq; assumption.
 Qed.
+
+(** ** Evaluating a variable
+
+    Theorem 4 of [docs/normal-forms.md], for evaluations whose label
+    comparisons are all known: [wtrace] reaches a target exactly when the
+    result is the same under every interpretation.  When it reaches a
+    target, the result is that target ([wtrace_sound]).  When it gets
+    stuck at an atom, the result depends on the interpretation of the
+    atoms, even with the labels fixed ([eval_stuck]). *)
+
+Section Eval.
+
+Variable lenv : list label.
+Variable F : list (lexp * lexp).
+Hypothesis HF : facts_ok lenv F.
+
+Lemma seg_tgt_free Sg h i t K :
+  seg_tgt F Sg h i = Some t -> fs lenv Sg K (mk_rvar (lden lenv h) i) = ft lenv t K.
+Proof.
+  unfold seg_tgt; destruct (sdistb F Sg); [|discriminate].
+  destruct (sfind F h Sg) as [r|] eqn:Ef; [|discriminate]; apply (sfind_sound lenv F HF) in Ef.
+  rewrite fs_get; unfold fget; cbn [v_label v_index]; rewrite <- Ef.
+  destruct r as [[ts m]|]; intros H; injection H as <-; [|reflexivity].
+  destruct (Nat.ltb_spec i (tlen ts)) as [Hi|Hi].
+  - apply ftl_lt, Hi.
+  - rewrite ftl_ge by exact Hi; reflexivity.
+Qed.
+
+Lemma wtrace_free w : forall h i K,
+  (forall t, wtrace F w h i = Some (Some t) -> fw lenv w K (mk_rvar (lden lenv h) i) = ft lenv t K)
+  /\ (wtrace F w h i = Some None -> exists a z k, fw lenv w K (mk_rvar (lden lenv h) i) = FStuck a z k).
+Proof.
+  induction w as [Sg|Sg L a w IH] using word_spine; intros h i K; cbn [wtrace fw].
+  - destruct (seg_tgt F Sg h i) as [t'|] eqn:E; [|split; discriminate].
+    split; [intros t H; injection H as <-; apply seg_tgt_free, E|discriminate].
+  - set (K' := latom lenv L a (fun y => fs lenv Sg K y)).
+    destruct (IH h i K') as [IH1 IH2].
+    destruct (wtrace F w h i) as [[[h1 j1|u wp b]|]|]; try (split; discriminate).
+    + rewrite (IH1 _ eq_refl); cbn [ft]; unfold K', latom; cbn [v_label v_index].
+      destruct (lcnt F h1 L) as [c|] eqn:EL; [|split; discriminate].
+      rewrite (lcnt_sound lenv F HF h1 L c EL).
+      destruct (Nat.ltb_spec j1 c) as [Hj|Hj].
+      * destruct (seg_tgt F Sg h1 j1) as [t'|] eqn:Es; [|split; discriminate].
+        split; [intros t H; injection H as <-; apply seg_tgt_free, Es|discriminate].
+      * split; [discriminate|intros _; eexists _, _, _; reflexivity].
+    + split; [discriminate|intros _; exact (IH2 eq_refl)].
+Qed.
+
+End Eval.
+
+Theorem eval_stuck lenv F ntm e w h i :
+  facts_ok lenv F -> anorm F ntm e = Some w -> wtrace F w h i = Some None ->
+  ~ exists t, forall (T : Type) (tenv : list T) aenv penv, ntm <= List.length tenv ->
+      rapply (aeden lenv tenv aenv penv e) (mk_rvar (lden lenv h) i) = rtarget_result (tden lenv tenv aenv penv t).
+Proof.
+  intros HF E Hs [t Ht].
+  destruct (proj2 (wtrace_free lenv F HF w h i FVar) Hs) as [a [z [k Ef]]].
+  set (nt := Nat.max ntm (wmax w)).
+  assert (Hw : wnf lenv (alabs e) false w) by exact (anorm_normal lenv (alabs e) F HF ntm e w (incl_refl _) E).
+  assert (Hok : okw lenv (tenvT nt) w) by (apply (proj2 (proj2 (proj2 (normal_ok lenv (alabs e) nt))) w false Hw); lia).
+  assert (Hnt : ntm <= List.length (tenvT nt)) by (unfold tenvT; rewrite length_map, length_seq; lia).
+  set (Λ := [v_label z]); set (N := S (v_index z)); set (na := S a).
+  set (aenv := aenvT [] Λ N na); set (penv := penvT [] 1).
+  assert (HK : forall y, realises (tenvT nt) aenv penv (FVar y) (rapply ridentity y))
+    by (intros y; cbn [realises]; apply rapply_identity).
+  pose proof (proj2 (proj2 (proj2 (fw_real lenv (tenvT nt) aenv penv))) w Hok FVar ridentity (mk_rvar (lden lenv h) i) HK) as R.
+  rewrite rcompose_identity_l, Ef in R.
+  destruct (real_stuck [] Λ N na 1 nt a z k _ ltac:(unfold na; lia) (or_introl eq_refl) ltac:(unfold N; lia) R) as [Kr [_ Er]].
+  pose proof (Ht tag (tenvT nt) aenv penv Hnt) as E2.
+  rewrite <- (proj1 (anorm_sound lenv (tenvT nt) aenv penv F HF ntm Hnt) e w E), Er in E2.
+  destruct t as [h' j|u wp b]; cbn [tden rtarget_result] in E2; [discriminate|].
+  destruct (nth_error (tenvT nt) u) as [x|] eqn:Ex; [|discriminate].
+  apply tenvT_nth in Ex; subst x; apply inr_pair in E2; destruct E2 as [E2 _]; discriminate.
+Qed.

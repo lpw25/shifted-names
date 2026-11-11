@@ -5,13 +5,14 @@ Composition is written `⨾`, in diagrammatic order: `a ⨾ b` is `a`, then
 
 ## Status
 
-Theorems 1–3 below are proved; theorem 4 and the display (step 9) are
-not done yet.
+Theorems 1–4 below are proved; the display (step 9) is not done yet.
 
 - Theorem 1: `anorm_normal` (`Core/Normal.v`).
 - Theorem 2: `nf_unique` in the free model, with `free_to_real` and
   `adequacy` (`Core/Unique.v`).
 - Theorem 3: `complete` (`Core/Complete.v`).
+- Theorem 4: `wtrace_sound` (`Core/Normalise.v`) and `eval_stuck`
+  (`Core/Complete.v`).
 
 The label order is dense with no least or greatest label (the end of a
 string sorts just above `\000`), so facts `x < y` never force two label
@@ -133,7 +134,17 @@ later one only acts on what the earlier one's tail produced:
    satisfies the facts.
 4. *Evaluation.* Evaluating a variable through a normal form succeeds
    exactly when its result does not depend on the interpretation of the
-   atoms.
+   atoms, provided every label comparison it makes is known from the
+   facts. When it reaches a target, that target is the result under every
+   interpretation; when it gets stuck at an atom, the result depends on
+   the interpretation of the atoms even with the labels fixed.
+
+   With a comparison unknown, evaluation gives up even where the result
+   is determined: the adjustment that sends `x₀` to `y₀` and leaves every
+   other `xⱼ` alone sends `z₁` to `z₁` whether or not `z` is `x`. Deciding
+   such cases would mean evaluating under every consistent choice of
+   which unknown labels are equal; instead, a fact or a case split on the
+   labels resolves them.
 
 ## Plan of the proof
 
