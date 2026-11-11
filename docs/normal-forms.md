@@ -17,8 +17,9 @@ it yet:
       ⟦ z := u⟨ y as c ⟩; x as c; x as d \ x as c; x as d ⟧ ⨾ ⟦ x; x | σ ⟧ ⨾ ⟦ x as c; x as c \ x as c ⟧
       ⟦ z := u⟨ y as d ⟩; x as c; x as d \ x as c; x as d ⟧ ⨾ ⟦ x; x | σ ⟧ ⨾ ⟦ x as c; x as c \ x as c ⟧
 
-- Of the proof, only the first lemma exists (`Core/Unique.v`): canonical
-  segments whose targets are variables are determined by their action.
+- Of the proof (`Core/Unique.v`), steps 3, 5 and 6 are done: the
+  conditions below as a predicate (`wnf`), the free model with
+  `free_to_real`, and uniqueness in the free model (`nf_unique`).
 
 ## Expressions and their meaning
 
@@ -65,9 +66,9 @@ The conditions:
    and what happens to them (renaming, merging, substituting) is in the
    segments after the atom.
 4. **Payload words are normal for what they mean.** A payload word is
-   applied to named variables only. It satisfies 1–3, except that its
-   first segment has no bound-label entry and condition 3 for its first
-   atom counts named inputs only.
+   applied to named variables only. It satisfies 1–3, and its first
+   segment has no entry for `·` and its first atom no lift by `·` (no
+   named input is passed around it as a `·` variable, by condition 3).
 
 The normal form is internal. It is chosen to be the easiest form to
 prove unique, not to be read.
@@ -172,20 +173,21 @@ whole of the rest, with no index bounds and no encoding.
    the free model are equal under every real interpretation (a relation
    between free results and real results, by induction on the word; no
    bounds).
-6. **Unique in the free model.** For words satisfying 1–4 with equal
-   free meanings, by induction on the number of atoms:
-   - a variable of a label the words do not mention is stuck at each
-     atom in turn, so the sequences of atoms agree, and the number of
+6. **Unique in the free model** (done). For words satisfying 1–4 with
+   equal free meanings, by induction on size, peeling the first atom:
+   - far enough along a label, a word sends every variable through each
+     of its atoms in turn, so the first atoms agree, and the number of
      atoms left in a continuation is determined by it;
-   - an input is passed around `σ₁` exactly when its result is not
-     "stuck at `σ₁` with a continuation of `n - 1` atoms"; by lift
-     position the passed inputs are `V₁`, so `L₁` agrees;
-   - where an input is stuck shows where `U₀` sent it, so `U₀` agrees as
-     a renaming, hence syntactically (the lemma in `Core/Unique.v`);
+   - an input is passed around `σ₁` in one word exactly when it is in
+     the other: stuck at `σ₁`, a result has a continuation with all the
+     remaining atoms, while a passed-around input that gets stuck later
+     has fewer; by lift position the passed inputs give `L₁`;
+   - where the inputs go shows `U₀` as a renaming, hence syntactically;
    - the rest of the word is determined on `V₁` by the passed inputs and
-     elsewhere by the continuation, so the rests agree by induction;
-   - the last segment's terms agree, and their payload words agree by
-     induction on payload depth, using condition 4.
+     elsewhere by the continuation of a stuck one, so the rests agree by
+     induction;
+   - with no atoms left, the segments agree entry by entry, and their
+     terms' payload words by induction, using condition 4.
 7. **Adequacy.** Words equal under every real interpretation are equal
    in the free model. For any finite set of labels and bound on indices,
    interpret each atom as sending each of those variables to a term
