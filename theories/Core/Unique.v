@@ -9,7 +9,9 @@
     - Words equal in the free model are equal under every interpretation
       ([free_to_real]).
     - Words satisfying the normal-form conditions ([wnf]) that are equal
-      in the free model are equal ([nf_unique]). *)
+      in the free model are equal ([nf_unique]).
+    - Words equal under every interpretation are equal in the free model
+      ([adequacy]). *)
 
 From Stdlib Require Import Arith List Lia Bool Sorted String.
 From ShiftedNames.Core Require Import Label Var Adjustment Laws Normalise.
@@ -932,5 +934,338 @@ Theorem nf_unique w1 w2 : wnf false w1 -> wnf false w2 ->
 Proof. intros H1 H2 Heq; apply (nf_unique_n (wsz w1) w1 w2 false (le_n _) H1 H2); intros v _; apply Heq. Qed.
 
 End Unique.
+
+(** ** Adequacy
+
+    Words equal under every interpretation are equal in the free model.
+    Free results are compared on a finite list [B] of probe variables at
+    a time ([fequ]); for each [B], the comparison only meets finitely many
+    stuck points, and an interpretation that tags exactly those reads the
+    free results back from the real ones.  Terms of the interpretation
+    are tags: a term atom, an atom applied at a variable, a payload atom.
+    An atom's result carries a payload that sends the probes to
+    themselves, so the payload of a later result records what happened to
+    them. *)
+
+Fixpoint fequ (B : list rvar) (f g : fres) : Prop :=
+  match f, g with
+  | FVar v, FVar v' => v = v'
+  | FTerm u b k, FTerm u' b' k' =>
+      u = u' /\ b = b' /\ forall y, In y B -> (b = None -> v_label y <> None) -> fequ B (k y) (k' y)
+  | FStuck a z k, FStuck a' z' k' => a = a' /\ z = z' /\ forall y, In y B -> fequ B (k y) (k' y)
+  | _, _ => False
+  end.
+
+Lemma fequ_mono B B' f : forall g, incl B B' -> fequ B' f g -> fequ B f g.
+Proof.
+  induction f as [v|u b k IH|a z k IH]; intros [v'|u' b' k'|a' z' k'] Hi; cbn [fequ]; try (intros []; fail).
+  - exact (fun H => H).
+  - intros [<- [<- H]]; repeat split; intros y Hy Hn; apply IH; [exact Hi|apply H; [apply Hi, Hy|exact Hn]].
+  - intros [<- [<- H]]; repeat split; intros y Hy; apply IH; [exact Hi|apply H, Hi, Hy].
+Qed.
+
+Lemma fequ_feq f : forall g, (forall B, fequ B f g) -> feq f g.
+Proof.
+  induction f as [v|u b k IH|a z k IH]; intros [v'|u' b' k'|a' z' k'] H; cbn [feq];
+    try (exact (H [])); try (destruct (H []) as [<- [<- _]]).
+  - repeat split; intros y Hy; apply IH; intros B'.
+    destruct (H (y :: B')) as [_ [_ Hk]].
+    apply (fequ_mono B' (y :: B')); [intros x Hx; right; exact Hx|apply Hk; [left; reflexivity|exact Hy]].
+  - repeat split; intros y; apply IH; intros B'.
+    destruct (H (y :: B')) as [_ [_ Hk]].
+    apply (fequ_mono B' (y :: B')); [intros x Hx; right; exact Hx|apply Hk; left; reflexivity].
+Qed.
+
+(** The stuck points and payload atoms a comparison on [B] meets. *)
+Fixpoint stucks (B : list rvar) (f : fres) : list (nat * rvar) :=
+  match f with
+  | FVar _ => []
+  | FTerm _ _ k => flat_map (fun y => stucks B (k y)) B
+  | FStuck a z k => (a, z) :: flat_map (fun y => stucks B (k y)) B
+  end.
+
+Fixpoint pays (B : list rvar) (f : fres) : list nat :=
+  match f with
+  | FVar _ => []
+  | FTerm _ b k => match b with Some n => [n] | None => [] end ++ flat_map (fun y => pays B (k y)) B
+  | FStuck _ _ k => flat_map (fun y => pays B (k y)) B
+  end.
+
+Inductive tag : Type := TT (u : nat) | TA (a : nat) (z : rvar) | TP (n : nat).
+
+(** Sending [l₍ᵢ₎ … l₍ᵢ₊ₙ₋₁₎] to [f i … f (i + n - 1)]. *)
+Fixpoint tagl (l : option label) (f : nat -> rtarget tag) (n i : nat) (acc : radj tag) : radj tag :=
+  match n with 0 => acc | S n => rpush_inner l (f i) (tagl l f n (S i) acc) end.
+
+Lemma tagl_apply l f n : forall i acc l' j,
+  rapply (tagl l f n i acc) (mk_rvar l' j)
+  = if label_eqb l l' && (j <? n) then rtarget_result (f (i + j))
+    else rapply acc (mk_rvar l' (if label_eqb l l' then j - n else j)).
+Proof.
+  induction n as [|n IH]; intros i acc l' j; cbn [tagl].
+  - replace (j <? 0) with false by (destruct j; reflexivity); rewrite andb_false_r.
+    destruct (label_eqb l l'); rewrite ?Nat.sub_0_r; reflexivity.
+  - rewrite rapply_push_inner; destruct (rvar_eqb_spec (mk_rvar l' j) (mk_rvar l 0)) as [E|Hne].
+    + injection E as -> ->; rewrite label_eqb_refl, Nat.add_0_r; reflexivity.
+    + unfold unshift_rvar; cbn [v_label v_index]; destruct (label_eqb_spec l l') as [<-|Hl]; cbn [andb].
+      * destruct j as [|j]; [exfalso; apply Hne; reflexivity|].
+        replace (0 <? S j) with true by reflexivity; replace (S j - 1) with j by lia.
+        rewrite IH, label_eqb_refl; cbn [andb].
+        replace (S j <? S n) with (j <? n) by reflexivity; replace (S i + j) with (i + S j) by lia; reflexivity.
+      * rewrite IH, (proj2 (label_eqb_neq _ _) Hl); reflexivity.
+Qed.
+
+Definition tagall (Λ : list (option label)) (f : rvar -> rtarget tag) (N : nat) : radj tag :=
+  fold_right (fun l acc => tagl l (fun i => f (mk_rvar l i)) N 0 acc) ridentity Λ.
+
+Lemma tagall_in Λ f N z : In (v_label z) Λ -> v_index z < N -> rapply (tagall Λ f N) z = rtarget_result (f z).
+Proof.
+  destruct z as [l j]; cbn [v_label v_index]; induction Λ as [|l0 Λ IH]; intros Hin Hj; [destruct Hin|].
+  unfold tagall; cbn [fold_right]; rewrite tagl_apply.
+  destruct (label_eqb_spec l0 l) as [<-|Hne]; cbn [andb].
+  - rewrite (proj2 (Nat.ltb_lt _ _) Hj); reflexivity.
+  - apply IH; [destruct Hin as [E|H]; [congruence|exact H]|exact Hj].
+Qed.
+
+Lemma tagall_any Λ f N z :
+  (exists w, rapply (tagall Λ f N) z = inl w) \/ (exists z', rapply (tagall Λ f N) z = rtarget_result (f z')).
+Proof.
+  revert z; induction Λ as [|l0 Λ IH]; intros [l j].
+  - left; exists (mk_rvar l j); apply rapply_identity.
+  - unfold tagall; cbn [fold_right]; rewrite tagl_apply; destruct (_ && _).
+    + right; eexists; reflexivity.
+    + apply IH.
+Qed.
+
+Lemma in_list_max x l : In x l -> x <= list_max l.
+Proof.
+  intros H; pose proof (proj1 (list_max_le l (list_max l)) (le_n _)) as F.
+  rewrite Forall_forall in F; apply F, H.
+Qed.
+
+Definition dvar : rvar := mk_rvar None 0.
+
+Lemma lbig_named : v_label (mk_rvar lbig 0) <> None.
+Proof. intros E; discriminate E. Qed.
+
+Section Tagged.
+
+(** The probes; the labels and bound of the box of tagged variables; the
+    numbers of atoms, payload atoms and term atoms. *)
+Variable B : list rvar.
+Variable Λ : list (option label).
+Variables N na np nt : nat.
+
+Definition PB : radj tag := tagl lbig (fun i => RRename (nth i B dvar)) (List.length B) 0 ridentity.
+Definition rhoB : rpadj tag := rpcompose PB rpidentity.
+Definition atomT (a : nat) : radj tag := tagall Λ (fun z => RBind (TA a z) rhoB) N.
+Definition payT (n : nat) : rpadj tag := rpcompose (rpush_inner lbig (RBind (TP n) rpidentity) PB) rpidentity.
+Definition tenvT : list tag := map TT (seq 0 nt).
+Definition aenvT : list (radj tag) := map atomT (seq 0 na).
+Definition penvT : list (rpadj tag) := map payT (seq 0 np).
+
+Local Notation realT := (realises tenvT aenvT penvT).
+
+Lemma PB_apply i : i < List.length B -> rapply PB (mk_rvar lbig i) = inl (nth i B dvar).
+Proof. intros Hi; unfold PB; rewrite tagl_apply, label_eqb_refl, (proj2 (Nat.ltb_lt _ _) Hi); reflexivity. Qed.
+
+Lemma rp_named (K : radj tag) y : v_label y <> None -> rpapply (rpcompose K rpidentity) y = rapply K y.
+Proof. intros Hy; rewrite rpapply_pcompose, rpapply_identity by exact Hy; reflexivity. Qed.
+
+Lemma payT_0 n : rpapply (payT n) (mk_rvar lbig 0) = inr (TP n, rpidentity).
+Proof. unfold payT; rewrite rp_named by exact lbig_named; rewrite rapply_push_inner, rvar_eqb_refl; reflexivity. Qed.
+
+Lemma payT_S n i : i < List.length B -> rpapply (payT n) (mk_rvar lbig (S i)) = inl (nth i B dvar).
+Proof.
+  intros Hi; unfold payT; rewrite rp_named by exact lbig_named; rewrite rapply_push_inner.
+  destruct (rvar_eqb_spec (mk_rvar lbig (S i)) (mk_rvar lbig 0)) as [E|_]; [discriminate E|].
+  replace (unshift_rvar (mk_rvar lbig 0) (mk_rvar lbig (S i))) with (mk_rvar lbig i)
+    by (unfold unshift_rvar; cbn [v_label v_index]; rewrite label_eqb_refl; cbn; f_equal; lia).
+  apply PB_apply, Hi.
+Qed.
+
+Lemma tenvT_nth u x : nth_error tenvT u = Some x -> x = TT u.
+Proof.
+  unfold tenvT; rewrite nth_error_map; destruct (nth_error (seq 0 nt) u) as [n|] eqn:E; [|discriminate].
+  intros H; injection H as <-; f_equal.
+  assert (Hu : u < nt) by (rewrite <- (length_seq nt 0); apply nth_error_Some; rewrite E; discriminate).
+  apply (nth_error_nth _ _ 0) in E; rewrite seq_nth in E by exact Hu; lia.
+Qed.
+
+Lemma aden_lt a : a < na -> aden aenvT a = atomT a.
+Proof.
+  intros Ha; unfold aden, aenvT; rewrite (nth_indep _ ridentity (atomT 0)) by (rewrite length_map, length_seq; exact Ha).
+  rewrite map_nth, seq_nth by exact Ha; reflexivity.
+Qed.
+
+Lemma aden_ge a : na <= a -> aden aenvT a = ridentity.
+Proof. intros Ha; unfold aden, aenvT; apply nth_overflow; rewrite length_map, length_seq; exact Ha. Qed.
+
+Lemma bden_lt n : n < np -> bden penvT (Some n) = payT n.
+Proof.
+  intros Hn; cbn [bden]; unfold penvT; rewrite (nth_indep _ rpidentity (payT 0)) by (rewrite length_map, length_seq; exact Hn).
+  rewrite map_nth, seq_nth by exact Hn; reflexivity.
+Qed.
+
+Lemma aden_any a z :
+  (exists w, rapply (aden aenvT a) z = inl w) \/ (exists z', rapply (aden aenvT a) z = inr (TA a z', rhoB)).
+Proof.
+  destruct (Nat.ltb_spec a na) as [Ha|Ha].
+  - rewrite aden_lt by exact Ha; unfold atomT; destruct (tagall_any Λ (fun z => RBind (TA a z) rhoB) N z) as [H|[z' H]];
+      [left; exact H|right; exists z'; exact H].
+  - left; exists z; rewrite aden_ge by exact Ha; apply rapply_identity.
+Qed.
+
+Lemma stuck_apply a z : a < na -> In (v_label z) Λ -> v_index z < N -> rapply (aden aenvT a) z = inr (TA a z, rhoB).
+Proof. intros Ha Hl Hi; rewrite aden_lt by exact Ha; unfold atomT; rewrite tagall_in by assumption; reflexivity. Qed.
+
+(** A realised result is never a payload atom's term. *)
+Lemma notTP f : forall r, realT f r -> forall n ρ, r <> inr (TP n, ρ).
+Proof.
+  induction f as [v|u b k IH|a z k IH]; intros r Hr n ρ E; cbn [realises] in Hr.
+  - subst r; discriminate E.
+  - destruct b; destruct Hr as [Kr [x [Ex [_ ->]]]]; apply tenvT_nth in Ex; subst x; discriminate E.
+  - destruct Hr as [Kr [Hk ->]]; destruct (aden_any a z) as [[w Ew]|[z' Ew]]; rewrite Ew in E; cbn [cres] in E.
+    + exact (IH w _ (Hk w) n ρ E).
+    + discriminate E.
+Qed.
+
+Lemma real_term u b k r : realT (FTerm u b k) r ->
+  exists Kr, (forall y, (b = None -> v_label y <> None) -> realT (k y) (rapply Kr y))
+             /\ r = inr (TT u, rpcompose Kr (bden penvT b)).
+Proof.
+  destruct b as [n|]; cbn [realises]; intros [Kr [x [Ex [Hk ->]]]]; apply tenvT_nth in Ex; subst x;
+    exists Kr; (split; [|reflexivity]).
+  - intros y _; apply Hk.
+  - intros y Hy; apply Hk, Hy; reflexivity.
+Qed.
+
+Lemma real_stuck a z k r : a < na -> In (v_label z) Λ -> v_index z < N -> realT (FStuck a z k) r ->
+  exists Kr, (forall y, realT (k y) (rapply Kr y)) /\ r = inr (TA a z, rpcompose Kr rhoB).
+Proof.
+  intros Ha Hl Hi; cbn [realises]; intros [Kr [Hk ->]]; exists Kr; split; [exact Hk|].
+  rewrite stuck_apply by assumption; reflexivity.
+Qed.
+
+Definition decode (r : rresult tag) : option nat := match r with inr (TP n, _) => Some n | _ => None end.
+
+Lemma pay_decode K b : (forall n, b = Some n -> n < np) ->
+  (b = None -> forall n ρ, rapply K (mk_rvar lbig 0) <> inr (TP n, ρ)) ->
+  decode (rpapply (rpcompose K (bden penvT b)) (mk_rvar lbig 0)) = b.
+Proof.
+  intros Hn Hp; destruct b as [n|].
+  - rewrite bden_lt by (apply Hn; reflexivity); rewrite rpapply_pcompose by exact lbig_named; rewrite payT_0; reflexivity.
+  - cbn [bden]; rewrite rp_named by exact lbig_named.
+    destruct (rapply K (mk_rvar lbig 0)) as [w|[[u|a z|n] ρ]] eqn:E; try reflexivity.
+    exfalso; exact (Hp eq_refl n ρ eq_refl).
+Qed.
+
+Lemma pay_read b y : In y B -> (b = None -> v_label y <> None) -> (forall n, b = Some n -> n < np) ->
+  exists v, forall K : radj tag, rpapply (rpcompose K (bden penvT b)) v = rapply K y.
+Proof.
+  intros Hy Hnm Hn; destruct b as [n|].
+  - destruct (In_nth B y dvar Hy) as [i [Hi <-]]; exists (mk_rvar lbig (S i)); intros K.
+    rewrite bden_lt by (apply Hn; reflexivity); rewrite rpapply_pcompose by (intros E; discriminate E).
+    rewrite payT_S by exact Hi; reflexivity.
+  - exists y; intros K; apply rp_named, Hnm; reflexivity.
+Qed.
+
+Lemma rho_read y : In y B -> exists v, forall K : radj tag, rpapply (rpcompose K rhoB) v = rapply K y.
+Proof.
+  intros Hy; destruct (In_nth B y dvar Hy) as [i [Hi <-]]; exists (mk_rvar lbig i); intros K.
+  rewrite rpapply_pcompose by (intros E; discriminate E); unfold rhoB; rewrite rp_named by (intros E; discriminate E).
+  rewrite PB_apply by exact Hi; reflexivity.
+Qed.
+
+Definition boxok (Z : list (nat * rvar)) : Prop :=
+  forall p, In p Z -> fst p < na /\ In (v_label (snd p)) Λ /\ v_index (snd p) < N.
+
+Definition payok (P : list nat) : Prop := forall n, In n P -> n < np.
+
+Lemma boxok_sub B' (k : rvar -> fres) y : In y B -> boxok (flat_map (fun y => stucks B' (k y)) B) -> boxok (stucks B' (k y)).
+Proof. intros Hy H p Hp; apply H, in_flat_map; exists y; split; assumption. Qed.
+
+Lemma payok_sub B' (k : rvar -> fres) y : In y B -> payok (flat_map (fun y => pays B' (k y)) B) -> payok (pays B' (k y)).
+Proof. intros Hy H n Hn; apply H, in_flat_map; exists y; split; assumption. Qed.
+
+Lemma inr_pair {A X Y : Type} (x x' : X) (y y' : Y) : @inr A _ (x, y) = inr (x', y') -> x = x' /\ y = y'.
+Proof. intros H; injection H as -> ->; split; reflexivity. Qed.
+
+(** Reading free results back from real ones. *)
+Theorem readback f : forall g r, realT f r -> realT g r ->
+  boxok (stucks B f) -> boxok (stucks B g) -> payok (pays B f) -> payok (pays B g) -> fequ B f g.
+Proof.
+  induction f as [v|u b k IH|a z k IH]; intros [v'|u' b' k'|a' z' k'] r Hf Hg Sf Sg Pf Pg; cbn [fequ].
+  - cbn [realises] in Hf, Hg; rewrite Hf in Hg; injection Hg as ->; reflexivity.
+  - cbn [realises] in Hf; destruct (real_term _ _ _ _ Hg) as [K [_ E]]; rewrite Hf in E; discriminate E.
+  - cbn [realises] in Hf; destruct (Sg _ (or_introl eq_refl)) as [Ha [Hl Hi]].
+    destruct (real_stuck _ _ _ _ Ha Hl Hi Hg) as [K [_ E]]; rewrite Hf in E; discriminate E.
+  - cbn [realises] in Hg; destruct (real_term _ _ _ _ Hf) as [K [_ E]]; rewrite Hg in E; discriminate E.
+  - destruct (real_term _ _ _ _ Hf) as [K1 [Hk1 E1]]; destruct (real_term _ _ _ _ Hg) as [K2 [Hk2 E2]].
+    rewrite E1 in E2; apply inr_pair in E2; destruct E2 as [E2 Eρ]; injection E2 as <-.
+    cbn [pays] in Pf, Pg; cbn [stucks] in Sf, Sg.
+    assert (Hn1 : forall n, b = Some n -> n < np) by (intros n ->; apply Pf; left; reflexivity).
+    assert (Hn2 : forall n, b' = Some n -> n < np) by (intros n ->; apply Pg; left; reflexivity).
+    assert (Eb : b = b').
+    { rewrite <- (pay_decode K1 b Hn1), Eρ, (pay_decode K2 b' Hn2); [reflexivity| |];
+        intros -> n ρ; [apply (notTP _ _ (Hk2 _ (fun _ => lbig_named)))|apply (notTP _ _ (Hk1 _ (fun _ => lbig_named)))]. }
+    subst b'; repeat split; intros y Hy Hnm.
+    destruct (pay_read b y Hy Hnm Hn1) as [v Ev].
+    assert (EK : rapply K1 y = rapply K2 y) by (rewrite <- !Ev, Eρ; reflexivity).
+    apply (IH y (k' y) (rapply K1 y) (Hk1 y Hnm)); [rewrite EK; exact (Hk2 y Hnm)| | | |].
+    + apply (boxok_sub B k y Hy); intros p Hp; apply Sf; exact Hp.
+    + apply (boxok_sub B k' y Hy); intros p Hp; apply Sg; exact Hp.
+    + apply (payok_sub B k y Hy); intros n Hn; apply Pf, in_or_app; right; exact Hn.
+    + apply (payok_sub B k' y Hy); intros n Hn; apply Pg, in_or_app; right; exact Hn.
+  - destruct (real_term _ _ _ _ Hf) as [K [_ E]]; destruct (Sg _ (or_introl eq_refl)) as [Ha [Hl Hi]].
+    destruct (real_stuck _ _ _ _ Ha Hl Hi Hg) as [K' [_ E']]; rewrite E in E'; discriminate E'.
+  - cbn [realises] in Hg; destruct (Sf _ (or_introl eq_refl)) as [Ha [Hl Hi]].
+    destruct (real_stuck _ _ _ _ Ha Hl Hi Hf) as [K [_ E]]; rewrite Hg in E; discriminate E.
+  - destruct (real_term _ _ _ _ Hg) as [K [_ E]]; destruct (Sf _ (or_introl eq_refl)) as [Ha [Hl Hi]].
+    destruct (real_stuck _ _ _ _ Ha Hl Hi Hf) as [K' [_ E']]; rewrite E in E'; discriminate E'.
+  - destruct (Sf _ (or_introl eq_refl)) as [Ha [Hl Hi]]; destruct (Sg _ (or_introl eq_refl)) as [Ha' [Hl' Hi']].
+    destruct (real_stuck _ _ _ _ Ha Hl Hi Hf) as [K1 [Hk1 E1]]; destruct (real_stuck _ _ _ _ Ha' Hl' Hi' Hg) as [K2 [Hk2 E2]].
+    rewrite E1 in E2; apply inr_pair in E2; destruct E2 as [E2 Eρ]; injection E2 as <- <-.
+    cbn [pays] in Pf, Pg; cbn [stucks] in Sf, Sg.
+    repeat split; intros y Hy.
+    destruct (rho_read y Hy) as [v Ev].
+    assert (EK : rapply K1 y = rapply K2 y) by (rewrite <- !Ev, Eρ; reflexivity).
+    apply (IH y (k' y) (rapply K1 y) (Hk1 y)); [rewrite EK; exact (Hk2 y)| | | |].
+    + apply (boxok_sub B k y Hy); intros p Hp; apply Sf; right; exact Hp.
+    + apply (boxok_sub B k' y Hy); intros p Hp; apply Sg; right; exact Hp.
+    + apply (payok_sub B k y Hy); exact Pf.
+    + apply (payok_sub B k' y Hy); exact Pg.
+Qed.
+
+End Tagged.
+
+Theorem adequacy nt w1 w2 : okw (tenvT nt) w1 -> okw (tenvT nt) w2 ->
+  (forall aenv penv, wden lenv (tenvT nt) aenv penv w1 = wden lenv (tenvT nt) aenv penv w2) ->
+  forall v, feq (fw w1 FVar v) (fw w2 FVar v).
+Proof.
+  intros H1 H2 Heq v; apply fequ_feq; intros B.
+  set (f1 := fw w1 FVar v); set (f2 := fw w2 FVar v).
+  set (Z := stucks B f1 ++ stucks B f2); set (P := pays B f1 ++ pays B f2).
+  set (Λ := map (fun p => v_label (snd p)) Z).
+  set (N := S (list_max (map (fun p => v_index (snd p)) Z))).
+  set (na := S (list_max (map fst Z))); set (np := S (list_max P)).
+  set (aenv := aenvT B Λ N na); set (penv := penvT B np).
+  assert (HK : forall y, realises (tenvT nt) aenv penv (FVar y) (rapply ridentity y))
+    by (intros y; cbn [realises]; apply rapply_identity).
+  pose proof (proj2 (proj2 (proj2 (fw_real (tenvT nt) aenv penv))) w1 H1 FVar ridentity v HK) as R1.
+  pose proof (proj2 (proj2 (proj2 (fw_real (tenvT nt) aenv penv))) w2 H2 FVar ridentity v HK) as R2.
+  rewrite rcompose_identity_l in R1, R2; rewrite (Heq aenv penv) in R1.
+  assert (HZ : boxok Λ N na Z).
+  { intros p Hp; split; [|split].
+    - apply Nat.lt_succ_r, in_list_max, in_map, Hp.
+    - apply (in_map (fun p => v_label (snd p))), Hp.
+    - apply Nat.lt_succ_r, in_list_max, (in_map (fun p => v_index (snd p))), Hp. }
+  assert (HP : payok np P) by (intros n Hn; apply Nat.lt_succ_r, in_list_max, Hn).
+  apply (readback B Λ N na np nt f1 f2 _ R1 R2).
+  - intros p Hp; apply HZ, in_or_app; left; exact Hp.
+  - intros p Hp; apply HZ, in_or_app; right; exact Hp.
+  - intros n Hn; apply HP, in_or_app; left; exact Hn.
+  - intros n Hn; apply HP, in_or_app; right; exact Hn.
+Qed.
 
 End Free.

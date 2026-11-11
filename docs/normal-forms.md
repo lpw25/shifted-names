@@ -17,9 +17,10 @@ it yet:
       ⟦ z := u⟨ y as c ⟩; x as c; x as d \ x as c; x as d ⟧ ⨾ ⟦ x; x | σ ⟧ ⨾ ⟦ x as c; x as c \ x as c ⟧
       ⟦ z := u⟨ y as d ⟩; x as c; x as d \ x as c; x as d ⟧ ⨾ ⟦ x; x | σ ⟧ ⨾ ⟦ x as c; x as c \ x as c ⟧
 
-- Of the proof (`Core/Unique.v`), steps 3, 5 and 6 are done: the
+- Of the proof (`Core/Unique.v`), steps 3, 5, 6 and 7 are done: the
   conditions below as a predicate (`wnf`), the free model with
-  `free_to_real`, and uniqueness in the free model (`nf_unique`).
+  `free_to_real`, uniqueness in the free model (`nf_unique`), and
+  adequacy (`adequacy`).
 
 ## Expressions and their meaning
 
@@ -188,16 +189,18 @@ whole of the rest, with no index bounds and no encoding.
      induction;
    - with no atoms left, the segments agree entry by entry, and their
      terms' payload words by induction, using condition 4.
-7. **Adequacy.** Words equal under every real interpretation are equal
-   in the free model. For any finite set of labels and bound on indices,
-   interpret each atom as sending each of those variables to a term
-   tagged with the atom and the variable, whose payload adjustment sends
-   some names to the bound variables, so that the payload of a result
-   records the continuation on bound variables as well as names. Reading
-   real results back gives the free results on those variables; free
-   results that agree on every such finite part are equal. This is the
-   only step with index bounds, and it does not depend on conditions
-   1–4.
+7. **Adequacy** (done). Words equal under every real interpretation
+   are equal in the free model. Free results are compared on a finite
+   list of probe variables at a time; free results that agree on every
+   such list are equal. A comparison on a list meets finitely many stuck
+   points, and an interpretation is chosen that tags exactly those:
+   terms are tags (a term atom, an atom applied at a variable, a
+   payload atom), an atom sends each stuck point to its tag with a
+   payload that sends some names to the probes, and a payload atom
+   sends a name to its tag and further names to the probes. Since
+   whatever happens afterwards is composed into these payloads, the
+   real results read back the free ones on the probes. This does not
+   depend on conditions 1–4.
 8. **Complete and evaluation** (theorems 3 and 4), from 4, 6 and 7 and
    the soundness of the normaliser. For evaluation: it fails exactly
    when the free result is stuck, and a stuck result changes with the
