@@ -138,6 +138,23 @@ Definition bouter (d w : nat) (h : lexp) (G : list lexp) (g : lexp)
   if is_bound g then Some K3
   else cons_lifted d (obind (obind (obind (close_seg g) (glifts G)) (slifts w)) (slift F ntm h)) K3))).
 
+(** The variable that a target without terms stands for. *)
+Fixpoint tvar (t : texp) : option (lexp * nat) :=
+  match t with
+  | TVarE g i => Some (g, i)
+  | TBindE _ _ => None
+  | TShiftE h t' =>
+      match tvar t' with
+      | Some (g, i) =>
+          match lcmp F h g with
+          | Some Eq => Some (g, S i)
+          | Some _ => Some (g, i)
+          | None => None
+          end
+      | None => None
+      end
+  end.
+
 (** [fold d e K]: [e] under [d] lifts by the bound label, then [K].
     [centry d G h t K]: the entry of [h] with target [t], under the
     lifts [G] and [d] lifts by the bound label, then [K].
@@ -165,7 +182,11 @@ with centry (d : nat) (G : list lexp) (h : lexp) (t : texp) (K : lword) {struct 
   match t with
   | TVarE g i => cons_lifted d (obind (entry h (NVar g i)) (glifts G)) K
   | TBindE u p => if u <? ntm then under G d (fun d' K' => cterm d' 0 h u p K') K else None
-  | TShiftE _ _ => None
+  | TShiftE _ _ =>
+      match tvar t with
+      | Some (g, i) => cons_lifted d (obind (entry h (NVar g i)) (glifts G)) K
+      | None => None
+      end
   end
 with cterm (d w : nat) (h : lexp) (u : nat) (p : pexp) (K : lword) {struct p} : option lword :=
   match p with
@@ -222,6 +243,14 @@ Lemma fold_lift d h a K :
 Proof. reflexivity. Qed.
 Lemma centry_var d G h g i K : centry d G h (TVarE g i) K = cons_lifted d (obind (entry h (NVar g i)) (glifts G)) K.
 Proof. reflexivity. Qed.
+Lemma centry_shift d G h g t K :
+  centry d G h (TShiftE g t) K
+  = match tvar (TShiftE g t) with
+    | Some (g', i) => cons_lifted d (obind (entry h (NVar g' i)) (glifts G)) K
+    | None => None
+    end.
+Proof. reflexivity. Qed.
+
 Lemma centry_bind d G h u p K :
   centry d G h (TBindE u p) K = if u <? ntm then under G d (fun d' K' => cterm d' 0 h u p K') K else None.
 Proof. reflexivity. Qed.
@@ -664,6 +693,25 @@ Proof.
   rewrite shiftk_apply, rapply_identity; destruct l as [l|]; [|contradiction]; cbn; rewrite Nat.add_0_r; reflexivity.
 Qed.
 
+Lemma tvar_sound t g i :
+  tvar F t = Some (g, i) -> Normalise.teden lenv tenv aenv penv t = RRename (mk_rvar (lden g) i).
+Proof.
+  revert g i; induction t as [g0 i0|u p|h t IH]; intros g i H; cbn [tvar] in H.
+  - injection H as <- <-; reflexivity.
+  - discriminate H.
+  - destruct (tvar F t) as [[g1 i1]|]; [|discriminate H].
+    cbn [Normalise.teden]; rewrite (IH _ _ eq_refl).
+    destruct (lcmp F h g1) as [c|] eqn:Ec; [|discriminate H].
+    unfold shift_rvar; cbn [v_label v_index].
+    destruct c.
+    + injection H as <- <-; pose proof (lcmp_sound lenv F HF _ _ _ Ec) as E; cbn in E; rewrite E, label_eqb_refl.
+      reflexivity.
+    + injection H as <- <-; pose proof (lcmp_neq lenv F HF _ _ _ Ec ltac:(discriminate)) as E.
+      destruct (label_eqb (lden h) (lden g1)) eqn:El; [apply label_eqb_eq in El; contradiction|reflexivity].
+    + injection H as <- <-; pose proof (lcmp_neq lenv F HF _ _ _ Ec ltac:(discriminate)) as E.
+      destruct (label_eqb (lden h) (lden g1)) eqn:El; [apply label_eqb_eq in El; contradiction|reflexivity].
+Qed.
+
 Theorem sound :
   (forall e,
      (forall d K K', lwdist K -> fold F ntm d e K = Some K' ->
@@ -757,7 +805,10 @@ Proof.
     refine (under_sound G HG d _ _ K K' _ HK H); intros d' K0 K1 HK0 H0.
     destruct (IHp d' h u y Ey 0 K0 K1 HK0 H0) as [A B]; split; [exact A|].
     rewrite B; change (shiftk None 0) with (@ridentity T); rewrite rpcompose_identity; reflexivity.
-  - (* TShiftE *) intros g t _ d G h K K' _ _ H; discriminate H.
+  - (* TShiftE *) intros g t _ d G h K K' HG HK H; rewrite centry_shift in H.
+    destruct (tvar F (TShiftE g t)) as [[g' i]|] eqn:Ev; [|discriminate H].
+    rewrite (tvar_sound _ _ _ Ev).
+    exact (cons_lifted_sound d _ _ K K' (sok_glifts G _ _ (sok_entry h (NVar g' i) I)) HK H).
   - (* PId *) intros d h u y Ey w K K' HK H; rewrite cterm_id in H.
     destruct (cons_lifted_sound d _ _ K K' (sok_entry h (NBind u (WEnd SNil) None) I) HK H) as [A B]; split; [exact A|].
     rewrite B; cbn [Normalise.tden Normalise.peden]; rewrite Ey.
