@@ -562,8 +562,31 @@ choice, and the rule for it has to survive composition:
 - With this order, writing two words side by side and composing at the
   seam gives the canonical form for 92 percent of random pairs. The
   rest involve atoms under lifts.
-- Since compositions are re-nested, the normaliser needs one operation
-  on layered words: putting one step in front of a word.
+- The normaliser needs one operation on layered words: putting one
+  step in front of a word. It folds over the expression from its last
+  step, whatever the nesting.
+
+`Core/Layered.v` is this normaliser, built with its proofs. So far:
+
+- A layered word is a list of segments and atoms; its meaning is their
+  composition, so a term in a segment has the rest of the word after
+  its payload.
+- A lift is a close before and an open after, with the steps between
+  one level deeper under the bound label (`lift_close_open`).
+- A term whose payload goes on with further steps is put in front of
+  those steps, which stay in the word, and everything else goes around
+  them: an input entry is undone by a weakening before it, and the
+  variable an output entry creates is carried past it as a bound
+  variable (`bypass_step`).
+- `lnorm_sound`: the layered word of an expression means what the
+  expression means. Not covered yet: an atom, or a lift by the bound
+  label, inside a payload; shifted targets.
+
+What it returns is not yet canonical. Still to do, in this order: the
+predicate (terms with the same payload in one segment, the order above,
+bound variables ordered by where they are used, nothing dead), that the
+fold keeps it, and that two words satisfying it with the same meaning
+are the same; then `names` moves over and the stored form goes.
 
 Since chains are normalised from the last step, the stored form is
 quadratic in space on a chain and nothing worse: 250 substitutions in
