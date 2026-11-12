@@ -132,9 +132,8 @@ adjustment has atoms) is left as it is.
 
 Every comparison between labels goes through `lcmp`, which knows concrete
 labels, the bound label (the greatest), and the context's facts closed
-under transitivity. Soundness is proved. Uniqueness of normal forms is
-not proved; `tests/fuzz` searches for expressions that agree under many
-interpretations of their atoms but normalise differently.
+under transitivity. Soundness and uniqueness of normal forms are proved
+(`docs/normal-forms.md`).
 
 ## Representation
 

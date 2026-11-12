@@ -24,6 +24,7 @@ theories/Core/Normal.v
 theories/Core/Complete.v
 theories/Core/Shared.v
 theories/Core/Eval.v
+theories/Core/Layers.v
 theories/Core/Names.v
 theories/Core/Context.v
 theories/Core/Syntax.v
@@ -33,3 +34,4 @@ theories/Examples/STLC.v
 theories/Extraction/Extraction.v
 theories/Tests/CoreTests.v
 theories/Tests/NamesTests.v
+theories/Tests/LayersTests.v

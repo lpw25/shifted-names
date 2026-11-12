@@ -324,8 +324,143 @@ Steps (all done):
    compared as atoms of one table. Display (`anorm_show`) unfolds on
    demand, and only when the tree has at most `show_budget` nodes.
 
-Open: what `names` should show for a normal form whose tree is large.
-It now leaves the adjustment as written, which for a chain of
-substitutions is the readable form anyway; a display that keeps the
-sharing (naming payloads, or leaving later steps composed) would let it
-simplify inside such adjustments too.
+## Layered form (proposed)
+
+The stored form writes each payload once, but a payload still lists
+everything that happens to its term's names: a chain of `n`
+substitutions takes `n²` space, and as a tree `2ⁿ`. The layered form
+writes a term once, where it enters, and leaves to the rest of the word
+whatever the rest does anyway. It is meant to replace the normal form;
+for now it is a function of the stored form (`Core/Layers.v`), used to
+test the rule.
+
+### Two facts
+
+Checked with `names_eq`:
+
+    ⟦ x := u ⟧  =  ⟦ x \ · ⟧ ⨾ ⟦ · := u ⟧
+    ⟦ x := u; y := v ⟧  =  ⟦ x; y \ ·; · ⟧ ⨾ ⟦ · := u ⟧ ⨾ ⟦ · := v ⟧
+
+A named substitution is a renaming to a bound variable followed by an
+*instantiation* of that bound variable, and an instantiation touches
+only the bound label, which the names of a term never see. So which
+term sees what is decided by the renamings between instantiations
+alone, and renamings compose without growing. Without atoms no payload
+needs to contain a term: a term's payload is what the renamings after
+it do to its names, with bound variables standing for the terms
+instantiated later.
+
+### The order is not forced
+
+Where one term's payload mentions another, the first must come first.
+Otherwise either order works. Both of these are
+`⟦ a := u⟨ x := p ⟩; b := v⟨ x := q ⟩ ⟧`:
+
+    ⟦ a; b \ ·; ·; x as w ⟧ ⨾ ⟦ · := u ⟧ ⨾ ⟦ x as c; · as d \ · as d; · as c; x as e ⟧
+      ⨾ ⟦ · := v ⟧ ⨾ ⟦ x := q ⟧ ⨾ ⟦ · := p ⟧
+
+and the same with `u`, `p` and `v`, `q` exchanged. So terms that do
+not depend on each other are put in one layer, each with a renaming
+payload saying how it differs from the rest:
+
+    ⟦ a := u⟨ x as c ⟩; b := v⟨ x as d ⟩ \ · as c; · as d ⟧ ⨾ ⟦ · := p; · := q ⟧
+
+### The form
+
+A *party* is the adjustment itself (the root) or a term occurring in
+it with its payload; two occurrences of a term with the same payload
+are one party. The *height* of a term is 0 if its payload mentions no
+term, and otherwise one more than the greatest height of a term it
+mentions; the root is above every term.
+
+The word is built from its end. At each point there is the rest `W`
+built so far, and each party not yet placed has a *remainder* `K`: its
+payload is `K ⨾ W`. Repeat:
+
+1. **Share.** Whatever every remaining party has at the end of its
+   remainder moves into the rest: an entry of a label (the outermost
+   entries they all have, so the common suffix of their entry lists),
+   or a lifted atom. A reference to a term already instantiated is a
+   bound variable. Pure renamings shared this way compose with the
+   step next to them.
+2. **Instantiate.** Every remaining term whose remainder mentions no
+   term is instantiated now, in one layer, with that remainder as its
+   payload. A payload therefore contains renamings and atoms, never a
+   term. These are exactly the terms of the next height.
+
+The root's remainder is the first step of the word.
+
+Choices, each made the same way everywhere:
+
+- A term's reference in a payload or in the rest is a name if the rest
+  sends a name there, and a bound variable otherwise; leaving a name
+  alone comes first.
+- A bound variable for a term exists from the first step that refers
+  to it that way until its layer. Bound variables are ordered by
+  height, the next layer innermost, and within a height by first
+  occurrence from the root.
+- A label is shared only if every remaining party has an entry for it:
+  a party that does not mention a label may not know how it compares
+  to that party's own labels.
+
+What it gives:
+
+- A chain of substitutions is one layer per step with identity
+  payloads, each layer a single `⟦ x := u ⟧`: size `n`.
+- Composing two layered words is concatenation and composing the
+  renamings at the seam, when every term on the left sees the right.
+  A term on the left that is shielded from the right keeps its height
+  and moves to a later layer.
+- It is what `names` would show: no unfolding and no `let`.
+
+### Atoms
+
+A term before an atom stays there: in `⟦ x := u ⟧ ⨾ σ` every party
+above ends with `σ`, so `σ` is shared and `u` has the identity
+payload. The stored form instead carries `u` past the atom, as
+`⟦ x | σ ⟧ ⨾ ⟦ x := u⟨σ⟩ ⟧`. Read from the stored form, a party in
+which a variable is passed around the atom to a remaining term has the
+atom if that term has it; the lift over that variable goes when the
+atom is shared.
+
+An atom that only some parties have stays in their payloads:
+`⟦ h := u⟨τ⟩ | σ ⟧` keeps `τ` as `u`'s payload. Around a shared atom
+the conditions on lifts (3 and 4 above) apply to the renamings as they
+do now.
+
+### Status and what is open
+
+`Core/Layers.v` computes the layered form of a stored word, as an
+expression, and `layers_check` normalises it again and compares
+(`Tests/LayersTests.v`, and `tests/fuzz/run.sh` for random
+expressions). It shares entries of labels; atoms are not shared yet
+and stay in payloads as in the stored form.
+
+Found so far:
+
+- On some 4000 random expressions the layered form always exists and
+  always normalises to the stored word it came from.
+- A chain of `n` substitutions is `12n − 1` expression nodes, where
+  the stored form is about `1.5n²`: 383 against 1616 at 32 steps. A
+  renaming after the chain is shared and changes nothing.
+- On small random expressions the layered form is about a third larger
+  than the stored form: a renaming and the instantiations after it are
+  separate steps here, and a normal form would write them as one where
+  no term is repeated.
+- Sharing a label needs an order the stored form did not: the root or
+  a payload may send a name to a variable of another label, and
+  whether the shared step moves that variable depends on how the two
+  labels compare. Where that is unknown the prototype shares nothing
+  (about one in a hundred random expressions over partly ordered label
+  variables). The normal form needs a rule here: share what is known
+  to be safe, or ask for the order.
+- A payload over an opaque payload atom, or with atoms, can have an
+  entry for the bound label, which has to step over the bound
+  variables in use at its layer.
+
+A function of a canonical form is canonical, so for the prototype the
+tie-breaks only need to be deterministic. To make this the normal
+form: sharing atoms; the conditions as a predicate; uniqueness, by
+induction on height from the last layer; the operations on layered
+words directly (composition at the seam, and a term on the left that
+does not see the right); and the cost of that last case.
