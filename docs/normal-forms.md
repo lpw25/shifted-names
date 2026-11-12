@@ -16,11 +16,14 @@ end of the plan.
 - Theorem 4: `wtrace_sound` (`Core/Normalise.v`) and `eval_stuck`
   (`Core/Complete.v`).
 
-`names` decides equations with the shared form of the last section
+`names` works on the shared form of the last section
 (`Core/Shared.v`): the decision is sound (`nf_eq_sh_sound`) and complete
 (`complete_sh`), and a chain of sixteen substitutions is decided in
-well under a second. Display and evaluation still use the tree
-normaliser (step 4 of that section).
+well under a second. Evaluating a variable and showing a normal form
+read the stored word too (`Core/Eval.v`); a normal form whose tree is
+large is not shown, and `names` leaves that adjustment as written.
+Materialising payloads still uses the tree normaliser (step 4 of that
+section).
 
 The label order is dense with no least or greatest label (the end of a
 string sorts just above `\000`), so facts `x < y` never force two label
@@ -310,6 +313,9 @@ Steps (1–3 done):
    identity definitions, flat words with the same unfolding are the
    same (`unfold_inj`); hence completeness for the shared decision
    (`complete_sh`).
-4. Display, evaluation and materialisation from the stored form
-   (unfolding only when the result is small), and the tree normaliser
-   goes.
+4. Display, evaluation and materialisation from the stored form, and
+   the tree normaliser goes. Done for evaluation (`apply_result_s`,
+   `apply_bind_check_s`: no unfolding, a variable is the same in the
+   stored word, and payloads are compared as atoms of one table) and
+   for display (`anorm_show`: unfolded on demand, and only when the
+   tree has at most `show_budget` nodes). Materialisation remains.

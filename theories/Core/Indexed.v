@@ -283,15 +283,19 @@ Arguments PRen {K} p x c.
 Arguments PSub {K} p x u q.
 
 (** The payload adjustment of [P], with slots read by [f], over [wk], the
-    weakening from the output tail past the slots. *)
-Fixpoint pctx_den {K L J} (p : pctx K) (f : slot K -> var J) (wk : adj T L J) : adj T L J :=
+    weakening from the output tail past the slots: the entries of [P] put
+    on [acc].  The entries are simultaneous: the names of a substituted
+    term that its own payload context does not mention go to the output
+    tail ([wk]), whatever the other entries of [P] are. *)
+Fixpoint pctx_den {K L J} (p : pctx K) (f : slot K -> var J) (wk acc : adj T L J) : adj T L J :=
   match p with
-  | PEmpty => wk
-  | PRen p x c => pctx_den p f (in_free x (Rename (f c)) wk)
-  | PSub p x u q => pctx_den p f (in_free x (Bind u (pcompose (pctx_den q f wk) pid)) wk)
+  | PEmpty => acc
+  | PRen p x c => pctx_den p f wk (in_free x (Rename (f c)) acc)
+  | PSub p x u q => pctx_den p f wk (in_free x (Bind u (pcompose (pctx_den q f wk wk) pid)) acc)
   end.
 
-Definition pctx_pay {K L J} (p : pctx K) (f : slot K -> var J) (wk : adj T L J) : padj T J := pcompose (pctx_den p f wk) pid.
+Definition pctx_pay {K L J} (p : pctx K) (f : slot K -> var J) (wk : adj T L J) : padj T J :=
+  pcompose (pctx_den p f wk wk) pid.
 
 Definition vdummy {M} : var M := fvar EmptyString 0.
 

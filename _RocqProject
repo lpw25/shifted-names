@@ -23,6 +23,7 @@ theories/Core/Unique.v
 theories/Core/Normal.v
 theories/Core/Complete.v
 theories/Core/Shared.v
+theories/Core/Eval.v
 theories/Core/Names.v
 theories/Core/Context.v
 theories/Core/Syntax.v

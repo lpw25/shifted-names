@@ -15,7 +15,7 @@
 
 From Stdlib Require Import List String Arith Bool StrictProp.
 Open Scope bool_scope.
-From ShiftedNames.Core Require Import Label Var Adjustment Indexed Syntax Normalise Shared.
+From ShiftedNames.Core Require Import Label Var Adjustment Indexed Syntax Normalise Shared Eval.
 Import ListNotations.
 
 (** ** Reification *)
@@ -860,7 +860,8 @@ Ltac restore_terms te a :=
 
 (** Rewriting one adjustment to its normal form, shown as context forms,
     then running [kt] on its term atoms; runs [kt] alone when it is
-    already shown that way, and [kn] when it cannot be shown. *)
+    already shown that way or the normal form is too large to show, and
+    [kn] when it cannot be shown. *)
 Ltac names_rewrite_k a kt kn :=
   let ty := type of a in
   lazymatch ty with
@@ -877,17 +878,23 @@ Ltac names_rewrite_k a kt kn :=
       | (?e, ?env1) =>
           lazymatch collect_facts env1 (@nil (lexp * lexp)) with
           | ((?le, ?te, ?ae, ?pe), ?F) =>
-              let d := eval vm_compute in (display_nf F (List.length te) (anorm F (List.length te) e)) in
-              lazymatch d with
-              | Some ?ps =>
-                  let te' := restore_terms te a in
-                  let bb := fresh "b" in
-                  unshelve evar (bb : ty); [render_pieces le te' ae ps|];
-                  let b := eval cbv delta [bb] in bb in
-                  clear bb;
-                  tryif constr_eq a b then kt te'
-                  else (let E := fresh "E" in assert (E : a = b) by names_eq; rewrite E; clear E; kt te')
-              | None => kn
+              let s := eval vm_compute in (anorm_show F (List.length te) e) in
+              lazymatch s with
+              | ShWord ?w =>
+                  let d := eval vm_compute in (display_nf F (List.length te) (Some w)) in
+                  lazymatch d with
+                  | Some ?ps =>
+                      let te' := restore_terms te a in
+                      let bb := fresh "b" in
+                      unshelve evar (bb : ty); [render_pieces le te' ae ps|];
+                      let b := eval cbv delta [bb] in bb in
+                      clear bb;
+                      tryif constr_eq a b then kt te'
+                      else (let E := fresh "E" in assert (E : a = b) by names_eq; rewrite E; clear E; kt te')
+                  | None => kn
+                  end
+              | ShLarge => let te' := restore_terms te a in kt te'
+              | ShNone => kn
               end
           end
       end
@@ -918,7 +925,7 @@ Ltac names_var_eq t E :=
               | (?eh, ?env2) =>
                   lazymatch collect_facts env2 (@nil (lexp * lexp)) with
                   | ((?le, ?te, ?ae, ?pe), ?F) =>
-                      let res := eval vm_compute in (apply_result F (List.length te) e eh i) in
+                      let res := eval vm_compute in (apply_result_s F (List.length te) e eh i) in
                       lazymatch res with
                       | Some (?h', ?j) =>
                           let w := lazymatch h' with
@@ -929,11 +936,11 @@ Ltac names_var_eq t E :=
                             by (apply apply_var_rename; names_unfold;
                                 change (rapply (aeden le te ae pe e) (mk_rvar (lden le eh) i)
                                         = inl (mk_rvar (lden le h') j));
-                                refine (apply_result_sound le te ae pe F _ (List.length te) (le_n _) e eh i h' j _);
+                                refine (apply_result_s_sound le te ae pe F _ (List.length te) (le_n _) e eh i h' j _);
                                 [ unfold facts_ok; repeat constructor; cbn [lden nth]; assumption
                                 | vm_compute; reflexivity ])
                       | None =>
-                          let pr := eval vm_compute in (apply_payload F (List.length te) e eh i) in
+                          let pr := eval vm_compute in (apply_payload_s F (List.length te) e eh i) in
                           lazymatch pr with
                           | Some (?u, ?wp) =>
                               let d := eval vm_compute in (display_nf F (List.length te) (Some wp)) in
@@ -960,7 +967,7 @@ Ltac names_var_eq t E :=
                                             by (apply apply_var_bind; names_unfold;
                                                 change (rapply (aeden le3 te3 ae3 pe3 e) (mk_rvar (lden le3 eh) i)
                                                         = inr (x, rpcompose (aeden le3 te3 ae3 pe3 eb) rpidentity));
-                                                refine (apply_bind_sound le3 te3 ae3 pe3 F3 _ (List.length te3) (le_n _) e eh i eb u x _ _);
+                                                refine (apply_bind_s_sound le3 te3 ae3 pe3 F3 _ (List.length te3) (le_n _) e eh i eb u x _ _);
                                                 [ unfold facts_ok; repeat constructor; cbn [lden nth]; assumption
                                                 | vm_compute; reflexivity
                                                 | reflexivity ])
@@ -1154,9 +1161,9 @@ Ltac names_mat_one A :=
       | (?e, ?env1) =>
           lazymatch collect_facts env1 (@nil (lexp * lexp)) with
           | ((?le, ?te, ?ae, ?pe), ?F) =>
-              let w := eval vm_compute in (anorm F (List.length te) e) in
+              let w := eval vm_compute in (anorm_show F (List.length te) e) in
               lazymatch w with
-              | Some (WEnd ?S) =>
+              | ShWord (WEnd ?S) =>
                   let ts := eval vm_compute in (firstn 1 (mat_targets S)) in
                   lazymatch ts with
                   | _ :: _ =>
