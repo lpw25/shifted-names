@@ -49,7 +49,7 @@ def pexp(d):
     if r<0.92: return "(PShift %s %s)"%(lab(True),pexp(d-1))
     return "(PAtom %d)"%random.randint(0,1)
 print("""From Stdlib Require Import String List NArith.
-From ShiftedNames.Core Require Import Label Var Adjustment Normalise Normal Shared Eval Layers.
+From ShiftedNames.Core Require Import Label Var Adjustment Normalise Unique Normal Shared Eval Layers.
 Import ListNotations. Open Scope string_scope.
 Definition O := order_of (%s : list (lexp * lexp)).
 Definition classify (e : aexp) : nat * (nat * N * N * nat) :=
@@ -70,6 +70,8 @@ print("""].
 Definition rs := Eval vm_compute in map classify tests.
 Definition count k := List.length (filter (fun r => Nat.eqb (fst r) k) rs).
 Eval vm_compute in (count 0, count 1, count 2, count 3).
+(* how many used the rule that shares what some parties have *)
+Eval vm_compute in (List.length (filter (fun e => let n := apmax e in match anorm_s n O 4 e sst0 with Some (st, w) => match layers_s n O 4 (sdefs st) w with Some _ => true | None => false end | None => false end) tests)).
 Eval vm_compute in (map fst (filter (fun p => Nat.eqb (fst (snd p)) 2) (combine (seq 0 (List.length rs)) rs))).
 Eval vm_compute in (map fst (filter (fun p => Nat.eqb (fst (snd p)) 1) (combine (seq 0 (List.length rs)) rs))).
 Eval vm_compute in (fold_right (fun r acc => let '(a,b,c,d) := acc in let '(x,y,z,v) := snd r in (a + x, (b + y)%N, (c + z)%N, d + v)) (0, 0%N, 0%N, 0) (filter (fun r => Nat.eqb (fst r) 3) rs)).

@@ -61,8 +61,52 @@ Definition indep : aexp :=
 Example indep_layers :
   option_map (fun r => fst (fst r)) (layers_check O 10 indep)
   = Some (compose_steps
-            [ AInner (lab 0) (TBindE 0 (PComp (AInner (lab 5) (TVarE LNone 0) AId) PId))
-                (AInner (lab 1) (TBindE 1 (PComp (AInner (lab 5) (TVarE LNone 1) AId) PId))
+            [ AInner (lab 0) (TBindE 0 (PComp (AInner (lab 5) (TVarE LNone 1) AId) PId))
+                (AInner (lab 1) (TBindE 1 (PComp (AInner (lab 5) (TVarE LNone 0) AId) PId))
                    (AOuter LNone (AOuter LNone AId)));
-              AInner LNone (TBindE 2 PId) (AInner LNone (TBindE 3 PId) AId) ]).
+              AInner LNone (TBindE 3 PId) (AInner LNone (TBindE 2 PId) AId) ]).
 Proof. vm_compute. reflexivity. Qed.
+
+(** Two families of terms that share nothing: a term whose payload is a
+    chain of its own, on top of a chain.  Each chain is written once;
+    the parties of one step over the other's substitutions by a shared
+    renaming. *)
+Definition ch (n k : nat) : aexp := compose_steps (chain n k).
+Definition two (n : nat) : aexp := AInner (lab 600) (TBindE 190 (PComp (ch n 100) PId)) (ch n 0).
+
+Example two_families :
+  map (fun n => res (two n)) [2; 4; 8]
+  = [Some (true, 18, 10, 17); Some (true, 28, 18, 55); Some (true, 48, 34, 203)].
+Proof. vm_compute. reflexivity. Qed.
+
+(** Several terms with the same chain as payload, and several with
+    another: the payload is written twice in the expression for each. *)
+Fixpoint alt (k n i : nat) : aexp :=
+  match k with
+  | 0 => AId
+  | S k' =>
+      AInner (lab (300 + 2 * i)) (TBindE (200 + 2 * i) (PComp (ch n 0) PId))
+        (AInner (lab (301 + 2 * i)) (TBindE (201 + 2 * i) (PComp (ch n 100) PId)) (alt k' n (S i)))
+  end.
+
+Example shared_families :
+  map (fun n => res (alt 2 n 0)) [2; 4] = [Some (true, 23, 24, 26); Some (true, 35, 40, 64)].
+Proof. vm_compute. reflexivity. Qed.
+
+(** Many small families, each a term with its own chain. *)
+Fixpoint fams (k n i : nat) : aexp :=
+  match k with
+  | 0 => AId
+  | S k' => AInner (lab (300 + i)) (TBindE (200 + i) (PComp (ch n (20 * i)) PId)) (fams k' n (S i))
+  end.
+
+Example many_families :
+  map (fun k => res (fams k 2 0)) [2; 4] = [Some (true, 19, 12, 20); Some (true, 39, 24, 40)].
+Proof. vm_compute. reflexivity. Qed.
+
+(** A term with the identity payload beside a chain. *)
+Example beside_chain :
+  map (fun n => res (AInner (lab 600) (TBindE 190 PId) (ch n 20))) [4; 8]
+  = [Some (true, 12, 10, 28); Some (true, 20, 18, 102)].
+Proof. vm_compute. reflexivity. Qed.
+

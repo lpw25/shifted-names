@@ -161,6 +161,35 @@ Fixpoint visit (fuel : nat) (acc : list ntgt) (ts : list ntgt) : list ntgt :=
         if isterm t then (if tmem t acc then acc else visit f (acc ++ [t]) (etgts (hents (fst (tpay t))))) else acc) ts acc
   end.
 
+(** How much of [es'] the head [es] has too: per label, the length of
+    the common end. *)
+Definition overlap (es es' : list ent) : nat :=
+  fold_right (fun '(x, ts, m) n =>
+    match efind x es' with
+    | Some (ts', m') => if Nat.eqb m m' then List.length (csuf ts ts') + n else n
+    | None => n
+    end) 0 es.
+
+Fixpoint kinsert (k : nat) (t : ntgt) (l : list (nat * ntgt)) : list (nat * ntgt) :=
+  match l with
+  | [] => [(k, t)]
+  | (k', t') :: r => if k <? k' then (k, t) :: l else (k', t') :: kinsert k t r
+  end.
+
+(** The terms in depth-first postorder from the root: a term comes after
+    every term its payload mentions.  From a party, the terms it
+    mentions are taken in order of how much of their payload the party
+    has itself, least first: a term that continues the party (the next
+    of a chain) comes last, and so ends up next to it in the word. *)
+Fixpoint post (fuel : nat) (acc : list ntgt) (es : list ent) : list ntgt :=
+  match fuel with
+  | 0 => acc
+  | S f =>
+      let kids := map snd (fold_right (fun t l => kinsert (overlap (hents (fst (tpay t))) es) t l) []
+                             (filter isterm (etgts es))) in
+      fold_left (fun acc t => if tmem t acc then acc else post f acc (hents (fst (tpay t))) ++ [t]) kids acc
+  end.
+
 (** ** Segments from entries *)
 
 Fixpoint trim_rev (h : lexp) (rts : list ntgt) (m : nat) : list ntgt * nat :=
@@ -284,14 +313,28 @@ Definition try_atom (inst : list ntgt) (parts : list (option ntgt * word))
 (** A segment, with the terms written in it (each with its remainder);
     an atom; a layer of instantiations. *)
 Inductive step : Type :=
-| SRen (es : list ent) (il : list (ntgt * word))
+| SRen (es : list ent) (il : list (ntgt * word)) (sid : nat)
 | SAtom (L : list (lexp * nat)) (a : nat)
 | SInst (l : list (ntgt * word)).
 
+(** A bound variable can also stand for an output variable that a later
+    segment creates: the segment then sends that bound variable to it
+    (it opens it) instead of creating the output from nothing.  Such a
+    reference is written as a term that no real term can be; [sid] is
+    the segment, [y] and [r] the output. *)
+Definition vnode (sid : nat) (y : lexp) (r : nat) : ntgt :=
+  NBind sid (WAtom SNil [] 0 (WEnd (SEnt y TNil r SNil))) None.
+
+Definition vnode_of (t : ntgt) : option (nat * lexp * nat) :=
+  match t with
+  | NBind sid (WAtom SNil [] 0 (WEnd (SEnt y TNil r SNil))) None => Some (sid, y, r)
+  | _ => None
+  end.
+
 Fixpoint rootsteps (k : word) : list step :=
   match k with
-  | WEnd sg => [SRen (sents sg) []]
-  | WAtom sg L a w => rootsteps w ++ [SAtom L a; SRen (sents sg) []]
+  | WEnd sg => [SRen (sents sg) [] 0]
+  | WAtom sg L a w => rootsteps w ++ [SAtom L a; SRen (sents sg) [] 0]
   end.
 
 Definition ready (inst : list ntgt) (p : option ntgt * word) : bool :=
@@ -324,7 +367,7 @@ Fixpoint build (fuel : nat) (parts : list (option ntgt * word)) (inst : list ntg
           | (_ :: _) as N =>
               match opt_all (map (fun p => option_map (fun es => (fst p, set_head (snd p) (mkS es)))
                                              (quot N (hents (snd p)))) parts) with
-              | Some parts' => build f parts' inst (SRen N [] :: acc)
+              | Some parts' => build f parts' inst (SRen N [] 0 :: acc)
               | None => None
               end
           | [] =>
@@ -346,6 +389,177 @@ Fixpoint build (fuel : nat) (parts : list (option ntgt * word)) (inst : list ntg
       end
   end.
 
+(** ** Sharing what some parties have
+
+    The rule above shares only what every remaining party has, and two
+    families of terms that have nothing in common then share nothing.
+    Here an entry of a term that can be placed is shared when another
+    remaining party has it too.  A party that does not have it steps
+    over it: its remainder gets a renaming, a shield, that the shared
+    step undoes.  Shields are entries like any other and are shared in
+    turn. *)
+
+Definition tailv (x : lexp) (a b : nat) : list ntgt := map (fun j => NVar x j) (seq a (b - a)).
+
+(** A party's entry [(ts, m)] for [x] against the shared [(cs, k)]: what
+    is left to the party, and how many of the shared step's inputs it
+    steps over. *)
+Definition align (x : lexp) (ts : list ntgt) (m : nat) (cs : list ntgt) (k : nat) : list ntgt * nat :=
+  let M := Nat.max m k in
+  let xf := ts ++ tailv x m M in
+  let nf := cs ++ tailv x k M in
+  let c := csuf xf nf in
+  (firstn (List.length xf - List.length c) xf, List.length nf - List.length c).
+
+Definition gref (sid : nat) (N : list ent) (t : ntgt) : option ntgt :=
+  match t with
+  | NVar y r =>
+      match efind y N with
+      | Some (cs, k) =>
+          if k <=? r then Some (NVar y (r - k + List.length cs))
+          else match nfindt t N with Some (x, p) => Some (NVar x p) | None => Some (vnode sid y r) end
+      | None => if known_distinct y N then Some t else None
+      end
+  | NBind _ _ _ => match nfindt t N with Some (x, p) => Some (NVar x p) | None => Some t end
+  end.
+
+Fixpoint einsert (e : ent) (l : list ent) : option (list ent) :=
+  match l with
+  | [] => Some [e]
+  | e' :: r =>
+      match lcmp F (fst (fst e)) (fst (fst e')) with
+      | Some Lt => Some (e :: l)
+      | Some Gt => option_map (cons e') (einsert e r)
+      | _ => None
+      end
+  end.
+
+Definition esort (l : list ent) : option (list ent) :=
+  fold_right (fun e acc => match acc with Some a => einsert e a | None => None end) (Some []) l.
+
+(** [indiff]: the party has no bound variables of its own coming in (a
+    term with no opaque payload and no atoms), so an entry of the bound
+    label in the shared step is nothing to it. *)
+Definition gdiff (sid : nat) (N P : list ent) (indiff : bool) : option (list ent) :=
+  let N' := if indiff then filter (fun '(x, _, _) => negb (is_lnone x)) N else N in
+  let mine := map (fun '(x, ts, m) =>
+                match efind x N' with
+                | Some (cs, k) =>
+                    let '(pre, b) := align x ts m cs k in
+                    option_map (fun rs => etrim (x, rs, b)) (opt_all (map (gref sid N) pre))
+                | None => option_map (fun rs => etrim (x, rs, m)) (opt_all (map (gref sid N) ts))
+                end) P in
+  let theirs := map (fun '(x, cs, k) =>
+                  match efind x P with
+                  | Some _ => Some []
+                  | None =>
+                      let '(pre, b) := align x [] 0 cs k in
+                      option_map (fun rs => etrim (x, rs, b)) (opt_all (map (gref sid N) pre))
+                  end) N' in
+  match opt_all (mine ++ theirs) with
+  | Some l => esort (concat l)
+  | None => None
+  end.
+
+(** What of a term's head another remaining party has too: per label,
+    the longest common end. *)
+Definition dictated (es : list ent) (others : list (list ent)) : list ent :=
+  flat_map (fun '(x, ts, m) =>
+      let cands := flat_map (fun o => match efind x o with
+                                      | Some (ts', m') => if Nat.eqb m m' then [csuf ts ts'] else []
+                                      | None => []
+                                      end) others in
+      match cands with
+      | [] => []
+      | c0 :: r =>
+          let c := fold_left (fun a b => if List.length a <? List.length b then b else a) r c0 in
+          match c, m with [], 0 => [] | _, _ => [(x, c, m)] end
+      end) es.
+
+Definition same_party (p q : option ntgt * word) : bool :=
+  match fst p, fst q with
+  | Some t, Some t' => ntgt_eqb t t'
+  | None, None => true
+  | _, _ => false
+  end.
+
+Definition hsize (es : list ent) : nat := fold_right (fun '(_, ts, _) n => S (List.length ts + n)) 0 es.
+
+(** The terms are placed in postorder, so from the end of the word each
+    after the terms it mentions and a family of terms together.  Before
+    a term is placed, an atom that every remaining party ends with is
+    shared, and then whatever of the term's head another remaining party
+    has.  What is left is its payload.
+
+    With it are placed the terms that want exactly the rest built so
+    far (nothing left of their remainder) and are mentioned by a party
+    that is waiting for the term being placed: they would otherwise end
+    up before steps they have to see through.  [descs] gives, for each
+    term, the terms it reaches. *)
+Fixpoint build_s (nodes0 : list ntgt) (descs : list (list ntgt))
+    (fuel : nat) (parts : list (option ntgt * word)) (inst : list ntgt) (acc : list step)
+    (vns : list ntgt) : option (list step * list ntgt) :=
+  match fuel with
+  | 0 => None
+  | S f =>
+      match parts with
+      | [] => Some (acc, vns)
+      | [(None, k)] => Some (rootsteps k ++ acc, vns)
+      | _ =>
+          match try_atom inst parts with
+          | Some (L0, a, parts') => build_s nodes0 descs f parts' inst (SAtom L0 a :: acc) vns
+          | None =>
+              match filter (fun p => match fst p with Some _ => true | None => false end) parts with
+              | [] => None
+              | p :: _ =>
+                  let N := dictated (hents (snd p))
+                             (map (fun q => hents (snd q)) (filter (fun q => negb (same_party p q)) parts)) in
+                  match N with
+                  | [] =>
+                      let pt := match fst p with Some t => t | None => NVar LNone 0 end in
+                      let waits := fun q => match fst q with
+                                            | None => true
+                                            | Some t => match tindex t nodes0 with
+                                                        | Some i => tmem pt (nth i descs [])
+                                                        | None => false
+                                                        end
+                                            end in
+                      let done := fun q => match snd q with WEnd SNil => true | _ => false end in
+                      let riders := filter (fun r => negb (same_party p r) && done r && ready (inst ++ [pt]) r
+                                              && existsb (fun q => negb (same_party q r) && waits q
+                                                                   && match fst r with
+                                                                      | Some t => tmem t (etgts (hents (snd q)))
+                                                                      | None => false
+                                                                      end) parts) parts in
+                      let placed := p :: riders in
+                      build_s nodes0 descs f (filter (fun q => negb (existsb (same_party q) placed)) parts)
+                        (inst ++ map fst (inst_step placed)) (SInst (inst_step placed) :: acc) vns
+                  | _ =>
+                      let sid := S (List.length acc) in
+                      let indiff := fun q => match fst q, snd q with
+                                             | Some t, WEnd _ => match snd (tpay t) with None => true | Some _ => false end
+                                             | _, _ => false
+                                             end in
+                      match opt_all (map (fun q => option_map (fun es => (fst q, set_head (snd q) (mkS es)))
+                                                     (gdiff sid N (hents (snd q)) (indiff q))) parts) with
+                      | Some parts' =>
+                          let newv := fold_left (fun l t => match vnode_of t with
+                                                            | Some (sid', _, _) =>
+                                                                if Nat.eqb sid sid' && negb (tmem t l) then l ++ [t] else l
+                                                            | None => l
+                                                            end)
+                                                (flat_map (fun q => etgts (hents (snd q))) parts') [] in
+                          build_s nodes0 descs f parts' (inst ++ newv) (SRen N [] sid :: acc) (vns ++ newv)
+                      | None => None
+                      end
+                  end
+              end
+          end
+      end
+  end.
+
+Variable nodes : list ntgt.
+
 (** ** From steps to an expression
 
     A term referred to before its layer is a bound variable from the
@@ -353,20 +567,28 @@ Fixpoint build (fuel : nat) (parts : list (option ntgt * word)) (inst : list ntg
     in use are ordered by layer, the next layer innermost, then by
     first occurrence from the root. *)
 
-Variable nodes : list ntgt.
-
 Definition pay_refs (l : list (ntgt * word)) : list ntgt :=
   filter isterm (flat_map (fun '(_, k) => etgts (hents k)) l).
 
 Definition step_refs (s : step) : list ntgt :=
   match s with
-  | SRen es il => filter (fun t => isterm t && negb (tmem t (map fst il))) (etgts es) ++ pay_refs il
+  | SRen es il _ => filter (fun t => isterm t && negb (tmem t (map fst il))) (etgts es) ++ pay_refs il
   | SAtom _ _ => []
   | SInst l => pay_refs l
   end.
 
+Definition opened (sid : nat) (t : ntgt) : option (lexp * nat) :=
+  match vnode_of t with
+  | Some (sid', y, r) => if Nat.eqb sid sid' && negb (Nat.eqb sid 0) then Some (y, r) else None
+  | None => None
+  end.
+
 Definition step_inst (s : step) : list ntgt :=
-  match s with SInst l => map fst l | SRen _ il => map fst il | SAtom _ _ => [] end.
+  match s with
+  | SInst l => map fst l
+  | SRen _ il sid => map fst il ++ filter (fun t => match opened sid t with Some _ => true | None => false end) nodes
+  | SAtom _ _ => []
+  end.
 
 (** A term is written where it is referred to, instead of through a
     bound variable, when that is its only reference, it is in a segment,
@@ -381,7 +603,7 @@ Definition inline_pass (steps : list step) : list step :=
     match filter (fun j => tmem t (step_refs (at_ j))) (seq 0 n) with
     | [j] =>
         match at_ j with
-        | SRen es _ =>
+        | SRen es _ _ =>
             (j <? i) && Nat.eqb (List.length (filter (ntgt_eqb t) (etgts es))) 1
             && forallb (fun m => is_inst (at_ m)) (seq (S j) (i - S j))
         | _ => false
@@ -396,7 +618,7 @@ Definition inline_pass (steps : list step) : list step :=
                                   end) (seq 0 n) in
   flat_map (fun j =>
     match at_ j with
-    | SRen es _ => [SRen es (flat_map (fun '(j', tk) => if Nat.eqb j j' then [tk] else []) moved)]
+    | SRen es _ sid => [SRen es (flat_map (fun '(j', tk) => if Nat.eqb j j' then [tk] else []) moved) sid]
     | SAtom L a => [SAtom L a]
     | SInst l =>
         match filter (fun '(t, _) => negb (home j t)) l with
@@ -435,10 +657,11 @@ Definition bentry (ts : list texp) (m : nat) : list (lexp * list texp * nat) :=
 
 (** A segment between the bound variables [sin] in use before it and
     [sout] after it; [term] gives the terms written here. *)
-Definition emit_seg (sin sout : list ntgt) (term : ntgt -> option texp) (es : list ent) : aexp :=
-  let pl := map (fun t => match term t with
-                          | Some e => e
-                          | None => TVarE LNone (match tindex t sout with Some i => i | None => 0 end)
+Definition emit_seg (sid : nat) (sin sout : list ntgt) (term : ntgt -> option texp) (es : list ent) : aexp :=
+  let pl := map (fun t => match term t, opened sid t with
+                          | Some e, _ => e
+                          | None, Some (y, r) => TVarE y (if is_lnone y then r + List.length sout else r)
+                          | None, None => TVarE LNone (match tindex t sout with Some i => i | None => 0 end)
                           end) sin in
   let named := flat_map (fun '(x, ts, m) => if is_lnone x then [] else [(x, map (rtgt sout term) ts, m)]) es in
   let '(bts, bm) := match efind LNone es with Some (ts, m) => (map (rtgt sout term) ts, m) | None => ([], 0) end in
@@ -465,8 +688,23 @@ Definition emit_term (sc : list ntgt) (t : ntgt) (k : word) : texp :=
   | NVar h i => TVarE h i
   end.
 
+(** Two layers of instantiations in a row are one, unless a payload of
+    the first refers to a term of the second. *)
+Fixpoint merge_inst (steps : list step) : list step :=
+  match steps with
+  | SInst l1 :: r =>
+      match merge_inst r with
+      | SInst l2 :: r' =>
+          if existsb (fun t => tmem t (map fst l2)) (pay_refs l1) then SInst l1 :: SInst l2 :: r'
+          else SInst (l1 ++ l2) :: r'
+      | r' => SInst l1 :: r'
+      end
+  | s :: r => s :: merge_inst r
+  | [] => []
+  end.
+
 Definition emit (steps0 : list step) : list aexp :=
-  let steps := inline_pass steps0 in
+  let steps := merge_inst (inline_pass steps0) in
   let n := List.length steps in
   let firstref := fun t => first_idx (fun s => tmem t (step_refs s)) steps 0 in
   let instat := fun t => first_idx (fun s => tmem t (step_inst s)) steps 0 in
@@ -488,32 +726,39 @@ Definition emit (steps0 : list step) : list aexp :=
   (fix go (j : nat) (ss : list step) : list aexp :=
      match ss with
      | [] => []
-     | SRen es il :: r => let sout := slots_after j in emit_seg (slots_before j) sout (payload sout il) es :: go (S j) r
+     | SRen es il sid :: r => let sout := slots_after j in emit_seg sid (slots_before j) sout (payload sout il) es :: go (S j) r
      | SAtom L a :: r => iter (List.length (slots_after j)) (ALift LNone) (alifts L (AAtom a)) :: go (S j) r
-     | SInst l :: r => let sout := slots_after j in emit_seg (slots_before j) sout (payload sout l) [] :: go (S j) r
+     | SInst l :: r => let sout := slots_after j in emit_seg 0 (slots_before j) sout (payload sout l) [] :: go (S j) r
      end) 0 steps.
 
 End Layers.
 
+Definition parties (np : nat) (ds : list pdef) (w : word) : list ntgt * list (option ntgt * word) :=
+  let nodes := post np ds (S (List.length ds)) [] (hents w) in
+  (nodes, (None, w) :: map (fun t => (Some t, fst (tpay np ds t))) nodes).
+
 Definition layers_of (np : nat) (F : order) (ntm : nat) (ds : list pdef) (share full : bool) (w : word) : option aexp :=
-  let nodes := visit np ds (S (List.length ds)) [] (etgts (hents w)) in
-  let parts := (None, w) :: map (fun t => (Some t, fst (tpay np ds t))) nodes in
+  let '(nodes, parts) := parties np ds w in
   match build F ntm share full (1000 + 20 * List.length nodes) parts [] [] with
   | Some steps => Some (compose_steps (emit np ds nodes steps))
   | None => None
   end.
 
-(** Sharing renamings too when that works, else only terms.  A label
-    can only be shared when its order to every label a party mentions is
-    known; when it is not, nothing is shared, which always works. *)
+Definition layers_s (np : nat) (F : order) (ntm : nat) (ds : list pdef) (w : word) : option aexp :=
+  let '(nodes, parts) := parties np ds w in
+  let descs := map (fun t => post np ds (S (List.length ds)) [] (hents (fst (tpay np ds t)))) nodes in
+  match build_s np F ntm ds true nodes descs (1000 + 40 * List.length nodes) parts [] [] [] with
+  | Some (steps, vns) => Some (compose_steps (emit np ds (nodes ++ vns) steps))
+  | None => None
+  end.
+
+(** The rule that shares what some parties have; when it needs an order
+    between labels that is not known, nothing is shared, which always
+    works. *)
 Definition layers (np : nat) (F : order) (ntm : nat) (ds : list pdef) (w : word) : option aexp :=
-  match layers_of np F ntm ds true true w with
+  match layers_s np F ntm ds w with
   | Some e => Some e
-  | None =>
-      match layers_of np F ntm ds true false w with
-      | Some e => Some e
-      | None => layers_of np F ntm ds false false w
-      end
+  | None => layers_of np F ntm ds false false w
   end.
 
 (** A tree word as an expression. *)
