@@ -583,36 +583,70 @@ choice, and the rule for it has to survive composition:
   label, inside a payload; shifted targets.
 
 `Core/LayeredUnique.v` has the normal-form conditions and uniqueness,
-for words without atoms and without terms that have a payload atom:
+for every layered word:
 
 - The free meaning of a layered word is its steps one after the other,
   each with the rest as its continuation (`flw`); a term's continuation
   is the rest of the word.
 - `lnf`, for a segment `S` followed by `r`:
-  1. `S` is a canonical segment whose terms have the identity payload,
-     and has a term unless it is the last.
-  2. The payloads of successive layers decrease in a strict order on
-     what a payload does to named variables; a last segment that does
-     nothing to named variables has a term (otherwise it is part of the
-     segment before).
+  1. `S` is a canonical segment. A term of `S` has the identity
+     payload, or a payload atom followed by a renaming of its bound
+     variables only. `S` has a term, or is a renaming that ends the
+     word or stands before an atom in lift position (condition 3 of the
+     normal form above).
+  2. The payload of `S`'s terms (the rest) is above the payload of
+     every term the rest sends a variable to, in a strict order on what
+     payloads do to named variables; a last segment that does nothing
+     to named variables has a term (otherwise it is part of the segment
+     before).
   3. A variable goes on as the least named variable of the rest with
-     the same result, and as a bound variable only when there is none.
-  4. Every bound variable of the rest is used; distinct bound variables
-     of a rest have distinct results; and except in the first segment
-     of the word, the bound variables come in the order of what the
-     segment makes of them (terms, then named variables, then bound
-     variables).
+     the same result, and as a bound variable only when there is none;
+     the same for the bound variables of a term with a payload atom.
+  4. Every bound variable of the rest is used; distinct ones have
+     distinct results; and they are numbered in the order of the first
+     variables sent to them.
+
+  An atom has a canonical list of lifts.
 - `lw_unique`: two words satisfying `lnf` with the same free meaning
   are the same word. `lw_unique_real`: so are two that mean the same
   under every interpretation of the atoms (`lw_adequacy`, as for
-  words).
-- The order on payloads is a parameter of both: any relation that is
-  irreflexive, transitive and only looks at named variables. Which
-  order it is gets fixed when the fold is shown to keep `lnf`; it has
-  to put a payload above the payloads of the terms it contains.
+  words). The two words are compared from the front: the terms of the
+  first segments have the rests as payloads, which makes the rests
+  agree on named variables; conditions 3 and 4 then fix the segment,
+  and the rests are compared in turn. The atom case is `Unique.peel`
+  again.
 
-What the fold returns is not yet in this form. Still to do: atoms and
-payload atoms in `lnf`; the order; that the fold keeps `lnf` (which
-needs a term that does not see the first layer put further in, bound
-variables put in order, and unused ones removed); then `names` moves
-over and the stored form goes.
+`Core/LayeredOrder.v` has the order:
+
+- A payload has at most one normal word (as a payload, in the sense of
+  the normal form above), so any strict order on words is an order on
+  payloads with what uniqueness needs (`gt_of`), and a total order on
+  words puts any two payloads that have normal words in order
+  (`gt_of_total`).
+- `ord_sz` compares sizes first and then a serialisation of the words
+  (`wcode`, shown injective). It is total. A word is above the payload
+  words of the terms in it (`ord_sz_term`), so a term that sees a layer
+  is above that layer and the usual step needs no comparison. Where two
+  layers do not see each other the serialisation decides, which is the
+  arbitrary choice a normal form has to make here.
+- `lw_unique_sz`: uniqueness with this order, with no hypothesis left
+  on it.
+
+`segok_entry` shows the conditions of a substitution step in front of a
+word, and `Tests/LayeredNfTests.v` uses it to show that a chain of two
+substitutions satisfies `lnf` with `gt_sz`.
+
+What the fold returns is not yet in this form. Still to do:
+
+- That the fold keeps `lnf`. It has to send variables with the same
+  result to one variable (condition 3), number bound variables by
+  their sources (condition 4), put a term that does not see the first
+  layer further in, and remove bound variables nothing uses. It also
+  needs every payload that occurs to have a normal word, which is the
+  multiplied-out word (`expand`) once that is related to the free
+  meaning.
+- `ord_sz` puts layers of two families that do not see each other in
+  size order, which interleaves them; an order that keeps a family
+  together (by the atoms a payload mentions, before size) would give
+  smaller words and fits the same construction.
+- Then `names` moves over and the stored form goes.

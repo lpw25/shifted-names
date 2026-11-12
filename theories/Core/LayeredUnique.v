@@ -247,6 +247,56 @@ Fixpoint natl (l : lword) : nat :=
 Lemma R_cons Sg r : spure Sg -> forall x, R (LS Sg :: r) x = res Sg (R r) x.
 Proof. intros HS x; unfold R; cbn [flw]; apply fs_pure, HS. Qed.
 
+(** ** A substitution step
+
+    The segment [⟦ h := u ⟧] in front of a word whose rest sends distinct
+    variables to distinct results satisfies the conditions, given the
+    two on the order. *)
+
+Definition entry_seg (h : lexp) (u : nat) : seg := SEnt h (TCons (NBind u (WEnd SNil) None) TNil) 0 SNil.
+
+Lemma sres_entry h u x v : lden h = Some x ->
+  sres (entry_seg h u) v
+  = if label_eqb (Some x) (v_label v)
+    then match v_index v with 0 => inr (u, None, SNil) | S i => inl (mk_rvar (v_label v) i) end
+    else inl v.
+Proof.
+  intros Hx; unfold sres, entry_seg; cbn [Normalise.sget]; rewrite Hx.
+  destruct (label_eqb (Some x) (v_label v)); [|reflexivity].
+  cbn [tlen tnth]; destruct (v_index v) as [|i]; cbn; [reflexivity|].
+  do 2 f_equal; lia.
+Qed.
+
+Lemma segok_entry h x u r :
+  lden h = Some x -> In h labs ->
+  (forall y u' b k, R r y = FTerm u' b k -> gt (R r) k) ->
+  (forall G, r = [LS G] -> keq (R r) FVar -> sterm G) ->
+  (forall y y', named y' -> feq (R r y') (R r y) -> y' = y) ->
+  binj (R r) ->
+  segok (entry_seg h u) r.
+Proof.
+  intros Hx Hin Ho Hl Hi Hb; constructor.
+  - split; [repeat constructor|]; constructor; [|constructor].
+    split; [exact Hin|split; [exact I|split; [left; discriminate|discriminate]]].
+  - constructor; [exists SNil; split; reflexivity|constructor].
+  - left; exists (mk_rvar (Some x) 0), (u, None, SNil); rewrite (sres_entry h u x _ Hx).
+    cbn [v_label v_index]; rewrite label_eqb_refl; reflexivity.
+  - exact Ho.
+  - exact Hl.
+  - intros v y _; split.
+    + intros Hy y' Hy' F H; rewrite (Hi y y' Hy' F) in H; exact (vlt_irrefl _ H).
+    + intros Hy y' Hy' F; rewrite (Hi y y' Hy' F) in Hy'; exact (Hy' Hy).
+  - intros v u' n s i E; rewrite (sres_entry h u x _ Hx) in E.
+    destruct (label_eqb (Some x) (v_label v)); [destruct (v_index v); discriminate E|discriminate E].
+  - intros _ y Hy; exists y; rewrite (sres_entry h u x _ Hx); unfold bound in Hy; rewrite Hy; reflexivity.
+  - exact Hb.
+  - intros _ v v' i j _ _ Hij; exists (mk_rvar None i); split; [rewrite (sres_entry h u x _ Hx); reflexivity|].
+    intros v'' E; rewrite (sres_entry h u x _ Hx) in E.
+    destruct (label_eqb_spec (Some x) (v_label v'')) as [El|_].
+    + destruct (v_index v''); [discriminate E|]; injection E as E _; rewrite E in El; discriminate El.
+    + injection E as ->; right; split; [reflexivity|exact Hij].
+Qed.
+
 (** ** Two words that begin with a segment with a term *)
 
 (** A term with the continuation [K], against what a word does to a

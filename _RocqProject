@@ -38,3 +38,4 @@ theories/Extraction/Extraction.v
 theories/Tests/CoreTests.v
 theories/Tests/NamesTests.v
 theories/Tests/LayersTests.v
+theories/Tests/LayeredNfTests.v
