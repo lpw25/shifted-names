@@ -22,8 +22,8 @@ form of this file, a tree, is the layered word multiplied out
 - Theorem 3: `tnorm_complete`: expressions that mean the same have the
   same tree. The decision `nf_eq_t` compares the layered words and,
   when they differ, the trees; it is sound (`nf_eq_t_sound`) and
-  answers `true` for equal expressions whenever both words are small
-  enough for it to multiply them out (`nf_eq_t_complete`).
+  answers `true` for equal expressions whenever it builds both trees,
+  which it does up to 100000 nodes (`nf_eq_t_complete`).
 - Theorem 4: `wtrace_sound` (`Core/Normalise.v`) and `stuck_word`
   (`Core/Complete.v`), for trees.
 
@@ -490,8 +490,10 @@ In the number `n` of steps:
   the first `d` bound targets of the word's first segment, without
   writing them out, would make this quadratic.
 - *Where the two words differ*, the trees are built: exponential in
-  the length of a chain. The decision does not try when its estimate
-  of a tree (`lest`) is over 20000 nodes, and fails.
+  the length of a chain. The decision gives up, and fails, when a tree
+  passes 100000 nodes (`expand_c`): the third law above with a payload
+  that is a chain of 14 substitutions takes 0.3 s, and with 16 fails.
+  The removed normaliser decided it for 128 in 0.2 s.
 
 In practice the normaliser is not where the time goes. For the laws in
 the tests (two or three steps) `names_eq` takes 30 to 80 ms, of which

@@ -140,62 +140,45 @@ with ssz (s : seg) : N :=
 with wsz (w : word) : N :=
   match w with WEnd s => (1 + ssz s)%N | WAtom s _ _ w' => (1 + ssz s + wsz w')%N end.
 
-(** An estimate of the size of the tree of a layered word, without
-    multiplying out: every term of a segment gets the rest.  It stops
-    counting at [cap]. *)
-Fixpoint ntms (ts : tlist) : N :=
-  match ts with
-  | TNil => 0%N
-  | TCons (NBind _ _ _) r => (1 + ntms r)%N
-  | TCons _ r => ntms r
-  end.
-
-Fixpoint sntms (s : seg) : N :=
-  match s with SNil => 0%N | SEnt _ ts _ r => (ntms ts + sntms r)%N end.
-
-Definition cap : N := 20000%N.
-
-Fixpoint lest (l : lword) : N :=
+(** Multiplying out, giving up when the tree of a rest of the word has
+    more than [c] nodes. *)
+Fixpoint expand_c (c : N) (l : lword) : option word :=
   match l with
-  | [] => 1%N
-  | LS s :: r => N.min cap (ssz s + (1 + sntms s) * lest r)
-  | LA _ _ :: r => N.min cap (2 + lest r)
+  | [] => Some (WEnd SNil)
+  | x :: r =>
+      match expand_c c r with
+      | Some w =>
+          match wcomp F ntm w (match x with LS s => WEnd s | LA L a => WAtom SNil L a (WEnd SNil) end) with
+          | Some w' => if (wsz w' <=? c)%N then Some w' else None
+          | None => None
+          end
+      | None => None
+      end
   end.
 
-Definition expand_small (budget : N) (l : lword) : option word :=
-  if (lest l <? cap)%N then
-    match expand F ntm l with
-    | Some w => if (wsz w <=? budget)%N then Some w else None
-    | None => None
-    end
-  else None.
+(** The trees the decision is willing to build. *)
+Definition cap : N := 100000%N.
 
 Definition lshow (e : aexp) : shown :=
   match lnorm F ntm e with
   | Some l =>
-      if (lest l <? cap)%N then
-        match expand F ntm l with
-        | Some w => if (wsz w <=? show_budget)%N then ShWord w else ShLarge
-        | None => ShNone
-        end
-      else ShLarge
+      match expand_c (20 * show_budget) l with
+      | Some w => if (wsz w <=? show_budget)%N then ShWord w else ShLarge
+      | None => ShLarge
+      end
   | None => ShNone
   end.
 
-(** The decision: the layered words are the same, or, when both are
-    small enough to multiply out, their trees are. *)
+(** The decision: the layered words are the same, or, when both trees
+    are small enough to build, the trees are. *)
 Definition nf_eq_t (e1 e2 : aexp) : bool :=
   match lnorm F ntm e1, lnorm F ntm e2 with
   | Some l1, Some l2 =>
       if lword_eqb l1 l2 then true
-      else if (lest l1 <? cap)%N then
-        if (lest l2 <? cap)%N then
-          match expand F ntm l1, expand F ntm l2 with
-          | Some w1, Some w2 => word_eqb w1 w2
-          | _, _ => false
-          end
-        else false
-      else false
+      else match expand_c cap l1, expand_c cap l2 with
+           | Some w1, Some w2 => word_eqb w1 w2
+           | _, _ => false
+           end
   | _, _ => false
   end.
 
@@ -206,7 +189,7 @@ Definition lapply_payload (e : aexp) (h : lexp) (i : nat) : option (nat * word) 
   | Some l =>
       match ltgt l h i with
       | Some (NBind u (WEnd SNil) None, r) =>
-          match expand_small show_budget r with Some w => Some (u, pnorm w) | None => None end
+          match expand_c show_budget r with Some w => Some (u, pnorm w) | None => None end
       | _ => None
       end
   | None => None
@@ -233,6 +216,15 @@ Local Notation wden := (wden lenv tenv aenv penv).
 Local Notation aeden := (aeden lenv tenv aenv penv).
 Local Notation lwden := (lwden lenv tenv aenv penv).
 Local Notation lwdist := (lwdist lenv).
+
+Lemma expand_c_some c l : forall w, expand_c F ntm c l = Some w -> expand F ntm l = Some w.
+Proof.
+  induction l as [|x r IH]; intros w; cbn [expand_c expand]; [exact (fun H => H)|].
+  destruct (expand_c F ntm c r) as [w0|]; [|discriminate]; rewrite (IH w0 eq_refl).
+  destruct x as [s|L a]; cbn [obind];
+    (match goal with |- context [wcomp F ntm w0 ?y] => destruct (wcomp F ntm w0 y) as [w'|] end; [|discriminate]);
+    (destruct (wsz w' <=? c)%N; [exact (fun H => H)|discriminate]).
+Qed.
 
 Lemma lnorm_dist e l : lnorm F ntm e = Some l -> lwdist l.
 Proof.
@@ -316,9 +308,9 @@ Proof.
   rewrite <- (lnorm_sound lenv tenv aenv penv F HF ntm Hntm e1 l1 E1),
           <- (lnorm_sound lenv tenv aenv penv F HF ntm Hntm e2 l2 E2).
   destruct (lword_eqb l1 l2) eqn:El; [intros _; apply lword_eqb_eq in El; subst; reflexivity|].
-  destruct (lest l1 <? cap)%N; [|discriminate]; destruct (lest l2 <? cap)%N; [|discriminate].
-  destruct (expand F ntm l1) as [w1|] eqn:X1; [|discriminate].
-  destruct (expand F ntm l2) as [w2|] eqn:X2; [|discriminate]; intros Hw.
+  destruct (expand_c F ntm cap l1) as [w1|] eqn:X1; [|discriminate].
+  destruct (expand_c F ntm cap l2) as [w2|] eqn:X2; [|discriminate]; intros Hw.
+  apply expand_c_some in X1, X2.
   apply (proj2 (proj2 (proj2 nf_eqb_eq))) in Hw; subst w2.
   rewrite <- (proj2 (expand_sound lenv tenv aenv penv F HF ntm Hntm l1 w1 (lnorm_dist e1 l1 E1) X1)).
   exact (proj2 (expand_sound lenv tenv aenv penv F HF ntm Hntm l2 w1 (lnorm_dist e2 l2 E2) X2)).
@@ -481,21 +473,21 @@ Proof.
     apply Heq; assumption.
 Qed.
 
-(** The decision: when both sides have a word small enough to multiply
-    out, it answers [true] for expressions that mean the same. *)
+(** The decision: when both sides have a word whose tree it builds, it
+    answers [true] for expressions that mean the same. *)
 Theorem nf_eq_t_complete lenv l ntm e1 e2 l1 l2 :
   lfacts_ok lenv l ->
   (forall lenv' (T : Type) (tenv : list T) aenv penv, lfacts_ok lenv' l -> ntm <= List.length tenv ->
      aeden lenv' tenv aenv penv e1 = aeden lenv' tenv aenv penv e2) ->
   lnorm (order_of l) ntm e1 = Some l1 -> lnorm (order_of l) ntm e2 = Some l2 ->
-  (lest l1 <? cap)%N = true -> (lest l2 <? cap)%N = true ->
-  expand (order_of l) ntm l1 <> None -> expand (order_of l) ntm l2 <> None ->
+  expand_c (order_of l) ntm cap l1 <> None -> expand_c (order_of l) ntm cap l2 <> None ->
   nf_eq_t (order_of l) ntm e1 e2 = true.
 Proof.
-  intros HF Heq E1 E2 C1 C2 X1 X2; unfold nf_eq_t; rewrite E1, E2, C1, C2.
+  intros HF Heq E1 E2 X1 X2; unfold nf_eq_t; rewrite E1, E2.
   destruct (lword_eqb l1 l2); [reflexivity|].
-  destruct (expand (order_of l) ntm l1) as [w1|] eqn:Ew1; [|contradiction].
-  destruct (expand (order_of l) ntm l2) as [w2|] eqn:Ew2; [|contradiction].
+  destruct (expand_c (order_of l) ntm cap l1) as [w1|] eqn:Ew1; [|contradiction].
+  destruct (expand_c (order_of l) ntm cap l2) as [w2|] eqn:Ew2; [|contradiction].
+  apply expand_c_some in Ew1, Ew2.
   assert (T1 : tnorm (order_of l) ntm e1 = Some w1) by (unfold tnorm; rewrite E1; exact Ew1).
   assert (T2 : tnorm (order_of l) ntm e2 = Some w2) by (unfold tnorm; rewrite E2; exact Ew2).
   rewrite (tnorm_complete lenv l ntm e1 e2 w1 w2 HF Heq T1 T2); apply (proj2 (proj2 (proj2 nf_eqb_refl))).
