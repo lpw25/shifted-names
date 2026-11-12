@@ -52,10 +52,23 @@ Fixpoint bound_only (s : seg) : bool :=
   | SEnt _ _ _ _ => false
   end.
 
-Fixpoint slifts (d : nat) (s : seg) : option seg :=
+(** [d] lifts by the bound label, in one pass: the outputs of the bound
+    label move up by [d], and its first [d] inputs go to themselves. *)
+Fixpoint idts (i n : nat) : tlist :=
+  match n with 0 => TNil | S n' => TCons (NVar LNone i) (idts (S i) n') end.
+
+Definition slifts (d : nat) (s : seg) : option seg :=
   match d with
   | 0 => Some s
-  | S d' => match slifts d' s with Some s' => slift F ntm LNone s' | None => None end
+  | _ =>
+      match scomp F ntm (shseg LNone d) s with
+      | Some s1 =>
+          match sfind F LNone s1 with
+          | Some e => let '(ts, m) := ofe e in sset F LNone (tcat (idts 0 d) ts) m s1
+          | None => None
+          end
+      | None => None
+      end
   end.
 
 (** ** Putting a segment in front of a word
@@ -451,6 +464,7 @@ Local Notation lden := (lden lenv).
 Local Notation tden := (tden lenv tenv aenv penv).
 Local Notation sden := (sden lenv tenv aenv penv).
 Local Notation sdistd := (sdistd lenv).
+Local Notation tldist := (tldist lenv).
 Local Notation aeden := (aeden lenv tenv aenv penv).
 Local Notation teden := (teden lenv tenv aenv penv).
 
@@ -464,14 +478,58 @@ Fixpoint lwden (l : lword) : radj T :=
 
 Definition lwdist (l : lword) : Prop := Forall (fun x => match x with LS s => sdistd s | LA _ _ => True end) l.
 
+Lemma idts_len i n : tlen (idts i n) = n.
+Proof. revert i; induction n as [|n IH]; intros i; cbn [idts tlen]; [reflexivity|rewrite IH; reflexivity]. Qed.
+
+Lemma idts_nth n : forall i j, j < n -> tnth (idts i n) j = NVar LNone (i + j).
+Proof.
+  induction n as [|n IH]; intros i j Hj; [lia|]; cbn [idts tnth].
+  destruct j as [|j]; [rewrite Nat.add_0_r; reflexivity|].
+  rewrite (IH (S i) j) by lia; f_equal; lia.
+Qed.
+
+Lemma idts_dist n : forall i, tldist (idts i n).
+Proof. induction n as [|n IH]; intros i; cbn [idts tldist]; [exact I|split; [exact I|apply IH]]. Qed.
+
+Lemma tldist_tcat a b : tldist a -> tldist b -> tldist (tcat a b).
+Proof.
+  intros Ha Hb; apply (proj2 (tldist_iff lenv _)); intros t Ht; rewrite tcat_list in Ht.
+  apply in_app_or in Ht; destruct Ht as [Ht|Ht];
+    [exact (proj1 (tldist_iff lenv a) Ha t Ht)|exact (proj1 (tldist_iff lenv b) Hb t Ht)].
+Qed.
+
 Lemma slifts_sound d : forall s s', sdistd s -> slifts F ntm d s = Some s' -> sdistd s' /\ sden s' = lifted d (sden s).
 Proof.
-  induction d as [|d IH]; intros s s' Hd; cbn [slifts].
-  - intros H; injection H as <-; split; [exact Hd|reflexivity].
-  - destruct (slifts F ntm d s) as [s1|] eqn:E; [|discriminate]; intros H.
-    destruct (IH s s1 Hd E) as [Hd1 Hs1].
-    destruct (slift_sound lenv tenv aenv penv F HF ntm Hntm LNone s1 s' Hd1 H) as [Hd' Hs'].
-    split; [exact Hd'|]; rewrite Hs', Hs1; reflexivity.
+  intros s s' Hd; unfold slifts; destruct d as [|d0]; [intros H; injection H as <-; split; [exact Hd|reflexivity]|].
+  set (d := S d0).
+  destruct (scomp F ntm (shseg LNone d) s) as [s1|] eqn:E; [|discriminate].
+  destruct (scomp_sound lenv tenv aenv penv F HF ntm Hntm _ _ _ (shseg_dd lenv LNone d) Hd E) as [Hd1 Hs1].
+  pose proof (sdistd_sdist lenv _ Hd1) as Ed1.
+  destruct (sfind F LNone s1) as [e|] eqn:Ef; [|discriminate]; apply (sfind_sound lenv F HF) in Ef.
+  change (lden LNone) with (@None label) in Ef.
+  destruct (ofe e) as [ts m] eqn:Eo; intros H.
+  assert (Hts : tldist (tcat (idts 0 d) ts)).
+  { apply tldist_tcat; [apply idts_dist|].
+    destruct e as [[ts1 m1]|]; cbn [ofe] in Eo; injection Eo as <- <-; [|exact I].
+    exact (sget_dd lenv _ _ _ _ Hd1 (eq_sym Ef)). }
+  destruct (sset_sound lenv tenv aenv penv F HF ntm Hntm _ _ _ _ _ Ed1 H) as [Hd' Hs].
+  split; [exact (sset_dd lenv tenv aenv penv F HF ntm Hntm _ _ _ _ _ Hd1 Hts H)|].
+  apply rextensionality; intros [l j]; unfold lifted.
+  rewrite (iter_rlift_apply tenv ntm Hntm), rapply_sden by exact Hd'; cbn [v_label v_index]; rewrite Hs.
+  change (lden LNone) with (@None label).
+  rewrite <- rapply_compose_cres, <- (sden_shseg lenv tenv aenv penv LNone d : sden (shseg LNone d) = shiftk None d), <- Hs1.
+  destruct l as [l|]; cbn [label_eqb andb].
+  - rewrite rapply_sden by exact Ed1; reflexivity.
+  - cbn [esem]; rewrite tlen_tcat, idts_len, tnth_tcat, idts_len.
+    destruct (Nat.ltb_spec j d) as [Hj|Hj].
+    + replace (j <? d + tlen ts) with true by (symmetry; apply Nat.ltb_lt; lia).
+      rewrite (idts_nth d 0 j Hj); reflexivity.
+    + rewrite rapply_sden by exact Ed1; cbn [v_label v_index].
+      rewrite <- Ef, <- (esem_ofe lenv tenv aenv penv ntm Hntm None e (j - d)), Eo; cbn [esem].
+      destruct (Nat.ltb_spec (j - d) (tlen ts)) as [Hk|Hk];
+        [replace (j <? d + tlen ts) with true by (symmetry; apply Nat.ltb_lt; lia); reflexivity|].
+      replace (j <? d + tlen ts) with false by (symmetry; apply Nat.ltb_ge; lia).
+      do 2 f_equal; lia.
 Qed.
 
 Lemma lwden_lpre U r : lwden (lpre U ++ r) = rcompose (lwden r) (sden U).
