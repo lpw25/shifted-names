@@ -582,12 +582,37 @@ choice, and the rule for it has to survive composition:
   expression means. Not covered yet: an atom, or a lift by the bound
   label, inside a payload; shifted targets.
 
-What it returns is not yet canonical. Still to do, in this order: the
-predicate (terms with the same payload in one segment, the order above,
-bound variables ordered by where they are used, nothing dead), that the
-fold keeps it, and that two words satisfying it with the same meaning
-are the same; then `names` moves over and the stored form goes.
+`Core/LayeredUnique.v` has the normal-form conditions and uniqueness,
+for words without atoms and without terms that have a payload atom:
 
-Since chains are normalised from the last step, the stored form is
-quadratic in space on a chain and nothing worse: 250 substitutions in
-0.4 seconds.
+- The free meaning of a layered word is its steps one after the other,
+  each with the rest as its continuation (`flw`); a term's continuation
+  is the rest of the word.
+- `lnf`, for a segment `S` followed by `r`:
+  1. `S` is a canonical segment whose terms have the identity payload,
+     and has a term unless it is the last.
+  2. The payloads of successive layers decrease in a strict order on
+     what a payload does to named variables; a last segment that does
+     nothing to named variables has a term (otherwise it is part of the
+     segment before).
+  3. A variable goes on as the least named variable of the rest with
+     the same result, and as a bound variable only when there is none.
+  4. Every bound variable of the rest is used; distinct bound variables
+     of a rest have distinct results; and except in the first segment
+     of the word, the bound variables come in the order of what the
+     segment makes of them (terms, then named variables, then bound
+     variables).
+- `lw_unique`: two words satisfying `lnf` with the same free meaning
+  are the same word. `lw_unique_real`: so are two that mean the same
+  under every interpretation of the atoms (`lw_adequacy`, as for
+  words).
+- The order on payloads is a parameter of both: any relation that is
+  irreflexive, transitive and only looks at named variables. Which
+  order it is gets fixed when the fold is shown to keep `lnf`; it has
+  to put a payload above the payloads of the terms it contains.
+
+What the fold returns is not yet in this form. Still to do: atoms and
+payload atoms in `lnf`; the order; that the fold keeps `lnf` (which
+needs a term that does not see the first layer put further in, bound
+variables put in order, and unused ones removed); then `names` moves
+over and the stored form goes.

@@ -527,3 +527,84 @@ Proof.
 Qed.
 
 End LUnique.
+
+(** ** From every interpretation to the free model
+
+    As for words ([Unique.adequacy]): layered words that mean the same
+    under every interpretation of the atoms have the same free meaning,
+    so in normal form they are the same word. *)
+
+Section Adequacy.
+
+Variable lenv : list label.
+
+(** Segments with distinct labels, terms in range. *)
+Definition lwok {T : Type} (tenv : list T) (l : lword) : Prop :=
+  Forall (fun st => match st with LS s => oks lenv tenv s | LA _ _ => True end) l.
+
+Lemma flw_real {T : Type} (tenv : list T) (aenv : list (radj T)) (penv : list (rpadj T)) l :
+  lwok tenv l -> forall K Kr v, (forall y, realises tenv aenv penv (K y) (rapply Kr y)) ->
+  realises tenv aenv penv (flw lenv l K v) (rapply (rcompose Kr (lwden lenv tenv aenv penv l)) v).
+Proof.
+  induction l as [|[s|L a] r IH]; intros Hok K Kr v HK.
+  - cbn [flw lwden]; rewrite rcompose_identity_r; apply HK.
+  - inversion Hok as [|? ? Hs Hr]; subst; cbn [flw lwden].
+    rewrite rcompose_assoc, rapply_compose_cres, rapply_sden by (apply oks_sdist in Hs; exact Hs).
+    apply (proj1 (proj2 (proj2 (fw_real lenv tenv aenv penv))) s Hs); intros y; apply IH; assumption.
+  - inversion Hok as [|? ? _ Hr]; subst; cbn [flw lwden].
+    change (latom lenv L a (flw lenv r K) v) with (fw lenv (WAtom SNil L a (WEnd SNil)) (flw lenv r K) v).
+    pose proof (proj2 (proj2 (proj2 (fw_real lenv tenv aenv penv))) (WAtom SNil L a (WEnd SNil)) (conj I I)
+                  (flw lenv r K) (rcompose Kr (lwden lenv tenv aenv penv r)) v (fun y => IH Hr K Kr y HK)) as H.
+    rewrite wden_atom in H.
+    change (sden lenv tenv aenv penv SNil) with (@ridentity T) in H.
+    change (wden lenv tenv aenv penv (WEnd SNil)) with (@ridentity T) in H.
+    rewrite rcompose_identity_l, rcompose_identity_r, <- rcompose_assoc in H; exact H.
+Qed.
+
+Theorem lw_adequacy nt l m : lwok (tenvT nt) l -> lwok (tenvT nt) m ->
+  (forall aenv penv, lwden lenv (tenvT nt) aenv penv l = lwden lenv (tenvT nt) aenv penv m) ->
+  forall v, feq (flw lenv l FVar v) (flw lenv m FVar v).
+Proof.
+  intros H1 H2 Heq v; apply fequ_feq; intros B.
+  set (f1 := flw lenv l FVar v); set (f2 := flw lenv m FVar v).
+  set (Z := stucks B f1 ++ stucks B f2); set (P := pays B f1 ++ pays B f2).
+  set (Λ := map (fun p => v_label (snd p)) Z).
+  set (N := S (list_max (map (fun p => v_index (snd p)) Z))).
+  set (na := S (list_max (map fst Z))); set (np := S (list_max P)).
+  set (aenv := aenvT B Λ N na); set (penv := penvT B np).
+  assert (HK : forall y, realises (tenvT nt) aenv penv (FVar y) (rapply ridentity y))
+    by (intros y; cbn [realises]; apply rapply_identity).
+  pose proof (flw_real (tenvT nt) aenv penv l H1 FVar ridentity v HK) as R1.
+  pose proof (flw_real (tenvT nt) aenv penv m H2 FVar ridentity v HK) as R2.
+  rewrite rcompose_identity_l in R1, R2; rewrite (Heq aenv penv) in R1.
+  assert (HZ : boxok Λ N na Z).
+  { intros p Hp; split; [|split].
+    - apply Nat.lt_succ_r, in_list_max, in_map, Hp.
+    - apply (in_map (fun p => v_label (snd p))), Hp.
+    - apply Nat.lt_succ_r, in_list_max, (in_map (fun p => v_index (snd p))), Hp. }
+  assert (HP : payok np P) by (intros n Hn; apply Nat.lt_succ_r, in_list_max, Hn).
+  apply (readback B Λ N na np nt f1 f2 _ R1 R2).
+  - intros p Hp; apply HZ, in_or_app; left; exact Hp.
+  - intros p Hp; apply HZ, in_or_app; right; exact Hp.
+  - intros n Hn; apply HP, in_or_app; left; exact Hn.
+  - intros n Hn; apply HP, in_or_app; right; exact Hn.
+Qed.
+
+(** Layered words in normal form that mean the same under every
+    interpretation of the atoms are the same word. *)
+Theorem lw_unique_real (labs : list lexp)
+    (Hinj : forall h h', In h labs -> In h' labs -> lden lenv h = lden lenv h' -> h = h')
+    (gt : (rvar -> fres) -> (rvar -> fres) -> Prop)
+    (gt_irrefl : forall k k', keq k k' -> ~ gt k k')
+    (gt_trans : forall k1 k2 k3, gt k1 k2 -> gt k2 k3 -> gt k1 k3)
+    (gt_keq : forall k1 k1' k2 k2', keq k1 k1' -> keq k2 k2' -> gt k1 k2 -> gt k1' k2')
+    nt l m :
+  lnf lenv labs gt true l -> lnf lenv labs gt true m -> lwok (tenvT nt) l -> lwok (tenvT nt) m ->
+  (forall aenv penv, lwden lenv (tenvT nt) aenv penv l = lwden lenv (tenvT nt) aenv penv m) ->
+  l = m.
+Proof.
+  intros Hl Hm Ol Om Heq.
+  exact (lw_unique lenv labs Hinj gt gt_irrefl gt_trans gt_keq l m Hl Hm (lw_adequacy nt l m Ol Om Heq)).
+Qed.
+
+End Adequacy.
