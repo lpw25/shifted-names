@@ -496,6 +496,39 @@ Definition hsize (es : list ent) : nat := fold_right (fun '(_, ts, _) n => S (Li
     that is waiting for the term being placed: they would otherwise end
     up before steps they have to see through.  [descs] gives, for each
     term, the terms it reaches. *)
+(** Which term is placed next.  With [ko], among the terms all of whose
+    mentioned terms are placed, the one whose most recently placed
+    mentioned term is the most recent; otherwise the first. *)
+Variable ko : bool.
+
+Definition rank (inst : list ntgt) (p : option ntgt * word) : nat :=
+  fold_left (fun m t => match tindex t inst with Some i => Nat.max m (S i) | None => m end)
+            (etgts (hents (snd p))) 0.
+
+Definition pkey (p : option ntgt * word) : nat * nat :=
+  match fst p with
+  | Some (NBind u _ b) => (u, match b with Some β => S β | None => 0 end)
+  | _ => (0, 0)
+  end.
+
+Definition before (inst : list ntgt) (b q : option ntgt * word) : bool :=
+  (rank inst b <? rank inst q)
+  || (Nat.eqb (rank inst b) (rank inst q)
+      && ((fst (pkey q) <? fst (pkey b)) || (Nat.eqb (fst (pkey q)) (fst (pkey b)) && (snd (pkey q) <? snd (pkey b))))).
+
+Definition pick (inst : list ntgt) (ts : list (option ntgt * word)) : option (option ntgt * word) :=
+  if ko then
+    match fold_left (fun best q => if ready inst q
+                                   then match best with
+                                        | Some b => if before inst b q then Some q else best
+                                        | None => Some q
+                                        end
+                                   else best) ts None with
+    | Some q => Some q
+    | None => hd_error ts
+    end
+  else hd_error ts.
+
 Fixpoint build_s (nodes0 : list ntgt) (descs : list (list ntgt))
     (fuel : nat) (parts : list (option ntgt * word)) (inst : list ntgt) (acc : list step)
     (vns : list ntgt) : option (list step * list ntgt) :=
@@ -509,9 +542,9 @@ Fixpoint build_s (nodes0 : list ntgt) (descs : list (list ntgt))
           match try_atom inst parts with
           | Some (L0, a, parts') => build_s nodes0 descs f parts' inst (SAtom L0 a :: acc) vns
           | None =>
-              match filter (fun p => match fst p with Some _ => true | None => false end) parts with
-              | [] => None
-              | p :: _ =>
+              match pick inst (filter (fun p => match fst p with Some _ => true | None => false end) parts) with
+              | None => None
+              | Some p =>
                   let indiff := fun q => match fst q, snd q with
                                          | Some t, WEnd _ => match snd (tpay t) with None => true | Some _ => false end
                                          | _, _ => false
@@ -764,11 +797,22 @@ Definition layers_of (np : nat) (F : order) (ntm : nat) (ds : list pdef) (share 
   | None => None
   end.
 
-Definition layers_s (np : nat) (F : order) (ntm : nat) (ds : list pdef) (w : word) : option aexp :=
+Definition layers_k (ko : bool) (np : nat) (F : order) (ntm : nat) (ds : list pdef) (w : word) : option aexp :=
   let '(nodes, parts) := parties np ds w in
   let descs := map (fun t => post np ds (S (List.length ds)) [] (hents (fst (tpay np ds t)))) nodes in
-  match build_s np F ntm ds true nodes descs (1000 + 40 * List.length nodes) parts [] [] [] with
+  match build_s np F ntm ds true ko nodes descs (1000 + 40 * List.length nodes) parts [] [] [] with
   | Some (steps, vns) => Some (compose_steps (emit np ds (nodes ++ vns) steps))
+  | None => None
+  end.
+
+Definition layers_s := layers_k false.
+
+(** The terms in the order of the word. *)
+Definition line_k (ko : bool) (np : nat) (F : order) (ntm : nat) (ds : list pdef) (w : word) : option (list ntgt) :=
+  let '(nodes, parts) := parties np ds w in
+  let descs := map (fun t => post np ds (S (List.length ds)) [] (hents (fst (tpay np ds t)))) nodes in
+  match build_s np F ntm ds true ko nodes descs (1000 + 40 * List.length nodes) parts [] [] [] with
+  | Some (steps, _) => Some (flat_map (fun s => match s with SInst l => map fst l | _ => [] end) steps)
   | None => None
   end.
 

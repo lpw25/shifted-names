@@ -546,6 +546,25 @@ So there are three things the layered form could be:
    is how a large normal form is displayed, instead of leaving the
    adjustment as written.
 
+The first is the one being built. The order of the terms is the global
+choice, and the rule for it has to survive composition:
+
+- *The order.* The word is built from its end. Among the terms all of
+  whose mentioned terms are placed, the next placed is the one whose
+  most recently placed mentioned term is the most recent; ties go by
+  the term (`layers_k true` in the prototype). A term nobody mentions
+  cannot change the choice between two others, so composing on the left
+  never reorders the terms of the right-hand word: in 700 random
+  compositions they stayed in order, and all but one time at the end of
+  the word (postorder reordered them 4 times). A new term goes
+  directly before the first term it mentions; usually that is the
+  first term of the word.
+- With this order, writing two words side by side and composing at the
+  seam gives the canonical form for 92 percent of random pairs. The
+  rest involve atoms under lifts.
+- Since compositions are re-nested, the normaliser needs one operation
+  on layered words: putting one step in front of a word.
+
 Since chains are normalised from the last step, the stored form is
 quadratic in space on a chain and nothing worse: 250 substitutions in
 0.4 seconds.
