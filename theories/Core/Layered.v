@@ -65,7 +65,16 @@ Fixpoint slifts (d : nat) (s : seg) : option seg :=
     variables and the terms have no payload atom: then they have the
     same payload as the terms of the first segment, and are in its
     layer.  Joining is composition of segments. *)
-Definition cons_seg (s : seg) (K : lword) : option lword :=
+Definition obind {A B} (x : option A) (f : A -> option B) : option B :=
+  match x with Some a => f a | None => None end.
+
+Definition lpre (U : seg) : lword := match U with SNil => [] | _ => [LS U] end.
+
+(** In front of an atom, a segment with terms stays where it is.  A
+    renaming is settled as in [Normalise]: what it does to the variables
+    passed around the atom moves after the atom, and what is left before
+    it is in lift position. *)
+Fixpoint cons_seg (s : seg) (K : lword) {struct K} : option lword :=
   match K with
   | LS s1 :: K' =>
       if negb (has_terms s) || (bound_only s1 && no_atoms s)
@@ -75,7 +84,14 @@ Definition cons_seg (s : seg) (K : lword) : option lword :=
            | None => None
            end
       else Some (LS s :: K)
-  | _ => Some (match s with SNil => K | _ => LS s :: K end)
+  | LA L a :: K' =>
+      if has_terms s then Some (LS s :: K)
+      else match wcomp F ntm (WAtom SNil L a (WEnd SNil)) (WEnd s) with
+           | Some (WAtom s' L' a' (WEnd U)) =>
+               obind (cons_seg s' K') (fun K'' => Some (lpre U ++ LA L' a' :: K''))
+           | _ => None
+           end
+  | [] => Some (lpre s)
   end.
 
 (** ** The steps *)
@@ -87,9 +103,6 @@ Definition close_seg (h : lexp) : option seg := sfront F h (NVar LNone 0) (shseg
 Definition open_seg (h : lexp) : option seg := sfront F LNone (NVar h 0) (shseg h 1).
 
 Definition is_bound (h : lexp) : bool := match h with LNone => true | _ => false end.
-
-Definition obind {A B} (x : option A) (f : A -> option B) : option B :=
-  match x with Some a => f a | None => None end.
 
 Definition cons_lifted (d : nat) (s : option seg) (K : lword) : option lword :=
   obind s (fun s0 => obind (slifts d s0) (fun s' => cons_seg s' K)).
@@ -432,17 +445,22 @@ Proof.
     split; [exact Hd'|]; rewrite Hs', Hs1; reflexivity.
 Qed.
 
-Lemma cons_seg_sound s K K' :
+Lemma lwden_lpre U r : lwden (lpre U ++ r) = rcompose (lwden r) (sden U).
+Proof.
+  destruct U; [|reflexivity]; cbn [lpre app].
+  change (lwden r = rcompose (lwden r) ridentity); rewrite rcompose_identity_r; reflexivity.
+Qed.
+
+Lemma lwdist_lpre U r : sdistd U -> lwdist r -> lwdist (lpre U ++ r).
+Proof. intros HU Hr; destruct U; [exact Hr|constructor; assumption]. Qed.
+
+Lemma cons_seg_sound K : forall s K',
   sdistd s -> lwdist K -> cons_seg F ntm s K = Some K' ->
   lwdist K' /\ lwden K' = rcompose (lwden K) (sden s).
 Proof.
-  intros Hs HK; unfold cons_seg.
-  assert (Hplain : Some (match s with SNil => K | _ => LS s :: K end) = Some K' ->
-                   lwdist K' /\ lwden K' = rcompose (lwden K) (sden s)).
-  { intros H; injection H as <-; destruct s as [|h ts m r].
-    - split; [exact HK|]; change (lwden K = rcompose (lwden K) ridentity); rewrite rcompose_identity_r; reflexivity.
-    - split; [constructor; [exact Hs|exact HK]|reflexivity]. }
-  destruct K as [|[s1|L a] K0]; [exact Hplain| |exact Hplain].
+  induction K as [|[s1|L a] K0 IH]; intros s K' Hs HK; cbn [cons_seg].
+  - intros H; injection H as <-; rewrite <- (app_nil_r (lpre s)); split; [apply lwdist_lpre; assumption|].
+    rewrite lwden_lpre; reflexivity.
   - inversion HK as [|? ? H1 H0]; subst.
     destruct (negb (has_terms s) || (bound_only s1 && no_atoms s)).
     + destruct (scomp F ntm s1 s) as [s'|] eqn:E; [|discriminate].
@@ -454,6 +472,23 @@ Proof.
         rewrite rcompose_identity_r; reflexivity.
       * split; [constructor; assumption|exact Hgoal].
     + intros H; injection H as <-; split; [constructor; assumption|reflexivity].
+  - inversion HK as [|? ? _ H0]; subst.
+    destruct (has_terms s); [intros H; injection H as <-; split; [constructor; assumption|reflexivity]|].
+    destruct (wcomp F ntm (WAtom SNil L a (WEnd SNil)) (WEnd s)) as [[s0|s' L' a' [U|s2 L2 a2 w2]]|] eqn:E;
+      [intros H; discriminate H| |intros H; discriminate H|intros H; discriminate H].
+    destruct (cons_seg F ntm s' K0) as [K''|] eqn:E2; [|intros H; discriminate H]; cbn [obind]; intros H; injection H as <-.
+    destruct (wcomp_sound lenv tenv aenv penv F HF ntm Hntm (WAtom SNil L a (WEnd SNil)) (WEnd s) _ (conj I I) Hs E)
+      as [[Hd' HdU] D].
+    destruct (IH s' K'' Hd' H0 E2) as [HK'' DK''].
+    split; [apply lwdist_lpre; [exact HdU|constructor; [exact I|exact HK'']]|].
+    rewrite lwden_lpre; cbn [lwden]; rewrite DK''.
+    rewrite !wden_atom in D.
+    change (Normalise.sden lenv tenv aenv penv SNil) with (@ridentity T) in D.
+    change (Normalise.wden lenv tenv aenv penv (WEnd SNil)) with (@ridentity T) in D.
+    change (Normalise.wden lenv tenv aenv penv (WEnd U)) with (sden U) in D.
+    change (Normalise.wden lenv tenv aenv penv (WEnd s)) with (sden s) in D.
+    rewrite rcompose_identity_l, rcompose_identity_r in D.
+    rewrite <- !rcompose_assoc, D; reflexivity.
 Qed.
 
 (** The multiplied-out word means the same. *)
@@ -543,7 +578,7 @@ Proof.
   intros Hs HK; unfold cons_lifted; destruct s as [s0|]; [|discriminate]; cbn [obind].
   destruct (slifts F ntm d s0) as [s'|] eqn:E; [|discriminate]; cbn [obind]; intros H.
   destruct (Hs s0 eq_refl) as [Hd0 Hx]; destruct (slifts_sound d s0 s' Hd0 E) as [Hd' Hs'].
-  destruct (cons_seg_sound s' K K' Hd' HK H) as [A B]; split; [exact A|]; rewrite B, Hs', Hx; reflexivity.
+  destruct (cons_seg_sound K s' K' Hd' HK H) as [A B]; split; [exact A|]; rewrite B, Hs', Hx; reflexivity.
 Qed.
 
 Definition named (G : list lexp) : Prop := Forall (fun g => is_bound g = false) G.
@@ -747,3 +782,54 @@ Proof.
 Qed.
 
 End Sound.
+
+(** ** The decision
+
+    Two expressions with the same layered word mean the same.  The
+    words are compared with the lazy conjunction of [Normalise]. *)
+
+Definition lstep_eqb (x y : lstep) : bool :=
+  match x, y with
+  | LS s, LS s' => seg_eqb s s'
+  | LA L a, LA L' a' => if lifts_eqb L L' then Nat.eqb a a' else false
+  | _, _ => false
+  end.
+
+Fixpoint lword_eqb (l m : lword) : bool :=
+  match l, m with
+  | [], [] => true
+  | x :: l', y :: m' => if lstep_eqb x y then lword_eqb l' m' else false
+  | _, _ => false
+  end.
+
+Lemma lstep_eqb_eq x y : lstep_eqb x y = true -> x = y.
+Proof.
+  destruct x as [s|L a], y as [s'|L' a']; cbn; try discriminate.
+  - intros H; rewrite (proj1 (proj2 (proj2 nf_eqb_eq)) s s' H); reflexivity.
+  - destruct (lifts_eqb L L') eqn:E; [|discriminate]; intros H.
+    apply lifts_eqb_eq in E; apply Nat.eqb_eq in H; subst; reflexivity.
+Qed.
+
+Lemma lword_eqb_eq l : forall m, lword_eqb l m = true -> l = m.
+Proof.
+  induction l as [|x l IH]; intros [|y m]; cbn; try discriminate; [reflexivity|].
+  destruct (lstep_eqb x y) eqn:E; [|discriminate]; intros H.
+  rewrite (lstep_eqb_eq x y E), (IH m H); reflexivity.
+Qed.
+
+Definition nf_eq_l (F : order) (ntm : nat) (e1 e2 : aexp) : bool :=
+  match lnorm F ntm e1, lnorm F ntm e2 with
+  | Some l1, Some l2 => lword_eqb l1 l2
+  | _, _ => false
+  end.
+
+Theorem nf_eq_l_sound {T : Type} (lenv : list label) (tenv : list T) (aenv : list (radj T)) (penv : list (rpadj T))
+    (F : order) (HF : facts_ok lenv F) (ntm : nat) (Hntm : ntm <= List.length tenv) (e1 e2 : aexp) :
+  nf_eq_l F ntm e1 e2 = true -> aeden lenv tenv aenv penv e1 = aeden lenv tenv aenv penv e2.
+Proof.
+  unfold nf_eq_l; destruct (lnorm F ntm e1) as [l1|] eqn:E1; [|discriminate].
+  destruct (lnorm F ntm e2) as [l2|] eqn:E2; [|discriminate]; intros H.
+  apply lword_eqb_eq in H; subst l2.
+  rewrite <- (lnorm_sound lenv tenv aenv penv F HF ntm Hntm e1 l1 E1).
+  exact (lnorm_sound lenv tenv aenv penv F HF ntm Hntm e2 l1 E2).
+Qed.
