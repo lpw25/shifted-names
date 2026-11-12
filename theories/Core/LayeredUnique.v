@@ -5,25 +5,28 @@
     segment has the rest of the word as what happens to its names.
 
     The normal-form conditions ([lnf]) are stated on that meaning.  For a
-    segment [Sg] followed by [r]:
+    segment [S] followed by [r]:
 
-    - [Sg] is a canonical segment whose terms have the identity payload,
-      and has a term unless it is the last;
-    - the payloads of successive layers decrease in a strict order [gt]
-      on what a payload does to named variables, and a last segment
-      that does nothing to named variables has a term;
-    - a variable goes on as the least named variable of the rest with
+    - [S] is a canonical segment.  A term of [S] has the identity
+      payload, or a payload atom followed by a renaming of the bound
+      variables only.  [S] has a term, or is a renaming that ends the
+      word or stands before an atom in lift position ([Unique.lpos]).
+    - The rest's payload is above the payload of every term the rest
+      sends a variable to, in a strict order [gt] on what a payload does
+      to named variables; and a last segment that does nothing to named
+      variables has a term.
+    - A variable goes on as the least named variable of the rest with
       the same result, and as a bound variable only when there is none;
-    - every bound variable of the rest is used, and (except for the
-      first segment of the word) the bound variables come in the order
-      of what they go on as; distinct bound variables of a rest have
-      distinct results.
+      the same for the bound variables of a term with a payload atom.
+    - Every bound variable of the rest is used, distinct ones have
+      distinct results, and they are numbered in the order of the first
+      variables sent to them.
 
-    [lw_unique]: two words satisfying them with the same meaning are the
-    same word.  The order [gt] is a parameter: any relation that is
-    irreflexive, transitive and only looks at named variables.
+    An atom has a canonical list of lifts.
 
-    Not covered yet: atoms in the word, and terms with a payload atom. *)
+    [lw_unique]: two words satisfying [lnf] with the same meaning are
+    the same word.  The order [gt] is a parameter: any relation that is
+    irreflexive, transitive and only looks at named variables. *)
 
 From Stdlib Require Import Arith List Lia Bool.
 From ShiftedNames.Core Require Import Label Var Adjustment Normalise Unique Layered.
@@ -43,6 +46,12 @@ Local Notation ftl := (ftl lenv).
 Local Notation fget := (fget lenv).
 Local Notation sget := (sget lenv).
 Local Notation sshape := (sshape lenv labs).
+Local Notation sv := (sv lenv).
+Local Notation sren := (sren labs).
+Local Notation latom := (latom lenv).
+Local Notation lpos := (lpos lenv).
+Local Notation lok := (lok lenv labs).
+Local Notation lc := (lc lenv).
 
 (** ** The free meaning of a layered word *)
 
@@ -50,7 +59,7 @@ Fixpoint flw (l : lword) (K : rvar -> fres) (v : rvar) : fres :=
   match l with
   | [] => K v
   | LS s :: r => fs s (flw r K) v
-  | LA L a :: r => latom lenv L a (flw r K) v
+  | LA L a :: r => latom L a (flw r K) v
   end.
 
 Definition R (l : lword) : rvar -> fres := flw l FVar.
@@ -61,8 +70,8 @@ Definition bound (v : rvar) : Prop := v_label v = None.
 Lemma named_or_bound v : named v \/ bound v.
 Proof. unfold named, bound; destruct (v_label v); [left; discriminate|right; reflexivity]. Qed.
 
-Lemma bound_eq s s' : bound s -> bound s' -> v_index s = v_index s' -> s = s'.
-Proof. destruct s as [l i], s' as [l' i']; unfold bound; cbn; intros -> -> ->; reflexivity. Qed.
+Lemma named_big i : named (mk_rvar lbig i).
+Proof. discriminate. Qed.
 
 (** Agreement on named variables. *)
 Definition keq (k k' : rvar -> fres) : Prop := forall y, named y -> feq (k y) (k' y).
@@ -81,48 +90,6 @@ Definition binj (k : rvar -> fres) : Prop := forall s s', bound s -> bound s' ->
 
 Lemma binj_var : binj FVar.
 Proof. intros s s' _ _ H; exact H. Qed.
-
-(** ** What a segment does to a variable *)
-
-Definition tres (t : ntgt) : rvar + nat :=
-  match t with NVar h j => inl (mk_rvar (lden h) j) | NBind u _ _ => inr u end.
-
-Definition sres (Sg : seg) (v : rvar) : rvar + nat :=
-  match sget (v_label v) Sg with
-  | Some (ts, m) =>
-      if v_index v <? tlen ts then tres (tnth ts (v_index v))
-      else inl (mk_rvar (v_label v) (v_index v - tlen ts + m))
-  | None => inl v
-  end.
-
-(** The targets of a layered segment: variables, and terms whose payload
-    is the rest of the word. *)
-Definition tpure (t : ntgt) : Prop :=
-  match t with NVar h _ => In h labs | NBind _ w b => w = WEnd SNil /\ b = None end.
-
-Definition spure (Sg : seg) : Prop := Forall tpure (stgts Sg).
-
-Definition res (Sg : seg) (K : rvar -> fres) (x : rvar) : fres :=
-  match sres Sg x with inl y => K y | inr u => FTerm u None K end.
-
-Lemma fs_pure Sg K v : spure Sg -> fs Sg K v = res Sg K v.
-Proof.
-  intros HS; unfold res, sres; rewrite (fs_get lenv); unfold Unique.fget.
-  destruct (sget (v_label v) Sg) as [[ts m]|] eqn:E; [|destruct v; reflexivity].
-  destruct (Nat.ltb_spec (v_index v) (tlen ts)) as [Hlt|Hge].
-  - rewrite (ftl_lt lenv) by exact Hlt.
-    assert (Hp : tpure (tnth ts (v_index v))).
-    { unfold spure in HS; rewrite Forall_forall in HS; apply HS, (sget_tgts lenv _ _ _ _ E), tnth_in, Hlt. }
-    destruct (tnth ts (v_index v)) as [h j|u w b]; [reflexivity|].
-    destruct Hp as [-> ->]; reflexivity.
-  - rewrite (ftl_ge lenv) by exact Hge; reflexivity.
-Qed.
-
-Lemma sres_nil v : sres SNil v = inl v.
-Proof. reflexivity. Qed.
-
-(** A segment has a term. *)
-Definition sterm (Sg : seg) : Prop := exists v u, sres Sg v = inr u.
 
 (** ** The order on variables: named ones first *)
 
@@ -149,29 +116,93 @@ Proof.
   right; right; right; split; [reflexivity|exact H].
 Qed.
 
-Lemma vlt_bound i j : vlt (mk_rvar None i) (mk_rvar None j) <-> i < j.
-Proof.
-  unfold vlt; cbn [v_label v_index]; split; [intros [H|[_ H]]; [destruct (olabel_lt_irrefl _ H)|exact H]|].
-  intros H; right; split; [reflexivity|exact H].
-Qed.
+(** ** What a segment does to a variable *)
 
-(** ... and on what a segment makes of a variable: terms first. *)
-Definition rlt (a b : rvar + nat) : Prop :=
-  match a, b with
-  | inr u, inr u' => u < u'
-  | inr _, inl _ => True
-  | inl _, inr _ => False
-  | inl y, inl y' => vlt y y'
+(** A term of a segment: the term, its payload atom, and what is done
+    to its bound variables before the rest of the word. *)
+Definition tm : Type := (nat * option nat * seg)%type.
+
+Definition tres (t : ntgt) : rvar + tm :=
+  match t with
+  | NVar h j => inl (mk_rvar (lden h) j)
+  | NBind u w b => inr (u, b, match w with WEnd s => s | WAtom _ _ _ _ => SNil end)
   end.
 
-Lemma rlt_asym a b : rlt a b -> rlt b a -> False.
-Proof. destruct a as [y|u], b as [y'|u']; cbn [rlt]; try tauto; [apply vlt_asym|lia]. Qed.
+Definition sres (Sg : seg) (v : rvar) : rvar + tm :=
+  match sget (v_label v) Sg with
+  | Some (ts, m) =>
+      if v_index v <? tlen ts then tres (tnth ts (v_index v))
+      else inl (mk_rvar (v_label v) (v_index v - tlen ts + m))
+  | None => inl v
+  end.
 
-Lemma rlt_total a b : rlt a b \/ a = b \/ rlt b a.
+(** A renaming that leaves named variables alone. *)
+Definition psok (s : seg) : Prop :=
+  sshape false s /\ sren s /\ forall v, named v -> sv s v = v.
+
+(** The targets of a layered segment. *)
+Definition tpure (t : ntgt) : Prop :=
+  match t with
+  | NVar h _ => In h labs
+  | NBind _ w b => exists s, w = WEnd s /\ match b with None => s = SNil | Some _ => psok s end
+  end.
+
+Definition spure (Sg : seg) : Prop := Forall tpure (stgts Sg).
+
+Definition res (Sg : seg) (K : rvar -> fres) (x : rvar) : fres :=
+  match sres Sg x with
+  | inl y => K y
+  | inr (u, b, s) => FTerm u b (fun z => fs s K z)
+  end.
+
+Lemma sres_pure Sg v : spure Sg ->
+  match sres Sg v with
+  | inl _ => True
+  | inr (_, b, s) => match b with None => s = SNil | Some _ => psok s end
+  end.
 Proof.
-  destruct a as [y|u], b as [y'|u']; cbn [rlt]; [|tauto|tauto|].
-  - destruct (vlt_total y y') as [H|[<-|H]]; tauto.
-  - destruct (Nat.lt_trichotomy u u') as [H|[<-|H]]; tauto.
+  intros HS; unfold sres; destruct (sget (v_label v) Sg) as [[ts m]|] eqn:E; [|exact I].
+  destruct (Nat.ltb_spec (v_index v) (tlen ts)) as [Hlt|Hge]; [|exact I].
+  assert (Hp : tpure (tnth ts (v_index v))).
+  { unfold spure in HS; rewrite Forall_forall in HS; apply HS, (sget_tgts lenv _ _ _ _ E), tnth_in, Hlt. }
+  destruct (tnth ts (v_index v)) as [h j|u w b]; [exact I|].
+  destruct Hp as [s [-> Hs]]; exact Hs.
+Qed.
+
+Lemma fs_pure Sg K v : spure Sg -> fs Sg K v = res Sg K v.
+Proof.
+  intros HS; unfold res, sres; rewrite (fs_get lenv); unfold Unique.fget.
+  destruct (sget (v_label v) Sg) as [[ts m]|] eqn:E; [|destruct v; reflexivity].
+  destruct (Nat.ltb_spec (v_index v) (tlen ts)) as [Hlt|Hge].
+  - rewrite (ftl_lt lenv) by exact Hlt.
+    assert (Hp : tpure (tnth ts (v_index v))).
+    { unfold spure in HS; rewrite Forall_forall in HS; apply HS, (sget_tgts lenv _ _ _ _ E), tnth_in, Hlt. }
+    destruct (tnth ts (v_index v)) as [h j|u w b]; [reflexivity|].
+    destruct Hp as [s [-> _]]; reflexivity.
+  - rewrite (ftl_ge lenv) by exact Hge; reflexivity.
+Qed.
+
+Lemma sres_ren Sg v : sren Sg -> sres Sg v = inl (sv Sg v).
+Proof.
+  intros Hr; unfold sres, Unique.sv.
+  destruct (sget (v_label v) Sg) as [[ts m]|] eqn:E; [|reflexivity].
+  destruct (Nat.ltb_spec (v_index v) (tlen ts)) as [Hlt|Hge]; [|reflexivity].
+  pose proof (proj1 (Forall_forall _ _) Hr _ (sget_tgts lenv _ _ _ _ E _ (tnth_in _ _ Hlt))) as Ht.
+  destruct (tnth ts (v_index v)) as [h j|]; [reflexivity|destruct Ht].
+Qed.
+
+(** A segment has a term. *)
+Definition sterm (Sg : seg) : Prop := exists v t, sres Sg v = inr t.
+
+Lemma sren_noterm Sg : sren Sg -> ~ sterm Sg.
+Proof. intros Hr [v [t E]]; rewrite (sres_ren _ _ Hr) in E; discriminate E. Qed.
+
+(** What a term with [s] before the rest [K] does to named variables is
+    what [K] does. *)
+Lemma pay_keq (b : option nat) s K : match b with None => s = SNil | Some _ => psok s end -> keq (fun z => fs s K z) K.
+Proof.
+  intros Hs y Hy; destruct b as [n|]; [|subst s; apply feq_refl].
+  destruct Hs as [_ [Hr Hn]]; rewrite (fs_ren lenv labs) by exact Hr; rewrite (Hn y Hy); apply feq_refl.
 Qed.
 
 (** ** The normal-form conditions *)
@@ -182,228 +213,214 @@ Hypothesis gt_irrefl : forall k k', keq k k' -> ~ gt k k'.
 Hypothesis gt_trans : forall k1 k2 k3, gt k1 k2 -> gt k2 k3 -> gt k1 k3.
 Hypothesis gt_keq : forall k1 k1' k2 k2', keq k1 k1' -> keq k2 k2' -> gt k1 k2 -> gt k1' k2'.
 
-Record segok (first : bool) (Sg : seg) (r : lword) : Prop := {
+(** Where a variable goes on to, among the variables of [k]. *)
+Definition routed (k : rvar -> fres) (y : rvar) : Prop :=
+  (named y -> forall y', named y' -> feq (k y') (k y) -> ~ vlt y' y)
+  /\ (bound y -> forall y', named y' -> ~ feq (k y') (k y)).
+
+Record segok (Sg : seg) (r : lword) : Prop := {
   so_shape : sshape false Sg;
   so_pure : spure Sg;
-  so_term : r <> [] -> sterm Sg;
-  so_order : forall Sg2 r2, r = LS Sg2 :: r2 -> sterm Sg2 -> gt (R r) (R r2);
+  so_kind : sterm Sg \/ (sren Sg /\ (r = [] \/ exists L a r2, r = LA L a :: r2 /\ lpos Sg L));
+  so_order : forall y u b k, R r y = FTerm u b k -> gt (R r) k;
   so_last : forall G, r = [LS G] -> keq (R r) FVar -> sterm G;
-  so_named : forall x y, sres Sg x = inl y -> named y ->
-               forall y', named y' -> feq (R r y') (R r y) -> ~ vlt y' y;
-  so_bound : forall x y, sres Sg x = inl y -> bound y -> forall y', named y' -> ~ feq (R r y') (R r y);
+  so_route : forall x y, sres Sg x = inl y -> routed (R r) y;
+  so_pay : forall x u n s i, sres Sg x = inr (u, Some n, s) -> routed (R r) (sv s (mk_rvar None i));
   so_hit : r <> [] -> forall y, bound y -> exists x, sres Sg x = inl y;
-  so_sorted : first = false ->
-                forall i j, i < j -> ~ rlt (sres Sg (mk_rvar None j)) (sres Sg (mk_rvar None i))
+  so_binj : binj (R r);
+  so_src : r <> [] -> forall x x' i j,
+             sres Sg x = inl (mk_rvar None i) -> sres Sg x' = inl (mk_rvar None j) -> i < j ->
+             exists x0, sres Sg x0 = inl (mk_rvar None i)
+                        /\ forall x'', sres Sg x'' = inl (mk_rvar None j) -> vlt x0 x''
 }.
 
-Fixpoint lnf (first : bool) (l : lword) : Prop :=
+Fixpoint lnf (l : lword) : Prop :=
   match l with
   | [] => True
-  | LS Sg :: r => Sg <> SNil /\ segok first Sg r /\ lnf false r /\ (first = false -> binj (R l))
-  | LA _ _ :: _ => False
+  | LS Sg :: r => Sg <> SNil /\ segok Sg r /\ lnf r
+  | LA L _ :: r => lok L /\ lnf r
   end.
 
-Lemma segok_nil first : segok first SNil [].
-Proof.
-  constructor.
-  - split; constructor.
-  - constructor.
-  - intros H; destruct (H eq_refl).
-  - intros Sg2 r2 H; discriminate H.
-  - intros G H; discriminate H.
-  - intros x y H Hy y' Hy' E; rewrite sres_nil in H; injection H as <-; cbn in E; subst y'; apply vlt_irrefl.
-  - intros x y H Hy y' Hy' E; cbn in E; subst y'; exact (Hy' Hy).
-  - intros H; destruct (H eq_refl).
-  - intros _ i j Hij; rewrite !sres_nil; cbn [rlt]; rewrite vlt_bound; lia.
-Qed.
+Fixpoint natl (l : lword) : nat :=
+  match l with [] => 0 | LS _ :: r => natl r | LA _ _ :: r => S (natl r) end.
 
-(** A word as its first segment and the rest; the empty word as the
-    empty segment and nothing. *)
-Definition view (l : lword) : seg * lword :=
-  match l with LS Sg :: r => (Sg, r) | _ => (SNil, []) end.
+Lemma R_cons Sg r : spure Sg -> forall x, R (LS Sg :: r) x = res Sg (R r) x.
+Proof. intros HS x; unfold R; cbn [flw]; apply fs_pure, HS. Qed.
 
-Lemma lnf_view first l : lnf first l ->
-  segok first (fst (view l)) (snd (view l)) /\ lnf false (snd (view l))
-  /\ (forall x, R l x = res (fst (view l)) (R (snd (view l))) x)
-  /\ (first = false -> binj (R l)).
-Proof.
-  destruct l as [|[Sg|L a] r]; cbn [lnf view fst snd].
-  - intros _; split; [apply segok_nil|split; [exact I|split; [reflexivity|intros _; apply binj_var]]].
-  - intros [_ [HS [Hr Hb]]]; split; [exact HS|split; [exact Hr|split; [|exact Hb]]].
-    intros x; unfold R; cbn [flw]; apply fs_pure, (so_pure _ _ _ HS).
-  - intros [].
-Qed.
-
-Lemma view_eq first l m : lnf first l -> lnf first m -> view l = view m -> l = m.
-Proof.
-  destruct l as [|[Sg|L a] r], m as [|[Sg'|L' a'] r']; cbn [lnf view]; try (intros _ []; fail); try (intros [] ; fail).
-  - reflexivity.
-  - intros _ [Hn _] E; injection E as E _; destruct (Hn (eq_sym E)).
-  - intros [Hn _] _ E; injection E as E _; destruct (Hn E).
-  - intros _ _ E; injection E as -> ->; reflexivity.
-Qed.
-
-(** ** Uniqueness *)
-
-Lemma lnf_binj r : lnf false r -> binj (R r).
-Proof.
-  destruct r as [|[Sg|L a] r]; cbn [lnf]; [intros _; apply binj_var| |intros []].
-  intros [_ [_ [_ H]]]; exact (H eq_refl).
-Qed.
-
-Lemma R_cons first Sg r : segok first Sg r -> forall x, R (LS Sg :: r) x = res Sg (R r) x.
-Proof. intros HS x; unfold R; cbn [flw]; apply fs_pure, (so_pure _ _ _ HS). Qed.
-
-(** A term reached through the rest has a payload below the rest. *)
-Lemma later r : forall first Sg, segok first Sg r -> lnf false r ->
-  forall y u b k, R r y = FTerm u b k -> b = None /\ gt (R r) k.
-Proof.
-  induction r as [|[Sg2|L a] r2 IH]; intros first Sg HS Hr y u b k E; [discriminate E| |destruct Hr].
-  destruct Hr as [_ [HS2 [Hr2 _]]]; rewrite (R_cons _ _ _ HS2) in E; unfold res in E.
-  destruct (sres Sg2 y) as [y2|u2] eqn:E2.
-  - destruct (IH false Sg2 HS2 Hr2 y2 u b k E) as [Eb G2]; split; [exact Eb|].
-    assert (Hne : r2 <> []) by (intros ->; discriminate E).
-    exact (gt_trans _ _ _ (so_order _ _ _ HS Sg2 r2 eq_refl (so_term _ _ _ HS2 Hne)) G2).
-  - injection E as <- <- <-; split; [reflexivity|].
-    apply (so_order _ _ _ HS Sg2 r2 eq_refl); exists y, u2; exact E2.
-Qed.
+(** ** Two words that begin with a segment with a term *)
 
 (** A term with the continuation [K], against what a word does to a
     variable: its own term, or a term further on. *)
-Lemma term_match first Sg r u K x :
-  segok first Sg r -> lnf false r ->
-  feq (FTerm u None K) (res Sg (R r) x) ->
-  (sres Sg x = inr u /\ keq K (R r))
-  \/ (exists y k, sres Sg x = inl y /\ r <> [] /\ keq K k /\ gt (R r) k).
+Lemma term_match Sg r u b K x :
+  segok Sg r -> feq (FTerm u b K) (res Sg (R r) x) ->
+  (exists s, sres Sg x = inr (u, b, s) /\ keq K (R r))
+  \/ (exists y k, sres Sg x = inl y /\ keq K k /\ gt (R r) k).
 Proof.
-  intros HS Hr; unfold res; destruct (sres Sg x) as [y|u'] eqn:E.
+  intros HS; unfold res; pose proof (sres_pure Sg x (so_pure _ _ HS)) as Hp.
+  destruct (sres Sg x) as [y|[[u' b'] s]] eqn:E.
   - destruct (R r y) as [v|u2 b2 k2|a z k2] eqn:Ey; cbn [feq]; try (intros []; fail).
-    intros [<- [<- Hk]]; right; exists y, k2; split; [reflexivity|].
-    split; [intros ->; discriminate Ey|].
-    split; [intros z Hz; apply Hk; intros _; exact Hz|exact (proj2 (later r first Sg HS Hr y u None k2 Ey))].
-  - cbn [feq]; intros [<- [_ Hk]]; left; split; [reflexivity|intros z Hz; apply Hk; intros _; exact Hz].
+    intros [<- [<- Hk]]; right; exists y, k2; split; [reflexivity|split].
+    + intros z Hz; apply Hk; intros _; exact Hz.
+    + exact (so_order _ _ HS y u b k2 Ey).
+  - cbn [feq]; intros [<- [<- Hk]]; left; exists s; split; [reflexivity|].
+    apply (keq_trans _ (fun z => fs s (R r) z)); [intros z Hz; apply Hk; intros _; exact Hz|].
+    exact (pay_keq b s (R r) Hp).
 Qed.
 
-(** If one word has a term in its first segment, so has the other, and
-    the two rests agree on named variables. *)
-Lemma first_layer first Sg r Sg' r' :
-  segok first Sg r -> lnf false r -> segok first Sg' r' -> lnf false r' ->
-  (forall x, exists x', feq (res Sg (R r) x) (res Sg' (R r') x')) ->
-  (forall x', exists x, feq (res Sg (R r) x) (res Sg' (R r') x')) ->
-  sterm Sg -> sterm Sg' /\ keq (R r) (R r').
+(** The rests of two such words agree on named variables. *)
+Lemma first_layer Sg r Sg' r' :
+  segok Sg r -> segok Sg' r' ->
+  (forall x, feq (res Sg (R r) x) (res Sg' (R r') x)) ->
+  sterm Sg -> sterm Sg' -> keq (R r) (R r').
 Proof.
-  intros HS Hr HS' Hr' H1 H2 [x0 [u E0]].
-  destruct (H1 x0) as [x0' F]; unfold res at 1 in F; rewrite E0 in F.
-  destruct (term_match _ _ _ _ _ _ HS' Hr' F) as [[E' K1]|[y' [k' [E' [Hne [K1 G1]]]]]].
-  { split; [exists x0', u; exact E'|exact K1]. }
-  destruct (so_term _ _ _ HS' Hne) as [x1' [u1 E1']].
-  destruct (H2 x1') as [x1 F1]; unfold res at 2 in F1; rewrite E1' in F1; apply feq_sym in F1.
-  destruct (term_match _ _ _ _ _ _ HS Hr F1) as [[E1 K2]|[y [k [E1 [_ [K2 G2]]]]]].
-  { split; [exists x1', u1; exact E1'|exact (keq_sym _ _ K2)]. }
+  intros HS HS' E [x0 [[[u b] s] E0]] [x1 [[[u1 b1] s1] E1]].
+  pose proof (sres_pure Sg x0 (so_pure _ _ HS)) as Hp0; rewrite E0 in Hp0.
+  pose proof (sres_pure Sg' x1 (so_pure _ _ HS')) as Hp1; rewrite E1 in Hp1.
+  pose proof (E x0) as F; unfold res at 1 in F; rewrite E0 in F.
+  destruct (term_match _ _ _ _ _ _ HS' F) as [[s' [_ K1]]|[y' [k' [_ [K1 G1]]]]].
+  { exact (keq_trans _ _ _ (keq_sym _ _ (pay_keq b s (R r) Hp0)) K1). }
+  pose proof (E x1) as F1; unfold res at 2 in F1; rewrite E1 in F1; apply feq_sym in F1.
+  destruct (term_match _ _ _ _ _ _ HS F1) as [[s'' [_ K2]]|[y [k [_ [K2 G2]]]]].
+  { exact (keq_sym _ _ (keq_trans _ _ _ (keq_sym _ _ (pay_keq b1 s1 (R r') Hp1)) K2)). }
   exfalso.
-  pose proof (gt_keq _ _ _ _ (keq_refl _) (keq_sym _ _ K1) G1) as G1'.
-  pose proof (gt_keq _ _ _ _ (keq_refl _) (keq_sym _ _ K2) G2) as G2'.
-  exact (gt_irrefl _ _ (keq_refl _) (gt_trans _ _ _ G2' G1')).
+  assert (Ka : keq k' (R r)) by exact (keq_trans _ _ _ (keq_sym _ _ K1) (pay_keq b s (R r) Hp0)).
+  assert (Kb : keq k (R r')) by exact (keq_trans _ _ _ (keq_sym _ _ K2) (pay_keq b1 s1 (R r') Hp1)).
+  exact (gt_irrefl _ _ (keq_refl _)
+           (gt_trans _ _ _ (gt_keq _ _ _ _ (keq_refl _) Kb G2) (gt_keq _ _ _ _ (keq_refl _) Ka G1))).
 Qed.
 
-(** A word that ends after its first segment against one that goes on. *)
-Lemma no_trivial_tail first Sg Sg' r' :
-  segok first Sg' r' -> lnf false r' -> r' <> [] -> keq (R r') FVar ->
-  (forall x', exists x, feq (res Sg FVar x) (res Sg' (R r') x')) -> False.
+(** A word that ends after its first segment against one that goes on
+    without doing anything to named variables. *)
+Lemma no_trivial_tail Sg Sg' r' :
+  spure Sg -> segok Sg' r' -> lnf r' -> r' <> [] -> keq (R r') FVar ->
+  (forall x, feq (res Sg FVar x) (res Sg' (R r') x)) -> False.
 Proof.
-  intros HS' Hr' Hne Hk H2.
-  destruct r' as [|[Sg2|L a] r2]; [destruct (Hne eq_refl)| |destruct Hr'].
-  pose proof Hr' as Hr'0; destruct Hr' as [_ [HS2 [Hr2 _]]].
-  assert (Ht : sterm Sg2).
-  { destruct r2 as [|st r3]; [exact (so_last _ _ _ HS' Sg2 eq_refl Hk)|apply (so_term _ _ _ HS2); discriminate]. }
-  destruct Ht as [y2 [c E2]].
-  assert (Ey : R (LS Sg2 :: r2) y2 = FTerm c None (R r2)) by (rewrite (R_cons _ _ _ HS2); unfold res; rewrite E2; reflexivity).
-  destruct (named_or_bound y2) as [Hn|Hb].
-  - pose proof (Hk y2 Hn) as F; rewrite Ey in F; exact F.
-  - destruct (so_hit _ _ _ HS' Hne y2 Hb) as [x' Ex'].
-    destruct (H2 x') as [x F]; unfold res at 2 in F; rewrite Ex', Ey in F.
-    unfold res in F; destruct (sres Sg x) as [y|u]; cbn [feq] in F; [destruct F|].
-    destruct F as [_ [_ F]].
-    assert (K2 : keq FVar (R r2)) by (intros z Hz; apply F; intros _; exact Hz).
-    pose proof (so_order _ _ _ HS' Sg2 r2 eq_refl (ex_intro _ y2 (ex_intro _ c E2))) as G.
-    exact (gt_irrefl _ _ (keq_refl _) (gt_keq _ _ _ _ Hk (keq_sym _ _ K2) G)).
+  intros HpS HS' Hr' Hne Hk E.
+  destruct r' as [|[Sg2|L a] r3]; [destruct (Hne eq_refl)| |].
+  - destruct Hr' as [_ [HS2 _]].
+    destruct (so_kind _ _ HS2) as [[y2 [[[c b2] s2] E2]]|[Hr2 [->|[L [a [r4 [-> _]]]]]]].
+    + assert (Ey : R (LS Sg2 :: r3) y2 = FTerm c b2 (fun z => fs s2 (R r3) z)).
+      { rewrite (R_cons _ _ (so_pure _ _ HS2)); unfold res; rewrite E2; reflexivity. }
+      destruct (named_or_bound y2) as [Hn|Hb].
+      * pose proof (Hk y2 Hn) as F; rewrite Ey in F; exact F.
+      * destruct (so_hit _ _ HS' Hne y2 Hb) as [x Ex].
+        pose proof (E x) as F; unfold res at 2 in F; rewrite Ex, Ey in F.
+        unfold res in F; pose proof (sres_pure Sg x HpS) as Hp.
+        destruct (sres Sg x) as [y|[[u b] s]]; cbn [feq] in F; [destruct F|].
+        destruct F as [_ [_ F]].
+        assert (K2 : keq FVar (fun z => fs s2 (R r3) z)).
+        { apply (keq_trans _ (fun z => fs s FVar z)); [exact (keq_sym _ _ (pay_keq b s FVar Hp))|].
+          intros z Hz; apply F; intros _; exact Hz. }
+        pose proof (so_order _ _ HS' y2 c b2 _ Ey) as G.
+        exact (gt_irrefl _ _ (keq_refl _) (gt_keq _ _ _ _ Hk (keq_sym _ _ K2) G)).
+    + exact (sren_noterm _ Hr2 (so_last _ _ HS' Sg2 eq_refl Hk)).
+    + destruct (sv_big lenv labs Sg2 lbig (lc lbig L) Hr2) as [B HB].
+      destruct (HB B (le_n _)) as [j [Hj Ej]].
+      pose proof (Hk (mk_rvar lbig B) (named_big B)) as F.
+      unfold R in F; cbn [flw] in F; rewrite (fs_ren lenv labs) in F by exact Hr2; rewrite Ej in F.
+      unfold Unique.latom in F; cbn [v_label v_index] in F.
+      rewrite (proj2 (Nat.ltb_ge _ _) Hj) in F; exact F.
+  - pose proof (Hk (mk_rvar lbig (lc lbig L)) (named_big _)) as F.
+    unfold R in F; cbn [flw] in F; unfold Unique.latom in F; cbn [v_label v_index] in F.
+    rewrite Nat.ltb_irrefl in F; exact F.
 Qed.
 
-(** The bound variables of the two rests correspond. *)
-Lemma tail_match first Sg r Sg' r' :
-  segok first Sg r -> lnf false r -> segok first Sg' r' -> lnf false r' ->
-  r <> [] -> keq (R r) (R r') ->
-  (forall x, exists x', feq (res Sg (R r) x) (res Sg' (R r') x')) ->
-  forall s, bound s -> exists s', bound s' /\ feq (R r s) (R r' s').
+(** A variable that goes on as a variable in one word does so in the
+    other, with the same result. *)
+Lemma var_var Sg r Sg' r' :
+  segok Sg r -> segok Sg' r' -> keq (R r) (R r') ->
+  (forall x, feq (res Sg (R r) x) (res Sg' (R r') x)) ->
+  forall x y, sres Sg x = inl y -> exists y', sres Sg' x = inl y' /\ feq (R r y) (R r' y').
 Proof.
-  intros HS Hr HS' Hr' Hne Hk H1 s Hs.
-  destruct (so_hit _ _ _ HS Hne s Hs) as [x Ex].
-  destruct (H1 x) as [x' F]; unfold res at 1 in F; rewrite Ex in F.
-  unfold res in F; destruct (sres Sg' x') as [y'|u'] eqn:E'.
-  - destruct (named_or_bound y') as [Hn|Hb]; [|exists y'; split; [exact Hb|exact F]].
-    exfalso; apply (so_bound _ _ _ HS x s Ex Hs y' Hn).
-    exact (feq_trans _ _ _ (Hk y' Hn) (feq_sym _ _ F)).
-  - exfalso; destruct (R r s) as [v|u b k|a z k] eqn:Es; cbn [feq] in F; try (destruct F; fail).
-    destruct F as [_ [Eb F]]; subst b.
-    assert (K1 : keq k (R r')) by (intros z Hz; apply F; intros _; exact Hz).
-    pose proof (proj2 (later r first Sg HS Hr s u None k Es)) as G.
-    exact (gt_irrefl _ _ (keq_trans _ _ _ Hk (keq_sym _ _ K1)) G).
+  intros HS HS' K E x y Ex; pose proof (E x) as F; unfold res in F; rewrite Ex in F.
+  pose proof (sres_pure Sg' x (so_pure _ _ HS')) as Hp.
+  destruct (sres Sg' x) as [y'|[[u b] s]]; [exists y'; split; [reflexivity|exact F]|exfalso].
+  destruct (R r y) as [v|u2 b2 k|a z k] eqn:Ey; cbn [feq] in F; try (destruct F; fail).
+  destruct F as [_ [_ F]].
+  assert (K1 : keq k (R r)).
+  { apply (keq_trans _ (fun z => fs s (R r') z)); [intros z Hz; apply F; intros _; exact Hz|].
+    exact (keq_trans _ _ _ (pay_keq b s (R r') Hp) (keq_sym _ _ K)). }
+  exact (gt_irrefl _ _ (keq_sym _ _ K1) (so_order _ _ HS y u2 b2 k Ey)).
 Qed.
 
-(** With the same rest, variables with the same result are treated the
-    same way. *)
-Lemma same_target first first' Sg Sg' r :
-  segok first Sg r -> segok first' Sg' r -> lnf false r ->
-  forall x x', feq (res Sg (R r) x) (res Sg' (R r) x') -> sres Sg x = sres Sg' x'.
+Lemma var_named Sg r Sg' r' :
+  segok Sg r -> segok Sg' r' -> keq (R r) (R r') ->
+  (forall x, feq (res Sg (R r) x) (res Sg' (R r') x)) ->
+  forall x y, sres Sg x = inl y -> named y -> sres Sg' x = inl y.
 Proof.
-  intros HS HS' Hr x x'; unfold res.
-  destruct (sres Sg x) as [y|u] eqn:E, (sres Sg' x') as [y'|u'] eqn:E'.
-  - intros F; f_equal.
-    destruct (named_or_bound y) as [Hy|Hy], (named_or_bound y') as [Hy'|Hy'].
-    + destruct (vlt_total y y') as [H|[H|H]]; [|exact H|].
-      * destruct (so_named _ _ _ HS' x' y' E' Hy' y Hy F H).
-      * destruct (so_named _ _ _ HS x y E Hy y' Hy' (feq_sym _ _ F) H).
-    + destruct (so_bound _ _ _ HS' x' y' E' Hy' y Hy F).
-    + destruct (so_bound _ _ _ HS x y E Hy y' Hy' (feq_sym _ _ F)).
-    + exact (lnf_binj r Hr y y' Hy Hy' F).
-  - intros F; exfalso; destruct (R r y) as [v|u2 b k|a z k] eqn:Ey; cbn [feq] in F; try (destruct F; fail).
-    destruct F as [_ [Eb F]]; subst b.
-    assert (K1 : keq k (R r)) by (intros z Hz; apply F; intros _; exact Hz).
-    exact (gt_irrefl _ _ (keq_sym _ _ K1) (proj2 (later r first Sg HS Hr y u2 None k Ey))).
-  - intros F; exfalso; apply feq_sym in F.
-    destruct (R r y') as [v|u2 b k|a z k] eqn:Ey; cbn [feq] in F; try (destruct F; fail).
-    destruct F as [_ [Eb F]]; subst b.
-    assert (K1 : keq k (R r)) by (intros z Hz; apply F; intros _; exact Hz).
-    exact (gt_irrefl _ _ (keq_sym _ _ K1) (proj2 (later r first' Sg' HS' Hr y' u2 None k Ey))).
-  - cbn [feq]; intros [<- _]; reflexivity.
+  intros HS HS' K E x y Ex Hy; destruct (var_var _ _ _ _ HS HS' K E x y Ex) as [y' [Ex' F]].
+  rewrite Ex'; f_equal.
+  destruct (so_route _ _ HS x y Ex) as [Hn _]; destruct (so_route _ _ HS' x y' Ex') as [Hn' Hb'].
+  destruct (named_or_bound y') as [Hy'|Hy'].
+  - destruct (vlt_total y y') as [H|[H|H]]; [|symmetry; exact H|]; exfalso.
+    + exact (Hn' Hy' y Hy (feq_trans _ _ _ (feq_sym _ _ (K y Hy)) F) H).
+    + exact (Hn Hy y' Hy' (feq_trans _ _ _ (K y' Hy') (feq_sym _ _ F)) H).
+  - exfalso; exact (Hb' Hy' y Hy (feq_trans _ _ _ (feq_sym _ _ (K y Hy)) F)).
 Qed.
 
-(** Two increasing sequences related by a correspondence that keeps
-    their values are related by the identity. *)
-Lemma mono_id (T T' : nat -> rvar + nat) (rel : nat -> nat -> Prop) :
-  (forall i j, i < j -> rlt (T i) (T j)) -> (forall i j, i < j -> rlt (T' i) (T' j)) ->
-  (forall i i', rel i i' -> T i = T' i') ->
-  (forall i, exists i', rel i i') -> (forall i', exists i, rel i i') ->
-  forall i i', rel i i' -> i = i'.
+Lemma var_bound Sg r Sg' r' :
+  segok Sg r -> segok Sg' r' -> keq (R r) (R r') ->
+  (forall x, feq (res Sg (R r) x) (res Sg' (R r') x)) ->
+  forall x y, sres Sg x = inl y -> bound y ->
+  exists y', sres Sg' x = inl y' /\ bound y' /\ feq (R r y) (R r' y').
 Proof.
-  intros HT HT' Hrel H1 H2.
-  assert (Hirr : forall a, ~ rlt a a) by (intros a H; exact (rlt_asym a a H H)).
-  assert (Hn : forall n i i', rel i i' -> i < n \/ i' < n -> i = i').
-  { induction n as [|n IH]; intros i i' Hr Hlt; [lia|].
-    destruct (Nat.lt_trichotomy i i') as [Hii|[Hii|Hii]]; [|exact Hii|]; exfalso.
-    - destruct (H2 i) as [j Hj].
-      destruct (Nat.lt_trichotomy j i) as [Hji|[Hji|Hji]].
-      + pose proof (IH j i Hj ltac:(lia)); lia.
-      + subst j; pose proof (HT' i i' Hii) as G; rewrite <- (Hrel _ _ Hr), <- (Hrel _ _ Hj) in G; exact (Hirr _ G).
-      + pose proof (HT i j Hji) as G; rewrite (Hrel _ _ Hr), (Hrel _ _ Hj) in G.
-        exact (rlt_asym _ _ G (HT' i i' Hii)).
-    - destruct (H1 i') as [j' Hj'].
-      destruct (Nat.lt_trichotomy j' i') as [Hji|[Hji|Hji]].
-      + pose proof (IH i' j' Hj' ltac:(lia)); lia.
-      + subst j'; pose proof (HT i' i Hii) as G; rewrite (Hrel _ _ Hr), (Hrel _ _ Hj') in G; exact (Hirr _ G).
-      + pose proof (HT' i' j' Hji) as G; rewrite <- (Hrel _ _ Hr), <- (Hrel _ _ Hj') in G.
-        exact (rlt_asym _ _ G (HT i' i Hii)). }
-  intros i i' Hr; exact (Hn (S i) i i' Hr (or_introl (Nat.lt_succ_diag_r i))).
+  intros HS HS' K E x y Ex Hy; destruct (var_var _ _ _ _ HS HS' K E x y Ex) as [y' [Ex' F]].
+  exists y'; split; [exact Ex'|split; [|exact F]].
+  destruct (named_or_bound y') as [Hn|Hb]; [exfalso|exact Hb].
+  assert (E' : forall x, feq (res Sg' (R r') x) (res Sg (R r) x)) by (intros x0; apply feq_sym, E).
+  pose proof (var_named _ _ _ _ HS' HS (keq_sym _ _ K) E' x y' Ex' Hn) as Ex2.
+  rewrite Ex in Ex2; injection Ex2 as ->; exact (Hn Hy).
+Qed.
+
+(** Two numberings of the same classes of variables, both in the order
+    of the classes' first variables and both using every number, are the
+    same. *)
+Lemma class_index (f f' : rvar -> nat -> Prop) :
+  (forall x i j, f' x i -> f' x j -> i = j) ->
+  (forall x i, f x i -> exists i', f' x i') -> (forall x i', f' x i' -> exists i, f x i) ->
+  (forall x x0 i i' j', f x i -> f x0 i -> f' x i' -> f' x0 j' -> i' = j') ->
+  (forall x x0 i' i j, f' x i' -> f' x0 i' -> f x i -> f x0 j -> i = j) ->
+  (forall i, exists x, f x i) -> (forall i, exists x, f' x i) ->
+  (forall x x' i j, f x i -> f x' j -> i < j -> exists x0, f x0 i /\ forall x'', f x'' j -> vlt x0 x'') ->
+  (forall x x' i j, f' x i -> f' x' j -> i < j -> exists x0, f' x0 i /\ forall x'', f' x'' j -> vlt x0 x'') ->
+  forall n x, f x n -> f' x n.
+Proof.
+  intros Hfun Ha Ha' Hb Hb' Hs Hs' Hsrc Hsrc' n.
+  induction n as [n IH] using lt_wf_ind; intros x Hx.
+  destruct (Ha x n Hx) as [n' Hx'].
+  destruct (Nat.lt_trichotomy n' n) as [Hlt|[->|Hgt]]; [exfalso|exact Hx'|exfalso].
+  - destruct (Hs n') as [x1 H1]; pose proof (IH n' Hlt x1 H1) as H1'.
+    pose proof (Hb' x x1 n' n n' Hx' H1' Hx H1); lia.
+  - destruct (Hs' n) as [x2 H2']; destruct (Ha' x2 n H2') as [k H2].
+    destruct (Nat.lt_trichotomy k n) as [Hk|[->|Hk]].
+    + pose proof (Hfun x2 _ _ H2' (IH k Hk x2 H2)); lia.
+    + pose proof (Hb x x2 n n' n Hx H2 Hx' H2'); lia.
+    + destruct (Hsrc x x2 n k Hx H2 Hk) as [x0 [H0 Hall]].
+      destruct (Hsrc' x2 x n n' H2' Hx' Hgt) as [x0' [H0' Hall']].
+      destruct (Ha x0 n H0) as [q Hq]; pose proof (Hb x x0 n n' q Hx H0 Hx' Hq) as <-.
+      destruct (Ha' x0' n H0') as [p Hp]; pose proof (Hb' x2 x0' n k p H2' H0' H2 Hp) as <-.
+      exact (vlt_asym _ _ (Hall x0' Hp) (Hall' x0 Hq)).
+Qed.
+
+(** The renaming of a term's bound variables is determined. *)
+Lemma pay_unique s s' k : psok s -> psok s' -> binj k ->
+  (forall i, routed k (sv s (mk_rvar None i))) -> (forall i, routed k (sv s' (mk_rvar None i))) ->
+  (forall z, feq (fs s k z) (fs s' k z)) -> s = s'.
+Proof.
+  intros [Hs [Hr Hn]] [Hs' [Hr' Hn']] Hb Ho Ho' E.
+  apply (ren_unique lenv labs Hinj false s s' Hs Hs' Hr Hr'); intros v _.
+  destruct (named_or_bound v) as [Hv|Hv]; [rewrite Hn, Hn' by exact Hv; reflexivity|].
+  destruct v as [l i]; unfold bound in Hv; cbn in Hv; subst l.
+  pose proof (E (mk_rvar None i)) as F; rewrite !(fs_ren lenv labs) in F by assumption.
+  destruct (Ho i) as [A1 A2]; destruct (Ho' i) as [B1 B2].
+  destruct (named_or_bound (sv s (mk_rvar None i))) as [Hy|Hy],
+           (named_or_bound (sv s' (mk_rvar None i))) as [Hy'|Hy'].
+  - destruct (vlt_total (sv s (mk_rvar None i)) (sv s' (mk_rvar None i))) as [H|[H|H]]; [|exact H|].
+    + destruct (B1 Hy' _ Hy F H).
+    + destruct (A1 Hy _ Hy' (feq_sym _ _ F) H).
+  - destruct (B2 Hy' _ Hy F).
+  - destruct (A2 Hy _ Hy' (feq_sym _ _ F)).
+  - exact (Hb _ _ Hy Hy' F).
 Qed.
 
 (** Canonical segments that treat every variable the same way are the
@@ -416,115 +433,319 @@ Proof.
   refine (seg_unique lenv labs Hinj tpure tpure _ _ _ Sg Sg' Hs Hs' Hp Hp' _).
   - intros [h j|u w b] [h' j'|u' w' b']; cbn [tpure Unique.ft feq]; try (intros _ _ []; fail).
     + intros Hh Hh' E; injection E as E ->; rewrite (Hinj h h' Hh Hh' E); reflexivity.
-    + intros [-> ->] [-> ->] [-> _]; reflexivity.
+    + intros [s [-> Hsp]] [s' [-> Hsp']] [<- [<- Hk]]; f_equal; f_equal.
+      destruct b as [n|]; [|rewrite Hsp, Hsp'; reflexivity].
+      destruct Hsp as [A [B _]]; destruct Hsp' as [A' [B' _]].
+      apply (ren_unique lenv labs Hinj false s s' A A' B B'); intros v _.
+      pose proof (Hk v ltac:(discriminate)) as F; cbn [Unique.fw] in F.
+      rewrite !(fs_ren lenv labs) in F by assumption; exact F.
   - intros h j Hh; exact Hh.
   - intros h j Hh; exact Hh.
   - intros l j; rewrite <- !(fs_get lenv _ FVar (mk_rvar l j)), !fs_pure by assumption.
     unfold res; rewrite H; apply feq_refl.
 Qed.
 
-Lemma step first l m :
-  (forall r r', List.length r < List.length l -> lnf false r -> lnf false r' -> keq (R r) (R r') ->
-     (forall s, bound s -> exists s', bound s' /\ feq (R r s) (R r' s')) ->
-     (forall s', bound s' -> exists s, bound s /\ feq (R r s) (R r' s')) -> r = r') ->
-  lnf first l -> lnf first m -> keq (R l) (R m) ->
-  (forall s, bound s -> exists s', bound s' /\ feq (R l s) (R m s')) ->
-  (forall s', bound s' -> exists s, bound s /\ feq (R l s) (R m s')) ->
-  (first = true -> forall s, bound s -> feq (R l s) (R m s)) ->
-  l = m.
+(** Variables go on as the same variables. *)
+Lemma var_same Sg r Sg' r' :
+  segok Sg r -> segok Sg' r' -> keq (R r) (R r') ->
+  (forall x, feq (res Sg (R r) x) (res Sg' (R r') x)) ->
+  (r = [] -> r' = []) -> (r' = [] -> r = []) ->
+  forall x y, sres Sg x = inl y -> sres Sg' x = inl y.
 Proof.
-  intros IH Hl Hm Hk HM1 HM2 Hid.
-  destruct (lnf_view first l Hl) as [HS [Hr [EA Hb]]]; destruct (lnf_view first m Hm) as [HS' [Hr' [EA' Hb']]].
-  apply (view_eq first l m Hl Hm).
-  assert (Hlen : snd (view l) <> [] -> List.length (snd (view l)) < List.length l).
-  { destruct l as [|[Sg0|L a] r0]; cbn [view snd List.length]; [intros H; destruct (H eq_refl)|lia|intros H; destruct (H eq_refl)]. }
-  destruct (view l) as [Sg r]; destruct (view m) as [Sg' r']; cbn [fst snd] in *.
-  (* every variable of one word has a counterpart in the other *)
-  assert (H1 : forall x, exists x', feq (res Sg (R r) x) (res Sg' (R r') x')).
-  { intros x; rewrite <- EA; destruct (named_or_bound x) as [Hx|Hx].
-    - exists x; rewrite <- EA'; exact (Hk x Hx).
-    - destruct (HM1 x Hx) as [x' [_ F]]; exists x'; rewrite <- EA'; exact F. }
-  assert (H2 : forall x', exists x, feq (res Sg (R r) x) (res Sg' (R r') x')).
-  { intros x'; rewrite <- EA'; destruct (named_or_bound x') as [Hx|Hx].
-    - exists x'; rewrite <- EA; exact (Hk x' Hx).
-    - destruct (HM2 x' Hx) as [x [_ F]]; exists x; rewrite <- EA; exact F. }
-  assert (H1s : forall x', exists x, feq (res Sg' (R r') x') (res Sg (R r) x))
-    by (intros x'; destruct (H2 x') as [x F]; exists x; exact (feq_sym _ _ F)).
-  assert (H2s : forall x, exists x', feq (res Sg' (R r') x') (res Sg (R r) x))
-    by (intros x; destruct (H1 x) as [x' F]; exists x'; exact (feq_sym _ _ F)).
-  (* the rests are the same *)
-  assert (Er : r = r').
-  { destruct r as [|st r0] eqn:Dr, r' as [|st' r0'] eqn:Dr'; [reflexivity| | |].
-    - exfalso; rewrite <- Dr' in *.
-      assert (Hne : r' <> []) by (rewrite Dr'; discriminate).
-      destruct (first_layer first Sg' r' Sg [] HS' Hr' HS Hr H1s H2s (so_term _ _ _ HS' Hne)) as [_ K].
-      exact (no_trivial_tail first Sg Sg' r' HS' Hr' Hne K H2).
-    - exfalso; rewrite <- Dr in *.
-      assert (Hne : r <> []) by (rewrite Dr; discriminate).
-      destruct (first_layer first Sg r Sg' [] HS Hr HS' Hr' H1 H2 (so_term _ _ _ HS Hne)) as [_ K].
-      exact (no_trivial_tail first Sg' Sg r HS Hr Hne K H2s).
-    - rewrite <- Dr, <- Dr' in *.
-      assert (Hne : r <> []) by (rewrite Dr; discriminate).
-      assert (Hne' : r' <> []) by (rewrite Dr'; discriminate).
-      destruct (first_layer first Sg r Sg' r' HS Hr HS' Hr' H1 H2 (so_term _ _ _ HS Hne)) as [_ K].
-      apply (IH r r' (Hlen Hne) Hr Hr' K).
-      + exact (tail_match first Sg r Sg' r' HS Hr HS' Hr' Hne K H1).
-      + intros s' Hs'.
-        destruct (tail_match first Sg' r' Sg r HS' Hr' HS Hr Hne' (keq_sym _ _ K) H1s s' Hs') as [s [Hs F]].
-        exists s; split; [exact Hs|exact (feq_sym _ _ F)]. }
-  subst r'; f_equal.
-  (* the bound variables of the two words correspond by the identity *)
-  assert (Hidb : forall s, bound s -> feq (R l s) (R m s)).
-  { destruct first; [exact (Hid eq_refl)|].
-    set (T := fun i => sres Sg (mk_rvar None i)); set (T' := fun i => sres Sg' (mk_rvar None i)).
-    set (rel := fun i i' => feq (R l (mk_rvar None i)) (R m (mk_rvar None i'))).
-    assert (Hmono : forall Sg0 w, segok false Sg0 r -> (forall x, R w x = res Sg0 (R r) x) -> binj (R w) ->
-              forall i j, i < j -> rlt (sres Sg0 (mk_rvar None i)) (sres Sg0 (mk_rvar None j))).
-    { intros Sg0 w HS0 E0 Hb0 i j Hij.
-      destruct (rlt_total (sres Sg0 (mk_rvar None i)) (sres Sg0 (mk_rvar None j))) as [G|[G|G]]; [exact G| |].
-      - exfalso; assert (E : mk_rvar None i = mk_rvar None j).
-        { apply Hb0; [reflexivity|reflexivity|]; rewrite !E0; unfold res; rewrite G; apply feq_refl. }
-        injection E as E; lia.
-      - destruct (so_sorted _ _ _ HS0 eq_refl i j Hij G). }
-    assert (Hrel : forall i i', rel i i' -> i = i').
-    { apply (mono_id T T' rel).
-      - exact (Hmono Sg l HS EA (Hb eq_refl)).
-      - exact (Hmono Sg' m HS' EA' (Hb' eq_refl)).
-      - intros i i' F; unfold rel in F; rewrite EA, EA' in F; exact (same_target false false Sg Sg' r HS HS' Hr _ _ F).
-      - intros i; destruct (HM1 (mk_rvar None i) eq_refl) as [[l' i'] [Hs' F]]; unfold bound in Hs'; cbn in Hs'; subst l'.
-        exists i'; exact F.
-      - intros i'; destruct (HM2 (mk_rvar None i') eq_refl) as [[l' i] [Hs F]]; unfold bound in Hs; cbn in Hs; subst l'.
-        exists i; exact F. }
-    intros [l0 i] Hs; unfold bound in Hs; cbn in Hs; subst l0.
-    destruct (HM1 (mk_rvar None i) eq_refl) as [[l' i'] [Hs' F]]; unfold bound in Hs'; cbn in Hs'; subst l'.
-    pose proof (Hrel i i' F) as Eii; subst i'; exact F. }
-  apply seg_same; [exact (so_shape _ _ _ HS)|exact (so_shape _ _ _ HS')|exact (so_pure _ _ _ HS)|exact (so_pure _ _ _ HS')|].
-  intros x; apply (same_target first first Sg Sg' r HS HS' Hr); rewrite <- EA, <- EA'.
-  destruct (named_or_bound x) as [Hx|Hx]; [exact (Hk x Hx)|exact (Hidb x Hx)].
+  intros HS HS' K E Hnn Hnn' x y Ex.
+  assert (E' : forall x, feq (res Sg' (R r') x) (res Sg (R r) x)) by (intros x0; apply feq_sym, E).
+  destruct (named_or_bound y) as [Hy|Hy]; [exact (var_named _ _ _ _ HS HS' K E x y Ex Hy)|].
+  destruct (var_bound _ _ _ _ HS HS' K E x y Ex Hy) as [y' [Ex' [Hy' F]]].
+  destruct r as [|st r0] eqn:Dr.
+  - rewrite (Hnn eq_refl) in F; cbn in F; rewrite Ex', F; reflexivity.
+  - rewrite <- Dr in *.
+    assert (Hne : r <> []) by (rewrite Dr; discriminate).
+    assert (Hne' : r' <> []) by (intros H; exact (Hne (Hnn' H))).
+    destruct y as [ly i], y' as [ly' i']; unfold bound in Hy, Hy'; cbn in Hy, Hy'; subst ly ly'.
+    enough (H : sres Sg' x = inl (mk_rvar None i)) by exact H.
+    apply (class_index (fun x i => sres Sg x = inl (mk_rvar None i)) (fun x i => sres Sg' x = inl (mk_rvar None i))).
+    + intros x0 a b Ha Hb; rewrite Ha in Hb; injection Hb as Hb; exact Hb.
+    + intros x0 a Ha; destruct (var_bound _ _ _ _ HS HS' K E x0 _ Ha eq_refl) as [[l a'] [Ha' [Hl _]]].
+      unfold bound in Hl; cbn in Hl; subst l; exists a'; exact Ha'.
+    + intros x0 a Ha; destruct (var_bound _ _ _ _ HS' HS (keq_sym _ _ K) E' x0 _ Ha eq_refl) as [[l a'] [Ha' [Hl _]]].
+      unfold bound in Hl; cbn in Hl; subst l; exists a'; exact Ha'.
+    + intros x1 x0 a a' b' H1 H0 H1' H0'.
+      pose proof (E x1) as F1; unfold res in F1; rewrite H1, H1' in F1.
+      pose proof (E x0) as F0; unfold res in F0; rewrite H0, H0' in F0.
+      pose proof (so_binj _ _ HS' (mk_rvar None a') (mk_rvar None b') eq_refl eq_refl
+                    (feq_trans _ _ _ (feq_sym _ _ F1) F0)) as Eq.
+      injection Eq as Eq; exact Eq.
+    + intros x1 x0 a' a b H1' H0' H1 H0.
+      pose proof (E x1) as F1; unfold res in F1; rewrite H1, H1' in F1.
+      pose proof (E x0) as F0; unfold res in F0; rewrite H0, H0' in F0.
+      pose proof (so_binj _ _ HS (mk_rvar None a) (mk_rvar None b) eq_refl eq_refl
+                    (feq_trans _ _ _ F1 (feq_sym _ _ F0))) as Eq.
+      injection Eq as Eq; exact Eq.
+    + intros a; exact (so_hit _ _ HS Hne (mk_rvar None a) eq_refl).
+    + intros a; exact (so_hit _ _ HS' Hne' (mk_rvar None a) eq_refl).
+    + exact (so_src _ _ HS Hne).
+    + exact (so_src _ _ HS' Hne').
+    + exact Ex.
 Qed.
 
-Lemma lw_unique_gen : forall n l m first, List.length l < n ->
-  lnf first l -> lnf first m -> keq (R l) (R m) ->
-  (forall s, bound s -> exists s', bound s' /\ feq (R l s) (R m s')) ->
-  (forall s', bound s' -> exists s, bound s /\ feq (R l s) (R m s')) ->
-  (first = true -> forall s, bound s -> feq (R l s) (R m s)) ->
-  l = m.
+Lemma step_terms Sg r Sg' r' :
+  (lnf r -> lnf r' -> (forall v, feq (R r v) (R r' v)) -> r = r') ->
+  segok Sg r -> lnf r -> segok Sg' r' -> lnf r' -> sterm Sg -> sterm Sg' ->
+  (forall x, feq (res Sg (R r) x) (res Sg' (R r') x)) -> Sg = Sg' /\ r = r'.
 Proof.
-  induction n as [|n IH]; intros l m first Hlen; [lia|].
-  apply step; intros r r' Hlt Hr Hr' K M1 M2.
-  apply (IH r r' false); try assumption; [lia|discriminate].
+  intros IH HS Hr HS' Hr' Ht Ht' E.
+  assert (E' : forall x, feq (res Sg' (R r') x) (res Sg (R r) x)) by (intros x0; apply feq_sym, E).
+  pose proof (first_layer _ _ _ _ HS HS' E Ht Ht') as K.
+  assert (Hnn : r = [] -> r' = []).
+  { intros ->; destruct r' as [|st r0'] eqn:Dr'; [reflexivity|exfalso; rewrite <- Dr' in *].
+    refine (no_trivial_tail Sg Sg' r' (so_pure _ _ HS) HS' Hr' _ (keq_sym _ _ K) E); rewrite Dr'; discriminate. }
+  assert (Hnn' : r' = [] -> r = []).
+  { intros ->; destruct r as [|st r0] eqn:Dr; [reflexivity|exfalso; rewrite <- Dr in *].
+    refine (no_trivial_tail Sg' Sg r (so_pure _ _ HS') HS Hr _ K E'); rewrite Dr; discriminate. }
+  pose proof (var_same _ _ _ _ HS HS' K E Hnn Hnn') as Hv.
+  pose proof (var_same _ _ _ _ HS' HS (keq_sym _ _ K) E' Hnn' Hnn) as Hv'.
+  assert (Er : r = r').
+  { apply (IH Hr Hr'); intros y; destruct (named_or_bound y) as [Hy|Hy]; [exact (K y Hy)|].
+    destruct r as [|st r0] eqn:Dr; [rewrite (Hnn eq_refl); apply feq_refl|rewrite <- Dr in *].
+    assert (Hne : r <> []) by (rewrite Dr; discriminate).
+    destruct (so_hit _ _ HS Hne y Hy) as [x Ex].
+    pose proof (E x) as F; unfold res in F; rewrite Ex, (Hv x y Ex) in F; exact F. }
+  subst r'; split; [|reflexivity].
+  apply seg_same; [exact (so_shape _ _ HS)|exact (so_shape _ _ HS')|exact (so_pure _ _ HS)|exact (so_pure _ _ HS')|].
+  intros x; destruct (sres Sg x) as [y|[[u b] s]] eqn:Ex; [symmetry; exact (Hv x y Ex)|].
+  destruct (sres Sg' x) as [y'|[[u' b'] s']] eqn:Ex'; [rewrite (Hv' x y' Ex') in Ex; discriminate Ex|].
+  pose proof (sres_pure Sg x (so_pure _ _ HS)) as Hp; rewrite Ex in Hp.
+  pose proof (sres_pure Sg' x (so_pure _ _ HS')) as Hp'; rewrite Ex' in Hp'.
+  pose proof (E x) as F; unfold res in F; rewrite Ex, Ex' in F; cbn [feq] in F.
+  destruct F as [<- [<- Hk]]; do 2 f_equal.
+  destruct b as [n|]; [|rewrite Hp, Hp'; reflexivity].
+  apply (pay_unique s s' (R r) Hp Hp' (so_binj _ _ HS)).
+  - intros i; exact (so_pay _ _ HS x u n s i Ex).
+  - intros i; exact (so_pay _ _ HS' x u n s' i Ex').
+  - intros z; apply Hk; discriminate.
+Qed.
+
+(** ** Atoms
+
+    As for words ([Unique.peel]): far along a named label every variable
+    goes through each atom in turn, which counts the atoms that are
+    left; a result stuck at the first atom of a word is told from one
+    stuck further on by that count. *)
+
+Lemma deep_flw l : forall d K, deep d K -> deep (natl l + d) (fun v => flw l K v).
+Proof.
+  induction l as [|[s|L a] r IH]; intros d K Hd; cbn [natl flw].
+  - exact Hd.
+  - exact (deep_fs lenv _ s _ (IH d K Hd)).
+  - exact (deep_latom lenv _ L a _ (IH d K Hd)).
+Qed.
+
+Lemma nstuck_flw l : forall e K, nstuck e K -> deep e K -> nstuck (natl l + e) (fun v => flw l K v).
+Proof.
+  induction l as [|[s|L a] r IH]; intros e K Hn Hd; cbn [natl flw].
+  - exact Hn.
+  - exact (nstuck_fs lenv _ s _ (IH e K Hn Hd)).
+  - exact (nstuck_latom lenv _ L a _ (IH e K Hn Hd) (deep_flw r e K Hd)).
+Qed.
+
+Lemma deep_R l : deep (natl l) (R l).
+Proof. rewrite <- (Nat.add_0_r (natl l)); exact (deep_flw l 0 FVar deep_FVar). Qed.
+
+Lemma nstuck_R l : nstuck (natl l) (R l).
+Proof. rewrite <- (Nat.add_0_r (natl l)); exact (nstuck_flw l 0 FVar nstuck_FVar deep_FVar). Qed.
+
+(** A term a word sends a variable to has at most the word's atoms
+    after it. *)
+Lemma tdeep l : lnf l -> forall y u b k, R l y = FTerm u b k -> exists e, e <= natl l /\ deep e k.
+Proof.
+  induction l as [|[s|L a] r IH]; intros Hl y u b k E; [discriminate E| |].
+  - destruct Hl as [_ [HS Hr]]; rewrite (R_cons _ _ (so_pure _ _ HS)) in E; unfold res in E.
+    destruct (sres s y) as [y2|[[u' b'] s']]; [exact (IH Hr y2 u b k E)|].
+    injection E as <- <- <-; exists (natl r); split; [apply le_n|exact (deep_fs lenv _ s' _ (deep_R r))].
+  - destruct Hl as [_ Hr]; unfold R in E; cbn [flw] in E; unfold Unique.latom in E.
+    destruct (v_index y <? lc (v_label y) L); [|discriminate E].
+    destruct (IH Hr _ _ _ _ E) as [e [He Hd]]; exists e; split; [cbn [natl]; lia|exact Hd].
+Qed.
+
+(** The first atom, its lifts and the renaming before it are
+    determined, and so is what the rest of the word does. *)
+Lemma peel U1 L1 a1 R1 n1 U2 L2 a2 R2 n2 :
+  sshape false U1 -> sren U1 -> lok L1 -> lpos U1 L1 ->
+  sshape false U2 -> sren U2 -> lok L2 -> lpos U2 L2 ->
+  deep n1 R1 -> nstuck n1 R1 -> deep n2 R2 -> nstuck n2 R2 ->
+  (forall v, feq (latom L1 a1 R1 (sv U1 v)) (latom L2 a2 R2 (sv U2 v))) ->
+  U1 = U2 /\ L1 = L2 /\ a1 = a2 /\ forall y, feq (R1 y) (R2 y).
+Proof.
+  intros Hs1 Hr1 Hl1 Hp1 Hs2 Hr2 Hl2 Hp2 Hd1' Hst1 Hd2' Hst2 H.
+  destruct (sv_big lenv labs U1 lbig (lc lbig L1) Hr1) as [B1 HB1].
+  destruct (sv_big lenv labs U2 lbig (lc lbig L2) Hr2) as [B2 HB2].
+  destruct (HB1 (B1 + B2) ltac:(lia)) as [j1 [Hj1 E1]]; destruct (HB2 (B1 + B2) ltac:(lia)) as [j2 [Hj2 E2]].
+  pose proof (H (mk_rvar lbig (B1 + B2))) as Hb; rewrite E1, E2 in Hb; unfold Unique.latom in Hb; cbn [v_label v_index] in Hb.
+  rewrite (proj2 (Nat.ltb_ge _ _) Hj1), (proj2 (Nat.ltb_ge _ _) Hj2) in Hb; cbn [feq] in Hb.
+  destruct Hb as [<- [_ Hk]].
+  assert (Hd1 : deep n1 (fun y => R1 (shiftL lenv L1 y))) by exact (deep_shift lenv _ L1 _ Hd1').
+  assert (Hd2 : deep n2 (fun y => R2 (shiftL lenv L2 y))) by exact (deep_shift lenv _ L2 _ Hd2').
+  assert (En : n1 = n2) by (apply (deep_unique _ _ _ _ Hd1 Hd2); intros i; apply Hk).
+  assert (HB : forall v,
+    (inVb lenv L1 (sv U1 v) = true /\ inVb lenv L2 (sv U2 v) = true /\ feq (R1 (sv U1 v)) (R2 (sv U2 v)))
+    \/ (inVb lenv L1 (sv U1 v) = false /\ inVb lenv L2 (sv U2 v) = false
+        /\ unsh lenv L1 (sv U1 v) = unsh lenv L2 (sv U2 v))).
+  { intros v; pose proof (H v) as E; unfold Unique.latom in E; unfold inVb.
+    destruct (v_index (sv U1 v) <? _) eqn:Ei1, (v_index (sv U2 v) <? _) eqn:Ei2.
+    - left; auto.
+    - exfalso; destruct (R1 (sv U1 v)) as [| |a z k] eqn:ER; cbn [feq] in E; try contradiction.
+      destruct E as [_ [_ Ek]]; destruct (Hst1 _ _ _ _ ER) as [d [Hd Hdk]].
+      assert (d = n2) by (apply (deep_unique _ _ _ _ Hdk Hd2); intros i; apply Ek); lia.
+    - exfalso; destruct (R2 (sv U2 v)) as [| |a z k] eqn:ER; cbn [feq] in E; try contradiction.
+      destruct E as [_ [_ Ek]]; destruct (Hst2 _ _ _ _ ER) as [d [Hd Hdk]].
+      assert (n1 = d) by (apply (deep_unique _ _ _ _ Hd1 Hdk); intros i; apply Ek); lia.
+    - right; cbn [feq] in E; destruct E as [_ [Ez _]]; auto. }
+  assert (Hcnt : forall g i, cntV lenv U1 L1 g i = cntV lenv U2 L2 g i).
+  { intros g i; induction i as [|i IHi]; [reflexivity|]; cbn [cntV]; rewrite IHi.
+    destruct (HB (mk_rvar g i)) as [[-> [-> _]]|[-> [-> _]]]; reflexivity. }
+  assert (Hle : forall l j, j < lc l L1 -> j < lc l L2).
+  { intros l j Hj; destruct (proj2 Hp1 l j Hj) as [i Ei].
+    destruct (HB (mk_rvar l i)) as [[E1' [E2' _]]|[E1' _]].
+    - rewrite (proj1 Hp1 l i E1') in Ei; injection Ei as <-.
+      pose proof (proj1 Hp2 l i E2') as E; rewrite E in E2'; unfold inVb in E2'; cbn [v_label v_index] in E2'.
+      rewrite Hcnt; apply Nat.ltb_lt, E2'.
+    - rewrite Ei in E1'; unfold inVb in E1'; cbn [v_label v_index] in E1'; apply Nat.ltb_ge in E1'; lia. }
+  assert (Hle' : forall l j, j < lc l L2 -> j < lc l L1).
+  { intros l j Hj; destruct (proj2 Hp2 l j Hj) as [i Ei].
+    destruct (HB (mk_rvar l i)) as [[E1' [E2' _]]|[_ [E2' _]]].
+    - rewrite (proj1 Hp2 l i E2') in Ei; injection Ei as <-.
+      pose proof (proj1 Hp1 l i E1') as E; rewrite E in E1'; unfold inVb in E1'; cbn [v_label v_index] in E1'.
+      rewrite Hcnt in E1'; apply Nat.ltb_lt, E1'.
+    - rewrite Ei in E2'; unfold inVb in E2'; cbn [v_label v_index] in E2'; apply Nat.ltb_ge in E2'; lia. }
+  assert (Hlc : forall l, lc l L1 = lc l L2).
+  { intros l; destruct (Nat.lt_trichotomy (lc l L1) (lc l L2)) as [Hlt|[E|Hlt]];
+      [specialize (Hle' _ _ Hlt); lia|exact E|specialize (Hle _ _ Hlt); lia]. }
+  assert (EL : L1 = L2) by (apply (lifts_unique lenv labs Hinj); assumption); subst L2.
+  assert (Hsv : forall v, sv U1 v = sv U2 v).
+  { intros [g i]; destruct (HB (mk_rvar g i)) as [[E1' [E2' _]]|[E1' [E2' Eu]]].
+    - rewrite (proj1 Hp1 g i E1'), (proj1 Hp2 g i E2'), Hcnt; reflexivity.
+    - unfold inVb, unsh in *; destruct (sv U1 (mk_rvar g i)) as [l1 i1], (sv U2 (mk_rvar g i)) as [l2 i2].
+      cbn [v_label v_index] in *; injection Eu as -> Ei; apply Nat.ltb_ge in E1', E2'; f_equal; lia. }
+  assert (EU : U1 = U2) by (apply (ren_unique lenv labs Hinj false); try assumption; intros v _; apply Hsv); subst U2.
+  split; [reflexivity|split; [reflexivity|split; [reflexivity|]]].
+  intros [l j]; destruct (Nat.ltb_spec j (lc l L1)) as [Hj|Hj].
+  - destruct (proj2 Hp1 l j Hj) as [i Ei].
+    destruct (HB (mk_rvar l i)) as [[_ [_ E]]|[E _]]; rewrite Ei in E; [exact E|].
+    unfold inVb in E; cbn [v_label v_index] in E; apply Nat.ltb_ge in E; lia.
+  - pose proof (Hk (mk_rvar l (j - lc l L1))) as E; unfold shiftL in E; cbn [v_label v_index] in E.
+    replace (j - lc l L1 + lc l L1) with j in E by lia; exact E.
+Qed.
+
+(** ** How a word begins *)
+
+Definition pre (U : seg) : lword := match U with SNil => [] | _ => [LS U] end.
+
+Lemma natl_pre U r : natl (pre U ++ r) = natl r.
+Proof. destruct U; reflexivity. Qed.
+
+Lemma length_pre U r : List.length r <= List.length (pre U ++ r).
+Proof. destruct U; cbn; lia. Qed.
+
+Lemma cnt_nil L g i : i <= lc g L -> cntV lenv SNil L g i = i.
+Proof.
+  induction i as [|i IH]; intros Hi; [reflexivity|]; cbn [cntV]; rewrite IH by lia.
+  unfold inVb; cbn [Unique.sv Normalise.sget v_label v_index]; rewrite (proj2 (Nat.ltb_lt _ _)) by lia; lia.
+Qed.
+
+Lemma lpos_nil L : lpos SNil L.
+Proof.
+  split.
+  - intros g i H; unfold inVb in H; cbn [Unique.sv Normalise.sget v_label v_index] in H; apply Nat.ltb_lt in H.
+    cbn [Unique.sv Normalise.sget v_label]; rewrite cnt_nil by lia; reflexivity.
+  - intros g j Hj; exists j; reflexivity.
+Qed.
+
+(** A word in normal form begins with a segment with a term, or is a
+    renaming, or is a renaming and an atom. *)
+Lemma head_form l : lnf l ->
+  (exists Sg r, l = LS Sg :: r /\ sterm Sg /\ segok Sg r /\ lnf r)
+  \/ (exists U, l = pre U /\ sshape false U /\ sren U /\ forall x, R l x = FVar (sv U x))
+  \/ (exists U L a r2, l = pre U ++ LA L a :: r2 /\ sshape false U /\ sren U /\ lok L /\ lpos U L /\ lnf r2
+        /\ forall x, R l x = latom L a (R r2) (sv U x)).
+Proof.
+  destruct l as [|[Sg|L a] r]; cbn [lnf].
+  - intros _; right; left; exists SNil; split; [reflexivity|].
+    split; [split; constructor|split; [constructor|reflexivity]].
+  - intros [Hn [HS Hr]]; destruct (so_kind _ _ HS) as [Ht|[Hren [->|[L [a [r2 [-> Hp]]]]]]].
+    + left; exists Sg, r; auto.
+    + right; left; exists Sg; split; [destruct Sg; [destruct (Hn eq_refl)|reflexivity]|].
+      split; [exact (so_shape _ _ HS)|split; [exact Hren|]].
+      intros x; unfold R; cbn [flw]; apply (fs_ren lenv labs), Hren.
+    + right; right; exists Sg, L, a, r2; split; [destruct Sg; [destruct (Hn eq_refl)|reflexivity]|].
+      destruct Hr as [HL Hr2].
+      split; [exact (so_shape _ _ HS)|split; [exact Hren|split; [exact HL|split; [exact Hp|split; [exact Hr2|]]]]].
+      intros x; unfold R; cbn [flw]; rewrite (fs_ren lenv labs) by exact Hren; reflexivity.
+  - intros [HL Hr]; right; right; exists SNil, L, a, r; split; [reflexivity|].
+    split; [split; constructor|split; [constructor|split; [exact HL|split; [apply lpos_nil|split; [exact Hr|reflexivity]]]]].
+Qed.
+
+(** A word that begins with a term against one that does not. *)
+Lemma term_first Sg r m :
+  segok Sg r -> lnf r -> sterm Sg -> lnf m -> (forall v, feq (R (LS Sg :: r) v) (R m v)) ->
+  exists Sg' r', m = LS Sg' :: r' /\ sterm Sg' /\ segok Sg' r' /\ lnf r'.
+Proof.
+  intros HS Hr [x0 [[[u b] s] E0]] Hm E.
+  destruct (head_form m Hm) as [H|[[U [_ [_ [_ EU]]]]|[U [L [a [r2 [Em [_ [_ [_ [_ [Hr2 EU]]]]]]]]]]]]; [exact H| |]; exfalso.
+  - pose proof (E x0) as F; rewrite (R_cons _ _ (so_pure _ _ HS)), EU in F; unfold res in F; rewrite E0 in F; exact F.
+  - pose proof (E x0) as F; rewrite (R_cons _ _ (so_pure _ _ HS)), EU in F; unfold res in F; rewrite E0 in F.
+    unfold Unique.latom in F; destruct (_ <? _); [|exact F].
+    destruct (R r2 (sv U x0)) as [v|u' b' k'|a' z k'] eqn:Ey; cbn [feq] in F; try (destruct F; fail).
+    destruct F as [_ [_ Hk]]; destruct (tdeep r2 Hr2 _ _ _ _ Ey) as [e [He Hde]].
+    assert (E1 : natl r = e).
+    { apply (deep_unique _ _ _ _ (deep_fs lenv _ s _ (deep_R r)) Hde); intros i; apply Hk; intros _; apply named_big. }
+    assert (E2 : natl (LS Sg :: r) = natl m).
+    { apply (deep_unique _ _ _ _ (deep_R _) (deep_R _)); intros i; apply E. }
+    rewrite Em, natl_pre in E2; cbn [natl] in E2; lia.
+Qed.
+
+(** A renaming against a renaming and an atom. *)
+Lemma end_vs_atom U U' L a K :
+  sren U' -> (forall v, feq (FVar (sv U v)) (latom L a K (sv U' v))) -> False.
+Proof.
+  intros Hr E; destruct (sv_big lenv labs U' lbig (lc lbig L) Hr) as [B HB]; destruct (HB B (le_n _)) as [j [Hj Ej]].
+  pose proof (E (mk_rvar lbig B)) as F; rewrite Ej in F; unfold Unique.latom in F; cbn [v_label v_index] in F.
+  rewrite (proj2 (Nat.ltb_ge _ _) Hj) in F; exact F.
+Qed.
+
+(** ** Uniqueness *)
+
+Lemma lw_unique_n : forall n l m, List.length l < n -> lnf l -> lnf m -> (forall v, feq (R l v) (R m v)) -> l = m.
+Proof.
+  induction n as [|n IH]; intros l m Hlen Hl Hm E; [lia|].
+  assert (E' : forall v, feq (R m v) (R l v)) by (intros v; apply feq_sym, E).
+  destruct (head_form l Hl) as [[Sg [r [El [Ht [HS Hr]]]]]|Hl'].
+  { subst l; destruct (term_first Sg r m HS Hr Ht Hm E) as [Sg' [r' [-> [Ht' [HS' Hr']]]]].
+    assert (H : Sg = Sg' /\ r = r').
+    { apply step_terms; try assumption.
+      - intros _ _ H; apply (IH r r'); [cbn [List.length] in Hlen; lia|assumption..].
+      - intros x; rewrite <- (R_cons _ _ (so_pure _ _ HS)), <- (R_cons _ _ (so_pure _ _ HS')); apply E. }
+    destruct H as [<- <-]; reflexivity. }
+  destruct (head_form m Hm) as [[Sg' [r' [Em [Ht' [HS' Hr']]]]]|Hm'].
+  { subst m; destruct (term_first Sg' r' l HS' Hr' Ht' Hl E') as [Sg [r [-> [Ht [HS Hr]]]]].
+    exfalso; destruct Hl' as [[U [EU [_ [HrU _]]]]|[U [L [a [r2 [EU [_ [HrU _]]]]]]]];
+      (destruct U; [discriminate EU|]; injection EU as -> _; exact (sren_noterm _ HrU Ht)). }
+  destruct Hl' as [[U [-> [HsU [HrU EU]]]]|[U [L [a [r2 [-> [HsU [HrU [HL [Hp [Hr2 EU]]]]]]]]]]];
+    destruct Hm' as [[U' [-> [HsU' [HrU' EU']]]]|[U' [L' [a' [r2' [-> [HsU' [HrU' [HL' [Hp' [Hr2' EU']]]]]]]]]]].
+  - f_equal; apply (ren_unique lenv labs Hinj false); try assumption; intros v _.
+    pose proof (E v) as F; rewrite EU, EU' in F; exact F.
+  - exfalso; apply (end_vs_atom U U' L' a' (R r2') HrU'); intros v; rewrite <- EU, <- EU'; apply E.
+  - exfalso; apply (end_vs_atom U' U L a (R r2) HrU); intros v; rewrite <- EU, <- EU'; apply E'.
+  - destruct (peel U L a (R r2) (natl r2) U' L' a' (R r2') (natl r2')) as [<- [<- [<- HR]]]; try assumption;
+      try apply deep_R; try apply nstuck_R.
+    + intros v; rewrite <- EU, <- EU'; apply E.
+    + do 2 f_equal; apply (IH r2 r2'); try assumption.
+      pose proof (length_pre U (LA L a :: r2)) as Hle; cbn [List.length] in Hle; lia.
 Qed.
 
 (** Layered words in normal form with the same meaning in the free
     model are the same. *)
-Theorem lw_unique l m : lnf true l -> lnf true m -> (forall v, feq (R l v) (R m v)) -> l = m.
-Proof.
-  intros Hl Hm H; apply (lw_unique_gen (S (List.length l)) l m true (Nat.lt_succ_diag_r _) Hl Hm).
-  - intros y _; apply H.
-  - intros s Hs; exists s; split; [exact Hs|apply H].
-  - intros s Hs; exists s; split; [exact Hs|apply H].
-  - intros _ s _; apply H.
-Qed.
+Theorem lw_unique l m : lnf l -> lnf m -> (forall v, feq (R l v) (R m v)) -> l = m.
+Proof. exact (lw_unique_n (S (List.length l)) l m (Nat.lt_succ_diag_r _)). Qed.
 
 End LUnique.
 
@@ -599,7 +820,7 @@ Theorem lw_unique_real (labs : list lexp)
     (gt_trans : forall k1 k2 k3, gt k1 k2 -> gt k2 k3 -> gt k1 k3)
     (gt_keq : forall k1 k1' k2 k2', keq k1 k1' -> keq k2 k2' -> gt k1 k2 -> gt k1' k2')
     nt l m :
-  lnf lenv labs gt true l -> lnf lenv labs gt true m -> lwok (tenvT nt) l -> lwok (tenvT nt) m ->
+  lnf lenv labs gt l -> lnf lenv labs gt m -> lwok (tenvT nt) l -> lwok (tenvT nt) m ->
   (forall aenv penv, lwden lenv (tenvT nt) aenv penv l = lwden lenv (tenvT nt) aenv penv m) ->
   l = m.
 Proof.
