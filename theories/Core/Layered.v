@@ -143,6 +143,147 @@ Proof.
   apply order_of_ok; unfold lfacts_ok; repeat constructor.
 Qed.
 
+(** ** The algebra of going around a payload
+
+    [lifted d a] is [a] under [d] lifts by the bound label. *)
+
+Section Algebra.
+
+Context {T : Type}.
+
+Definition lifted (d : nat) (a : radj T) : radj T := iter d (rlift None) a.
+
+Lemma lifted_compose d a b : lifted d (rcompose a b) = rcompose (lifted d a) (lifted d b).
+Proof. unfold lifted; induction d as [|d IH]; [reflexivity|]; cbn [iter]; rewrite IH, rlift_compose; reflexivity. Qed.
+
+Lemma lifted_S d a : lifted (S d) a = lifted d (rlift None a).
+Proof. unfold lifted; induction d as [|d IH]; [reflexivity|]; cbn [iter] in *; rewrite IH; reflexivity. Qed.
+
+Lemma lifted_identity d : lifted d ridentity = ridentity.
+Proof. unfold lifted; induction d as [|d IH]; [reflexivity|]; cbn [iter]; rewrite IH; apply rlift_identity. Qed.
+
+Lemma lifted_add w t a : lifted (w + t) a = lifted w (lifted t a).
+Proof. unfold lifted; apply iter_add. Qed.
+
+Lemma shiftk_one : @shiftk T None 1 = rshift None.
+Proof. reflexivity. Qed.
+
+Lemma shiftk_add w t : @shiftk T None (w + t) = rcompose (shiftk None w) (shiftk None t).
+Proof.
+  induction w as [|w IH]; [symmetry; apply rcompose_identity_l|].
+  cbn [Nat.add]; rewrite <- (shiftk_S (T:=T) None (w + t)), <- (shiftk_S (T:=T) None w), IH, rcompose_assoc; reflexivity.
+Qed.
+
+(** Weakening the bound label, then [a] under the lifts, is [a], then
+    the weakening. *)
+Lemma lifted_shift w a : rcompose (lifted w a) (shiftk None w) = rcompose (shiftk None w) a.
+Proof.
+  induction w as [|w IH]; [cbn; rewrite rcompose_identity_l, rcompose_identity_r; reflexivity|].
+  rewrite <- (shiftk_S (T:=T) None w), shiftk_one; unfold lifted in *; cbn [iter].
+  rewrite rcompose_assoc, rcompose_lift_shift, <- rcompose_assoc, IH, rcompose_assoc; reflexivity.
+Qed.
+
+(** A term whose payload ends with [B] is the term without it, then [B],
+    when everything else is first sent through [A], which [B] undoes. *)
+Lemma bypass h u (ρ : rpadj T) (A B : radj T) :
+  rcompose B A = ridentity ->
+  rpush_inner h (RBind u (rpcompose B ρ)) ridentity
+  = rcompose B (rcompose (rpush_inner h (RBind u ρ) ridentity) (rlift h A)).
+Proof.
+  intros H; rewrite <- (rpush_inner_compose (@nil T) 0 (le_n 0)), rcompose_identity_l, rcompose_push_inner_r, H.
+  reflexivity.
+Qed.
+
+(** [A] and [J] go around [a] with [t] bound variables: [A], then [a]
+    under [t] lifts, then [J] is the identity, and [J] consumes exactly
+    the [t] variables. *)
+Definition bpair (a A J : radj T) (t : nat) : Prop :=
+  rcompose (rcompose J (lifted t a)) A = ridentity /\ rcompose J (shiftk None t) = ridentity.
+
+Lemma bypass_step h u (ρ : rpadj T) a A J t w :
+  bpair a A J t ->
+  rpush_inner h (RBind u (rpcompose (shiftk None w) (rpcompose a ρ))) ridentity
+  = rcompose (lifted w J)
+      (rcompose (lifted (w + t) a)
+         (rcompose (rpush_inner h (RBind u (rpcompose (shiftk None (w + t)) ρ)) ridentity) (rlift h (lifted w A)))).
+Proof.
+  intros [H1 H2].
+  assert (HBA : rcompose (rcompose (lifted w J) (lifted (w + t) a)) (lifted w A) = ridentity).
+  { rewrite lifted_add, <- !lifted_compose, H1; apply lifted_identity. }
+  assert (E : rcompose (shiftk None w) a
+              = rcompose (rcompose (lifted w J) (lifted (w + t) a)) (shiftk None (w + t))).
+  { rewrite shiftk_add, lifted_add.
+    rewrite <- (rcompose_assoc (lifted w J) (lifted w (lifted t a)) _).
+    rewrite (rcompose_assoc (lifted w (lifted t a)) (shiftk None w) (shiftk None t)).
+    rewrite (lifted_shift w (lifted t a)).
+    rewrite <- (rcompose_assoc (shiftk None w) (lifted t a) (shiftk None t)).
+    rewrite (lifted_shift t a).
+    rewrite (rcompose_assoc (lifted w J) (shiftk None w) _), (lifted_shift w J).
+    rewrite <- (rcompose_assoc (shiftk None w) J _), (rcompose_assoc J (shiftk None t) a), H2, rcompose_identity_l.
+    reflexivity. }
+  rewrite (rcompose_assoc (lifted w J)), <- (bypass h u _ _ _ HBA), !rpcompose_compose, E; reflexivity.
+Qed.
+
+(** The units. *)
+Lemma bpair_entry g tg : bpair (rpush_inner g tg ridentity) (rshift g) ridentity 0.
+Proof.
+  split; [|apply rcompose_identity_l].
+  cbn [lifted iter]; rewrite rcompose_identity_l; apply rcompose_push_inner_shift.
+Qed.
+
+Lemma bpair_outer x :
+  bpair (rshift (Some x)) (rclose x) (rpush_inner None (RRename (mk_rvar (Some x) 0)) ridentity) 1.
+Proof.
+  split; [|rewrite shiftk_one; apply rcompose_push_inner_shift].
+  unfold lifted, rshift, rclose; cbn [iter].
+  set (e1 := ACompose (ACompose (AInner LNone (TVarE (LAtom 0) 0) AId) (ALift LNone (AOuter (LAtom 0) AId)))
+                      (AInner (LAtom 0) (TVarE LNone 0) (AOuter LNone AId))).
+  change (aeden [x] (@nil T) [] [] e1 = aeden [x] (@nil T) [] [] AId).
+  refine (nf_eq_sh_sound [x] (@nil T) [] [] (order_of []) _ 0 (le_n _) e1 AId _); [|vm_compute; reflexivity].
+  apply order_of_ok; unfold lfacts_ok; repeat constructor.
+Qed.
+
+Lemma bpair_outer_bound :
+  bpair (rshift None) ridentity (rpush_inner None (RRename (mk_rvar None 0)) (@ridentity T)) 1.
+Proof.
+  split; [|rewrite shiftk_one; apply rcompose_push_inner_shift].
+  rewrite rcompose_identity_r; unfold lifted, rshift; cbn [iter].
+  set (e1 := ACompose (AInner LNone (TVarE LNone 0) AId) (ALift LNone (AOuter LNone AId))).
+  change (aeden [] (@nil T) [] [] e1 = aeden [] (@nil T) [] [] AId).
+  refine (nf_eq_sh_sound [] (@nil T) [] [] (order_of []) _ 0 (le_n _) e1 AId _); [|vm_compute; reflexivity].
+  apply order_of_ok; unfold lfacts_ok; repeat constructor.
+Qed.
+
+Lemma rlift_shift_bound y : rlift (Some y) (@rshift T None) = rshift None.
+Proof.
+  unfold rshift.
+  set (e1 := ALift (LAtom 0) (AOuter LNone AId)).
+  change (aeden [y] (@nil T) [] [] e1 = aeden [y] (@nil T) [] [] (AOuter LNone AId)).
+  refine (nf_eq_sh_sound [y] (@nil T) [] [] (order_of []) _ 0 (le_n _) e1 _ _); [|vm_compute; reflexivity].
+  apply order_of_ok; unfold lfacts_ok; repeat constructor.
+Qed.
+
+Lemma rlift_shiftk_bound y t : rlift (Some y) (@shiftk T None t) = shiftk None t.
+Proof.
+  induction t as [|t IH]; [apply rlift_identity|].
+  rewrite <- (shiftk_S (T:=T) None t), <- rlift_compose, IH, shiftk_one, rlift_shift_bound; reflexivity.
+Qed.
+
+Lemma lifted_rlift y t (a : radj T) : lifted t (rlift (Some y) a) = rlift (Some y) (lifted t a).
+Proof.
+  unfold lifted; induction t as [|t IH]; [reflexivity|]; cbn [iter]; rewrite IH.
+  apply rlift_comm; discriminate.
+Qed.
+
+Lemma bpair_lift y a A J t : bpair a A J t -> bpair (rlift (Some y) a) (rlift (Some y) A) (rlift (Some y) J) t.
+Proof.
+  intros [H1 H2]; split.
+  - rewrite lifted_rlift, !rlift_compose, H1; apply rlift_identity.
+  - rewrite <- (rlift_shiftk_bound y t), rlift_compose, H2; apply rlift_identity.
+Qed.
+
+End Algebra.
+
 Section Sound.
 
 Context {T : Type}.
@@ -171,17 +312,6 @@ Fixpoint lwden (l : lword) : radj T :=
   end.
 
 Definition lwdist (l : lword) : Prop := Forall (fun x => match x with LS s => sdistd s | LA _ _ => True end) l.
-
-Definition lifted (d : nat) (a : radj T) : radj T := iter d (rlift None) a.
-
-Lemma lifted_compose d a b : lifted d (rcompose a b) = rcompose (lifted d a) (lifted d b).
-Proof. unfold lifted; induction d as [|d IH]; [reflexivity|]; cbn [iter]; rewrite IH, rlift_compose; reflexivity. Qed.
-
-Lemma lifted_S d a : lifted (S d) a = lifted d (rlift None a).
-Proof. unfold lifted; induction d as [|d IH]; [reflexivity|]; cbn [iter] in *; rewrite IH; reflexivity. Qed.
-
-Lemma lifted_identity d : lifted d ridentity = ridentity.
-Proof. unfold lifted; induction d as [|d IH]; [reflexivity|]; cbn [iter]; rewrite IH; apply rlift_identity. Qed.
 
 Lemma slifts_sound d : forall s s', sdistd s -> slifts F ntm d s = Some s' -> sdistd s' /\ sden s' = lifted d (sden s).
 Proof.
