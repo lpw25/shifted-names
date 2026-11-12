@@ -270,14 +270,14 @@ with ptree (p : pexp) {struct p} : option (word * option nat) :=
       match ptree p', fold 0 a [] with
       | Some (w', b), Some l =>
           match expand l with
-          | Some wa => match wcomp F ntm wa w' with Some w => Some (bnorm b w, b) | None => None end
+          | Some wa => match obind (wcomp F ntm wa w') (pnormw F ntm b) with Some w => Some (w, b) | None => None end
           | None => None
           end
       | _, _ => None
       end
   | PShift g p' =>
       match ptree p' with
-      | Some (w', b) => match wcomp F ntm (WEnd (shseg g 1)) w' with Some w => Some (bnorm b w, b) | None => None end
+      | Some (w', b) => match obind (wcomp F ntm (WEnd (shseg g 1)) w') (pnormw F ntm b) with Some w => Some (w, b) | None => None end
       | None => None
       end
   end.
@@ -308,7 +308,7 @@ Lemma ptree_comp a p :
   = match ptree p, fold 0 a [] with
     | Some (w', b), Some l =>
         match expand l with
-        | Some wa => match wcomp F ntm wa w' with Some w => Some (bnorm b w, b) | None => None end
+        | Some wa => match obind (wcomp F ntm wa w') (pnormw F ntm b) with Some w => Some (w, b) | None => None end
         | None => None
         end
     | _, _ => None
@@ -317,7 +317,7 @@ Proof. reflexivity. Qed.
 Lemma ptree_shift g p :
   ptree (PShift g p)
   = match ptree p with
-    | Some (w', b) => match wcomp F ntm (WEnd (shseg g 1)) w' with Some w => Some (bnorm b w, b) | None => None end
+    | Some (w', b) => match obind (wcomp F ntm (WEnd (shseg g 1)) w') (pnormw F ntm b) with Some w => Some (w, b) | None => None end
     | None => None
     end.
 Proof. reflexivity. Qed.
@@ -1042,24 +1042,28 @@ Proof.
       destruct (ptree F ntm p) as [[w' b']|] eqn:Ep; [|discriminate].
       destruct (fold F ntm 0 a []) as [l|] eqn:El; [|discriminate].
       destruct (expand F ntm l) as [wa|] eqn:Ex; [|discriminate].
-      destruct (wcomp F ntm wa w') as [w0|] eqn:Ec; [|discriminate]; intros H; injection H as <- <-.
+      destruct (wcomp F ntm wa w') as [w0|] eqn:Ec; [|discriminate]; cbn [obind].
+      destruct (pnormw F ntm b' w0) as [w1|] eqn:En; [|discriminate]; intros H; injection H as <- <-.
       destruct (IHt w' b' eq_refl) as [Hw' Dw'].
       destruct (IHf 0 [] l (Forall_nil _) El) as [Hl Dl].
       destruct (expand_sound l wa Hl Ex) as [Hwa Dwa].
       destruct (wcomp_sound lenv tenv aenv penv F HF ntm Hntm wa w' w0 Hwa Hw' Ec) as [Hw0 Dw0].
-      split; [apply bnorm_dd, Hw0|].
-      rewrite bnorm_sound, Dw0, Dwa, Dl; cbn [lwden lifted iter Normalise.peden].
+      destruct (pnormw_sound lenv tenv aenv penv F HF ntm Hntm b' w0 w1 Hw0 En) as [Hw1 Dw1].
+      split; [exact Hw1|].
+      rewrite Dw1, Dw0, Dwa, Dl; cbn [lwden lifted iter Normalise.peden].
       rewrite rcompose_identity_l, <- Dw'; symmetry; apply rpcompose_compose.
   - (* PShift *) intros g p [IHp IHt]; split.
     + intros d h u y Ey; cbn [Normalise.peden]; rewrite rpshift_as_pcompose.
       exact (bouter_sound d h y [] g (fun w' K' => cterm F ntm d w' h u p K') _ (Forall_nil _) (IHp d h u y Ey)).
     + intros w b; rewrite ptree_shift.
       destruct (ptree F ntm p) as [[w' b']|] eqn:Ep; [|discriminate].
-      destruct (wcomp F ntm (WEnd (shseg g 1)) w') as [w0|] eqn:Ec; [|discriminate]; intros H; injection H as <- <-.
+      destruct (wcomp F ntm (WEnd (shseg g 1)) w') as [w0|] eqn:Ec; [|discriminate]; cbn [obind].
+      destruct (pnormw F ntm b' w0) as [w1|] eqn:En; [|discriminate]; intros H; injection H as <- <-.
       destruct (IHt w' b' eq_refl) as [Hw' Dw'].
       destruct (wcomp_sound lenv tenv aenv penv F HF ntm Hntm (WEnd (shseg g 1)) w' w0 (shseg_dd lenv g 1) Hw' Ec) as [Hw0 Dw0].
-      split; [apply bnorm_dd, Hw0|].
-      rewrite bnorm_sound, Dw0, wden_end, sden_shseg; cbn [Normalise.peden].
+      destruct (pnormw_sound lenv tenv aenv penv F HF ntm Hntm b' w0 w1 Hw0 En) as [Hw1 Dw1].
+      split; [exact Hw1|].
+      rewrite Dw1, Dw0, wden_end, sden_shseg; cbn [Normalise.peden].
       rewrite rpshift_as_pcompose, <- Dw'; symmetry; apply rpcompose_compose.
 Qed.
 

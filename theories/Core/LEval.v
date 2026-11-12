@@ -7,7 +7,7 @@
     word multiplied out ([expand]). *)
 
 From Stdlib Require Import Arith List Lia Bool NArith.
-From ShiftedNames.Core Require Import Label Var Adjustment Laws Normalise Layered.
+From ShiftedNames.Core Require Import Label Var Adjustment Laws Normalise Unique Normal Complete Layered LNormal.
 Import ListNotations.
 
 (** Larger normal forms are not shown: as a tree, a chain of
@@ -413,3 +413,90 @@ Qed.
 End Mat.
 
 End Sound.
+
+Lemma lifts_eqb_refl L : lifts_eqb L L = true.
+Proof.
+  induction L as [|[h n] L IH]; cbn [lifts_eqb]; [reflexivity|].
+  rewrite (proj2 (lexp_eqb_eq h h) eq_refl), Nat.eqb_refl, IH; reflexivity.
+Qed.
+
+Lemma nf_eqb_refl :
+  (forall t, ntgt_eqb t t = true) /\ (forall ts, tlist_eqb ts ts = true) /\ (forall s, seg_eqb s s = true)
+  /\ (forall w, word_eqb w w = true).
+Proof.
+  apply nf_mind.
+  - intros h i; cbn [ntgt_eqb]; rewrite (proj2 (lexp_eqb_eq h h) eq_refl), Nat.eqb_refl; reflexivity.
+  - intros u w IH b; cbn [ntgt_eqb]; fold word_eqb; rewrite Nat.eqb_refl, IH; destruct b as [n|]; [apply Nat.eqb_refl|reflexivity].
+  - reflexivity.
+  - intros t IHt r IHr; cbn [tlist_eqb]; fold ntgt_eqb tlist_eqb; rewrite IHt, IHr; reflexivity.
+  - reflexivity.
+  - intros h ts IHts m r IHr; cbn [seg_eqb]; fold tlist_eqb seg_eqb.
+    rewrite (proj2 (lexp_eqb_eq h h) eq_refl), IHts, Nat.eqb_refl, IHr; reflexivity.
+  - intros s IH; exact IH.
+  - intros s IHs L a w IHw; cbn [word_eqb]; fold seg_eqb word_eqb; rewrite IHs, lifts_eqb_refl, Nat.eqb_refl, IHw; reflexivity.
+Qed.
+
+(** ** The tree is the normal form, and the decision is complete
+
+    The tree of an expression satisfies the normal-form conditions, so
+    two expressions that mean the same under every interpretation have
+    the same tree; the decision then answers [true] whenever both trees
+    are small enough for it to compute them. *)
+
+Theorem tnorm_normal lenv labs F ntm N e w :
+  facts_ok lenv F -> In LNone labs -> incl (alabs e) labs -> apmax e <= N ->
+  tnorm F ntm e = Some w -> wnf lenv labs N false w.
+Proof.
+  intros HF Hn Hl HN; unfold tnorm; destruct (lnorm F ntm e) as [l|] eqn:E; [|discriminate]; cbn [obind]; intros H.
+  refine (expand_normal lenv labs N F HF ntm l w _ H).
+  exact (lnorm_normal lenv labs N F HF ntm Hn e l Hl (proj1 (scope_max N) e HN) E).
+Qed.
+
+Theorem tnorm_complete lenv l ntm e1 e2 w1 w2 :
+  lfacts_ok lenv l ->
+  (forall lenv' (T : Type) (tenv : list T) aenv penv, lfacts_ok lenv' l -> ntm <= List.length tenv ->
+     aeden lenv' tenv aenv penv e1 = aeden lenv' tenv aenv penv e2) ->
+  tnorm (order_of l) ntm e1 = Some w1 -> tnorm (order_of l) ntm e2 = Some w2 -> w1 = w2.
+Proof.
+  intros HF Heq E1 E2.
+  set (N := Nat.max (apmax e1) (apmax e2)).
+  set (S := LNone :: alabs e1 ++ alabs e2 ++ flat_map (fun p => [fst p; snd p]) l).
+  assert (HFS : forall x y, In (x, y) l -> In x S /\ In y S).
+  { intros x y Hxy; split; right; apply in_or_app; right; apply in_or_app; right; apply in_flat_map; exists (x, y);
+      (split; [exact Hxy|cbn; tauto]). }
+  destruct (distinct_interp l S HFS lenv HF) as [le [HFl0 Hinj]].
+  pose proof (order_of_ok le l HFl0) as HFl; set (F := order_of l) in *.
+  assert (Hl1 : incl (alabs e1) S) by (intros x Hx; right; apply in_or_app; left; exact Hx).
+  assert (Hl2 : incl (alabs e2) S) by (intros x Hx; right; apply in_or_app; right; apply in_or_app; left; exact Hx).
+  assert (H1 : wnf le S N false w1) by (apply (tnorm_normal le S F ntm N e1 w1 HFl (or_introl eq_refl) Hl1); [unfold N; lia|exact E1]).
+  assert (H2 : wnf le S N false w2) by (apply (tnorm_normal le S F ntm N e2 w2 HFl (or_introl eq_refl) Hl2); [unfold N; lia|exact E2]).
+  set (nt := Nat.max ntm (Nat.max (wmax w1) (wmax w2))).
+  assert (Hnt : ntm <= List.length (tenvT nt)) by (unfold tenvT; rewrite length_map, length_seq; lia).
+  apply (nf_unique le S N Hinj w1 w2 H1 H2), (adequacy le nt w1 w2).
+  - apply (proj2 (proj2 (proj2 (normal_ok le S N nt))) w1 false H1); lia.
+  - apply (proj2 (proj2 (proj2 (normal_ok le S N nt))) w2 false H2); lia.
+  - intros aenv penv.
+    rewrite (proj2 (tnorm_sound le (tenvT nt) aenv penv F HFl ntm Hnt e1 w1 E1)).
+    rewrite (proj2 (tnorm_sound le (tenvT nt) aenv penv F HFl ntm Hnt e2 w2 E2)).
+    apply Heq; assumption.
+Qed.
+
+(** The decision: when both sides have a word small enough to multiply
+    out, it answers [true] for expressions that mean the same. *)
+Theorem nf_eq_t_complete lenv l ntm e1 e2 l1 l2 :
+  lfacts_ok lenv l ->
+  (forall lenv' (T : Type) (tenv : list T) aenv penv, lfacts_ok lenv' l -> ntm <= List.length tenv ->
+     aeden lenv' tenv aenv penv e1 = aeden lenv' tenv aenv penv e2) ->
+  lnorm (order_of l) ntm e1 = Some l1 -> lnorm (order_of l) ntm e2 = Some l2 ->
+  (lest l1 <? cap)%N = true -> (lest l2 <? cap)%N = true ->
+  expand (order_of l) ntm l1 <> None -> expand (order_of l) ntm l2 <> None ->
+  nf_eq_t (order_of l) ntm e1 e2 = true.
+Proof.
+  intros HF Heq E1 E2 C1 C2 X1 X2; unfold nf_eq_t; rewrite E1, E2, C1, C2.
+  destruct (lword_eqb l1 l2); [reflexivity|].
+  destruct (expand (order_of l) ntm l1) as [w1|] eqn:Ew1; [|contradiction].
+  destruct (expand (order_of l) ntm l2) as [w2|] eqn:Ew2; [|contradiction].
+  assert (T1 : tnorm (order_of l) ntm e1 = Some w1) by (unfold tnorm; rewrite E1; exact Ew1).
+  assert (T2 : tnorm (order_of l) ntm e2 = Some w2) by (unfold tnorm; rewrite E2; exact Ew2).
+  rewrite (tnorm_complete lenv l ntm e1 e2 w1 w2 HF Heq T1 T2); apply (proj2 (proj2 (proj2 nf_eqb_refl))).
+Qed.
