@@ -122,9 +122,25 @@ Definition asucc (a : lexp) : nat := match a with LAtom n => S n | _ => 0 end.
 Fixpoint amax (l : list (lexp * lexp)) : nat :=
   match l with [] => 0 | (x, y) :: r => Nat.max (asucc x) (Nat.max (asucc y) (amax r)) end.
 
+(** The table: what one or two facts say about each pair of label atoms
+    (two, for a step between concrete labels), closed under transitivity
+    one atom at a time. *)
+Fixpoint zipor (a b : list bool) : list bool :=
+  match a, b with
+  | x :: a', y :: b' => (if x then true else y) :: zipor a' b'
+  | _, _ => a
+  end.
+
+Definition wstep (tab : list (list bool)) (k : nat) : list (list bool) :=
+  match nth_error tab k with
+  | Some rk => map (fun ri => match nth_error ri k with Some true => zipor ri rk | _ => ri end) tab
+  | None => tab
+  end.
+
 Definition order_of (l : list (lexp * lexp)) : order :=
   let n := amax l in
-  mk_order l (map (fun i => map (fun j => lt_list l (LAtom i) (LAtom j)) (seq 0 n)) (seq 0 n)).
+  let t0 := map (fun i => map (fun j => lt_reach l 2 (LAtom i) (LAtom j)) (seq 0 n)) (seq 0 n) in
+  mk_order l (fold_left wstep (seq 0 n) t0).
 
 Definition lcmp (F : order) (a b : lexp) : option comparison :=
   if lexp_eqb a b then Some Eq
@@ -179,12 +195,44 @@ Proof.
 Qed.
 
 (** The order worked out from facts that hold. *)
+Definition tab_ok (tab : list (list bool)) : Prop :=
+  forall i j, tab_get tab i j = Some true -> olabel_lt (lden (LAtom i)) (lden (LAtom j)).
+
+Lemma zipor_nth a : forall b j, nth_error (zipor a b) j = Some true ->
+  nth_error a j = Some true \/ nth_error b j = Some true.
+Proof.
+  induction a as [|x a IH]; intros b j; cbn [zipor]; [auto|].
+  destruct b as [|y b]; [auto|]; destruct j as [|j]; cbn [nth_error].
+  - destruct x; [auto|intros H; right; exact H].
+  - apply IH.
+Qed.
+
+Lemma wstep_ok tab k : tab_ok tab -> tab_ok (wstep tab k).
+Proof.
+  intros H; unfold wstep; destruct (nth_error tab k) as [rk|] eqn:Ek; [|exact H].
+  intros i j; unfold tab_get; rewrite nth_error_map.
+  destruct (nth_error tab i) as [ri|] eqn:Ei; [|discriminate]; cbn [option_map].
+  destruct (nth_error ri k) as [[|]|] eqn:Eik;
+    try (intros E; apply (H i j); unfold tab_get; rewrite Ei; exact E).
+  intros E; apply zipor_nth in E; destruct E as [E|E].
+  - apply (H i j); unfold tab_get; rewrite Ei; exact E.
+  - refine (olabel_lt_trans _ (lden (LAtom k)) _ _ _).
+    + apply (H i k); unfold tab_get; rewrite Ei; exact Eik.
+    + apply (H k j); unfold tab_get; rewrite Ek; exact E.
+Qed.
+
 Lemma order_of_ok l : lfacts_ok l -> facts_ok (order_of l).
 Proof.
-  intros Hl; split; [exact Hl|]; intros i j; unfold order_of, tab_get; cbn [otab].
-  rewrite nth_error_map; destruct (nth_error (seq 0 (amax l)) i) as [i'|] eqn:Ei; [|discriminate]; cbn [option_map].
-  rewrite nth_error_map; destruct (nth_error (seq 0 (amax l)) j) as [j'|] eqn:Ej; [|discriminate]; cbn [option_map].
-  apply nth_error_seq0 in Ei, Ej; subst; intros H; injection H as H; exact (lt_reach_sound l Hl _ _ _ H).
+  intros Hl; split; [exact Hl|]; unfold order_of; cbn [otab].
+  set (t0 := map _ _).
+  assert (H0 : tab_ok t0).
+  { intros i j; unfold t0, tab_get.
+    rewrite nth_error_map; destruct (nth_error (seq 0 (amax l)) i) as [i'|] eqn:Ei; [|discriminate]; cbn [option_map].
+    rewrite nth_error_map; destruct (nth_error (seq 0 (amax l)) j) as [j'|] eqn:Ej; [|discriminate]; cbn [option_map].
+    apply nth_error_seq0 in Ei, Ej; subst; intros H.
+    exact (lt_reach_sound l Hl 2 _ _ (f_equal (fun o => match o with Some b => b | None => false end) H)). }
+  clearbody t0; revert t0 H0; generalize (seq 0 (amax l)) as ks.
+  induction ks as [|k ks IH]; intros t0 H0; [exact H0|]; cbn [fold_left]; apply IH, wstep_ok, H0.
 Qed.
 
 Variable F : order.

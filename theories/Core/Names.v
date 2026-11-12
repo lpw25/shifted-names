@@ -179,7 +179,34 @@ Ltac reify_adj_top a env :=
 
 (** The label order facts in the context, as pairs of label expressions
     (label variables or concrete labels). *)
-Ltac collect_fact_list env F :=
+Ltac label_hyps :=
+  constr:(ltac:(let rec go acc :=
+                  lazymatch goal with
+                  | H : label_lt ?x ?y |- _ => clear H; go (@cons (label * label) (x, y) acc)
+                  | _ => exact acc
+                  end in
+                go (@nil (label * label)))).
+
+Ltac reify_facts hs env F :=
+  lazymatch hs with
+  | nil => constr:((env, F))
+  | (?x, ?y) :: ?r =>
+      lazymatch reify_label (Some x) env with
+      | (?ex, ?env1) =>
+          lazymatch reify_label (Some y) env1 with
+          | (?ey, ?env2) =>
+              let f := constr:((ex, ey)) in
+              lazymatch F with
+              | context [f] => reify_facts r env2 F
+              | _ => reify_facts r env2 (f :: F)
+              end
+          end
+      end
+  end.
+
+(** The hypotheses are taken in one pass; when one cannot be cleared
+    in the copy of the context this is done in, one at a time. *)
+Ltac collect_fact_list_slow env F :=
   match goal with
   | H : label_lt ?x ?y |- _ =>
       lazymatch reify_label (Some x) env with
@@ -189,11 +216,17 @@ Ltac collect_fact_list env F :=
               let f := constr:((ex, ey)) in
               lazymatch F with
               | context [f] => fail
-              | _ => collect_fact_list env2 (f :: F)
+              | _ => collect_fact_list_slow env2 (f :: F)
               end
           end
       end
   | _ => constr:((env, F))
+  end.
+
+Ltac collect_fact_list env F :=
+  match constr:(tt) with
+  | _ => let hs := label_hyps in reify_facts hs env F
+  | _ => collect_fact_list_slow env F
   end.
 
 (** ... as the order the normaliser works with. *)
