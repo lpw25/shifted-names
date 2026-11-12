@@ -512,8 +512,32 @@ Fixpoint build_s (nodes0 : list ntgt) (descs : list (list ntgt))
               match filter (fun p => match fst p with Some _ => true | None => false end) parts with
               | [] => None
               | p :: _ =>
+                  let indiff := fun q => match fst q, snd q with
+                                         | Some t, WEnd _ => match snd (tpay t) with None => true | Some _ => false end
+                                         | _, _ => false
+                                         end in
+                  (* a term with no bound variables coming in has whatever the others agree on for the
+                     bound label, as far as it refers to terms already placed *)
+                  let bcommon :=
+                    if indiff p then
+                      match map (fun q => match efind LNone (hents (snd q)) with Some e => e | None => ([], 0) end)
+                                (filter (fun q => negb (indiff q)) parts) with
+                      | (ts0, m0) :: r =>
+                          if forallb (fun e => Nat.eqb (snd e) m0) r then
+                            let c := fold_left (fun a e => csuf a (fst e)) r ts0 in
+                            let c' := rev ((fix tk (l : list ntgt) : list ntgt :=
+                                              match l with
+                                              | t :: l' => if negb (isterm t) || tmem t inst then t :: tk l' else []
+                                              | [] => []
+                                              end) (rev c)) in
+                            match c', m0 with [], 0 => [] | _, _ => [(LNone, c', m0)] end
+                          else []
+                      | [] => []
+                      end
+                    else [] in
                   let N := dictated (hents (snd p))
-                             (map (fun q => hents (snd q)) (filter (fun q => negb (same_party p q)) parts)) in
+                             (map (fun q => hents (snd q)) (filter (fun q => negb (same_party p q)) parts))
+                           ++ bcommon in
                   match N with
                   | [] =>
                       let pt := match fst p with Some t => t | None => NVar LNone 0 end in
@@ -536,10 +560,6 @@ Fixpoint build_s (nodes0 : list ntgt) (descs : list (list ntgt))
                         (inst ++ map fst (inst_step placed)) (SInst (inst_step placed) :: acc) vns
                   | _ =>
                       let sid := S (List.length acc) in
-                      let indiff := fun q => match fst q, snd q with
-                                             | Some t, WEnd _ => match snd (tpay t) with None => true | Some _ => false end
-                                             | _, _ => false
-                                             end in
                       match opt_all (map (fun q => option_map (fun es => (fst q, set_head (snd q) (mkS es)))
                                                      (gdiff sid N (hents (snd q)) (indiff q))) parts) with
                       | Some parts' =>

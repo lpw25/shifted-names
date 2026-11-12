@@ -369,55 +369,57 @@ payload saying how it differs from the rest:
 
 A *party* is the adjustment itself (the root) or a term occurring in
 it with its payload; two occurrences of a term with the same payload
-are one party. The *height* of a term is 0 if its payload mentions no
-term, and otherwise one more than the greatest height of a term it
-mentions; the root is above every term.
+are one party. The word is built from its end. At each point there is
+the rest `W` built so far, and each party not yet placed has a
+*remainder* `K`: its payload is `K ⨾ W`.
 
-The word is built from its end. At each point there is the rest `W`
-built so far, and each party not yet placed has a *remainder* `K`: its
-payload is `K ⨾ W`. Repeat:
+The terms are placed in depth-first postorder from the root, so each
+after the terms its payload mentions, and a family of terms together.
+From a party, the terms it mentions are visited in order of how much
+of their payload the party has itself, least first: the term that
+continues the party (the next of a chain) is visited last and ends up
+next to it.
 
-1. **Share.** Whatever every remaining party has at the end of its
-   remainder moves into the rest: an entry of a label (the outermost
-   entries they all have, so the common suffix of their entry lists),
-   or a lifted atom. A reference to a term already instantiated is a
-   bound variable. Pure renamings shared this way compose with the
-   step next to them.
-2. **Instantiate.** Every remaining term whose remainder mentions no
-   term is instantiated now, in one layer, with that remainder as its
-   payload. A payload therefore contains renamings and atoms, never a
-   term. These are exactly the terms of the next height.
+Before a term is placed:
 
-The root's remainder is the first step of the word.
+1. **An atom is shared** when every remaining party ends with it.
+2. **What of the term's remainder another remaining party has is
+   shared**: per label, the longest end of its entries that some other
+   party's entries end with. Every party is then divided by the shared
+   step. A party that has it loses it. A party that lacks it gets a
+   *shield*: a renaming that steps over the shared entries, which the
+   shared step undoes. A reference to an output that the shared step
+   creates becomes a bound variable that the step *opens* (sends to
+   that output) instead of creating the output from nothing.
+3. **The term is placed**, with what is left of its remainder as its
+   payload: renamings no other party has, and atoms not shared. With it
+   are placed the terms that have nothing left of their remainder and
+   are mentioned by a party still waiting for the term being placed;
+   they would otherwise end up before steps they need to see through.
 
-Choices, each made the same way everywhere:
+The root's remainder is the first step of the word. Shields are entries
+like any other: the parties that lack a family's substitutions all get
+the same shield, and it is shared among them once, when the first of
+them is placed.
 
-- A term's reference in a payload or in the rest is a name if the rest
-  sends a name there, and a bound variable otherwise; leaving a name
-  alone comes first.
-- A bound variable for a term exists from the first step that refers
-  to it that way until its layer. Bound variables are ordered by
-  height, the next layer innermost, and within a height by first
-  occurrence from the root.
-- A label is shared only if every remaining party has an entry for it:
-  a party that does not mention a label may not know how it compares
-  to that party's own labels.
+A term with no bound variables of its own coming in (no opaque payload
+atom, no atom) has whatever the others agree on for the bound label.
 
-What it gives:
+Written out:
 
-- A chain of substitutions is one layer per step with identity
-  payloads, each layer a single `⟦ x := u ⟧`: size `n`.
-- Composing two layered words is concatenation and composing the
-  renamings at the seam, when every term on the left sees the right.
-  A term on the left that is shielded from the right keeps its height
-  and moves to a later layer.
-- It is what `names` would show: no unfolding and no `let`.
+- A reference to a term not yet instantiated is a bound variable, from
+  the first step that refers to it until its layer; bound variables in
+  use are ordered by layer, the next innermost.
+- A term referred to once, from a segment, with only instantiations
+  between that segment and its layer, is written there: `⟦ x := u ⟧`
+  rather than `⟦ x \ · ⟧ ⨾ ⟦ · := u ⟧`.
+- Layers of instantiations in a row are one.
 
 ### Atoms
 
 A term before an atom stays there: in `⟦ x := u ⟧ ⨾ σ` every party
-above ends with `σ`, so `σ` is shared and `u` has the identity
-payload. The stored form instead carries `u` past the atom, as
+ends with `σ`, so `σ` is shared and `u` has the identity payload. The
+stored form instead carries `u` past the atom, as
 `⟦ x | σ ⟧ ⨾ ⟦ x := u⟨σ⟩ ⟧`. Read from the stored form, a party in
 which a variable is passed around the atom to a remaining term has the
 atom if that term has it; the lift over that variable goes when the
@@ -428,39 +430,75 @@ An atom that only some parties have stays in their payloads:
 the conditions on lifts (3 and 4 above) apply to the renamings as they
 do now.
 
-### Status and what is open
+### What the prototype shows
 
 `Core/Layers.v` computes the layered form of a stored word, as an
-expression, and `layers_check` normalises it again and compares
-(`Tests/LayersTests.v`, and `tests/fuzz/run.sh` for random
-expressions). It shares entries of labels; atoms are not shared yet
-and stay in payloads as in the stored form.
+expression; `layers_check` normalises it again and compares
+(`Tests/LayersTests.v`; `tests/fuzz/run.sh` for random expressions).
+Sizes count entries, outputs, lifts, atoms and terms.
 
-Found so far:
+- Correct on some 2600 random expressions, including label variables
+  whose order is partly unknown; the rule applied in every one.
+- Linear where the stored form is quadratic and the tree exponential:
 
-- On some 4000 random expressions the layered form always exists and
-  always normalises to the stored word it came from.
-- A chain of `n` substitutions is `12n − 1` expression nodes, where
-  the stored form is about `1.5n²`: 383 against 1616 at 32 steps. A
-  renaming after the chain is shared and changes nothing.
-- On small random expressions the layered form is about a third larger
-  than the stored form: a renaming and the instantiations after it are
-  separate steps here, and a normal form would write them as one where
-  no term is repeated.
-- Sharing a label needs an order the stored form did not: the root or
-  a payload may send a name to a variable of another label, and
-  whether the shared step moves that variable depends on how the two
-  labels compare. Where that is unknown the prototype shares nothing
-  (about one in a hundred random expressions over partly ordered label
-  variables). The normal form needs a rule here: share what is known
-  to be safe, or ask for the order.
-- A payload over an opaque payload atom, or with atoms, can have an
-  entry for the bound label, which has to step over the bound
-  variables in use at its layer.
+  | | expression | layered | stored |
+  |---|---|---|---|
+  | chain of 32 substitutions | 64 | 64 | 1552 |
+  | the same with an atom after each (16) | 48 | 48 | 1376 |
+  | chain of 16, then a renaming | 34 | 34 | 442 |
+  | a term whose payload is a chain of 16, on a chain of 16 | 66 | 88 | 787 |
+  | 3 terms with one chain of 8 as payload, 3 with another | 108 | 64 | 218 |
+  | 8 terms, each with its own chain of 2 | 48 | 79 | 80 |
 
-A function of a canonical form is canonical, so for the prototype the
-tie-breaks only need to be deterministic. To make this the normal
-form: sharing atoms; the conditions as a predicate; uniqueness, by
-induction on height from the last layer; the operations on layered
-words directly (composition at the seam, and a term on the left that
-does not see the right); and the cost of that last case.
+  A chain, with or without atoms, comes back as written.
+- On random expressions the layered form is 15 to 50 percent smaller
+  than the tree and 15 to 40 percent smaller than the stored form, and
+  15 to 45 percent larger than the expression.
+
+Two rules were tried and dropped:
+
+- *Sharing only what every remaining party has.* Two families of terms
+  with nothing in common then share nothing: the fourth row above came
+  out as 338, quadratic. Hence shields.
+- *Placing every term as soon as it can be*, or in plain postorder.
+  The first carries terms with the identity payload across every other
+  family through long-lived bound variables; the second leaves a term
+  that has used up its payload in front of shields it must see through.
+  Hence postorder with the terms that ride along.
+
+### Not settled
+
+The prototype computes the form from the stored form, which is the
+quadratic thing it is meant to replace. The normal form has to be
+computed directly: composing two layered words should be writing one
+after the other and composing the term-free end of the first with the
+root's remainder of the second, by the operation on words there is
+now.
+
+Tried on random pairs: that gives exactly the layered form of the
+composition for 86 percent of pairs (92 percent without the bound
+label). The differences found are in where the rule above puts things,
+not in the idea:
+
+- An entry of the bound label commutes with the instantiation of a
+  term that has no bound variables coming in, so it can sit before or
+  after it. The rule puts it after (at the end); composing on the left
+  then has to move it there.
+- The prototype shares an atom only when what a party does after it is
+  sending passed variables to terms. An output created after the atom
+  could move before it under one more lift, and is not recognised.
+
+So the rule should be fixed the other way round: state the conditions a
+layered word satisfies so that writing two side by side and composing
+at the seam keeps them, and take this prototype as the reference where
+the two agree. What is needed before the proofs move:
+
+1. Those conditions, and composition, lift and the two entry
+   operations directly on layered words, in the prototype, compared
+   with `layers` by the fuzzer.
+2. A bound on the case that is not local: a term on the left that has
+   a renaming payload touching what the right does (the *shielded*
+   term). The fast path applies when no term on the left has one.
+3. Then the predicate, uniqueness by induction from the end of the
+   word, and the operations' proofs. The free model and the soundness
+   lemmas for segments and words carry over.
