@@ -11,15 +11,19 @@
     is a close before and an open after, with the steps between folded
     one level deeper under the bound label.
 
-    So far: a fragment (no atoms; terms whose payload is the identity or
-    a payload atom), with the meaning of a layered word and soundness of
+    So far: a fragment (terms whose payload is the identity or a payload
+    atom), with the meaning of a layered word and soundness of
     the fold. *)
 
 From Stdlib Require Import Arith List Lia Bool.
 From ShiftedNames.Core Require Import Label Var Adjustment Laws Normalise Unique Normal Shared.
 Import ListNotations.
 
-Definition lword : Type := list seg.
+Inductive lstep : Type :=
+| LS (s : seg)
+| LA (L : list (lexp * nat)) (a : nat).
+
+Definition lword : Type := list lstep.
 
 Section Layered.
 
@@ -58,15 +62,15 @@ Fixpoint slifts (d : nat) (s : seg) : option seg :=
     layer.  Joining is composition of segments. *)
 Definition cons_seg (s : seg) (K : lword) : option lword :=
   match K with
-  | [] => Some (match s with SNil => [] | _ => [s] end)
-  | s1 :: K' =>
+  | LS s1 :: K' =>
       if negb (has_terms s) || (bound_only s1 && no_atoms s)
       then match scomp F ntm s1 s with
            | Some SNil => Some K'
-           | Some s' => Some (s' :: K')
+           | Some s' => Some (LS s' :: K')
            | None => None
            end
-      else Some (s :: K)
+      else Some (LS s :: K)
+  | _ => Some (match s with SNil => K | _ => LS s :: K end)
   end.
 
 (** ** The steps *)
@@ -98,7 +102,7 @@ Definition cons_lifted (d : nat) (s : option seg) (K : option lword) : option lw
 Fixpoint fold (d : nat) (e : aexp) (K : option lword) : option lword :=
   match e with
   | AId => K
-  | AAtom _ => None
+  | AAtom n => match K with Some K0 => Some (LA (match d with 0 => [] | _ => [(LNone, d)] end) n :: K0) | None => None end
   | ACompose a b => fold d b (fold d a K)
   | AOuter h a => fold d a (cons_lifted d (Some (shseg h 1)) K)
   | AInner h t a =>
@@ -160,9 +164,13 @@ Local Notation teden := (teden lenv tenv aenv penv).
 
 (** A layered word is its segments one after the other. *)
 Fixpoint lwden (l : lword) : radj T :=
-  match l with [] => ridentity | s :: r => rcompose (lwden r) (sden s) end.
+  match l with
+  | [] => ridentity
+  | LS s :: r => rcompose (lwden r) (sden s)
+  | LA L a :: r => rcompose (lwden r) (lifts lenv L (aden aenv a))
+  end.
 
-Definition lwdist (l : lword) : Prop := Forall sdistd l.
+Definition lwdist (l : lword) : Prop := Forall (fun x => match x with LS s => sdistd s | LA _ _ => True end) l.
 
 Definition lifted (d : nat) (a : radj T) : radj T := iter d (rlift None) a.
 
@@ -189,15 +197,18 @@ Lemma cons_seg_sound s K K' :
   sdistd s -> lwdist K -> cons_seg F ntm s K = Some K' ->
   lwdist K' /\ lwden K' = rcompose (lwden K) (sden s).
 Proof.
-  intros Hs HK; unfold cons_seg; destruct K as [|s1 K0].
-  - intros H; injection H as <-; destruct s as [|h ts m r].
-    + split; [constructor|]; cbn [lwden]; rewrite rcompose_identity_l; reflexivity.
-    + split; [constructor; [exact Hs|constructor]|reflexivity].
+  intros Hs HK; unfold cons_seg.
+  assert (Hplain : Some (match s with SNil => K | _ => LS s :: K end) = Some K' ->
+                   lwdist K' /\ lwden K' = rcompose (lwden K) (sden s)).
+  { intros H; injection H as <-; destruct s as [|h ts m r].
+    - split; [exact HK|]; change (lwden K = rcompose (lwden K) ridentity); rewrite rcompose_identity_r; reflexivity.
+    - split; [constructor; [exact Hs|exact HK]|reflexivity]. }
+  destruct K as [|[s1|L a] K0]; [exact Hplain| |exact Hplain].
   - inversion HK as [|? ? H1 H0]; subst.
     destruct (negb (has_terms s) || (bound_only s1 && no_atoms s)).
     + destruct (scomp F ntm s1 s) as [s'|] eqn:E; [|discriminate].
       destruct (scomp_sound lenv tenv aenv penv F HF ntm Hntm s1 s s' H1 Hs E) as [Hd' Hs'].
-      assert (Hgoal : lwden (s' :: K0) = rcompose (lwden (s1 :: K0)) (sden s)).
+      assert (Hgoal : lwden (LS s' :: K0) = rcompose (lwden (LS s1 :: K0)) (sden s)).
       { cbn [lwden]; rewrite Hs', rcompose_assoc; reflexivity. }
       destruct s' as [|h ts m r]; intros H; injection H as <-.
       * split; [exact H0|]; rewrite <- Hgoal; change (lwden K0 = rcompose (lwden K0) ridentity);
@@ -281,7 +292,8 @@ Proof.
   induction e as [| n | a IHa b IHb | h a IHa | h t a IHa | h a IHa]; intros d K K' HK; cbn [fold].
   - intros H; injection H as <-; split; [exact HK|].
     cbn [Normalise.aeden]; rewrite lifted_identity, rcompose_identity_r; reflexivity.
-  - discriminate.
+  - intros H; injection H as <-; split; [constructor; [exact I|exact HK]|].
+    cbn [lwden Normalise.aeden]; destruct d; reflexivity.
   - intros H; destruct (fold_some _ _ _ _ H) as [K1 E1]; rewrite E1 in H.
     destruct (IHa d K K1 HK E1) as [H1 D1]; destruct (IHb d K1 K' H1 H) as [H2 D2]; split; [exact H2|].
     rewrite D2, D1; cbn [Normalise.aeden]; rewrite lifted_compose, rcompose_assoc; reflexivity.
