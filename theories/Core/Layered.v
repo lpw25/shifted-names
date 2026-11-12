@@ -151,6 +151,37 @@ Definition bouter (d w : nat) (h : lexp) (G : list lexp) (g : lexp)
   if is_bound g then Some K3
   else cons_lifted d (obind (obind (obind (close_seg g) (glifts G)) (slifts w)) (slift F ntm h)) K3))).
 
+(** ** Multiplying out
+
+    The word of the normal form of [Normalise]: every step composed into
+    the next, so that each term carries its whole payload. *)
+Fixpoint expand (l : lword) : option word :=
+  match l with
+  | [] => Some (WEnd SNil)
+  | LS s :: r => obind (expand r) (fun w => wcomp F ntm w (WEnd s))
+  | LA L a :: r => obind (expand r) (fun w => wcomp F ntm w (WAtom SNil L a (WEnd SNil)))
+  end.
+
+(** Payloads the term keeps as a tree: those with an atom, or a lift by
+    the bound label.  The atom acts on the names of the term alone, which
+    no step of the word can do. *)
+Fixpoint ahard (a : aexp) : bool :=
+  match a with
+  | AId => false
+  | AAtom _ => true
+  | ACompose a b => ahard a || ahard b
+  | AOuter _ a => ahard a
+  | AInner g _ a => is_bound g || ahard a
+  | ALift g a => is_bound g || ahard a
+  end.
+
+Fixpoint phard (p : pexp) : bool :=
+  match p with
+  | PId | PAtom _ => false
+  | PComp a p => ahard a || phard p
+  | PShift _ p => phard p
+  end.
+
 (** The variable that a target without terms stands for. *)
 Fixpoint tvar (t : texp) : option (lexp * nat) :=
   match t with
@@ -194,7 +225,15 @@ Fixpoint fold (d : nat) (e : aexp) (K : lword) {struct e} : option lword :=
 with centry (d : nat) (G : list lexp) (h : lexp) (t : texp) (K : lword) {struct t} : option lword :=
   match t with
   | TVarE g i => cons_lifted d (obind (entry h (NVar g i)) (glifts G)) K
-  | TBindE u p => if u <? ntm then under G d (fun d' K' => cterm d' 0 h u p K') K else None
+  | TBindE u p =>
+      if u <? ntm then
+        if phard p then
+          match ptree p with
+          | Some (w, b) => cons_lifted d (obind (entry h (NBind u w b)) (glifts G)) K
+          | None => None
+          end
+        else under G d (fun d' K' => cterm d' 0 h u p K') K
+      else None
   | TShiftE _ _ =>
       match tvar t with
       | Some (g, i) => cons_lifted d (obind (entry h (NVar g i)) (glifts G)) K
@@ -222,20 +261,28 @@ with byp (d w : nat) (h : lexp) (G : list lexp) (a : aexp)
            obind (byp d w h (g :: G) a' inner K1)
              (cons_lifted d (obind (obind (glifts G (shseg g 1)) (slifts w)) (slift F ntm h))))
   | ALift g a' => if is_bound g then None else byp d w h (g :: G) a' inner K
+  end
+with ptree (p : pexp) {struct p} : option (word * option nat) :=
+  match p with
+  | PId => Some (WEnd SNil, None)
+  | PAtom n => Some (WEnd SNil, Some n)
+  | PComp a p' =>
+      match ptree p', fold 0 a [] with
+      | Some (w', b), Some l =>
+          match expand l with
+          | Some wa => match wcomp F ntm wa w' with Some w => Some (bnorm b w, b) | None => None end
+          | None => None
+          end
+      | _, _ => None
+      end
+  | PShift g p' =>
+      match ptree p' with
+      | Some (w', b) => match wcomp F ntm (WEnd (shseg g 1)) w' with Some w => Some (bnorm b w, b) | None => None end
+      | None => None
+      end
   end.
 
 Definition lnorm (e : aexp) : option lword := fold 0 e [].
-
-(** ** Multiplying out
-
-    The word of the normal form of [Normalise]: every step composed into
-    the next, so that each term carries its whole payload. *)
-Fixpoint expand (l : lword) : option word :=
-  match l with
-  | [] => Some (WEnd SNil)
-  | LS s :: r => obind (expand r) (fun w => wcomp F ntm w (WEnd s))
-  | LA L a :: r => obind (expand r) (fun w => wcomp F ntm w (WAtom SNil L a (WEnd SNil)))
-  end.
 
 (** The equations of the four functions. *)
 Lemma fold_compose d a b K : fold d (ACompose a b) K = obind (fold d a K) (fold d b).
@@ -256,6 +303,25 @@ Lemma fold_lift d h a K :
 Proof. reflexivity. Qed.
 Lemma centry_var d G h g i K : centry d G h (TVarE g i) K = cons_lifted d (obind (entry h (NVar g i)) (glifts G)) K.
 Proof. reflexivity. Qed.
+Lemma ptree_comp a p :
+  ptree (PComp a p)
+  = match ptree p, fold 0 a [] with
+    | Some (w', b), Some l =>
+        match expand l with
+        | Some wa => match wcomp F ntm wa w' with Some w => Some (bnorm b w, b) | None => None end
+        | None => None
+        end
+    | _, _ => None
+    end.
+Proof. reflexivity. Qed.
+Lemma ptree_shift g p :
+  ptree (PShift g p)
+  = match ptree p with
+    | Some (w', b) => match wcomp F ntm (WEnd (shseg g 1)) w' with Some w => Some (bnorm b w, b) | None => None end
+    | None => None
+    end.
+Proof. reflexivity. Qed.
+
 Lemma centry_shift d G h g t K :
   centry d G h (TShiftE g t) K
   = match tvar (TShiftE g t) with
@@ -265,7 +331,15 @@ Lemma centry_shift d G h g t K :
 Proof. reflexivity. Qed.
 
 Lemma centry_bind d G h u p K :
-  centry d G h (TBindE u p) K = if u <? ntm then under G d (fun d' K' => cterm d' 0 h u p K') K else None.
+  centry d G h (TBindE u p) K
+  = if u <? ntm then
+      if phard p then
+        match ptree p with
+        | Some (w, b) => cons_lifted d (obind (entry h (NBind u w b)) (glifts G)) K
+        | None => None
+        end
+      else under G d (fun d' K' => cterm d' 0 h u p K') K
+    else None.
 Proof. reflexivity. Qed.
 Lemma cterm_id d w h u K : cterm d w h u PId K = cons_lifted d (entry h (NBind u (WEnd SNil) None)) K.
 Proof. reflexivity. Qed.
@@ -849,8 +923,12 @@ Theorem sound :
            ispec d h y (fun w K => byp F ntm d w h G e inner K) (rpcompose (glden G (aeden e)) ρ)))
   /\ (forall t d G h K K', named G -> lwdist K -> centry F ntm d G h t K = Some K' ->
         lwdist K' /\ lwden K' = rcompose (lwden K) (lifted d (glden G (rpush_inner (lden h) (teden t) ridentity))))
-  /\ (forall p d h u y, nth_error tenv u = Some y ->
-        ispec d h y (fun w K => cterm F ntm d w h u p K) (Normalise.peden lenv tenv aenv penv p)).
+  /\ (forall p,
+        (forall d h u y, nth_error tenv u = Some y ->
+           ispec d h y (fun w K => cterm F ntm d w h u p K) (Normalise.peden lenv tenv aenv penv p))
+        /\ (forall w b, ptree F ntm p = Some (w, b) ->
+              Normalise.wdist lenv w
+              /\ rpcompose (Normalise.wden lenv tenv aenv penv w) (bden penv b) = Normalise.peden lenv tenv aenv penv p)).
 Proof.
   apply exp_mind.
   - (* AId *) split.
@@ -930,6 +1008,13 @@ Proof.
   - (* TBindE *) intros u p IHp d G h K K' HG HK; rewrite centry_bind.
     destruct (u <? ntm) eqn:Eu; [|discriminate]; apply Nat.ltb_lt in Eu.
     destruct (nth_error tenv u) as [y|] eqn:Ey; [|apply nth_error_None in Ey; lia].
+    destruct IHp as [IHp IHt].
+    destruct (phard p).
+    { destruct (ptree F ntm p) as [[w b]|] eqn:Ep; [|discriminate]; intros H.
+      destruct (IHt w b eq_refl) as [Hw Dw].
+      destruct (cons_lifted_sound d _ _ K K' (sok_glifts G _ _ (sok_entry h (NBind u w b) Hw)) HK H) as [A B].
+      split; [exact A|]; rewrite B, (tden_bind lenv tenv aenv penv u w b y Ey), Dw.
+      cbn [Normalise.teden]; rewrite Ey; reflexivity. }
     intros H; cbn [Normalise.teden]; rewrite Ey.
     refine (under_sound G HG d _ _ K K' _ HK H); intros d' K0 K1 HK0 H0.
     destruct (IHp d' h u y Ey 0 K0 K1 HK0 H0) as [A B]; split; [exact A|].
@@ -938,20 +1023,44 @@ Proof.
     destruct (tvar F (TShiftE g t)) as [[g' i]|] eqn:Ev; [|discriminate H].
     rewrite (tvar_sound _ _ _ Ev).
     exact (cons_lifted_sound d _ _ K K' (sok_glifts G _ _ (sok_entry h (NVar g' i) I)) HK H).
-  - (* PId *) intros d h u y Ey w K K' HK H; rewrite cterm_id in H.
+  - (* PId *) split; [|intros w b H; injection H as <- <-; split; [exact I|apply rpcompose_identity]].
+    intros d h u y Ey w K K' HK H; rewrite cterm_id in H.
     destruct (cons_lifted_sound d _ _ K K' (sok_entry h (NBind u (WEnd SNil) None) I) HK H) as [A B]; split; [exact A|].
     rewrite B; cbn [Normalise.tden Normalise.peden]; rewrite Ey.
     cbn [Normalise.wden Normalise.sins Normalise.souts Normalise.bden].
     rewrite shiftk_payload_id, rpcompose_identity; reflexivity.
-  - (* PAtom *) intros n d h u y Ey w K K' HK H; rewrite cterm_atom in H.
+  - (* PAtom *) intros n; split; [|intros w b H; injection H as <- <-; split; [exact I|apply rpcompose_identity]].
+    intros d h u y Ey w K K' HK H; rewrite cterm_atom in H.
     assert (Hd : Normalise.tdist lenv (NBind u (WEnd (match w with 0 => SNil | _ => shseg LNone w end)) (Some n))).
     { destruct w; [exact I|apply shseg_dd]. }
     destruct (cons_lifted_sound d _ _ K K' (sok_entry h _ Hd) HK H) as [A B]; split; [exact A|].
     rewrite B; cbn [Normalise.tden Normalise.peden]; rewrite Ey; destruct w; reflexivity.
-  - (* PComp *) intros a [_ IHa] p IHp d h u y Ey; cbn [Normalise.peden].
-    exact (IHa d h y [] (fun w' K' => cterm F ntm d w' h u p K') _ (Forall_nil _) (IHp d h u y Ey)).
-  - (* PShift *) intros g p IHp d h u y Ey; cbn [Normalise.peden]; rewrite rpshift_as_pcompose.
-    exact (bouter_sound d h y [] g (fun w' K' => cterm F ntm d w' h u p K') _ (Forall_nil _) (IHp d h u y Ey)).
+  - (* PComp *) intros a [IHf IHa] p [IHp IHt]; split.
+    + intros d h u y Ey; cbn [Normalise.peden].
+      exact (IHa d h y [] (fun w' K' => cterm F ntm d w' h u p K') _ (Forall_nil _) (IHp d h u y Ey)).
+    + intros w b; rewrite ptree_comp.
+      destruct (ptree F ntm p) as [[w' b']|] eqn:Ep; [|discriminate].
+      destruct (fold F ntm 0 a []) as [l|] eqn:El; [|discriminate].
+      destruct (expand F ntm l) as [wa|] eqn:Ex; [|discriminate].
+      destruct (wcomp F ntm wa w') as [w0|] eqn:Ec; [|discriminate]; intros H; injection H as <- <-.
+      destruct (IHt w' b' eq_refl) as [Hw' Dw'].
+      destruct (IHf 0 [] l (Forall_nil _) El) as [Hl Dl].
+      destruct (expand_sound l wa Hl Ex) as [Hwa Dwa].
+      destruct (wcomp_sound lenv tenv aenv penv F HF ntm Hntm wa w' w0 Hwa Hw' Ec) as [Hw0 Dw0].
+      split; [apply bnorm_dd, Hw0|].
+      rewrite bnorm_sound, Dw0, Dwa, Dl; cbn [lwden lifted iter Normalise.peden].
+      rewrite rcompose_identity_l, <- Dw'; symmetry; apply rpcompose_compose.
+  - (* PShift *) intros g p [IHp IHt]; split.
+    + intros d h u y Ey; cbn [Normalise.peden]; rewrite rpshift_as_pcompose.
+      exact (bouter_sound d h y [] g (fun w' K' => cterm F ntm d w' h u p K') _ (Forall_nil _) (IHp d h u y Ey)).
+    + intros w b; rewrite ptree_shift.
+      destruct (ptree F ntm p) as [[w' b']|] eqn:Ep; [|discriminate].
+      destruct (wcomp F ntm (WEnd (shseg g 1)) w') as [w0|] eqn:Ec; [|discriminate]; intros H; injection H as <- <-.
+      destruct (IHt w' b' eq_refl) as [Hw' Dw'].
+      destruct (wcomp_sound lenv tenv aenv penv F HF ntm Hntm (WEnd (shseg g 1)) w' w0 (shseg_dd lenv g 1) Hw' Ec) as [Hw0 Dw0].
+      split; [apply bnorm_dd, Hw0|].
+      rewrite bnorm_sound, Dw0, wden_end, sden_shseg; cbn [Normalise.peden].
+      rewrite rpshift_as_pcompose, <- Dw'; symmetry; apply rpcompose_compose.
 Qed.
 
 (** The layered word of an expression means what the expression means. *)
