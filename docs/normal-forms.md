@@ -25,6 +25,10 @@ payloads. Only showing a normal form unfolds it, and only when the tree
 is small; otherwise `names` leaves that adjustment as written. A chain
 of sixteen substitutions is decided in well under a second.
 
+What the facts say about each pair of label variables is worked out
+once per normalisation (`order_of`), so a label comparison is a lookup
+rather than a search through the facts.
+
 The label order is dense with no least or greatest label (the end of a
 string sorts just above `\000`), so facts `x < y` never force two label
 variables to be equal. Completeness takes one interpretation satisfying

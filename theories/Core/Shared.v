@@ -102,7 +102,7 @@ Definition mlook (m : memo) (β : nat) (p : word) : option (option nat) := blook
 
 (** ** Flattening *)
 
-Variable F : list (lexp * lexp).
+Variable F : order.
 Variable ntm : nat.
 
 Section Fl.
@@ -419,7 +419,7 @@ Proof. destruct w as [[|h ts m r]|s L a w]; reflexivity. Qed.
 
 (** *** Flattening gives flat words and keeps the table canonical *)
 
-Variable F : list (lexp * lexp).
+Variable F : order.
 Variable ntm : nat.
 
 Lemma alloc_can ds w b ds' b' : dcan ds -> flatw w -> alloc np ds w b = (ds', b') -> dcan ds'.
@@ -643,7 +643,7 @@ Variable tenv : list T.
 Variable aenv : list (radj T).
 Variable penv : list (rpadj T).
 Variable labs : list lexp.
-Variable F : list (lexp * lexp).
+Variable F : order.
 Hypothesis HF : facts_ok lenv F.
 Variable ntm : nat.
 Hypothesis Hntm : ntm <= List.length tenv.
@@ -1642,7 +1642,7 @@ End Sound.
     The defined atoms are numbered from above the payload atoms of the two
     expressions. *)
 
-Definition nf_eq_sh (F : list (lexp * lexp)) (ntm : nat) (e1 e2 : aexp) : bool :=
+Definition nf_eq_sh (F : order) (ntm : nat) (e1 e2 : aexp) : bool :=
   nf_eq_s (Nat.max (apmax e1) (apmax e2)) F ntm e1 e2.
 
 Lemma pad_spec {T : Type} N (penv : list (rpadj T)) :
@@ -1654,7 +1654,7 @@ Proof.
 Qed.
 
 Theorem nf_eq_sh_sound {T : Type} (lenv : list label) (tenv : list T) (aenv : list (radj T)) (penv : list (rpadj T))
-    (F : list (lexp * lexp)) (HF : facts_ok lenv F) (ntm : nat) (Hntm : ntm <= List.length tenv) (e1 e2 : aexp) :
+    (F : order) (HF : facts_ok lenv F) (ntm : nat) (Hntm : ntm <= List.length tenv) (e1 e2 : aexp) :
   nf_eq_sh F ntm e1 e2 = true -> aeden lenv tenv aenv penv e1 = aeden lenv tenv aenv penv e2.
 Proof.
   unfold nf_eq_sh; set (N := Nat.max (apmax e1) (apmax e2)); intros H.
@@ -1678,7 +1678,7 @@ Qed.
     with the same unfolding are the same. *)
 
 Lemma two_spec_at {T : Type} (lenv : list label) (tenv : list T) (aenv : list (radj T)) (penv : list (rpadj T))
-    (labs : list lexp) (F : list (lexp * lexp)) (HF : facts_ok lenv F) (ntm : nat) (Hntm : ntm <= List.length tenv)
+    (labs : list lexp) (F : order) (HF : facts_ok lenv F) (ntm : nat) (Hntm : ntm <= List.length tenv)
     (N : nat) (e1 e2 : aexp) st1 w1 st2 w2 :
   List.length penv = N -> incl (alabs e1) labs -> incl (alabs e2) labs -> ascope N e1 -> ascope N e2 ->
   anorm_s N F ntm e1 sst0 = Some (st1, w1) -> anorm_s N F ntm e2 st1 = Some (st2, w2) ->
@@ -1689,7 +1689,7 @@ Lemma two_spec_at {T : Type} (lenv : list label) (tenv : list T) (aenv : list (r
 Proof. intros <-; apply two_spec; assumption. Qed.
 
 Lemma one_spec_at {T : Type} (lenv : list label) (tenv : list T) (aenv : list (radj T)) (penv : list (rpadj T))
-    (labs : list lexp) (F : list (lexp * lexp)) (HF : facts_ok lenv F) (ntm : nat) (Hntm : ntm <= List.length tenv)
+    (labs : list lexp) (F : order) (HF : facts_ok lenv F) (ntm : nat) (Hntm : ntm <= List.length tenv)
     (N : nat) (e : aexp) st w :
   List.length penv = N -> incl (alabs e) labs -> ascope N e ->
   anorm_s N F ntm e sst0 = Some (st, w) ->
@@ -1714,7 +1714,7 @@ Qed.
 
 (** ... and means what the expression means. *)
 Theorem anorm_s_sound {T : Type} (lenv : list label) (tenv : list T) (aenv : list (radj T)) (penv : list (rpadj T))
-    (F : list (lexp * lexp)) (HF : facts_ok lenv F) (ntm : nat) (Hntm : ntm <= List.length tenv) (N : nat) (e : aexp) st w :
+    (F : order) (HF : facts_ok lenv F) (ntm : nat) (Hntm : ntm <= List.length tenv) (N : nat) (e : aexp) st w :
   apmax e <= N -> anorm_s N F ntm e sst0 = Some (st, w) ->
   wden lenv tenv aenv penv (unfold N (sdefs st) w) = aeden lenv tenv aenv penv e.
 Proof.
@@ -1724,22 +1724,23 @@ Proof.
   exact (proj1 (eden_agree lenv tenv aenv N P penv Hag) e Hs).
 Qed.
 
-Theorem complete_sh lenv F ntm e1 e2 st1 w1 st2 w2 :
-  facts_ok lenv F ->
-  (forall lenv' (T : Type) (tenv : list T) aenv penv, facts_ok lenv' F -> ntm <= List.length tenv ->
+Theorem complete_sh lenv l ntm e1 e2 st1 w1 st2 w2 :
+  lfacts_ok lenv l ->
+  (forall lenv' (T : Type) (tenv : list T) aenv penv, lfacts_ok lenv' l -> ntm <= List.length tenv ->
      aeden lenv' tenv aenv penv e1 = aeden lenv' tenv aenv penv e2) ->
-  anorm_s (Nat.max (apmax e1) (apmax e2)) F ntm e1 sst0 = Some (st1, w1) ->
-  anorm_s (Nat.max (apmax e1) (apmax e2)) F ntm e2 st1 = Some (st2, w2) ->
-  nf_eq_sh F ntm e1 e2 = true.
+  anorm_s (Nat.max (apmax e1) (apmax e2)) (order_of l) ntm e1 sst0 = Some (st1, w1) ->
+  anorm_s (Nat.max (apmax e1) (apmax e2)) (order_of l) ntm e2 st1 = Some (st2, w2) ->
+  nf_eq_sh (order_of l) ntm e1 e2 = true.
 Proof.
   intros HF Heq E1 E2; unfold nf_eq_sh, nf_eq_s; rewrite E1, E2.
   remember (Nat.max (apmax e1) (apmax e2)) as N eqn:EN.
   enough (Ew : w1 = w2) by (rewrite Ew; apply nf_eqb_refl).
-  set (S := alabs e1 ++ alabs e2 ++ flat_map (fun p => [fst p; snd p]) F).
-  assert (HFS : forall x y, In (x, y) F -> In x S /\ In y S).
+  set (S := alabs e1 ++ alabs e2 ++ flat_map (fun p => [fst p; snd p]) l).
+  assert (HFS : forall x y, In (x, y) l -> In x S /\ In y S).
   { intros x y Hxy; split; apply in_or_app; right; apply in_or_app; right; apply in_flat_map; exists (x, y);
       (split; [exact Hxy|cbn; tauto]). }
-  destruct (distinct_interp F S HFS lenv HF) as [l [HFl Hinj]].
+  destruct (distinct_interp l S HFS lenv HF) as [le [HFl0 Hinj]].
+  pose proof (order_of_ok le l HFl0) as HFl; set (F := order_of l) in *.
   assert (Hl1 : incl (alabs e1) S) by (intros x Hx; apply in_or_app; left; exact Hx).
   assert (Hl2 : incl (alabs e2) S) by (intros x Hx; apply in_or_app; right; apply in_or_app; left; exact Hx).
   assert (S1 : ascope N e1) by (apply (proj1 (scope_max N)); lia).
@@ -1748,22 +1749,22 @@ Proof.
   set (nt := Nat.max ntm (Nat.max (wmax W1) (wmax W2))).
   assert (Hnt : ntm <= List.length (tenvT nt)) by (unfold tenvT; rewrite length_map, length_seq; lia).
   assert (HH : forall aenv (P : list (rpadj tag)), List.length P = N ->
-            wnf l S N false W1 /\ wnf l S N false W2
-            /\ wden l (tenvT nt) aenv P W1 = aeden l (tenvT nt) aenv P e1
-            /\ wden l (tenvT nt) aenv P W2 = aeden l (tenvT nt) aenv P e2 /\ (W1 = W2 -> w1 = w2)).
+            wnf le S N false W1 /\ wnf le S N false W2
+            /\ wden le (tenvT nt) aenv P W1 = aeden le (tenvT nt) aenv P e1
+            /\ wden le (tenvT nt) aenv P W2 = aeden le (tenvT nt) aenv P e2 /\ (W1 = W2 -> w1 = w2)).
   { intros aenv P HP; subst W1 W2.
-    exact (two_spec_at l (tenvT nt) aenv P S F HFl ntm Hnt N e1 e2 st1 w1 st2 w2 HP Hl1 Hl2 S1 S2 E1 E2). }
+    exact (two_spec_at le (tenvT nt) aenv P S F HFl ntm Hnt N e1 e2 st1 w1 st2 w2 HP Hl1 Hl2 S1 S2 E1 E2). }
   destruct (pad_spec N (@nil (rpadj tag))) as [P0 [HP0 _]].
   destruct (HH [] P0 HP0) as [H1 [H2 [_ [_ Hw]]]].
-  apply Hw, (nf_unique l S N Hinj W1 W2 H1 H2), (adequacy l nt W1 W2).
-  - apply (proj2 (proj2 (proj2 (normal_ok l S N nt))) W1 false H1); lia.
-  - apply (proj2 (proj2 (proj2 (normal_ok l S N nt))) W2 false H2); lia.
+  apply Hw, (nf_unique le S N Hinj W1 W2 H1 H2), (adequacy le nt W1 W2).
+  - apply (proj2 (proj2 (proj2 (normal_ok le S N nt))) W1 false H1); lia.
+  - apply (proj2 (proj2 (proj2 (normal_ok le S N nt))) W2 false H2); lia.
   - intros aenv penv; destruct (pad_spec N penv) as [P [HP Hag]].
     destruct (HH aenv P HP) as [_ [_ [D1 [D2 _]]]].
-    rewrite <- (wden_agree l (tenvT nt) aenv S N P penv Hag false W1 H1).
-    rewrite <- (wden_agree l (tenvT nt) aenv S N P penv Hag false W2 H2), D1, D2.
-    rewrite (proj1 (eden_agree l (tenvT nt) aenv N P penv Hag) e1 S1).
-    rewrite (proj1 (eden_agree l (tenvT nt) aenv N P penv Hag) e2 S2).
+    rewrite <- (wden_agree le (tenvT nt) aenv S N P penv Hag false W1 H1).
+    rewrite <- (wden_agree le (tenvT nt) aenv S N P penv Hag false W2 H2), D1, D2.
+    rewrite (proj1 (eden_agree le (tenvT nt) aenv N P penv Hag) e1 S1).
+    rewrite (proj1 (eden_agree le (tenvT nt) aenv N P penv Hag) e2 S2).
     apply Heq; assumption.
 Qed.
 

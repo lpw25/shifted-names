@@ -18,7 +18,7 @@ Import ListNotations.
 
 (** ** Evaluation *)
 
-Definition apply_result_s (F : list (lexp * lexp)) (ntm : nat) (e : aexp) (h : lexp) (i : nat) : option (lexp * nat) :=
+Definition apply_result_s (F : order) (ntm : nat) (e : aexp) (h : lexp) (i : nat) : option (lexp * nat) :=
   match anorm_s (apmax e) F ntm e sst0 with
   | Some (_, w) => match wtgt F w h i with Some (NVar h' j) => Some (h', j) | _ => None end
   | None => None
@@ -27,7 +27,7 @@ Definition apply_result_s (F : list (lexp * lexp)) (ntm : nat) (e : aexp) (h : l
 (** A variable sent to a term, checked against the reified adjustment
     [eb] its payload was shown as: [u] with the payload [eb] is the same
     stored term. *)
-Definition apply_bind_check_s (F : list (lexp * lexp)) (ntm : nat) (e : aexp) (h : lexp) (i : nat) (eb : aexp) : option nat :=
+Definition apply_bind_check_s (F : order) (ntm : nat) (e : aexp) (h : lexp) (i : nat) (eb : aexp) : option nat :=
   let N := Nat.max (apmax e) (apmax eb) in
   match anorm_s N F ntm e sst0 with
   | Some (st1, w) =>
@@ -55,7 +55,7 @@ Definition apply_bind_check_s (F : list (lexp * lexp)) (ntm : nat) (e : aexp) (h
 Fixpoint fpmax (facts : list (nat * nat * aexp)) : nat :=
   match facts with [] => 0 | (_, _, eb) :: r => Nat.max (apmax eb) (fpmax r) end.
 
-Fixpoint nfacts (N : nat) (F : list (lexp * lexp)) (ntm : nat) (facts : list (nat * nat * aexp)) (st : sst)
+Fixpoint nfacts (N : nat) (F : order) (ntm : nat) (facts : list (nat * nat * aexp)) (st : sst)
   : option (sst * list (nat * ntgt)) :=
   match facts with
   | [] => Some (st, [])
@@ -93,7 +93,7 @@ Fixpoint smat_s (ntm : nat) (l : list (nat * ntgt)) (s s' : seg) : bool :=
   | _, _ => false
   end.
 
-Definition mat_eqb_s (F : list (lexp * lexp)) (ntm : nat) (facts : list (nat * nat * aexp)) (e e' : aexp) : bool :=
+Definition mat_eqb_s (F : order) (ntm : nat) (facts : list (nat * nat * aexp)) (e e' : aexp) : bool :=
   let N := Nat.max (apmax e) (Nat.max (apmax e') (fpmax facts)) in
   match anorm_s N F ntm e sst0 with
   | Some (st1, WEnd S1) =>
@@ -115,7 +115,7 @@ Variable lenv : list label.
 Variable tenv : list T.
 Variable aenv : list (radj T).
 Variable penv : list (rpadj T).
-Variable F : list (lexp * lexp).
+Variable F : order.
 Hypothesis HF : facts_ok lenv F.
 Variable ntm : nat.
 Hypothesis Hntm : ntm <= List.length tenv.
@@ -389,7 +389,7 @@ Inductive shown : Type :=
 | ShLarge
 | ShWord (w : word).
 
-Definition anorm_show (F : list (lexp * lexp)) (ntm : nat) (e : aexp) : shown :=
+Definition anorm_show (F : order) (ntm : nat) (e : aexp) : shown :=
   match anorm_s (apmax e) F ntm e sst0 with
   | Some (st, w) =>
       match unfold_small (apmax e) show_budget (sdefs st) w with Some w' => ShWord w' | None => ShLarge end
@@ -398,7 +398,7 @@ Definition anorm_show (F : list (lexp * lexp)) (ntm : nat) (e : aexp) : shown :=
 
 (** A variable sent to a term whose payload ends with the identity: the
     term and the payload word, for [names] to show the word. *)
-Definition apply_payload_s (F : list (lexp * lexp)) (ntm : nat) (e : aexp) (h : lexp) (i : nat) : option (nat * word) :=
+Definition apply_payload_s (F : order) (ntm : nat) (e : aexp) (h : lexp) (i : nat) : option (nat * word) :=
   match anorm_s (apmax e) F ntm e sst0 with
   | Some (st, w) =>
       match wtgt F w h i with

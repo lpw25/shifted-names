@@ -66,8 +66,8 @@ Lemma lden_set lenv n w h :
   lden (set_nth lenv n w) h = match h with LAtom m => if Nat.eqb m n then Some w else lden lenv h | _ => lden lenv h end.
 Proof. destruct h as [|s|m]; [reflexivity|reflexivity|cbn; rewrite nth_set_nth; destruct (Nat.eqb m n); reflexivity]. Qed.
 
-Lemma move lenv n : facts_ok lenv F ->
-  exists lenv', facts_ok lenv' F /\ fresh lenv' (LAtom n) /\ forall m, m <> n -> nth m lenv' EmptyString = nth m lenv EmptyString.
+Lemma move lenv n : lfacts_ok lenv F ->
+  exists lenv', lfacts_ok lenv' F /\ fresh lenv' (LAtom n) /\ forall m, m <> n -> nth m lenv' EmptyString = nth m lenv EmptyString.
 Proof.
   intros HF; set (sv := nth n lenv EmptyString).
   destruct (gap (map (lden lenv) S) sv) as [w [Hw Hall]].
@@ -75,7 +75,7 @@ Proof.
   { intros h Hh E; pose proof (Hall _ (in_map _ _ _ Hh)) as H; rewrite E in H.
     exact (olabel_lt_irrefl _ (H Hw)). }
   exists (set_nth lenv n w); split; [|split].
-  - unfold facts_ok in *; rewrite Forall_forall in *; intros [x y] Hxy; pose proof (HF _ Hxy) as Hl; cbn in Hl |- *.
+  - unfold lfacts_ok in *; rewrite Forall_forall in *; intros [x y] Hxy; pose proof (HF _ Hxy) as Hl; cbn in Hl |- *.
     destruct (HFS x y Hxy) as [Hx Hy]; rewrite !lden_set.
     assert (Hn : forall h, (match h with LAtom m => if Nat.eqb m n then Some w else lden lenv h | _ => lden lenv h end)
                            = if lexp_eqb h (LAtom n) then Some w else lden lenv h).
@@ -97,8 +97,8 @@ Lemma lden_same l0 l1 n h : (forall m, m <> n -> nth m l1 EmptyString = nth m l0
   lden l1 h = lden l0 h.
 Proof. intros H Hh; destruct h as [|s|m]; [reflexivity|reflexivity|cbn; rewrite H; [reflexivity|congruence]]. Qed.
 
-Lemma move_all lenv ns : facts_ok lenv F -> (forall n, In n ns -> In (LAtom n) S) ->
-  exists lenv', facts_ok lenv' F /\ forall n, In n ns -> fresh lenv' (LAtom n).
+Lemma move_all lenv ns : lfacts_ok lenv F -> (forall n, In n ns -> In (LAtom n) S) ->
+  exists lenv', lfacts_ok lenv' F /\ forall n, In n ns -> fresh lenv' (LAtom n).
 Proof.
   revert lenv; induction ns as [|n ns IH]; intros lenv HF Hns; [exists lenv; split; [exact HF|intros n []]|].
   destruct (IH lenv HF (fun m Hm => Hns m (or_intror Hm))) as [l0 [HF0 Hf0]].
@@ -133,8 +133,8 @@ Qed.
 
 (** From any interpretation satisfying the facts, one that also gives
     distinct label expressions distinct labels. *)
-Theorem distinct_interp lenv : facts_ok lenv F ->
-  exists lenv', facts_ok lenv' F /\ forall h h', In h S -> In h' S -> lden lenv' h = lden lenv' h' -> h = h'.
+Theorem distinct_interp lenv : lfacts_ok lenv F ->
+  exists lenv', lfacts_ok lenv' F /\ forall h h', In h S -> In h' S -> lden lenv' h = lden lenv' h' -> h = h'.
 Proof.
   intros HF; destruct (move_all lenv (atoms S) HF (fun n Hn => atoms_in n S Hn)) as [l [HFl Hf]].
   exists l; split; [exact HFl|]; intros h h' Hh Hh' E.
@@ -210,7 +210,7 @@ End Ok.
 Section Eval.
 
 Variable lenv : list label.
-Variable F : list (lexp * lexp).
+Variable F : order.
 Hypothesis HF : facts_ok lenv F.
 
 Lemma seg_tgt_free Sg h i t K :

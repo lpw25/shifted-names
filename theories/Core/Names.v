@@ -179,7 +179,7 @@ Ltac reify_adj_top a env :=
 
 (** The label order facts in the context, as pairs of label expressions
     (label variables or concrete labels). *)
-Ltac collect_facts env F :=
+Ltac collect_fact_list env F :=
   match goal with
   | H : label_lt ?x ?y |- _ =>
       lazymatch reify_label (Some x) env with
@@ -189,11 +189,17 @@ Ltac collect_facts env F :=
               let f := constr:((ex, ey)) in
               lazymatch F with
               | context [f] => fail
-              | _ => collect_facts env2 (f :: F)
+              | _ => collect_fact_list env2 (f :: F)
               end
           end
       end
   | _ => constr:((env, F))
+  end.
+
+(** ... as the order the normaliser works with. *)
+Ltac collect_facts env F :=
+  lazymatch collect_fact_list env F with
+  | (?env', ?l) => constr:((env', order_of l))
   end.
 
 (** ** Syntaxes
@@ -448,7 +454,7 @@ Fixpoint witems (w : word) : list gitem :=
 
 Section Split.
 
-Variable F : list (lexp * lexp).
+Variable F : order.
 Variable ntm : nat.
 
 Fixpoint tmax (t : ntgt) (acc : list (lexp * nat)) : list (lexp * nat) :=
@@ -525,7 +531,7 @@ End Split.
 
 Section Unpass.
 
-Variable F : list (lexp * lexp).
+Variable F : order.
 Variable ntm : nat.
 
 Fixpoint tcount (s : seg) : nat := match s with SNil => 0 | SEnt _ ts _ r => tlen ts + tcount r end.
@@ -611,7 +617,7 @@ End Unpass.
 
 Definition lift_list (L : list (lexp * nat)) : list lexp := rev (flat_map (fun '(h, n) => repeat h n) L).
 
-Fixpoint display_items (F : list (lexp * lexp)) (ntm : nat) (items : list gitem) : option (list dpiece) :=
+Fixpoint display_items (F : order) (ntm : nat) (items : list gitem) : option (list dpiece) :=
   match items with
   | [] => Some []
   | GSeg SNil :: rest => display_items F ntm rest
@@ -654,7 +660,7 @@ Fixpoint display_items (F : list (lexp * lexp)) (ntm : nat) (items : list gitem)
       end
   end.
 
-Definition display_nf (F : list (lexp * lexp)) (ntm : nat) (r : option word) : option (list dpiece) :=
+Definition display_nf (F : order) (ntm : nat) (r : option word) : option (list dpiece) :=
   match r with
   | Some w => option_map (map short_or_full) (display_items F ntm (witems (unpass F ntm 64 w)))
   | None => None
@@ -812,7 +818,7 @@ Ltac names_decide :=
                   change (aeden le te ae pe e1 = aeden le te ae pe e2);
                   refine (nf_eq_sh_sound le te ae pe F _ (List.length te) (le_n _) e1 e2 _);
                   [ lazymatch goal with
-                    | |- facts_ok _ _ => unfold facts_ok; repeat constructor; cbn [lden nth]; assumption
+                    | |- facts_ok _ _ => apply order_of_ok; unfold lfacts_ok; repeat constructor; cbn [lden nth]; assumption
                     | |- nf_eq_sh _ _ _ _ = true =>
                         vm_compute; first
                           [ reflexivity
@@ -937,7 +943,7 @@ Ltac names_var_eq t E :=
                                 change (rapply (aeden le te ae pe e) (mk_rvar (lden le eh) i)
                                         = inl (mk_rvar (lden le h') j));
                                 refine (apply_result_s_sound le te ae pe F _ (List.length te) (le_n _) e eh i h' j _);
-                                [ unfold facts_ok; repeat constructor; cbn [lden nth]; assumption
+                                [ apply order_of_ok; unfold lfacts_ok; repeat constructor; cbn [lden nth]; assumption
                                 | vm_compute; reflexivity ])
                       | None =>
                           let pr := eval vm_compute in (apply_payload_s F (List.length te) e eh i) in
@@ -968,7 +974,7 @@ Ltac names_var_eq t E :=
                                                 change (rapply (aeden le3 te3 ae3 pe3 e) (mk_rvar (lden le3 eh) i)
                                                         = inr (x, rpcompose (aeden le3 te3 ae3 pe3 eb) rpidentity));
                                                 refine (apply_bind_s_sound le3 te3 ae3 pe3 F3 _ (List.length te3) (le_n _) e eh i eb u x _ _);
-                                                [ unfold facts_ok; repeat constructor; cbn [lden nth]; assumption
+                                                [ apply order_of_ok; unfold lfacts_ok; repeat constructor; cbn [lden nth]; assumption
                                                 | vm_compute; reflexivity
                                                 | reflexivity ])
                                       end
@@ -1080,7 +1086,7 @@ Ltac names_eval :=
 Ltac mat_render le te ae T ts :=
   lazymatch ts with
   | (_, ?wp) :: nil =>
-      let F0 := constr:(@nil (lexp * lexp)) in
+      let F0 := constr:(order_of (@nil (lexp * lexp))) in
       let d := eval vm_compute in (display_nf F0 (List.length te) (Some wp)) in
       lazymatch d with
       | Some ?ps =>
@@ -1205,7 +1211,7 @@ Ltac names_mat_one A :=
                                       [ intros v;
                                         change (mrel (@sm_g _ inst) (rapply (aeden le4 te4 ae4 pe4 e) (var_raw v)) (rapply (aeden le4 te4 ae4 pe4 e') (var_raw v)));
                                         let HF := fresh "HF" in
-                                        assert (HF : facts_ok le4 F4) by (unfold facts_ok; repeat constructor; cbn [lden nth]; assumption);
+                                        assert (HF : facts_ok le4 F4) by (apply order_of_ok; unfold lfacts_ok; repeat constructor; cbn [lden nth]; assumption);
                                         let HM := fresh "HM" in
                                         assert (HM : Forall (fun f => let '(k, u, eb) := f in forall y, nth_error te4 u = Some y -> nth_error te4 k = Some (@sm_g _ inst (rpcompose (aeden le4 te4 ae4 pe4 eb) rpidentity) y)) facts)
                                           by (mat_prove_facts inst te4 ts bs);

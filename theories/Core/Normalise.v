@@ -99,9 +99,34 @@ Fixpoint lt_reach (F : list (lexp * lexp)) (fuel : nat) (a b : lexp) : bool :=
 (** Written with [if] rather than [&&] and [||], which [vm_compute]
     evaluates eagerly: otherwise every fact would be followed at every
     step, exponentially in the number of facts. *)
-Definition lt_known (F : list (lexp * lexp)) (a b : lexp) : bool := lt_reach F (List.length F) a b.
+Definition lt_list (F : list (lexp * lexp)) (a b : lexp) : bool := lt_reach F (List.length F) a b.
 
-Definition lcmp (F : list (lexp * lexp)) (a b : lexp) : option comparison :=
+(** The known order as the normaliser uses it: the facts, and what they
+    say about each pair of label atoms, worked out once.  Following the
+    facts at every comparison is what a normalisation over many label
+    variables would otherwise spend its time on. *)
+Record order := mk_order { ofacts : list (lexp * lexp); otab : list (list bool) }.
+
+Definition tab_get (tab : list (list bool)) (i j : nat) : option bool :=
+  match nth_error tab i with Some row => nth_error row j | None => None end.
+
+Definition lt_known (F : order) (a b : lexp) : bool :=
+  match a, b with
+  | LAtom i, LAtom j => match tab_get (otab F) i j with Some r => r | None => lt_list (ofacts F) a b end
+  | _, _ => lt_list (ofacts F) a b
+  end.
+
+(** One more than the label atoms of the facts. *)
+Definition asucc (a : lexp) : nat := match a with LAtom n => S n | _ => 0 end.
+
+Fixpoint amax (l : list (lexp * lexp)) : nat :=
+  match l with [] => 0 | (x, y) :: r => Nat.max (asucc x) (Nat.max (asucc y) (amax r)) end.
+
+Definition order_of (l : list (lexp * lexp)) : order :=
+  let n := amax l in
+  mk_order l (map (fun i => map (fun j => lt_list l (LAtom i) (LAtom j)) (seq 0 n)) (seq 0 n)).
+
+Definition lcmp (F : order) (a b : lexp) : option comparison :=
   if lexp_eqb a b then Some Eq
   else if lt_known F a b then Some Lt
   else if lt_known F b a then Some Gt
@@ -118,22 +143,23 @@ Definition lden (a : lexp) : option label :=
   | LAtom n => Some (nth n lenv EmptyString)
   end.
 
-Definition facts_ok (F : list (lexp * lexp)) : Prop :=
-  Forall (fun '(x, y) => olabel_lt (lden x) (lden y)) F.
+Definition lfacts_ok (l : list (lexp * lexp)) : Prop :=
+  Forall (fun '(x, y) => olabel_lt (lden x) (lden y)) l.
 
-Variable F : list (lexp * lexp).
-Hypothesis HF : facts_ok F.
+Definition facts_ok (F : order) : Prop :=
+  lfacts_ok (ofacts F)
+  /\ forall i j, tab_get (otab F) i j = Some true -> olabel_lt (lden (LAtom i)) (lden (LAtom j)).
 
 Lemma lt_base_sound a b : lt_base a b = true -> olabel_lt (lden a) (lden b).
 Proof. destruct a, b; cbn; try discriminate; unfold olabel_lt; cbn; auto. Qed.
 
-Lemma lt_reach_sound fuel : forall a b, lt_reach F fuel a b = true -> olabel_lt (lden a) (lden b).
+Lemma lt_reach_sound l (Hl : lfacts_ok l) fuel : forall a b, lt_reach l fuel a b = true -> olabel_lt (lden a) (lden b).
 Proof.
   induction fuel as [|f IH]; intros a b H; cbn [lt_reach] in H;
     (destruct (lt_base a b) eqn:Eb; [apply lt_base_sound, Eb|]); [discriminate|].
   apply existsb_exists in H as [[x y] [Hin H]].
   destruct (lexp_eqb x a || lt_base a x) eqn:Hx; [|discriminate].
-  pose proof (proj1 (Forall_forall _ F) HF _ Hin) as Hxy; cbn in Hxy.
+  pose proof (proj1 (Forall_forall _ l) Hl _ Hin) as Hxy; cbn in Hxy.
   assert (Hax : lden a = lden x \/ olabel_lt (lden a) (lden x)).
   { apply orb_true_iff in Hx as [Hx|Hx]; [left; apply lexp_eqb_eq in Hx; subst; reflexivity|right; apply lt_base_sound, Hx]. }
   assert (Hyb : olabel_lt (lden y) (lden b) \/ lden y = lden b).
@@ -145,8 +171,32 @@ Proof.
   - rewrite <- Hyb; exact (olabel_lt_trans _ _ _ Hax Hxy).
 Qed.
 
+Lemma nth_error_seq0 n i x : nth_error (seq 0 n) i = Some x -> x = i.
+Proof.
+  intros H; assert (Hi : i < n).
+  { rewrite <- (length_seq n 0); apply nth_error_Some; rewrite H; discriminate. }
+  apply (nth_error_nth _ _ 0) in H; rewrite seq_nth in H by exact Hi; symmetry; exact H.
+Qed.
+
+(** The order worked out from facts that hold. *)
+Lemma order_of_ok l : lfacts_ok l -> facts_ok (order_of l).
+Proof.
+  intros Hl; split; [exact Hl|]; intros i j; unfold order_of, tab_get; cbn [otab].
+  rewrite nth_error_map; destruct (nth_error (seq 0 (amax l)) i) as [i'|] eqn:Ei; [|discriminate]; cbn [option_map].
+  rewrite nth_error_map; destruct (nth_error (seq 0 (amax l)) j) as [j'|] eqn:Ej; [|discriminate]; cbn [option_map].
+  apply nth_error_seq0 in Ei, Ej; subst; intros H; injection H as H; exact (lt_reach_sound l Hl _ _ _ H).
+Qed.
+
+Variable F : order.
+Hypothesis HF : facts_ok F.
+
 Lemma lt_known_sound a b : lt_known F a b = true -> olabel_lt (lden a) (lden b).
-Proof. apply lt_reach_sound. Qed.
+Proof.
+  assert (Hl : forall a b, lt_list (ofacts F) a b = true -> olabel_lt (lden a) (lden b))
+    by (intros x y; apply (lt_reach_sound _ (proj1 HF))).
+  unfold lt_known; destruct a as [|s|i]; try apply Hl; destruct b as [|s|j]; try apply Hl.
+  destruct (tab_get (otab F) i j) as [[|]|] eqn:E; [intros _; exact (proj2 HF i j E)|discriminate|apply Hl].
+Qed.
 
 (** What a comparison tells about the labels. *)
 Definition cmp_holds (c : comparison) (a b : lexp) : Prop :=
@@ -504,7 +554,7 @@ End Denote.
 
 Section Ops.
 
-Variable F : list (lexp * lexp).
+Variable F : order.
 Variable ntm : nat.
 
 (** *** Segments *)
@@ -931,7 +981,7 @@ Variable lenv : list label.
 Variable tenv : list T.
 Variable aenv : list (radj T).
 Variable penv : list (rpadj T).
-Variable F : list (lexp * lexp).
+Variable F : order.
 Hypothesis HF : facts_ok lenv F.
 Variable ntm : nat.
 Hypothesis Hntm : ntm <= List.length tenv.
@@ -2290,7 +2340,7 @@ Proof. reflexivity. Qed.
 
 (** *** Applying a single segment to a variable *)
 
-Definition seg_tgt (F : list (lexp * lexp)) (Sg : seg) (h : lexp) (i : nat) : option ntgt :=
+Definition seg_tgt (F : order) (Sg : seg) (h : lexp) (i : nat) : option ntgt :=
   match sfind F h Sg with
   | Some None => Some (NVar h i)
   | Some (Some (ts, m)) => Some (if i <? tlen ts then tnth ts i else NVar h (i - tlen ts + m))
@@ -2302,7 +2352,7 @@ Definition seg_tgt (F : list (lexp * lexp)) (Sg : seg) (h : lexp) (i : nat) : op
     comparison known, it reaches a lifted atom that does not pass it
     around; [None] when a label comparison is unknown (or a term turns up
     before the last segment, which a normal form never has). *)
-Fixpoint wtrace (F : list (lexp * lexp)) (w : word) (h : lexp) (i : nat) : option (option ntgt) :=
+Fixpoint wtrace (F : order) (w : word) (h : lexp) (i : nat) : option (option ntgt) :=
   match w with
   | WEnd Sg => match seg_tgt F Sg h i with Some t => Some (Some t) | None => None end
   | WAtom Sg L a w =>
@@ -2318,7 +2368,7 @@ Fixpoint wtrace (F : list (lexp * lexp)) (w : word) (h : lexp) (i : nat) : optio
       end
   end.
 
-Definition wtgt (F : list (lexp * lexp)) (w : word) (h : lexp) (i : nat) : option ntgt :=
+Definition wtgt (F : order) (w : word) (h : lexp) (i : nat) : option ntgt :=
   match wtrace F w h i with Some (Some t) => Some t | _ => None end.
 
 Lemma seg_tgt_sound Sg h i t : sdistd Sg ->
