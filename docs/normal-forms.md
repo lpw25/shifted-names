@@ -29,6 +29,17 @@ What the facts say about each pair of label variables is worked out
 once per normalisation (`order_of`), so a label comparison is a lookup
 rather than a search through the facts.
 
+A chain of compositions is normalised from its last step, whichever way
+it is nested (`renest` in `Core/Normalise.v`; `names` calls the
+normaliser through the `_r` functions of `Core/Eval.v`, which re-nest
+first). Composing a short word before a long one gives the terms of the
+short one the long one as payload, one definition; composing it after
+gives every term of the long one a new payload. A chain of 48
+substitutions written `(… ⨾ …) ⨾ …` took 1128 definitions and 7
+seconds, and takes 47 definitions and 0.02 seconds; 250 take 0.4
+seconds.
+
+
 The label order is dense with no least or greatest label (the end of a
 string sorts just above `\000`), so facts `x < y` never force two label
 variables to be equal. Completeness takes one interpretation satisfying

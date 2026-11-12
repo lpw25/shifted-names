@@ -105,7 +105,8 @@ Proof. intros; names_eq. Qed.
 
 (** A long chain is decided on the stored form, where each payload is
     written once; as a tree the normal form doubles with each step, and
-    [names] leaves such a chain as it is. *)
+    [names] leaves such a chain as it is.  However it is nested, it is
+    normalised from its last step. *)
 Example long_chain {N} x1 x2 x3 x4 x5 x6 x7 x8 x9 x10 x11 x12 (u1 u2 u3 u4 u5 u6 u7 u8 u9 u10 u11 u12 : T) :
   label_lt x1 x2 -> label_lt x2 x3 -> label_lt x3 x4 -> label_lt x4 x5 ->
   label_lt x5 x6 -> label_lt x6 x7 -> label_lt x7 x8 -> label_lt x8 x9 ->

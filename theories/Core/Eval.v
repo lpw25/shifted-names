@@ -417,3 +417,95 @@ Definition apply_payload_s (F : order) (ntm : nat) (e : aexp) (h : lexp) (i : na
       end
   | None => None
   end.
+
+(** ** From the last step
+
+    What [names] calls: the functions above on the expression with its
+    compositions re-nested ([renest]), so that a chain is normalised from
+    its last step whichever way it was written. *)
+
+Definition rn (e : aexp) : aexp := renest e None.
+
+Definition rn_fact (f : nat * nat * aexp) : nat * nat * aexp := let '(k, u, eb) := f in (k, u, rn eb).
+
+Definition nf_eq_r (F : order) (ntm : nat) (e1 e2 : aexp) : bool := nf_eq_sh F ntm (rn e1) (rn e2).
+
+Definition apply_result_r (F : order) (ntm : nat) (e : aexp) (h : lexp) (i : nat) : option (lexp * nat) :=
+  apply_result_s F ntm (rn e) h i.
+
+Definition apply_bind_check_r (F : order) (ntm : nat) (e : aexp) (h : lexp) (i : nat) (eb : aexp) : option nat :=
+  apply_bind_check_s F ntm (rn e) h i (rn eb).
+
+Definition mat_eqb_r (F : order) (ntm : nat) (facts : list (nat * nat * aexp)) (e e' : aexp) : bool :=
+  mat_eqb_s F ntm (map rn_fact facts) (rn e) (rn e').
+
+Definition anorm_show_r (F : order) (ntm : nat) (e : aexp) : shown := anorm_show F ntm (rn e).
+
+Definition apply_payload_r (F : order) (ntm : nat) (e : aexp) (h : lexp) (i : nat) : option (nat * word) :=
+  apply_payload_s F ntm (rn e) h i.
+
+Section SoundR.
+
+Context {T : Type}.
+Variable lenv : list label.
+Variable tenv : list T.
+Variable aenv : list (radj T).
+Variable penv : list (rpadj T).
+Variable F : order.
+Hypothesis HF : facts_ok lenv F.
+Variable ntm : nat.
+Hypothesis Hntm : ntm <= List.length tenv.
+
+Local Notation aeden := (aeden lenv tenv aenv penv).
+Local Notation lden := (lden lenv).
+
+Lemma aeden_rn e : aeden (rn e) = aeden e.
+Proof. apply aeden_renest. Qed.
+
+Theorem nf_eq_r_sound e1 e2 : nf_eq_r F ntm e1 e2 = true -> aeden e1 = aeden e2.
+Proof.
+  intros H; rewrite <- (aeden_rn e1), <- (aeden_rn e2).
+  exact (nf_eq_sh_sound lenv tenv aenv penv F HF ntm Hntm _ _ H).
+Qed.
+
+Theorem apply_result_r_sound e h i h' j :
+  apply_result_r F ntm e h i = Some (h', j) ->
+  rapply (aeden e) (mk_rvar (lden h) i) = inl (mk_rvar (lden h') j).
+Proof.
+  intros H; rewrite <- (aeden_rn e).
+  exact (apply_result_s_sound lenv tenv aenv penv F HF ntm Hntm _ _ _ _ _ H).
+Qed.
+
+Theorem apply_bind_r_sound e h i eb u x :
+  apply_bind_check_r F ntm e h i eb = Some u -> nth_error tenv u = Some x ->
+  rapply (aeden e) (mk_rvar (lden h) i) = inr (x, rpcompose (aeden eb) rpidentity).
+Proof.
+  intros H Hx; rewrite <- (aeden_rn e), <- (aeden_rn eb).
+  exact (apply_bind_s_sound lenv tenv aenv penv F HF ntm Hntm _ _ _ _ _ _ H Hx).
+Qed.
+
+Theorem mat_r_sound (g : rpadj T -> T -> T) (facts : list (nat * nat * aexp)) :
+  Forall (fun f => let '(k, u, eb) := f in
+    forall y, nth_error tenv u = Some y -> nth_error tenv k = Some (g (rpcompose (aeden eb) rpidentity) y)) facts ->
+  forall e e', mat_eqb_r F ntm facts e e' = true -> forall v, mrel g (rapply (aeden e) v) (rapply (aeden e') v).
+Proof.
+  intros Hfacts e e' H v; rewrite <- (aeden_rn e), <- (aeden_rn e').
+  refine (mat_s_sound lenv tenv aenv penv F HF ntm Hntm g (map rn_fact facts) _ _ _ H v).
+  apply Forall_map; refine (Forall_impl _ _ Hfacts); intros [[k u] eb]; cbn [rn_fact]; rewrite aeden_rn; exact (fun X => X).
+Qed.
+
+End SoundR.
+
+(** The decision is complete on what it is given: two expressions with
+    the same meaning in every model, both normalising, are found equal. *)
+Theorem nf_eq_r_complete lenv l ntm e1 e2 st1 w1 st2 w2 :
+  lfacts_ok lenv l ->
+  (forall lenv' (T : Type) (tenv : list T) aenv penv, lfacts_ok lenv' l -> ntm <= List.length tenv ->
+     aeden lenv' tenv aenv penv e1 = aeden lenv' tenv aenv penv e2) ->
+  anorm_s (Nat.max (apmax (rn e1)) (apmax (rn e2))) (order_of l) ntm (rn e1) sst0 = Some (st1, w1) ->
+  anorm_s (Nat.max (apmax (rn e1)) (apmax (rn e2))) (order_of l) ntm (rn e2) st1 = Some (st2, w2) ->
+  nf_eq_r (order_of l) ntm e1 e2 = true.
+Proof.
+  intros HF Heq E1 E2; refine (complete_sh lenv l ntm (rn e1) (rn e2) st1 w1 st2 w2 HF _ E1 E2).
+  intros lenv' T tenv aenv penv Hl Hn; rewrite !aeden_rn; exact (Heq lenv' T tenv aenv penv Hl Hn).
+Qed.
