@@ -26,6 +26,7 @@ theories/Core/Shared.v
 theories/Core/Eval.v
 theories/Core/Layers.v
 theories/Core/Layered.v
+theories/Core/LayeredUnique.v
 theories/Core/Names.v
 theories/Core/Context.v
 theories/Core/Syntax.v
