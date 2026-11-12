@@ -849,22 +849,14 @@ Ltac names_decide :=
               lazymatch collect_facts env2 (@nil (lexp * lexp)) with
               | ((?le, ?te, ?ae, ?pe), ?F) =>
                   change (aeden le te ae pe e1 = aeden le te ae pe e2);
-                  first
-                    [ (* the layered words of the two sides are the same *)
-                      refine (nf_eq_l_sound le te ae pe F _ (List.length te) (le_n _) e1 e2 _);
-                      [ lazymatch goal with
-                        | |- facts_ok _ _ => apply order_of_ok; unfold lfacts_ok; repeat constructor; cbn [lden nth]; assumption
-                        | |- nf_eq_l _ _ _ _ = true => vm_compute; reflexivity
-                        end .. ]
-                    | (* otherwise, the stored normal forms *)
-                      refine (nf_eq_r_sound le te ae pe F _ (List.length te) (le_n _) e1 e2 _);
-                      [ lazymatch goal with
-                        | |- facts_ok _ _ => apply order_of_ok; unfold lfacts_ok; repeat constructor; cbn [lden nth]; assumption
-                        | |- nf_eq_r _ _ _ _ = true =>
-                            vm_compute; first
-                              [ reflexivity
-                              | fail 2 "names: the two sides have different normal forms, or a label order is missing" ]
-                        end .. ] ]
+                  refine (nf_eq_t_sound le te ae pe F _ (List.length te) (le_n _) e1 e2 _);
+                  [ lazymatch goal with
+                    | |- facts_ok _ _ => apply order_of_ok; unfold lfacts_ok; repeat constructor; cbn [lden nth]; assumption
+                    | |- nf_eq_t _ _ _ _ = true =>
+                        vm_compute; first
+                          [ reflexivity
+                          | fail 2 "names: the two sides have different normal forms, a label order is missing, or they are too large to compare" ]
+                    end .. ]
               end
           end
       end

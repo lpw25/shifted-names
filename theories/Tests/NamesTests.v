@@ -98,8 +98,10 @@ Example subst_chain {N} x1 x2 x3 (u1 u2 u3 : T) :
   = ⟦ x3 := u3; x2 := u2⟨ x3 := u3 ⟩; x1 := u1⟨ x3 := u3; x2 := u2⟨ x3 := u3 ⟩ ⟩ \ ⟧.
 Proof. intros; names; reflexivity. Qed.
 
+(** The payload's labels are compared with the label substituted for:
+    in the layered word they are entries of one segment. *)
 Example payload_entries_commute {N} x y z (u v w : T) :
-  label_lt x y ->
+  label_lt x y -> label_lt y z ->
   (⟦ z := w⟨ x := u; y := v ⟩ \ ⟧ : adj T N N) = ⟦ z := w⟨ y := v; x := u ⟩ \ ⟧.
 Proof. intros; names_eq. Qed.
 

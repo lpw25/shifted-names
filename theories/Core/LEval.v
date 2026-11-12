@@ -139,6 +139,23 @@ Definition lshow (e : aexp) : shown :=
   | None => ShNone
   end.
 
+(** The decision: the layered words are the same, or, when both are
+    small enough to multiply out, their trees are. *)
+Definition nf_eq_t (e1 e2 : aexp) : bool :=
+  match lnorm F ntm e1, lnorm F ntm e2 with
+  | Some l1, Some l2 =>
+      if lword_eqb l1 l2 then true
+      else if (lest l1 <? cap)%N then
+        if (lest l2 <? cap)%N then
+          match expand F ntm l1, expand F ntm l2 with
+          | Some w1, Some w2 => word_eqb w1 w2
+          | _, _ => false
+          end
+        else false
+      else false
+  | _, _ => false
+  end.
+
 (** A variable sent to a term whose payload ends with the identity: the
     term and the payload as a tree, for [names] to show. *)
 Definition lapply_payload (e : aexp) (h : lexp) (i : nat) : option (nat * word) :=
@@ -247,6 +264,21 @@ Proof.
   rewrite (tden_bind lenv tenv aenv penv _ _ _ _ Hx); cbn [rtarget_result cres bden].
   rewrite wden_end; change (sden SNil) with (@ridentity T); rewrite rpcompose_identity.
   rewrite <- Dr, <- Db, <- (pnorm_pay wr), <- (pnorm_pay wb), Eq; reflexivity.
+Qed.
+
+Theorem nf_eq_t_sound e1 e2 : nf_eq_t F ntm e1 e2 = true -> aeden e1 = aeden e2.
+Proof.
+  unfold nf_eq_t; destruct (lnorm F ntm e1) as [l1|] eqn:E1; [|discriminate].
+  destruct (lnorm F ntm e2) as [l2|] eqn:E2; [|discriminate].
+  rewrite <- (lnorm_sound lenv tenv aenv penv F HF ntm Hntm e1 l1 E1),
+          <- (lnorm_sound lenv tenv aenv penv F HF ntm Hntm e2 l2 E2).
+  destruct (lword_eqb l1 l2) eqn:El; [intros _; apply lword_eqb_eq in El; subst; reflexivity|].
+  destruct (lest l1 <? cap)%N; [|discriminate]; destruct (lest l2 <? cap)%N; [|discriminate].
+  destruct (expand F ntm l1) as [w1|] eqn:X1; [|discriminate].
+  destruct (expand F ntm l2) as [w2|] eqn:X2; [|discriminate]; intros Hw.
+  apply (proj2 (proj2 (proj2 nf_eqb_eq))) in Hw; subst w2.
+  rewrite <- (proj2 (expand_sound lenv tenv aenv penv F HF ntm Hntm l1 w1 (lnorm_dist e1 l1 E1) X1)).
+  exact (proj2 (expand_sound lenv tenv aenv penv F HF ntm Hntm l2 w1 (lnorm_dist e2 l2 E2) X2)).
 Qed.
 
 Section Mat.
