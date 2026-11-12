@@ -11,9 +11,14 @@
     is a close before and an open after, with the steps between folded
     one level deeper under the bound label.
 
-    So far: a fragment (terms whose payload is the identity or a payload
-    atom), with the meaning of a layered word and soundness of
-    the fold. *)
+    A term whose payload goes on with further steps is put in front of
+    those steps, and everything else is sent around them: an entry is
+    undone by a weakening before it, and the variable an output entry
+    creates is carried past it as a bound variable ([bypass_step]).
+
+    So far: the meaning of a layered word and soundness of the fold
+    ([lnorm_sound]).  Not covered yet: an atom or a lift by the bound
+    label inside a payload, and shifted targets. *)
 
 From Stdlib Require Import Arith List Lia Bool.
 From ShiftedNames.Core Require Import Label Var Adjustment Laws Normalise Unique Normal Shared.
@@ -83,42 +88,135 @@ Definition open_seg (h : lexp) : option seg := sfront F LNone (NVar h 0) (shseg 
 
 Definition is_bound (h : lexp) : bool := match h with LNone => true | _ => false end.
 
-(** A target of the fragment. *)
-Definition tgt_of (t : texp) : option ntgt :=
-  match t with
-  | TVarE h i => Some (NVar h i)
-  | TBindE u PId => if u <? ntm then Some (NBind u (WEnd SNil) None) else None
-  | TBindE u (PAtom n) => if u <? ntm then Some (NBind u (WEnd SNil) (Some n)) else None
-  | _ => None
+Definition obind {A B} (x : option A) (f : A -> option B) : option B :=
+  match x with Some a => f a | None => None end.
+
+Definition cons_lifted (d : nat) (s : option seg) (K : lword) : option lword :=
+  obind s (fun s0 => obind (slifts d s0) (fun s' => cons_seg s' K)).
+
+(** Lifts by the labels of [G], the first innermost. *)
+Fixpoint glifts (G : list lexp) (s : seg) : option seg :=
+  match G with
+  | [] => Some s
+  | g :: G' => obind (slift F ntm g s) (glifts G')
   end.
 
-Definition cons_lifted (d : nat) (s : option seg) (K : option lword) : option lword :=
-  match s, K with
-  | Some s0, Some K0 => match slifts d s0 with Some s' => cons_seg s' K0 | None => None end
-  | _, _ => None
+(** [k] under the lifts of [G]: each is a close before and an open
+    after, one level deeper. *)
+Fixpoint under (G : list lexp) (d : nat) (k : nat -> lword -> option lword) (K : lword) : option lword :=
+  match G with
+  | [] => k d K
+  | g :: G' =>
+      under G' d (fun d' K' => obind (cons_lifted d' (open_seg g) K')
+                                 (fun K1 => obind (k (S d') K1) (cons_lifted d' (close_seg g)))) K
   end.
 
-(** [fold d e K]: [e] under [d] lifts by the bound label, then [K]. *)
-Fixpoint fold (d : nat) (e : aexp) (K : option lword) : option lword :=
+(** A term whose payload goes on with an output entry of [g] under the
+    lifts [G]: everything else goes around that entry.  For a named [g]
+    its variable [g₍₀₎] is closed before and sent back to [g₍₀₎] after;
+    for the bound label there is nothing to close.  [w] counts the bound
+    variables of the steps already gone around; [next] puts the term
+    with the rest of its payload. *)
+Definition bouter (d w : nat) (h : lexp) (G : list lexp) (g : lexp)
+    (next : nat -> lword -> option lword) (K : lword) : option lword :=
+  obind (cons_lifted (d + w) (obind (entry LNone (NVar g 0)) (glifts G)) K) (fun K1 =>
+  obind (cons_lifted (d + w + 1) (glifts G (shseg g 1)) K1) (fun K2 =>
+  obind (next (w + 1) K2) (fun K3 =>
+  if is_bound g then Some K3
+  else cons_lifted d (obind (obind (obind (close_seg g) (glifts G)) (slifts w)) (slift F ntm h)) K3))).
+
+(** [fold d e K]: [e] under [d] lifts by the bound label, then [K].
+    [centry d G h t K]: the entry of [h] with target [t], under the
+    lifts [G] and [d] lifts by the bound label, then [K].
+    [cterm d w h u p K]: the entry of [h] with the term [u], whose
+    payload is [p] and then [w] weakenings of the bound label.
+    [byp d w h G a inner K]: [inner] puts a term; here its payload goes
+    on with [a] under the lifts [G]. *)
+Fixpoint fold (d : nat) (e : aexp) (K : lword) {struct e} : option lword :=
   match e with
-  | AId => K
-  | AAtom n => match K with Some K0 => Some (LA (match d with 0 => [] | _ => [(LNone, d)] end) n :: K0) | None => None end
-  | ACompose a b => fold d b (fold d a K)
-  | AOuter h a => fold d a (cons_lifted d (Some (shseg h 1)) K)
+  | AId => Some K
+  | AAtom n => Some (LA (match d with 0 => [] | _ => [(LNone, d)] end) n :: K)
+  | ACompose a b => obind (fold d a K) (fold d b)
+  | AOuter h a => obind (cons_lifted d (Some (shseg h 1)) K) (fold d a)
   | AInner h t a =>
-      match tgt_of t with
-      | Some t' =>
-          if is_bound h then fold (S d) a (cons_lifted d (entry h t') K)
-          else cons_lifted d (close_seg h)
-                 (fold (S d) a (cons_lifted d (open_seg h) (cons_lifted d (entry h t') K)))
-      | None => None
-      end
+      obind (centry d [] h t K) (fun K1 =>
+      if is_bound h then fold (S d) a K1
+      else obind (cons_lifted d (open_seg h) K1) (fun K2 =>
+           obind (fold (S d) a K2) (cons_lifted d (close_seg h))))
   | ALift h a =>
       if is_bound h then fold (S d) a K
-      else cons_lifted d (close_seg h) (fold (S d) a (cons_lifted d (open_seg h) K))
+      else obind (cons_lifted d (open_seg h) K) (fun K2 =>
+           obind (fold (S d) a K2) (cons_lifted d (close_seg h)))
+  end
+with centry (d : nat) (G : list lexp) (h : lexp) (t : texp) (K : lword) {struct t} : option lword :=
+  match t with
+  | TVarE g i => cons_lifted d (obind (entry h (NVar g i)) (glifts G)) K
+  | TBindE u p => if u <? ntm then under G d (fun d' K' => cterm d' 0 h u p K') K else None
+  | TShiftE _ _ => None
+  end
+with cterm (d w : nat) (h : lexp) (u : nat) (p : pexp) (K : lword) {struct p} : option lword :=
+  match p with
+  | PId => cons_lifted d (entry h (NBind u (WEnd SNil) None)) K
+  | PAtom n =>
+      cons_lifted d (entry h (NBind u (WEnd (match w with 0 => SNil | _ => shseg LNone w end)) (Some n))) K
+  | PComp a p' => byp d w h [] a (fun w' K' => cterm d w' h u p' K') K
+  | PShift g p' => bouter d w h [] g (fun w' K' => cterm d w' h u p' K') K
+  end
+with byp (d w : nat) (h : lexp) (G : list lexp) (a : aexp)
+         (inner : nat -> lword -> option lword) (K : lword) {struct a} : option lword :=
+  match a with
+  | AId => inner w K
+  | AAtom _ => None
+  | ACompose a2 a1 => byp d w h G a2 (fun w' K' => byp d w' h G a1 inner K') K
+  | AOuter g a' => bouter d w h G g (fun w' K' => byp d w' h G a' inner K') K
+  | AInner g tg a' =>
+      if is_bound g then None
+      else obind (centry (d + w) G g tg K) (fun K1 =>
+           obind (byp d w h (g :: G) a' inner K1)
+             (cons_lifted d (obind (obind (glifts G (shseg g 1)) (slifts w)) (slift F ntm h))))
+  | ALift g a' => if is_bound g then None else byp d w h (g :: G) a' inner K
   end.
 
-Definition lnorm (e : aexp) : option lword := fold 0 e (Some []).
+Definition lnorm (e : aexp) : option lword := fold 0 e [].
+
+(** The equations of the four functions. *)
+Lemma fold_compose d a b K : fold d (ACompose a b) K = obind (fold d a K) (fold d b).
+Proof. reflexivity. Qed.
+Lemma fold_outer d h a K : fold d (AOuter h a) K = obind (cons_lifted d (Some (shseg h 1)) K) (fold d a).
+Proof. reflexivity. Qed.
+Lemma fold_inner d h t a K :
+  fold d (AInner h t a) K
+  = obind (centry d [] h t K) (fun K1 =>
+      if is_bound h then fold (S d) a K1
+      else obind (cons_lifted d (open_seg h) K1) (fun K2 =>
+           obind (fold (S d) a K2) (cons_lifted d (close_seg h)))).
+Proof. reflexivity. Qed.
+Lemma fold_lift d h a K :
+  fold d (ALift h a) K
+  = if is_bound h then fold (S d) a K
+    else obind (cons_lifted d (open_seg h) K) (fun K2 => obind (fold (S d) a K2) (cons_lifted d (close_seg h))).
+Proof. reflexivity. Qed.
+Lemma centry_var d G h g i K : centry d G h (TVarE g i) K = cons_lifted d (obind (entry h (NVar g i)) (glifts G)) K.
+Proof. reflexivity. Qed.
+Lemma centry_bind d G h u p K :
+  centry d G h (TBindE u p) K = if u <? ntm then under G d (fun d' K' => cterm d' 0 h u p K') K else None.
+Proof. reflexivity. Qed.
+Lemma cterm_id d w h u K : cterm d w h u PId K = cons_lifted d (entry h (NBind u (WEnd SNil) None)) K.
+Proof. reflexivity. Qed.
+Lemma cterm_atom d w h u n K :
+  cterm d w h u (PAtom n) K
+  = cons_lifted d (entry h (NBind u (WEnd (match w with 0 => SNil | _ => shseg LNone w end)) (Some n))) K.
+Proof. reflexivity. Qed.
+Lemma byp_inner d w h G g tg a' inner K :
+  byp d w h G (AInner g tg a') inner K
+  = if is_bound g then None
+    else obind (centry (d + w) G g tg K) (fun K1 =>
+         obind (byp d w h (g :: G) a' inner K1)
+           (cons_lifted d (obind (obind (glifts G (shseg g 1)) (slifts w)) (slift F ntm h)))).
+Proof. reflexivity. Qed.
+Lemma byp_lift d w h G g a' inner K :
+  byp d w h G (ALift g a') inner K = if is_bound g then None else byp d w h (g :: G) a' inner K.
+Proof. reflexivity. Qed.
 
 End Layered.
 
@@ -347,46 +445,76 @@ Proof.
     + intros H; injection H as <-; split; [constructor; assumption|reflexivity].
 Qed.
 
-Lemma cons_lifted_sound d s K K' :
-  sdistd s -> lwdist K -> cons_lifted F ntm d (Some s) (Some K) = Some K' ->
-  lwdist K' /\ lwden K' = rcompose (lwden K) (lifted d (sden s)).
+(** What an optional segment means, when there is one. *)
+Definition sok (s : option seg) (x : radj T) : Prop := forall s0, s = Some s0 -> sdistd s0 /\ sden s0 = x.
+
+Lemma sok_some s : sdistd s -> sok (Some s) (sden s).
+Proof. intros Hd s0 E; injection E as <-; split; [exact Hd|reflexivity]. Qed.
+
+Lemma sok_eq s x y : sok s x -> x = y -> sok s y.
+Proof. intros H <-; exact H. Qed.
+
+Lemma sok_slift h s x : sok s x -> sok (obind s (slift F ntm h)) (rlift (lden h) x).
 Proof.
-  intros Hs HK; unfold cons_lifted; destruct (slifts F ntm d s) as [s'|] eqn:E; [|discriminate]; intros H.
-  destruct (slifts_sound d s s' Hs E) as [Hd' Hs'].
-  destruct (cons_seg_sound s' K K' Hd' HK H) as [A B]; split; [exact A|]; rewrite B, Hs'; reflexivity.
+  intros H s0 E; destruct s as [s1|]; [|discriminate]; destruct (H s1 eq_refl) as [Hd Hs].
+  destruct (slift_sound lenv tenv aenv penv F HF ntm Hntm h s1 s0 Hd E) as [A B]; split; [exact A|rewrite B, Hs; reflexivity].
 Qed.
 
-Lemma entry_sound h t s : Normalise.tdist lenv t -> entry F h t = Some s ->
-  sdistd s /\ sden s = rpush_inner (lden h) (tden t) ridentity.
-Proof. intros Ht H; exact (sfront_sound lenv tenv aenv penv F HF ntm Hntm h t SNil s I Ht H). Qed.
-
-Lemma close_seg_sound h x s : lden h = Some x -> close_seg F h = Some s -> sdistd s /\ sden s = rclose x.
+Lemma sok_slifts w s x : sok s x -> sok (obind s (slifts F ntm w)) (lifted w x).
 Proof.
-  intros Hx H.
+  intros H s0 E; destruct s as [s1|]; [|discriminate]; destruct (H s1 eq_refl) as [Hd Hs].
+  destruct (slifts_sound w s1 s0 Hd E) as [A B]; split; [exact A|rewrite B, Hs; reflexivity].
+Qed.
+
+(** Lifts by the labels of [G], the first innermost. *)
+Fixpoint glden (G : list lexp) (x : radj T) : radj T :=
+  match G with [] => x | g :: G' => glden G' (rlift (lden g) x) end.
+
+Lemma glden_compose G : forall a b, glden G (rcompose a b) = rcompose (glden G a) (glden G b).
+Proof. induction G as [|g G IH]; intros a b; [reflexivity|]; cbn [glden]; rewrite <- rlift_compose; apply IH. Qed.
+
+Lemma glden_identity G : glden G ridentity = ridentity.
+Proof. induction G as [|g G IH]; [reflexivity|]; cbn [glden]; rewrite rlift_identity; exact IH. Qed.
+
+Lemma sok_glifts G : forall s x, sok s x -> sok (obind s (glifts F ntm G)) (glden G x).
+Proof.
+  induction G as [|g G IH]; intros s x H.
+  - intros s0 E; destruct s as [s1|]; [|discriminate]; injection E as <-; exact (H s1 eq_refl).
+  - intros s0 E; destruct s as [s1|]; [|discriminate]; cbn [obind glifts] in E.
+    exact (IH _ _ (sok_slift g (Some s1) x H) s0 E).
+Qed.
+
+Lemma sok_glifts1 G s : sdistd s -> sok (glifts F ntm G s) (glden G (sden s)).
+Proof. intros Hd; exact (sok_glifts G (Some s) _ (sok_some s Hd)). Qed.
+
+Lemma sok_entry h t : Normalise.tdist lenv t -> sok (entry F h t) (rpush_inner (lden h) (tden t) ridentity).
+Proof. intros Ht s E; exact (sfront_sound lenv tenv aenv penv F HF ntm Hntm h t SNil s I Ht E). Qed.
+
+Lemma sok_close h x : lden h = Some x -> sok (close_seg F h) (rclose x).
+Proof.
+  intros Hx s H.
   destruct (sfront_sound lenv tenv aenv penv F HF ntm Hntm h (NVar LNone 0) (shseg LNone 1) s (shseg_dd lenv _ _) I H) as [A B].
   split; [exact A|]; rewrite B, Hx; reflexivity.
 Qed.
 
-Lemma open_seg_sound h x s : lden h = Some x -> open_seg F h = Some s -> sdistd s /\ sden s = ropen x.
+Lemma sok_open h x : lden h = Some x -> sok (open_seg F h) (ropen x).
 Proof.
-  intros Hx H.
+  intros Hx s H.
   destruct (sfront_sound lenv tenv aenv penv F HF ntm Hntm LNone (NVar h 0) (shseg h 1) s (shseg_dd lenv _ _) I H) as [A B].
   split; [exact A|]; rewrite B, sden_shseg; unfold shiftk, ropen; cbn [iter Normalise.tden]; rewrite Hx; reflexivity.
 Qed.
 
-Lemma tgt_of_sound t t' : tgt_of ntm t = Some t' -> Normalise.tdist lenv t' /\ tden t' = teden t.
+Lemma cons_lifted_sound d s x K K' :
+  sok s x -> lwdist K -> cons_lifted F ntm d s K = Some K' ->
+  lwdist K' /\ lwden K' = rcompose (lwden K) (lifted d x).
 Proof.
-  destruct t as [h i|u p|h t]; cbn [tgt_of]; try discriminate.
-  - intros H; injection H as <-; split; [exact I|reflexivity].
-  - assert (Hu : (u <? ntm) = true -> exists y, nth_error tenv u = Some y).
-    { intros Hu; apply Nat.ltb_lt in Hu; destruct (nth_error tenv u) as [y|] eqn:E; [exists y; reflexivity|].
-      apply nth_error_None in E; lia. }
-    destruct p as [|n|a p|h p]; try discriminate;
-      (destruct (u <? ntm) eqn:Eu; [|discriminate]; intros H; injection H as <-; split; [exact I|];
-       destruct (Hu eq_refl) as [y Ey]; cbn [Normalise.tden Normalise.teden]; rewrite Ey;
-       cbn [Normalise.wden Normalise.sins Normalise.souts Normalise.peden Normalise.bden];
-       rewrite rpcompose_identity; reflexivity).
+  intros Hs HK; unfold cons_lifted; destruct s as [s0|]; [|discriminate]; cbn [obind].
+  destruct (slifts F ntm d s0) as [s'|] eqn:E; [|discriminate]; cbn [obind]; intros H.
+  destruct (Hs s0 eq_refl) as [Hd0 Hx]; destruct (slifts_sound d s0 s' Hd0 E) as [Hd' Hs'].
+  destruct (cons_seg_sound s' K K' Hd' HK H) as [A B]; split; [exact A|]; rewrite B, Hs', Hx; reflexivity.
 Qed.
+
+Definition named (G : list lexp) : Prop := Forall (fun g => is_bound g = false) G.
 
 Lemma named_label h : is_bound h = false -> exists x, lden h = Some x.
 Proof. destruct h; cbn; [discriminate| |]; intros _; eexists; reflexivity. Qed.
@@ -394,89 +522,195 @@ Proof. destruct h; cbn; [discriminate| |]; intros _; eexists; reflexivity. Qed.
 Lemma bound_label h : is_bound h = true -> lden h = None.
 Proof. destruct h; cbn; [reflexivity|discriminate|discriminate]. Qed.
 
-Lemma fold_none e : forall d, fold F ntm d e None = None.
+Lemma bpair_glden G : named G -> forall a A J t, bpair a A J t -> bpair (glden G a) (glden G A) (glden G J) t.
 Proof.
-  induction e as [| n | a IHa b IHb | h a IHa | h t a IHa | h a IHa]; intros d; cbn [fold]; try reflexivity.
-  - rewrite IHa; apply IHb.
-  - apply IHa.
-  - destruct (tgt_of ntm t); [|reflexivity]; destruct (is_bound h).
-    + unfold cons_lifted; destruct (entry F h n); apply IHa.
-    + assert (E : cons_lifted F ntm d (open_seg F h) (cons_lifted F ntm d (entry F h n) None) = None).
-      { unfold cons_lifted; destruct (entry F h n); destruct (open_seg F h); reflexivity. }
-      rewrite E, IHa; unfold cons_lifted; destruct (close_seg F h); reflexivity.
-  - destruct (is_bound h); [apply IHa|].
-    assert (E : cons_lifted F ntm d (open_seg F h) None = None) by (unfold cons_lifted; destruct (open_seg F h); reflexivity).
-    rewrite E, IHa; unfold cons_lifted; destruct (close_seg F h); reflexivity.
+  induction 1 as [|g G Hg _ IH]; intros a A J t H; [exact H|]; cbn [glden].
+  destruct (named_label g Hg) as [x Hx]; rewrite Hx; apply IH, bpair_lift, H.
 Qed.
 
-Lemma cons_lifted_some d s K K' : cons_lifted F ntm d s K = Some K' -> exists s0 K0, s = Some s0 /\ K = Some K0.
-Proof. destruct s as [s0|], K as [K0|]; cbn; try discriminate; intros _; exists s0, K0; split; reflexivity. Qed.
+(** A close, something one level deeper, and an open. *)
+Lemma close_open_den d y (X Kd : radj T) :
+  rcompose (rcompose (rcompose Kd (lifted d (ropen y))) (lifted (S d) X)) (lifted d (rclose y))
+  = rcompose Kd (lifted d (rlift (Some y) X)).
+Proof. rewrite (lift_close_open y), lifted_S, !lifted_compose, !rcompose_assoc; reflexivity. Qed.
 
-Lemma fold_some e d K K' : fold F ntm d e K = Some K' -> exists K0, K = Some K0.
-Proof. destruct K as [K0|]; [intros _; exists K0; reflexivity|rewrite fold_none; discriminate]. Qed.
-
-Theorem fold_sound e : forall d K K',
-  lwdist K -> fold F ntm d e (Some K) = Some K' ->
-  lwdist K' /\ lwden K' = rcompose (lwden K) (lifted d (aeden e)).
+Lemma under_sound G : named G -> forall d k x K K',
+  (forall d' K0 K1, lwdist K0 -> k d' K0 = Some K1 -> lwdist K1 /\ lwden K1 = rcompose (lwden K0) (lifted d' x)) ->
+  lwdist K -> under F ntm G d k K = Some K' ->
+  lwdist K' /\ lwden K' = rcompose (lwden K) (lifted d (glden G x)).
 Proof.
-  induction e as [| n | a IHa b IHb | h a IHa | h t a IHa | h a IHa]; intros d K K' HK; cbn [fold].
-  - intros H; injection H as <-; split; [exact HK|].
-    cbn [Normalise.aeden]; rewrite lifted_identity, rcompose_identity_r; reflexivity.
-  - intros H; injection H as <-; split; [constructor; [exact I|exact HK]|].
-    cbn [lwden Normalise.aeden]; destruct d; reflexivity.
-  - intros H; destruct (fold_some _ _ _ _ H) as [K1 E1]; rewrite E1 in H.
-    destruct (IHa d K K1 HK E1) as [H1 D1]; destruct (IHb d K1 K' H1 H) as [H2 D2]; split; [exact H2|].
-    rewrite D2, D1; cbn [Normalise.aeden]; rewrite lifted_compose, rcompose_assoc; reflexivity.
-  - intros H; destruct (fold_some _ _ _ _ H) as [K1 E1]; rewrite E1 in H.
-    destruct (cons_lifted_sound d _ K K1 (shseg_dd lenv _ _) HK E1) as [H1 D1].
-    destruct (IHa d K1 K' H1 H) as [H2 D2]; split; [exact H2|].
-    rewrite D2, D1; cbn [Normalise.aeden]; rewrite <- rcompose_assoc, <- lifted_compose.
-    rewrite sden_shseg; unfold shiftk; cbn [iter]; rewrite rcompose_identity_push_outer; reflexivity.
-  - destruct (tgt_of ntm t) as [t'|] eqn:Et; [|discriminate].
-    destruct (tgt_of_sound t t' Et) as [Htd Htv].
-    assert (Ein : aeden (AInner h t a) = rcompose (rpush_inner (lden h) (tden t') ridentity) (rlift (lden h) (aeden a))).
-    { cbn [Normalise.aeden]; rewrite <- (rpush_inner_compose tenv ntm Hntm), rcompose_identity_l, Htv; reflexivity. }
-    destruct (is_bound h) eqn:Eb.
-    + intros H; destruct (fold_some _ _ _ _ H) as [K1 E1]; rewrite E1 in H.
-      destruct (cons_lifted_some _ _ _ _ E1) as [s0 [K0 [Es EK]]]; injection EK as <-; rewrite Es in E1.
-      destruct (entry_sound h t' s0 Htd Es) as [Hs0 Ds0].
-      destruct (cons_lifted_sound d _ K K1 Hs0 HK E1) as [H1 D1].
-      destruct (IHa (S d) K1 K' H1 H) as [H2 D2]; split; [exact H2|].
-      rewrite D2, D1, Ds0, Ein, (bound_label h Eb), lifted_S, <- rcompose_assoc, <- lifted_compose; reflexivity.
-    + destruct (named_label h Eb) as [x Hx]; intros H.
-      destruct (cons_lifted_some _ _ _ _ H) as [sc [K3 [Ec E3]]]; rewrite Ec, E3 in H.
-      destruct (fold_some _ _ _ _ E3) as [K2 E2]; rewrite E2 in E3.
-      destruct (cons_lifted_some _ _ _ _ E2) as [so [K1 [Eo E1]]]; rewrite Eo, E1 in E2.
-      destruct (cons_lifted_some _ _ _ _ E1) as [s0 [K0 [Es EK]]]; injection EK as <-; rewrite Es in E1.
-      destruct (entry_sound h t' s0 Htd Es) as [Hs0 Ds0].
-      destruct (open_seg_sound h x so Hx Eo) as [Hso Dso].
-      destruct (close_seg_sound h x sc Hx Ec) as [Hsc Dsc].
-      destruct (cons_lifted_sound d _ K K1 Hs0 HK E1) as [H1 D1].
-      destruct (cons_lifted_sound d _ K1 K2 Hso H1 E2) as [H2 D2].
-      destruct (IHa (S d) K2 K3 H2 E3) as [H3 D3].
-      destruct (cons_lifted_sound d _ K3 K' Hsc H3 H) as [H4 D4]; split; [exact H4|].
-      rewrite D4, D3, D2, D1, Ds0, Dso, Dsc, Ein, Hx, (lift_close_open x), lifted_S, !lifted_compose, !rcompose_assoc.
-      reflexivity.
-  - destruct (is_bound h) eqn:Eb.
-    + intros H; destruct (IHa (S d) K K' HK H) as [H2 D2]; split; [exact H2|].
-      rewrite D2; cbn [Normalise.aeden]; rewrite (bound_label h Eb), lifted_S; reflexivity.
-    + destruct (named_label h Eb) as [x Hx]; intros H.
-      destruct (cons_lifted_some _ _ _ _ H) as [sc [K3 [Ec E3]]]; rewrite Ec, E3 in H.
-      destruct (fold_some _ _ _ _ E3) as [K2 E2]; rewrite E2 in E3.
-      destruct (cons_lifted_some _ _ _ _ E2) as [so [K1 [Eo EK]]]; injection EK as <-; rewrite Eo in E2.
-      destruct (open_seg_sound h x so Hx Eo) as [Hso Dso].
-      destruct (close_seg_sound h x sc Hx Ec) as [Hsc Dsc].
-      destruct (cons_lifted_sound d _ K K2 Hso HK E2) as [H2 D2].
-      destruct (IHa (S d) K2 K3 H2 E3) as [H3 D3].
-      destruct (cons_lifted_sound d _ K3 K' Hsc H3 H) as [H4 D4]; split; [exact H4|].
-      rewrite D4, D3, D2, Dso, Dsc; cbn [Normalise.aeden]; rewrite Hx, (lift_close_open x), lifted_S, !lifted_compose, !rcompose_assoc.
-      reflexivity.
+  induction 1 as [|g G Hg _ IH]; intros d k x K K' Hk HK; cbn [under glden]; [apply Hk, HK|].
+  destruct (named_label g Hg) as [y Hy].
+  apply IH; [|exact HK]; intros d' K0 K3 HK0 H.
+  destruct (cons_lifted F ntm d' (open_seg F g) K0) as [K1|] eqn:E1; [|discriminate]; cbn [obind] in H.
+  destruct (k (S d') K1) as [K2|] eqn:E2; [|discriminate]; cbn [obind] in H.
+  destruct (cons_lifted_sound d' _ _ K0 K1 (sok_open g y Hy) HK0 E1) as [H1 D1].
+  destruct (Hk (S d') K1 K2 H1 E2) as [H2 D2].
+  destruct (cons_lifted_sound d' _ _ K2 K3 (sok_close g y Hy) H2 H) as [H3 D3]; split; [exact H3|].
+  rewrite D3, D2, D1, Hy; apply close_open_den.
+Qed.
+
+(** What [inner] must do: put the term [y] at [h] with payload [ρ] and
+    then [w] weakenings of the bound label. *)
+Definition ispec (d : nat) (h : lexp) (y : T) (inner : nat -> lword -> option lword) (ρ : rpadj T) : Prop :=
+  forall w K K', lwdist K -> inner w K = Some K' ->
+    lwdist K' /\ lwden K' = rcompose (lwden K)
+                              (lifted d (rpush_inner (lden h) (RBind y (rpcompose (shiftk None w) ρ)) ridentity)).
+
+Lemma line4 d (K J a E S : radj T) :
+  rcompose (rcompose (rcompose (rcompose K (lifted d J)) (lifted d a)) (lifted d E)) (lifted d S)
+  = rcompose K (lifted d (rcompose J (rcompose a (rcompose E S)))).
+Proof. rewrite !lifted_compose, !rcompose_assoc; reflexivity. Qed.
+
+Lemma bouter_sound d h y G g next ρ :
+  named G -> ispec d h y next ρ ->
+  ispec d h y (fun w K => bouter F ntm d w h G g next K) (rpcompose (glden G (rshift (lden g))) ρ).
+Proof.
+  intros HG Hn w K K' HK; unfold bouter.
+  destruct (cons_lifted F ntm (d + w) _ K) as [K1|] eqn:E1; [|discriminate]; cbn [obind].
+  destruct (cons_lifted F ntm (d + w + 1) _ K1) as [K2|] eqn:E2; [|discriminate]; cbn [obind].
+  destruct (next (w + 1) K2) as [K3|] eqn:E3; [|discriminate]; cbn [obind].
+  set (J := rpush_inner None (RRename (mk_rvar (lden g) 0)) (@ridentity T)).
+  destruct (cons_lifted_sound (d + w) _ (glden G J) K K1 (sok_glifts G _ _ (sok_entry LNone (NVar g 0) I)) HK E1) as [H1 D1].
+  destruct (cons_lifted_sound (d + w + 1) _ _ K1 K2 (sok_glifts1 G _ (shseg_dd lenv g 1)) H1 E2) as [H2 D2].
+  destruct (Hn (w + 1) K2 K3 H2 E3) as [H3 D3].
+  rewrite sden_shseg in D2; change (shiftk (lden g) 1) with (@rshift T (lden g)) in D2.
+  rewrite <- Nat.add_assoc, lifted_add in D2; rewrite lifted_add in D1.
+  unfold J in *; clear J.
+  destruct (is_bound g) eqn:Eb.
+  - intros H; injection H as <-; split; [exact H3|].
+    pose proof (bpair_glden G HG _ _ _ _ (@bpair_outer_bound T)) as HP.
+    rewrite (bound_label g Eb) in *; rewrite glden_identity in HP.
+    rewrite (bypass_step (lden h) y ρ _ _ _ 1 w HP), lifted_identity, rlift_identity, rcompose_identity_r.
+    rewrite D3, D2, D1, !lifted_compose, !rcompose_assoc; reflexivity.
+  - destruct (named_label g Eb) as [x Hx]; intros H.
+    destruct (cons_lifted_sound d _ _ K3 K' (sok_slift h _ _ (sok_slifts w _ _ (sok_glifts G _ _ (sok_close g x Hx)))) H3 H)
+      as [H4 D4]; split; [exact H4|].
+    pose proof (bpair_glden G HG _ _ _ _ (bpair_outer (T:=T) x)) as HP.
+    rewrite Hx in *.
+    rewrite (bypass_step (lden h) y ρ _ _ _ 1 w HP), D4, D3, D2, D1; apply line4.
+Qed.
+
+Lemma shiftk_payload_id w : rpcompose (shiftk None w) (@rpidentity T) = rpidentity.
+Proof.
+  rewrite <- (rpcompose_identity rpidentity) at 2; apply rpcompose_named; intros [l j] Hl; cbn in Hl.
+  rewrite shiftk_apply, rapply_identity; destruct l as [l|]; [|contradiction]; cbn; rewrite Nat.add_0_r; reflexivity.
+Qed.
+
+Theorem sound :
+  (forall e,
+     (forall d K K', lwdist K -> fold F ntm d e K = Some K' ->
+        lwdist K' /\ lwden K' = rcompose (lwden K) (lifted d (aeden e)))
+     /\ (forall d h y G inner ρ, named G -> ispec d h y inner ρ ->
+           ispec d h y (fun w K => byp F ntm d w h G e inner K) (rpcompose (glden G (aeden e)) ρ)))
+  /\ (forall t d G h K K', named G -> lwdist K -> centry F ntm d G h t K = Some K' ->
+        lwdist K' /\ lwden K' = rcompose (lwden K) (lifted d (glden G (rpush_inner (lden h) (teden t) ridentity))))
+  /\ (forall p d h u y, nth_error tenv u = Some y ->
+        ispec d h y (fun w K => cterm F ntm d w h u p K) (Normalise.peden lenv tenv aenv penv p)).
+Proof.
+  apply exp_mind.
+  - (* AId *) split.
+    + intros d K K' HK H; injection H as <-; split; [exact HK|].
+      cbn [Normalise.aeden]; rewrite lifted_identity, rcompose_identity_r; reflexivity.
+    + intros d h y G inner ρ HG Hi; cbn [Normalise.aeden]; rewrite glden_identity, rpcompose_identity.
+      intros w K K' HK H; exact (Hi w K K' HK H).
+  - (* AAtom *) intros n; split.
+    + intros d K K' HK H; injection H as <-; split; [constructor; [exact I|exact HK]|].
+      cbn [lwden Normalise.aeden]; destruct d; reflexivity.
+    + intros d h y G inner ρ HG Hi w K K' HK H; discriminate H.
+  - (* ACompose *) intros a [IHa1 IHa2] b [IHb1 IHb2]; split.
+    + intros d K K' HK; rewrite fold_compose; destruct (fold F ntm d a K) as [K1|] eqn:E1; [|discriminate]; cbn [obind]; intros H.
+      destruct (IHa1 d K K1 HK E1) as [H1 D1]; destruct (IHb1 d K1 K' H1 H) as [H2 D2]; split; [exact H2|].
+      rewrite D2, D1; cbn [Normalise.aeden]; rewrite lifted_compose, rcompose_assoc; reflexivity.
+    + intros d h y G inner ρ HG Hi; cbn [Normalise.aeden]; rewrite glden_compose, <- rpcompose_compose.
+      exact (IHa2 d h y G (fun w' K' => byp F ntm d w' h G b inner K') _ HG (IHb2 d h y G inner ρ HG Hi)).
+  - (* AOuter *) intros g a [IH1 IH2]; split.
+    + intros d K K' HK; rewrite fold_outer.
+      destruct (cons_lifted F ntm d (Some (shseg g 1)) K) as [K1|] eqn:E1; [|discriminate]; cbn [obind]; intros H.
+      destruct (cons_lifted_sound d _ _ K K1 (sok_some _ (shseg_dd lenv g 1)) HK E1) as [H1 D1].
+      destruct (IH1 d K1 K' H1 H) as [H2 D2]; split; [exact H2|].
+      rewrite D2, D1; cbn [Normalise.aeden]; rewrite <- rcompose_assoc, <- lifted_compose.
+      rewrite sden_shseg; unfold shiftk; cbn [iter]; rewrite rcompose_identity_push_outer; reflexivity.
+    + intros d h y G inner ρ HG Hi; cbn [Normalise.aeden].
+      rewrite rpush_outer_as_compose, glden_compose, <- rpcompose_compose.
+      exact (bouter_sound d h y G g (fun w' K' => byp F ntm d w' h G a inner K') _ HG (IH2 d h y G inner ρ HG Hi)).
+  - (* AInner *) intros g t IHt a [IH1 IH2].
+    assert (Ein : aeden (AInner g t a)
+                  = rcompose (rpush_inner (lden g) (teden t) ridentity) (rlift (lden g) (aeden a))).
+    { cbn [Normalise.aeden]; rewrite <- (rpush_inner_compose tenv ntm Hntm), rcompose_identity_l; reflexivity. }
+    split.
+    + intros d K K' HK; rewrite fold_inner.
+      destruct (centry F ntm d [] g t K) as [K1|] eqn:E1; [|discriminate]; cbn [obind].
+      destruct (IHt d [] g K K1 (Forall_nil _) HK E1) as [H1 D1]; cbn [glden] in D1.
+      destruct (is_bound g) eqn:Eb.
+      * intros H; destruct (IH1 (S d) K1 K' H1 H) as [H2 D2]; split; [exact H2|].
+        rewrite D2, D1, Ein, (bound_label g Eb), lifted_S, <- rcompose_assoc, <- lifted_compose; reflexivity.
+      * destruct (named_label g Eb) as [x Hx].
+        destruct (cons_lifted F ntm d (open_seg F g) K1) as [K2|] eqn:E2; [|discriminate]; cbn [obind].
+        destruct (fold F ntm (S d) a K2) as [K3|] eqn:E3; [|discriminate]; cbn [obind]; intros H.
+        destruct (cons_lifted_sound d _ _ K1 K2 (sok_open g x Hx) H1 E2) as [H2 D2].
+        destruct (IH1 (S d) K2 K3 H2 E3) as [H3 D3].
+        destruct (cons_lifted_sound d _ _ K3 K' (sok_close g x Hx) H3 H) as [H4 D4]; split; [exact H4|].
+        rewrite D4, D3, D2, close_open_den, D1, Ein, Hx, <- rcompose_assoc, <- lifted_compose; reflexivity.
+    + intros d h y G inner ρ HG Hi w K K' HK; rewrite byp_inner.
+      destruct (is_bound g) eqn:Eb; [discriminate|].
+      destruct (centry F ntm (d + w) G g t K) as [K1|] eqn:E1; [|discriminate]; cbn [obind].
+      destruct (byp F ntm d w h (g :: G) a inner K1) as [K2|] eqn:E2; [|discriminate]; cbn [obind]; intros H.
+      destruct (IHt (d + w) G g K K1 HG HK E1) as [H1 D1].
+      destruct (IH2 d h y (g :: G) inner ρ (Forall_cons _ Eb HG) Hi w K1 K2 H1 E2) as [H2 D2].
+      destruct (cons_lifted_sound d _ _ K2 K'
+                  (sok_slift h _ _ (sok_slifts w _ _ (sok_glifts1 G _ (shseg_dd lenv g 1)))) H2 H) as [H3 D3].
+      split; [exact H3|].
+      pose proof (bpair_glden G HG _ _ _ _ (bpair_entry (T:=T) (lden g) (teden t))) as HP.
+      rewrite glden_identity in HP.
+      rewrite Ein, glden_compose, <- rpcompose_compose.
+      rewrite (bypass_step (lden h) y _ _ _ _ 0 w HP), lifted_identity, rcompose_identity_l, Nat.add_0_r.
+      rewrite D3, D2, D1, lifted_add, sden_shseg; cbn [glden].
+      rewrite !lifted_compose, !rcompose_assoc; reflexivity.
+  - (* ALift *) intros g a [IH1 IH2]; split.
+    + intros d K K' HK; rewrite fold_lift; destruct (is_bound g) eqn:Eb.
+      * intros H; destruct (IH1 (S d) K K' HK H) as [H2 D2]; split; [exact H2|].
+        rewrite D2; cbn [Normalise.aeden]; rewrite (bound_label g Eb), lifted_S; reflexivity.
+      * destruct (named_label g Eb) as [x Hx].
+        destruct (cons_lifted F ntm d (open_seg F g) K) as [K2|] eqn:E2; [|discriminate]; cbn [obind].
+        destruct (fold F ntm (S d) a K2) as [K3|] eqn:E3; [|discriminate]; cbn [obind]; intros H.
+        destruct (cons_lifted_sound d _ _ K K2 (sok_open g x Hx) HK E2) as [H2 D2].
+        destruct (IH1 (S d) K2 K3 H2 E3) as [H3 D3].
+        destruct (cons_lifted_sound d _ _ K3 K' (sok_close g x Hx) H3 H) as [H4 D4]; split; [exact H4|].
+        rewrite D4, D3, D2, close_open_den; cbn [Normalise.aeden]; rewrite Hx; reflexivity.
+    + intros d h y G inner ρ HG Hi w K K' HK; rewrite byp_lift.
+      destruct (is_bound g) eqn:Eb; [discriminate|].
+      exact (IH2 d h y (g :: G) inner ρ (Forall_cons _ Eb HG) Hi w K K' HK).
+  - (* TVarE *) intros g i d G h K K' HG HK H; rewrite centry_var in H.
+    exact (cons_lifted_sound d _ _ K K' (sok_glifts G _ _ (sok_entry h (NVar g i) I)) HK H).
+  - (* TBindE *) intros u p IHp d G h K K' HG HK; rewrite centry_bind.
+    destruct (u <? ntm) eqn:Eu; [|discriminate]; apply Nat.ltb_lt in Eu.
+    destruct (nth_error tenv u) as [y|] eqn:Ey; [|apply nth_error_None in Ey; lia].
+    intros H; cbn [Normalise.teden]; rewrite Ey.
+    refine (under_sound G HG d _ _ K K' _ HK H); intros d' K0 K1 HK0 H0.
+    destruct (IHp d' h u y Ey 0 K0 K1 HK0 H0) as [A B]; split; [exact A|].
+    rewrite B; change (shiftk None 0) with (@ridentity T); rewrite rpcompose_identity; reflexivity.
+  - (* TShiftE *) intros g t _ d G h K K' _ _ H; discriminate H.
+  - (* PId *) intros d h u y Ey w K K' HK H; rewrite cterm_id in H.
+    destruct (cons_lifted_sound d _ _ K K' (sok_entry h (NBind u (WEnd SNil) None) I) HK H) as [A B]; split; [exact A|].
+    rewrite B; cbn [Normalise.tden Normalise.peden]; rewrite Ey.
+    cbn [Normalise.wden Normalise.sins Normalise.souts Normalise.bden].
+    rewrite shiftk_payload_id, rpcompose_identity; reflexivity.
+  - (* PAtom *) intros n d h u y Ey w K K' HK H; rewrite cterm_atom in H.
+    assert (Hd : Normalise.tdist lenv (NBind u (WEnd (match w with 0 => SNil | _ => shseg LNone w end)) (Some n))).
+    { destruct w; [exact I|apply shseg_dd]. }
+    destruct (cons_lifted_sound d _ _ K K' (sok_entry h _ Hd) HK H) as [A B]; split; [exact A|].
+    rewrite B; cbn [Normalise.tden Normalise.peden]; rewrite Ey; destruct w; reflexivity.
+  - (* PComp *) intros a [_ IHa] p IHp d h u y Ey; cbn [Normalise.peden].
+    exact (IHa d h y [] (fun w' K' => cterm F ntm d w' h u p K') _ (Forall_nil _) (IHp d h u y Ey)).
+  - (* PShift *) intros g p IHp d h u y Ey; cbn [Normalise.peden]; rewrite rpshift_as_pcompose.
+    exact (bouter_sound d h y [] g (fun w' K' => cterm F ntm d w' h u p K') _ (Forall_nil _) (IHp d h u y Ey)).
 Qed.
 
 (** The layered word of an expression means what the expression means. *)
 Theorem lnorm_sound e l : lnorm F ntm e = Some l -> lwden l = aeden e.
 Proof.
-  intros H; destruct (fold_sound e 0 [] l (Forall_nil _) H) as [_ D].
+  intros H; destruct (proj1 (proj1 sound e) 0 [] l (Forall_nil _) H) as [_ D].
   rewrite D; cbn [lwden lifted iter]; apply rcompose_identity_l.
 Qed.
 
