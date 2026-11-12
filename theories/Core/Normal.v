@@ -1,9 +1,10 @@
-(** * The normaliser's output is in normal form
+(** * The operations of the normaliser keep normal forms
 
-    Theorem 1 of [docs/normal-forms.md]: whatever the normaliser returns
-    satisfies the normal-form conditions [wnf] of [Core/Unique.v].
-    Nothing is checked at run time: each operation is shown to keep the
-    conditions. *)
+    For theorem 1 of [docs/normal-forms.md]: each operation the
+    normaliser is built from returns a word satisfying the normal-form
+    conditions [wnf] of [Core/Unique.v] when its arguments do.  Nothing
+    is checked at run time.  The theorem itself is [anorm_s_normal] in
+    [Core/Shared.v]. *)
 
 From Stdlib Require Import Arith List Lia Bool Sorted.
 From ShiftedNames.Core Require Import Label Var Adjustment Laws Normalise Unique.
@@ -1002,7 +1003,7 @@ Proof.
   exact (wcons_normal _ _ _ E Hs (sren_snf _ Hr) Hw).
 Qed.
 
-(** ** Theorem 1 *)
+(** ** The labels and payload atoms of an expression *)
 
 Fixpoint alabs (e : aexp) : list lexp :=
   match e with
@@ -1045,57 +1046,6 @@ with pscope (p : pexp) : Prop :=
   | PComp a p => ascope a /\ pscope p
   | PShift _ p => pscope p
   end.
-
-Lemma end_nil : wnf false (WEnd SNil).
-Proof. split; [split; constructor|exact I]. Qed.
-
-Theorem normalise_normal :
-  (forall e, incl (alabs e) labs -> ascope e -> forall w, anorm F ntm e = Some w -> wnf false w)
-  /\ (forall t, incl (tlabs t) labs -> tscope t -> forall t', tnorm F ntm t = Some t' -> tnf t')
-  /\ (forall p, incl (plabs p) labs -> pscope p -> forall w b, pnorm_e F ntm p = Some (w, b) -> wnf false w /\ bok b).
-Proof.
-  apply exp_mind; cbn [alabs tlabs plabs ascope tscope pscope].
-  - intros _ _ w H; injection H as <-; exact end_nil.
-  - intros n _ _ w H; injection H as <-; exact (atom_word [] n (conj (SSorted_nil _) (Forall_nil _))).
-  - intros a IHa b IHb Hl [Sa Sb] w; rewrite anorm_compose.
-    destruct (anorm F ntm a) as [wa|] eqn:Ea; [|discriminate]; destruct (anorm F ntm b) as [wb|] eqn:Eb; [|discriminate].
-    intros H.
-    exact (wcomp_normal wa wb w (IHa (fun x Hx => Hl x (in_or_app _ _ _ (or_introl Hx))) Sa wa eq_refl)
-             (IHb (fun x Hx => Hl x (in_or_app _ _ _ (or_intror Hx))) Sb wb eq_refl) H).
-  - intros h a IH Hl Sa w; rewrite anorm_outer; destruct (anorm F ntm a) as [wa|] eqn:Ea; [|discriminate]; intros H.
-    exact (wouter_normal h wa w (Hl h (or_introl eq_refl)) (IH (fun x Hx => Hl x (or_intror Hx)) Sa wa eq_refl) H).
-  - intros h t IHt a IHa Hl [St Sa] w; rewrite anorm_inner.
-    destruct (tnorm F ntm t) as [t'|] eqn:Et; [|discriminate]; destruct (anorm F ntm a) as [wa|] eqn:Ea; [|discriminate].
-    intros H; apply (wpush_normal h t' wa w (Hl h (or_introl eq_refl))); [| |exact H].
-    + apply (IHt (fun x Hx => Hl x (or_intror (in_or_app _ _ _ (or_introl Hx)))) St t' eq_refl).
-    + apply (IHa (fun x Hx => Hl x (or_intror (in_or_app _ _ _ (or_intror Hx)))) Sa wa eq_refl).
-  - intros h a IH Hl Sa w; rewrite anorm_lift; destruct (anorm F ntm a) as [wa|] eqn:Ea; [|discriminate]; intros H.
-    exact (wlift_normal h wa w (Hl h (or_introl eq_refl)) (IH (fun x Hx => Hl x (or_intror Hx)) Sa wa eq_refl) H).
-  - intros h i Hl _ t' H; injection H as <-; exact (Hl h (or_introl eq_refl)).
-  - intros u p IH Hl Sp t'; rewrite tnorm_bind; destruct (u <? ntm); [|discriminate].
-    destruct (pnorm_e F ntm p) as [[w b]|] eqn:Ep; [|discriminate].
-    destruct (pnormw F ntm b w) as [w'|] eqn:Ew; [|discriminate]; intros H; injection H as <-.
-    destruct (IH Hl Sp w b eq_refl) as [Hw Hb]; split; [exact Hb|exact (pnormw_normal b w w' Hw Ew)].
-  - intros h t IH Hl St t'; rewrite tnorm_shift; destruct (tnorm F ntm t) as [[h' i|]|] eqn:Et; try discriminate.
-    pose proof (IH (fun x Hx => Hl x (or_intror Hx)) St _ eq_refl) as Ht.
-    destruct (lcmp F h h') as [[]|]; try discriminate; intros H; injection H as <-; exact Ht.
-  - intros _ _ w b H; injection H as <- <-; split; [exact end_nil|exact I].
-  - intros n _ Hn w b H; injection H as <- <-; split; [exact end_nil|exact Hn].
-  - intros a IHa p IHp Hl [Sa Sp] w b; rewrite pnorm_comp.
-    destruct (anorm F ntm a) as [wa|] eqn:Ea; [|discriminate]; destruct (pnorm_e F ntm p) as [[w0 b0]|] eqn:Ep; [|discriminate].
-    destruct (wcomp F ntm wa w0) as [w'|] eqn:Ew; [|discriminate]; intros H; injection H as <- <-.
-    destruct (IHp (fun x Hx => Hl x (in_or_app _ _ _ (or_intror Hx))) Sp w0 b0 eq_refl) as [Hw0 Hb0]; split; [|exact Hb0].
-    exact (wcomp_normal wa w0 w' (IHa (fun x Hx => Hl x (in_or_app _ _ _ (or_introl Hx))) Sa wa eq_refl) Hw0 Ew).
-  - intros h p IH Hl Sp w b; rewrite pnorm_shift.
-    destruct (pnorm_e F ntm p) as [[w0 b0]|] eqn:Ep; [|discriminate].
-    destruct (wouter F ntm h w0) as [w'|] eqn:Ew; [|discriminate]; intros H; injection H as <- <-.
-    destruct (IH (fun x Hx => Hl x (or_intror Hx)) Sp w0 b0 eq_refl) as [Hw0 Hb0]; split; [|exact Hb0].
-    exact (wouter_normal h w0 w' (Hl h (or_introl eq_refl)) Hw0 Ew).
-Qed.
-
-(** If the normaliser returns a word, it is in normal form. *)
-Corollary anorm_normal e w : incl (alabs e) labs -> ascope e -> anorm F ntm e = Some w -> wnf false w.
-Proof. intros Hl Hs; exact (proj1 normalise_normal e Hl Hs w). Qed.
 
 End Normal.
 

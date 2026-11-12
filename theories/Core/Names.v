@@ -1209,7 +1209,7 @@ Ltac names_mat_one A :=
                                         let HM := fresh "HM" in
                                         assert (HM : Forall (fun f => let '(k, u, eb) := f in forall y, nth_error te4 u = Some y -> nth_error te4 k = Some (@sm_g _ inst (rpcompose (aeden le4 te4 ae4 pe4 eb) rpidentity) y)) facts)
                                           by (mat_prove_facts inst te4 ts bs);
-                                        refine (mat_sound le4 te4 ae4 pe4 F4 HF (List.length te4) (le_n _) (@sm_g _ inst) facts HM e e' _ (var_raw v));
+                                        refine (mat_s_sound le4 te4 ae4 pe4 F4 HF (List.length te4) (le_n _) (@sm_g _ inst) facts HM e e' _ (var_raw v));
                                         vm_compute; reflexivity
                                       | let E := fresh "E" in
                                         pose proof (@sm_mat _ inst N A A' H) as E; clear H;

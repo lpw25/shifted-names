@@ -5,25 +5,25 @@ Composition is written `⨾`, in diagrammatic order: `a ⨾ b` is `a`, then
 
 ## Status
 
-Theorems 1–4 below are proved, and the display (step 9) shows terms
-before the atoms they were carried past. What remains is listed at the
-end of the plan.
+Theorems 1–4 below are proved, for the normaliser `names` runs: it
+stores normal forms in the shared form of the last section
+(`Core/Shared.v`), and the normal form of this file is the unfolding of
+what it stores.
 
-- Theorem 1: `anorm_normal` (`Core/Normal.v`).
+- Theorem 1: `anorm_s_normal` (`Core/Shared.v`), from the operations
+  keeping the conditions (`Core/Normal.v`).
 - Theorem 2: `nf_unique` in the free model, with `free_to_real` and
   `adequacy` (`Core/Unique.v`).
-- Theorem 3: `complete` (`Core/Complete.v`).
+- Theorem 3: `complete_sh` (`Core/Shared.v`), with soundness
+  `nf_eq_sh_sound`.
 - Theorem 4: `wtrace_sound` (`Core/Normalise.v`) and `eval_stuck`
-  (`Core/Complete.v`).
+  (`Core/Shared.v`).
 
-`names` works on the shared form of the last section
-(`Core/Shared.v`): the decision is sound (`nf_eq_sh_sound`) and complete
-(`complete_sh`), and a chain of sixteen substitutions is decided in
-well under a second. Evaluating a variable and showing a normal form
-read the stored word too (`Core/Eval.v`); a normal form whose tree is
-large is not shown, and `names` leaves that adjustment as written.
-Materialising payloads still uses the tree normaliser (step 4 of that
-section).
+Everything `names` computes reads the stored word (`Core/Eval.v`): the
+decision, evaluating a variable, checking a payload, materialising
+payloads. Only showing a normal form unfolds it, and only when the tree
+is small; otherwise `names` leaves that adjustment as written. A chain
+of sixteen substitutions is decided in well under a second.
 
 The label order is dense with no least or greatest label (the end of a
 string sorts just above `\000`), so facts `x < y` never force two label
@@ -299,7 +299,7 @@ followed by an atom) and each distinct payload is written once.
   one definition per term occurrence and operation, each of polynomial
   size: the chain above takes about `n²` space.
 
-Steps (1–3 done):
+Steps (all done):
 
 1. Normal forms are well scoped: every payload atom is below a bound
    (part of the predicate, kept by every operation).
@@ -313,9 +313,15 @@ Steps (1–3 done):
    identity definitions, flat words with the same unfolding are the
    same (`unfold_inj`); hence completeness for the shared decision
    (`complete_sh`).
-4. Display, evaluation and materialisation from the stored form, and
-   the tree normaliser goes. Done for evaluation (`apply_result_s`,
-   `apply_bind_check_s`: no unfolding, a variable is the same in the
-   stored word, and payloads are compared as atoms of one table) and
-   for display (`anorm_show`: unfolded on demand, and only when the
-   tree has at most `show_budget` nodes). Materialisation remains.
+4. Everything else reads the stored form (`Core/Eval.v`), and there is
+   no tree normaliser. Evaluation and the payload checks
+   (`apply_result_s`, `apply_bind_check_s`, `mat_eqb_s`) unfold
+   nothing: a variable is the same in the stored word, and payloads are
+   compared as atoms of one table. Display (`anorm_show`) unfolds on
+   demand, and only when the tree has at most `show_budget` nodes.
+
+Open: what `names` should show for a normal form whose tree is large.
+It now leaves the adjustment as written, which for a chain of
+substitutions is the readable form anyway; a display that keeps the
+sharing (naming payloads, or leaving later steps composed) would let it
+simplify inside such adjustments too.

@@ -1,15 +1,13 @@
-(** * Completeness of the normaliser
+(** * Ingredients of completeness
 
-    Theorem 3 of [docs/normal-forms.md]: two expressions that are equal
-    under every interpretation satisfying the facts, and that the
-    normaliser normalises, have the same normal form.  The theorem takes
-    one interpretation satisfying the facts as a hypothesis; the context
-    [names] runs in supplies it.
+    For theorems 3 and 4 of [docs/normal-forms.md], which are
+    [complete_sh] and [eval_stuck] in [Core/Shared.v].
 
-    From that interpretation another is built that gives distinct label
-    expressions distinct labels (the label order is dense, so each label
-    variable can be moved into the gap just above its value); then the
-    normal forms are normal (Core/Normal.v), equal in the free model
+    From an interpretation satisfying the facts another is built that
+    gives distinct label expressions distinct labels (the label order is
+    dense, so each label variable can be moved into the gap just above
+    its value).  Under it normal forms are well formed for the free
+    model, so that two with the same meaning are equal in the free model
     (adequacy) and so equal (uniqueness). *)
 
 From Stdlib Require Import Arith List Lia Bool Ascii String.
@@ -199,39 +197,6 @@ Qed.
 
 End Ok.
 
-(** ** Completeness *)
-
-Theorem complete lenv F ntm e1 e2 w1 w2 :
-  facts_ok lenv F ->
-  (forall lenv' (T : Type) (tenv : list T) aenv penv, facts_ok lenv' F -> ntm <= List.length tenv ->
-     aeden lenv' tenv aenv penv e1 = aeden lenv' tenv aenv penv e2) ->
-  anorm F ntm e1 = Some w1 -> anorm F ntm e2 = Some w2 -> w1 = w2.
-Proof.
-  intros HF Heq E1 E2.
-  set (S := alabs e1 ++ alabs e2 ++ flat_map (fun p => [fst p; snd p]) F).
-  assert (HFS : forall x y, In (x, y) F -> In x S /\ In y S).
-  { intros x y Hxy; split; apply in_or_app; right; apply in_or_app; right; apply in_flat_map; exists (x, y);
-      (split; [exact Hxy|cbn; tauto]). }
-  destruct (distinct_interp F S HFS lenv HF) as [l [HFl Hinj]].
-  set (N := Nat.max (apmax e1) (apmax e2)).
-  assert (H1 : wnf l S N false w1).
-  { apply (anorm_normal l S N F HFl ntm e1); [intros x Hx; apply in_or_app; left; exact Hx| |exact E1].
-    apply (proj1 (scope_max N)); unfold N; lia. }
-  assert (H2 : wnf l S N false w2).
-  { apply (anorm_normal l S N F HFl ntm e2); [intros x Hx; apply in_or_app; right; apply in_or_app; left; exact Hx| |exact E2].
-    apply (proj1 (scope_max N)); unfold N; lia. }
-  set (nt := Nat.max ntm (Nat.max (wmax w1) (wmax w2))).
-  assert (Hnt : ntm <= List.length (tenvT nt)) by (unfold tenvT; rewrite length_map, length_seq; lia).
-  apply (nf_unique l S N Hinj w1 w2 H1 H2).
-  apply (adequacy l nt w1 w2).
-  - apply (proj2 (proj2 (proj2 (normal_ok l S N nt))) w1 false H1); lia.
-  - apply (proj2 (proj2 (proj2 (normal_ok l S N nt))) w2 false H2); lia.
-  - intros aenv penv.
-    rewrite (proj1 (anorm_sound l (tenvT nt) aenv penv F HFl ntm Hnt) e1 w1 E1).
-    rewrite (proj1 (anorm_sound l (tenvT nt) aenv penv F HFl ntm Hnt) e2 w2 E2).
-    apply Heq; assumption.
-Qed.
-
 (** ** Evaluating a variable
 
     Theorem 4 of [docs/normal-forms.md], for evaluations whose label
@@ -239,7 +204,8 @@ Qed.
     result is the same under every interpretation.  When it reaches a
     target, the result is that target ([wtrace_sound]).  When it gets
     stuck at an atom, the result depends on the interpretation of the
-    atoms, even with the labels fixed ([eval_stuck]). *)
+    atoms, even with the labels fixed ([stuck_word], and [eval_stuck] in
+    [Core/Shared.v]). *)
 
 Section Eval.
 
@@ -281,27 +247,30 @@ Qed.
 
 End Eval.
 
-Theorem eval_stuck lenv F ntm e w h i :
-  facts_ok lenv F -> anorm F ntm e = Some w -> wtrace F w h i = Some None ->
+(** A normal form that means [e] and whose evaluation at a variable is
+    stuck: no target is the result under every interpretation. *)
+Theorem stuck_word lenv labs N F ntm e w h i :
+  facts_ok lenv F -> wnf lenv labs N false w ->
+  (forall (T : Type) (tenv : list T) aenv penv, ntm <= List.length tenv ->
+     wden lenv tenv aenv penv w = aeden lenv tenv aenv penv e) ->
+  wtrace F w h i = Some None ->
   ~ exists t, forall (T : Type) (tenv : list T) aenv penv, ntm <= List.length tenv ->
       rapply (aeden lenv tenv aenv penv e) (mk_rvar (lden lenv h) i) = rtarget_result (tden lenv tenv aenv penv t).
 Proof.
-  intros HF E Hs [t Ht].
+  intros HF Hw E Hs [t Ht].
   destruct (proj2 (wtrace_free lenv F HF w h i FVar) Hs) as [a [z [k Ef]]].
   set (nt := Nat.max ntm (wmax w)).
-  assert (Hw : wnf lenv (alabs e) (apmax e) false w)
-    by exact (anorm_normal lenv (alabs e) (apmax e) F HF ntm e w (incl_refl _) (proj1 (scope_max _) e (le_n _)) E).
-  assert (Hok : okw lenv (tenvT nt) w) by (apply (proj2 (proj2 (proj2 (normal_ok lenv (alabs e) (apmax e) nt))) w false Hw); lia).
+  assert (Hok : okw lenv (tenvT nt) w) by (apply (proj2 (proj2 (proj2 (normal_ok lenv labs N nt))) w false Hw); lia).
   assert (Hnt : ntm <= List.length (tenvT nt)) by (unfold tenvT; rewrite length_map, length_seq; lia).
-  set (Λ := [v_label z]); set (N := S (v_index z)); set (na := S a).
-  set (aenv := aenvT [] Λ N na); set (penv := penvT [] 1).
+  set (Λ := [v_label z]); set (N' := S (v_index z)); set (na := S a).
+  set (aenv := aenvT [] Λ N' na); set (penv := penvT [] 1).
   assert (HK : forall y, realises (tenvT nt) aenv penv (FVar y) (rapply ridentity y))
     by (intros y; cbn [realises]; apply rapply_identity).
   pose proof (proj2 (proj2 (proj2 (fw_real lenv (tenvT nt) aenv penv))) w Hok FVar ridentity (mk_rvar (lden lenv h) i) HK) as R.
   rewrite rcompose_identity_l, Ef in R.
-  destruct (real_stuck [] Λ N na 1 nt a z k _ ltac:(unfold na; lia) (or_introl eq_refl) ltac:(unfold N; lia) R) as [Kr [_ Er]].
+  destruct (real_stuck [] Λ N' na 1 nt a z k _ ltac:(unfold na; lia) (or_introl eq_refl) ltac:(unfold N'; lia) R) as [Kr [_ Er]].
   pose proof (Ht tag (tenvT nt) aenv penv Hnt) as E2.
-  rewrite <- (proj1 (anorm_sound lenv (tenvT nt) aenv penv F HF ntm Hnt) e w E), Er in E2.
+  rewrite <- (E tag (tenvT nt) aenv penv Hnt), Er in E2.
   destruct t as [h' j|u wp b]; cbn [tden rtarget_result] in E2; [discriminate|].
   destruct (nth_error (tenvT nt) u) as [x|] eqn:Ex; [|discriminate].
   apply tenvT_nth in Ex; subst x; apply inr_pair in E2; destruct E2 as [E2 _]; discriminate.

@@ -911,65 +911,6 @@ with pexp : Type :=
 | PComp (a : aexp) (p : pexp)
 | PShift (h : lexp) (p : pexp).
 
-Section Normalise.
-
-Variable F : list (lexp * lexp).
-Variable ntm : nat.
-
-Fixpoint anorm (e : aexp) : option word :=
-  match e with
-  | AId => Some (WEnd SNil)
-  | AAtom n => Some (WAtom SNil [] n (WEnd SNil))
-  | ACompose a b =>
-      match anorm a, anorm b with Some wa, Some wb => wcomp F ntm wa wb | _, _ => None end
-  | AOuter h a => match anorm a with Some w => wouter F ntm h w | None => None end
-  | AInner h t a =>
-      match tnorm t, anorm a with Some t', Some w => wpush F ntm h t' w | _, _ => None end
-  | ALift h a => match anorm a with Some w => wlift F ntm h w | None => None end
-  end
-with tnorm (t : texp) : option ntgt :=
-  match t with
-  | TVarE h i => Some (NVar h i)
-  | TBindE u p =>
-      if u <? ntm then
-        match pnorm_e p with
-        | Some (w, b) => match pnormw F ntm b w with Some w' => Some (NBind u w' b) | None => None end
-        | None => None
-        end
-      else None
-  | TShiftE h t =>
-      match tnorm t with
-      | Some (NVar h' i) =>
-          match lcmp F h h' with
-          | Some Eq => Some (NVar h' (S i))
-          | Some _ => Some (NVar h' i)
-          | None => None
-          end
-      | _ => None
-      end
-  end
-with pnorm_e (p : pexp) : option (word * option nat) :=
-  match p with
-  | PId => Some (WEnd SNil, None)
-  | PAtom n => Some (WEnd SNil, Some n)
-  | PComp a p =>
-      match anorm a, pnorm_e p with
-      | Some wa, Some (w, b) => match wcomp F ntm wa w with Some w' => Some (w', b) | None => None end
-      | _, _ => None
-      end
-  | PShift h p =>
-      match pnorm_e p with
-      | Some (w, b) => match wouter F ntm h w with Some w' => Some (w', b) | None => None end
-      | None => None
-      end
-  end.
-
-(** The decision: both sides normalise to the same normal form. *)
-Definition nf_eq (e1 e2 : aexp) : bool :=
-  match anorm e1, anorm e2 with Some w1, Some w2 => word_eqb w1 w2 | _, _ => false end.
-
-End Normalise.
-
 (** ** Soundness *)
 
 Section Sound.
@@ -2351,139 +2292,8 @@ with texp_mind := Induction for texp Sort Prop
 with pexp_mind := Induction for pexp Sort Prop.
 Combined Scheme exp_mind from aexp_mind, texp_mind, pexp_mind.
 
-Lemma anorm_compose a b :
-  anorm F ntm (ACompose a b) = match anorm F ntm a, anorm F ntm b with Some wa, Some wb => wcomp F ntm wa wb | _, _ => None end.
-Proof. reflexivity. Qed.
-
-Lemma anorm_outer h a : anorm F ntm (AOuter h a) = match anorm F ntm a with Some w => wouter F ntm h w | None => None end.
-Proof. reflexivity. Qed.
-
-Lemma anorm_inner h t a :
-  anorm F ntm (AInner h t a) = match tnorm F ntm t, anorm F ntm a with Some t', Some w => wpush F ntm h t' w | _, _ => None end.
-Proof. reflexivity. Qed.
-
-Lemma anorm_lift h a : anorm F ntm (ALift h a) = match anorm F ntm a with Some w => wlift F ntm h w | None => None end.
-Proof. reflexivity. Qed.
-
-Lemma tnorm_bind u p :
-  tnorm F ntm (TBindE u p)
-  = if u <? ntm then
-      match pnorm_e F ntm p with
-      | Some (w, b) => match pnormw F ntm b w with Some w' => Some (NBind u w' b) | None => None end
-      | None => None
-      end
-    else None.
-Proof. reflexivity. Qed.
-
-Lemma tnorm_shift h t :
-  tnorm F ntm (TShiftE h t)
-  = match tnorm F ntm t with
-    | Some (NVar h' i) =>
-        match lcmp F h h' with Some Eq => Some (NVar h' (S i)) | Some _ => Some (NVar h' i) | None => None end
-    | _ => None
-    end.
-Proof. reflexivity. Qed.
-
-Lemma pnorm_comp a p :
-  pnorm_e F ntm (PComp a p)
-  = match anorm F ntm a, pnorm_e F ntm p with
-    | Some wa, Some (w, b) => match wcomp F ntm wa w with Some w' => Some (w', b) | None => None end
-    | _, _ => None
-    end.
-Proof. reflexivity. Qed.
-
-Lemma pnorm_shift h p :
-  pnorm_e F ntm (PShift h p)
-  = match pnorm_e F ntm p with
-    | Some (w, b) => match wouter F ntm h w with Some w' => Some (w', b) | None => None end
-    | None => None
-    end.
-Proof. reflexivity. Qed.
-
 Lemma wden_id : wden (WEnd SNil) = ridentity.
 Proof. reflexivity. Qed.
-
-Lemma anorm_sound_dist :
-  (forall e w, anorm F ntm e = Some w -> wdist w /\ wden w = aeden e)
-  /\ (forall t t', tnorm F ntm t = Some t' -> tdist t' /\ tden t' = teden t)
-  /\ (forall p w b, pnorm_e F ntm p = Some (w, b) -> wdist w /\ rpcompose (wden w) (bden b) = peden p).
-Proof.
-  apply exp_mind; cbn [aeden teden peden].
-  - intros w H; injection H as <-; split; [exact I|reflexivity].
-  - intros n w H; injection H as <-; split; [exact (atom_dd [] n)|]; rewrite wden_atom, wden_id, rcompose_identity_r.
-    change (sden SNil) with (@ridentity T); apply rcompose_identity_l.
-  - intros a IHa b IHb w; rewrite anorm_compose.
-    destruct (anorm F ntm a) as [wa|] eqn:Ea; [|discriminate].
-    destruct (anorm F ntm b) as [wb|] eqn:Eb; [|discriminate]; intros H.
-    destruct (IHa _ eq_refl) as [Ha Ea']; destruct (IHb _ eq_refl) as [Hb Eb'].
-    destruct (wcomp_sound _ _ _ Ha Hb H) as [Hd Eq]; split; [exact Hd|]; rewrite Eq, Ea', Eb'; reflexivity.
-  - intros h a IH w; rewrite anorm_outer; destruct (anorm F ntm a) as [wa|] eqn:Ea; [|discriminate]; intros H.
-    destruct (IH _ eq_refl) as [Ha Ea']; destruct (wouter_sound _ _ _ Ha H) as [Hd Eq].
-    split; [exact Hd|]; rewrite Eq, Ea'; reflexivity.
-  - intros h t IHt a IHa w; rewrite anorm_inner.
-    destruct (tnorm F ntm t) as [t'|] eqn:Et; [|discriminate].
-    destruct (anorm F ntm a) as [wa|] eqn:Ea; [|discriminate]; intros H.
-    destruct (IHt _ eq_refl) as [Ht Et']; destruct (IHa _ eq_refl) as [Ha Ea'].
-    destruct (wpush_sound _ _ _ _ Ht Ha H) as [Hd Eq]; split; [exact Hd|]; rewrite Eq, Et', Ea'; reflexivity.
-  - intros h a IH w; rewrite anorm_lift; destruct (anorm F ntm a) as [wa|] eqn:Ea; [|discriminate]; intros H.
-    destruct (IH _ eq_refl) as [Ha Ea']; destruct (wlift_sound _ _ _ Ha H) as [Hd Eq].
-    split; [exact Hd|]; rewrite Eq, Ea'; reflexivity.
-  - intros h i t' H; injection H as <-; split; [exact I|reflexivity].
-  - intros u p IH t'; rewrite tnorm_bind; destruct (Nat.ltb_spec u ntm) as [Hu|]; [|discriminate].
-    destruct (pnorm_e F ntm p) as [[w b]|] eqn:Ep; [|discriminate].
-    destruct (pnormw F ntm b w) as [w'|] eqn:Ew; [|discriminate]; intros H; injection H as <-.
-    destruct (IH _ _ eq_refl) as [Hw Ep']; destruct (pnormw_sound _ _ _ Hw Ew) as [Hd Eq].
-    split; [exact Hd|].
-    destruct (nth_error tenv u) as [x|] eqn:Ex; [|apply nth_error_None in Ex; lia].
-    rewrite (tden_bind _ _ _ _ Ex), Eq, Ep'; reflexivity.
-  - intros h t IH t'; rewrite tnorm_shift.
-    destruct (tnorm F ntm t) as [[h' i|]|] eqn:Et; try discriminate.
-    destruct (IH _ eq_refl) as [_ Et']; rewrite <- Et'; cbn [tden].
-    destruct (lcmp F h h') as [c|] eqn:Ec; [|discriminate].
-    apply (lcmp_sound lenv F HF) in Ec; destruct c; intros H; injection H as <-; (split; [exact I|]);
-      unfold shift_rvar; cbn [v_label v_index tden]; cbn in Ec.
-    + subst h'; rewrite label_eqb_refl; reflexivity.
-    + rewrite (proj2 (label_eqb_neq _ _)); [reflexivity|].
-      intros E; rewrite E in Ec; exact (olabel_lt_irrefl _ Ec).
-    + rewrite (proj2 (label_eqb_neq _ _)); [reflexivity|].
-      intros E; rewrite E in Ec; exact (olabel_lt_irrefl _ Ec).
-  - intros w b H; injection H as <- <-; split; [exact I|]; rewrite wden_id; apply rpcompose_identity.
-  - intros n w b H; injection H as <- <-; split; [exact I|]; rewrite wden_id; apply rpcompose_identity.
-  - intros a IHa p IHp w b; rewrite pnorm_comp.
-    destruct (anorm F ntm a) as [wa|] eqn:Ea; [|discriminate].
-    destruct (pnorm_e F ntm p) as [[w0 b0]|] eqn:Ep; [|discriminate].
-    destruct (wcomp F ntm wa w0) as [w'|] eqn:Ew; [|discriminate]; intros H; injection H as <- <-.
-    destruct (IHa _ eq_refl) as [Ha Ea']; destruct (IHp _ _ eq_refl) as [Hp Ep'].
-    destruct (wcomp_sound _ _ _ Ha Hp Ew) as [Hd Eq]; split; [exact Hd|].
-    rewrite Eq, <- rpcompose_compose, Ep', Ea'; reflexivity.
-  - intros h p IH w b; rewrite pnorm_shift.
-    destruct (pnorm_e F ntm p) as [[w0 b0]|] eqn:Ep; [|discriminate].
-    destruct (wouter F ntm h w0) as [w'|] eqn:Ew; [|discriminate]; intros H; injection H as <- <-.
-    destruct (IH _ _ eq_refl) as [Hp Ep']; destruct (wouter_sound _ _ _ Hp Ew) as [Hd Eq]; split; [exact Hd|].
-    rewrite Eq, rpush_outer_as_compose, <- rpcompose_compose, Ep'.
-    symmetry; apply rpshift_as_pcompose.
-Qed.
-
-Theorem anorm_sound :
-  (forall e w, anorm F ntm e = Some w -> wden w = aeden e)
-  /\ (forall t t', tnorm F ntm t = Some t' -> tden t' = teden t)
-  /\ (forall p w b, pnorm_e F ntm p = Some (w, b) -> rpcompose (wden w) (bden b) = peden p).
-Proof.
-  destruct anorm_sound_dist as [A [B C]].
-  split; [intros e w H; exact (proj2 (A e w H))|split; [intros t t' H; exact (proj2 (B t t' H))|]].
-  intros p w b H; exact (proj2 (C p w b H)).
-Qed.
-
-Lemma anorm_dist e w : anorm F ntm e = Some w -> wdist w.
-Proof. intros H; exact (proj1 (proj1 anorm_sound_dist e w H)). Qed.
-
-Theorem nf_eq_sound e1 e2 : nf_eq F ntm e1 e2 = true -> aeden e1 = aeden e2.
-Proof.
-  unfold nf_eq; destruct (anorm F ntm e1) as [w1|] eqn:E1; [|discriminate].
-  destruct (anorm F ntm e2) as [w2|] eqn:E2; [|discriminate]; intros H.
-  apply (proj2 (proj2 (proj2 nf_eqb_eq))) in H; subst w2.
-  rewrite <- (proj1 anorm_sound _ _ E1), <- (proj1 anorm_sound _ _ E2); reflexivity.
-Qed.
 
 (** *** Applying a single segment to a variable *)
 
@@ -2517,31 +2327,6 @@ Fixpoint wtrace (F : list (lexp * lexp)) (w : word) (h : lexp) (i : nat) : optio
 
 Definition wtgt (F : list (lexp * lexp)) (w : word) (h : lexp) (i : nat) : option ntgt :=
   match wtrace F w h i with Some (Some t) => Some t | _ => None end.
-
-Definition apply_result (F : list (lexp * lexp)) (ntm : nat) (e : aexp) (h : lexp) (i : nat) : option (lexp * nat) :=
-  match anorm F ntm e with
-  | Some w => match wtgt F w h i with Some (NVar h' j) => Some (h', j) | _ => None end
-  | None => None
-  end.
-
-(** A variable sent to a term with the identity payload adjustment after
-    [w]: the term and [w], for [names] to show [w]. *)
-Definition apply_payload (F : list (lexp * lexp)) (ntm : nat) (e : aexp) (h : lexp) (i : nat) : option (nat * word) :=
-  match anorm F ntm e with
-  | Some w => match wtgt F w h i with Some (NBind u wp None) => Some (u, wp) | _ => None end
-  | None => None
-  end.
-
-(** ... checked against the reified adjustment [eb] it was shown as. *)
-Definition apply_bind_check (F : list (lexp * lexp)) (ntm : nat) (e : aexp) (h : lexp) (i : nat) (eb : aexp) : option nat :=
-  match apply_payload F ntm e h i, anorm F ntm eb with
-  | Some (u, wp), Some wb =>
-      match pnormw F ntm None wp, pnormw F ntm None wb with
-      | Some w1, Some w2 => if word_eqb w1 w2 then Some u else None
-      | _, _ => None
-      end
-  | _, _ => None
-  end.
 
 Lemma seg_tgt_sound Sg h i t : sdistd Sg ->
   seg_tgt F Sg h i = Some t -> tdist t /\ rapply (sden Sg) (mk_rvar (lden h) i) = rtarget_result (tden t).
@@ -2579,85 +2364,16 @@ Proof.
   intros H; injection H as <-; exact (wtrace_sound _ _ _ _ Hd E).
 Qed.
 
-Theorem apply_result_sound e h i h' j :
-  apply_result F ntm e h i = Some (h', j) ->
-  rapply (aeden e) (mk_rvar (lden h) i) = inl (mk_rvar (lden h') j).
-Proof.
-  unfold apply_result; destruct (anorm F ntm e) as [w|] eqn:E; [|discriminate].
-  destruct (wtgt F w h i) as [[h1 j1|]|] eqn:Et; try discriminate; intros H; injection H as <- <-.
-  rewrite <- (proj1 anorm_sound _ _ E), (proj2 (wtgt_sound _ _ _ _ (anorm_dist _ _ E) Et)); reflexivity.
-Qed.
-
-Theorem apply_bind_sound e h i eb u x :
-  apply_bind_check F ntm e h i eb = Some u -> nth_error tenv u = Some x ->
-  rapply (aeden e) (mk_rvar (lden h) i) = inr (x, rpcompose (aeden eb) rpidentity).
-Proof.
-  unfold apply_bind_check, apply_payload; destruct (anorm F ntm e) as [w|] eqn:E; [|discriminate].
-  destruct (wtgt F w h i) as [[|u0 wp [b|]]|] eqn:Et; try discriminate.
-  destruct (anorm F ntm eb) as [wb|] eqn:Eb; [|discriminate].
-  destruct (pnormw F ntm None wp) as [w1|] eqn:E1; [|discriminate].
-  destruct (pnormw F ntm None wb) as [w2|] eqn:E2; [|discriminate].
-  destruct (word_eqb w1 w2) eqn:Ew; [|discriminate]; intros H; injection H as <-; intros Hx.
-  apply (proj2 (proj2 (proj2 nf_eqb_eq))) in Ew; subst w2.
-  destruct (wtgt_sound _ _ _ _ (anorm_dist _ _ E) Et) as [Hwp Eq].
-  rewrite <- (proj1 anorm_sound _ _ E), Eq, (tden_bind _ _ _ _ Hx); cbn [rtarget_result].
-  rewrite <- (proj1 anorm_sound _ _ Eb).
-  rewrite <- (proj2 (pnormw_sound None wp w1 Hwp E1)).
-  change (@rpidentity T) with (bden None); rewrite <- (proj2 (pnormw_sound None wb w1 (anorm_dist _ _ Eb) E2)); reflexivity.
-Qed.
-
 (** *** Materialised payloads
 
-    Two segments that are the same except that, where the first sends a
-    variable to a term [u⟨w⟩], the second sends it to a term atom [k] with
-    the identity payload adjustment, where [k] is [u] with the payload
-    adjustment applied ([facts], checked against the reified adjustment
-    the payload was shown as). *)
+    Results that are the same except that, where the first is a term
+    [u⟨ρ⟩], the second is the term [g ρ u] with the identity payload
+    adjustment ([mrel]); and the facts that say which term atoms are
+    such [g ρ u].  [Eval] checks two adjustments against them. *)
 Fixpoint mfind (facts : list (nat * nat * aexp)) (k : nat) : option (nat * aexp) :=
   match facts with
   | [] => None
   | (k', u, eb) :: r => if Nat.eqb k k' then Some (u, eb) else mfind r k
-  end.
-
-Definition tmat (F : list (lexp * lexp)) (ntm : nat) (facts : list (nat * nat * aexp)) (t t' : ntgt) : bool :=
-  ntgt_eqb t t'
-  || match t, t' with
-     | NBind u wp None, NBind k (WEnd SNil) None =>
-         match mfind facts k with
-         | Some (u', eb) =>
-             Nat.eqb u u' && (u <? ntm) && (k <? ntm)
-             && match anorm F ntm eb with
-                | Some wb =>
-                    match pnormw F ntm None wp, pnormw F ntm None wb with
-                    | Some w1, Some w2 => word_eqb w1 w2
-                    | _, _ => false
-                    end
-                | None => false
-                end
-         | None => false
-         end
-     | _, _ => false
-     end.
-
-Fixpoint tlmat F ntm facts (ts ts' : tlist) : bool :=
-  match ts, ts' with
-  | TNil, TNil => true
-  | TCons t r, TCons t' r' => tmat F ntm facts t t' && tlmat F ntm facts r r'
-  | _, _ => false
-  end.
-
-Fixpoint smat F ntm facts (s s' : seg) : bool :=
-  match s, s' with
-  | SNil, SNil => true
-  | SEnt h ts m r, SEnt h' ts' m' r' =>
-      lexp_eqb h h' && tlmat F ntm facts ts ts' && Nat.eqb m m' && smat F ntm facts r r'
-  | _, _ => false
-  end.
-
-Definition mat_eqb (F : list (lexp * lexp)) (ntm : nat) (facts : list (nat * nat * aexp)) (e e' : aexp) : bool :=
-  match anorm F ntm e, anorm F ntm e' with
-  | Some (WEnd S1), Some (WEnd S2) => smat F ntm facts S1 S2
-  | _, _ => false
   end.
 
 Section Mat.
@@ -2677,69 +2393,6 @@ Qed.
 
 Definition mrel (r r' : rresult T) : Prop :=
   r = r' \/ exists u ρ, r = inr (u, ρ) /\ r' = inr (g ρ u, rpidentity).
-
-Lemma tmat_sound t t' : tdist t -> tmat F ntm facts t t' = true -> mrel (rtarget_result (tden t)) (rtarget_result (tden t')).
-Proof.
-  intros Htd; unfold tmat; destruct (ntgt_eqb t t') eqn:E; cbn [orb].
-  { intros _; left; apply (proj1 nf_eqb_eq) in E; subst; reflexivity. }
-  destruct t as [|u wp [b|]]; try discriminate; destruct t' as [|k [[|]|] [b'|]]; try discriminate.
-  destruct (mfind facts k) as [[u' eb]|] eqn:Ef; [|discriminate].
-  destruct (Nat.eqb u u') eqn:Eu; [|discriminate]; apply Nat.eqb_eq in Eu; subst u'.
-  destruct (u <? ntm) eqn:Hu; [|discriminate]; destruct (k <? ntm) eqn:Hk; [|discriminate].
-  apply Nat.ltb_lt in Hu, Hk; cbn [andb].
-  destruct (anorm F ntm eb) as [wb|] eqn:Eb; [|discriminate].
-  destruct (pnormw F ntm None wp) as [w1|] eqn:E1; [|discriminate].
-  destruct (pnormw F ntm None wb) as [w2|] eqn:E2; [|discriminate].
-  intros Ew; apply (proj2 (proj2 (proj2 nf_eqb_eq))) in Ew; subst w2.
-  destruct (nth_error tenv u) as [y|] eqn:Ey; [|apply nth_error_None in Ey; lia].
-  right; exists y, (rpcompose (wden wp) rpidentity).
-  rewrite (tden_bind _ _ _ _ Ey), (tden_bind _ _ _ _ (mfind_fact _ _ _ _ Ef Ey)); cbn [rtarget_result]; split; [reflexivity|].
-  rewrite wden_end; change (sden SNil) with (@ridentity T); rewrite rpcompose_identity.
-  do 3 f_equal; change (bden None) with (@rpidentity T).
-  change (rpcompose (aeden eb) (bden None) = rpcompose (wden wp) (bden None)).
-  rewrite <- (proj1 anorm_sound _ _ Eb), <- (proj2 (pnormw_sound None wp w1 Htd E1)),
-    <- (proj2 (pnormw_sound None wb w1 (anorm_dist _ _ Eb) E2)); reflexivity.
-Qed.
-
-Lemma tlmat_len ts ts' : tlmat F ntm facts ts ts' = true -> tlen ts = tlen ts'.
-Proof.
-  revert ts'; induction ts as [|t r IH] using tlist_spine; intros [|t' r']; cbn; try discriminate; [reflexivity|].
-  intros H; apply andb_true_iff in H as [_ H]; rewrite (IH _ H); reflexivity.
-Qed.
-
-Lemma tlmat_nth ts ts' j : tlmat F ntm facts ts ts' = true -> j < tlen ts -> tmat F ntm facts (tnth ts j) (tnth ts' j) = true.
-Proof.
-  revert ts' j; induction ts as [|t r IH] using tlist_spine; intros [|t' r'] j; cbn; try discriminate; [lia|].
-  intros H Hj; apply andb_true_iff in H as [H1 H2]; destruct j; [exact H1|apply IH; [exact H2|lia]].
-Qed.
-
-Lemma smat_get s s' l : smat F ntm facts s s' = true ->
-  match sget l s, sget l s' with
-  | Some (ts, m), Some (ts', m') => tlmat F ntm facts ts ts' = true /\ m = m'
-  | None, None => True
-  | _, _ => False
-  end.
-Proof.
-  revert s'; induction s as [|h ts m r IH] using seg_spine; intros [|h' ts' m' r']; cbn [smat]; try discriminate; [cbn; tauto|].
-  intros H; apply andb_true_iff in H as [H H4]; apply andb_true_iff in H as [H H3]; apply andb_true_iff in H as [H1 H2].
-  apply lexp_eqb_eq in H1; apply Nat.eqb_eq in H3; subst h' m'; cbn [sget].
-  destruct (label_eqb (lden h) l); [split; [exact H2|reflexivity]|apply IH, H4].
-Qed.
-
-Theorem mat_sound e e' : mat_eqb F ntm facts e e' = true -> forall v, mrel (rapply (aeden e) v) (rapply (aeden e') v).
-Proof.
-  unfold mat_eqb; destruct (anorm F ntm e) as [[S1|]|] eqn:E; try discriminate.
-  destruct (anorm F ntm e') as [[S2|]|] eqn:E'; try discriminate.
-  intros Hm; pose proof (anorm_dist _ _ E) as HD; pose proof (anorm_dist _ _ E') as HD'.
-  pose proof (sdistd_sdist _ HD) as Hd; pose proof (sdistd_sdist _ HD') as Hd'; intros [l j].
-  rewrite <- (proj1 anorm_sound _ _ E), <- (proj1 anorm_sound _ _ E'), !wden_end, !rapply_sden by assumption.
-  cbn [v_label v_index]; pose proof (smat_get _ _ l Hm) as Hg.
-  destruct (sget l S1) as [[ts m]|] eqn:Eg, (sget l S2) as [[ts' m']|]; try contradiction; [|left; reflexivity].
-  destruct Hg as [Ht <-]; cbn [esem]; rewrite <- (tlmat_len _ _ Ht).
-  destruct (j <? tlen ts) eqn:Ej; [|left; reflexivity].
-  apply tmat_sound; [|apply tlmat_nth; [exact Ht|apply Nat.ltb_lt, Ej]].
-  apply (proj1 (tldist_iff ts) (sget_dd _ _ _ _ HD Eg)); rewrite tnth_list; apply nth_In; rewrite <- tlen_list; apply Nat.ltb_lt, Ej.
-Qed.
 
 End Mat.
 

@@ -1250,7 +1250,8 @@ Proof.
     exact (conj Hi (conj (extends_refl _) (conj (wnf_id _ _) eq_refl))).
   - intros n _ _ st st' w Hi H; injection H as <- <-.
     refine (conj Hi (conj (extends_refl _) (conj (atom_word lenv labs _ [] n (conj (SSorted_nil _) (Forall_nil _))) _))).
-    exact (proj2 (proj1 (anorm_sound_dist lenv tenv aenv (ext (sdefs st)) F HF ntm Hntm) (AAtom n) _ eq_refl)).
+    rewrite wden_atom, wden_id, rcompose_identity_r; change (sden (ext (sdefs st)) SNil) with (@ridentity T).
+    apply rcompose_identity_l.
   - intros a IHa b IHb Hl [Sa Sb] st st' w Hi; rewrite anorm_s_compose.
     destruct (anorm_s a st) as [[st1 wa]|] eqn:Ea; [|discriminate].
     destruct (IHa (fun x Hx => Hl x (in_or_app _ _ _ (or_introl Hx))) Sa _ _ _ Hi Ea) as [Hi1 [Hx1 [Hwa Da]]].
@@ -1652,6 +1653,42 @@ Lemma two_spec_at {T : Type} (lenv : list label) (tenv : list T) (aenv : list (r
   /\ (unfold N (sdefs st2) w1 = unfold N (sdefs st2) w2 -> w1 = w2).
 Proof. intros <-; apply two_spec; assumption. Qed.
 
+Lemma one_spec_at {T : Type} (lenv : list label) (tenv : list T) (aenv : list (radj T)) (penv : list (rpadj T))
+    (labs : list lexp) (F : list (lexp * lexp)) (HF : facts_ok lenv F) (ntm : nat) (Hntm : ntm <= List.length tenv)
+    (N : nat) (e : aexp) st w :
+  List.length penv = N -> incl (alabs e) labs -> ascope N e ->
+  anorm_s N F ntm e (mk_sst [] []) = Some (st, w) ->
+  wnf lenv labs N false (unfold N (sdefs st) w)
+  /\ wden lenv tenv aenv penv (unfold N (sdefs st) w) = aeden lenv tenv aenv penv e.
+Proof.
+  intros HP Hl Hs E.
+  destruct (two_spec_at lenv tenv aenv penv labs F HF ntm Hntm N e AId st w st (WEnd SNil) HP Hl
+              (fun x (H : In x []) => match H with end) Hs I E eq_refl) as [A [_ [B _]]]; exact (conj A B).
+Qed.
+
+(** Theorem 1 of [docs/normal-forms.md]: the unfolding of what the
+    normaliser returns is in normal form. *)
+Theorem anorm_s_normal lenv labs F ntm N e st w :
+  facts_ok lenv F -> incl (alabs e) labs -> apmax e <= N ->
+  anorm_s N F ntm e (mk_sst [] []) = Some (st, w) -> wnf lenv labs N false (unfold N (sdefs st) w).
+Proof.
+  intros HF Hl HN E; destruct (pad_spec N (@nil (rpadj unit))) as [P [HP _]].
+  assert (Hntm : ntm <= List.length (repeat tt ntm)) by (rewrite repeat_length; lia).
+  exact (proj1 (one_spec_at lenv (repeat tt ntm) [] P labs F HF ntm Hntm N e st w HP Hl (proj1 (scope_max N) e HN) E)).
+Qed.
+
+(** ... and means what the expression means. *)
+Theorem anorm_s_sound {T : Type} (lenv : list label) (tenv : list T) (aenv : list (radj T)) (penv : list (rpadj T))
+    (F : list (lexp * lexp)) (HF : facts_ok lenv F) (ntm : nat) (Hntm : ntm <= List.length tenv) (N : nat) (e : aexp) st w :
+  apmax e <= N -> anorm_s N F ntm e (mk_sst [] []) = Some (st, w) ->
+  wden lenv tenv aenv penv (unfold N (sdefs st) w) = aeden lenv tenv aenv penv e.
+Proof.
+  intros HN E; destruct (pad_spec N penv) as [P [HP Hag]]; pose proof (proj1 (scope_max N) e HN) as Hs.
+  destruct (one_spec_at lenv tenv aenv P (alabs e) F HF ntm Hntm N e st w HP (incl_refl _) Hs E) as [A B].
+  rewrite <- (wden_agree lenv tenv aenv (alabs e) N P penv Hag false _ A), B.
+  exact (proj1 (eden_agree lenv tenv aenv N P penv Hag) e Hs).
+Qed.
+
 Theorem complete_sh lenv F ntm e1 e2 st1 w1 st2 w2 :
   facts_ok lenv F ->
   (forall lenv' (T : Type) (tenv : list T) aenv penv, facts_ok lenv' F -> ntm <= List.length tenv ->
@@ -1693,4 +1730,33 @@ Proof.
     rewrite (proj1 (eden_agree l (tenvT nt) aenv N P penv Hag) e1 S1).
     rewrite (proj1 (eden_agree l (tenvT nt) aenv N P penv Hag) e2 S2).
     apply Heq; assumption.
+Qed.
+
+(** ** Evaluating a variable
+
+    Theorem 4 of [docs/normal-forms.md].  A variable is followed through
+    the stored word as through its unfolding, which differ only in the
+    payloads of terms.  When it reaches a target, that is the result
+    ([wtrace_sound]; [Eval] reads results off this way).  When it is
+    stuck at an atom, with every label comparison known, no target is
+    the result under every interpretation. *)
+
+Lemma wtrace_stuck_unfold F np U w h i : wtrace F w h i = Some None -> wtrace F (unf_w np U w) h i = Some None.
+Proof.
+  destruct w as [s|s L a w]; cbn [unf_w wtrace].
+  - destruct (seg_tgt F s h i); discriminate.
+  - destruct (wtrace F w h i) as [[[h1 j1|? ? ?]|]|]; try discriminate; [|intros _; reflexivity].
+    destruct (lcnt F h1 L) as [c|]; [|discriminate]; destruct (j1 <? c); [|intros _; reflexivity].
+    destruct (seg_tgt F s h1 j1); discriminate.
+Qed.
+
+Theorem eval_stuck lenv F ntm e st w h i :
+  facts_ok lenv F -> anorm_s (apmax e) F ntm e (mk_sst [] []) = Some (st, w) -> wtrace F w h i = Some None ->
+  ~ exists t, forall (T : Type) (tenv : list T) aenv penv, ntm <= List.length tenv ->
+      rapply (aeden lenv tenv aenv penv e) (mk_rvar (lden lenv h) i) = rtarget_result (tden lenv tenv aenv penv t).
+Proof.
+  intros HF E Hs; apply (stuck_word lenv (alabs e) (apmax e) F ntm e (unfold (apmax e) (sdefs st) w) h i HF).
+  - exact (anorm_s_normal lenv (alabs e) F ntm (apmax e) e st w HF (incl_refl _) (le_n _) E).
+  - intros T tenv aenv penv Hntm; exact (anorm_s_sound lenv tenv aenv penv F HF ntm Hntm (apmax e) e st w (le_n _) E).
+  - apply wtrace_stuck_unfold, Hs.
 Qed.
