@@ -19,7 +19,7 @@ Import ListNotations.
 (** ** Evaluation *)
 
 Definition apply_result_s (F : list (lexp * lexp)) (ntm : nat) (e : aexp) (h : lexp) (i : nat) : option (lexp * nat) :=
-  match anorm_s (apmax e) F ntm e (mk_sst [] []) with
+  match anorm_s (apmax e) F ntm e sst0 with
   | Some (_, w) => match wtgt F w h i with Some (NVar h' j) => Some (h', j) | _ => None end
   | None => None
   end.
@@ -29,7 +29,7 @@ Definition apply_result_s (F : list (lexp * lexp)) (ntm : nat) (e : aexp) (h : l
     stored term. *)
 Definition apply_bind_check_s (F : list (lexp * lexp)) (ntm : nat) (e : aexp) (h : lexp) (i : nat) (eb : aexp) : option nat :=
   let N := Nat.max (apmax e) (apmax eb) in
-  match anorm_s N F ntm e (mk_sst [] []) with
+  match anorm_s N F ntm e sst0 with
   | Some (st1, w) =>
       match wtgt F w h i with
       | Some (NBind u p b) =>
@@ -71,12 +71,12 @@ Fixpoint nfind (l : list (nat * ntgt)) (k : nat) : option ntgt :=
   match l with [] => None | (k', t) :: r => if Nat.eqb k k' then Some t else nfind r k end.
 
 Definition tmat_s (ntm : nat) (l : list (nat * ntgt)) (t t' : ntgt) : bool :=
-  ntgt_eqb t t'
-  || match t' with
-     | NBind k (WEnd SNil) None =>
-         match nfind l k with Some tk => ntgt_eqb t tk && (k <? ntm) | None => false end
-     | _ => false
-     end.
+  if ntgt_eqb t t' then true
+  else match t' with
+       | NBind k (WEnd SNil) None =>
+           match nfind l k with Some tk => ntgt_eqb t tk && (k <? ntm) | None => false end
+       | _ => false
+       end.
 
 Fixpoint tlmat_s (ntm : nat) (l : list (nat * ntgt)) (ts ts' : tlist) : bool :=
   match ts, ts' with
@@ -95,7 +95,7 @@ Fixpoint smat_s (ntm : nat) (l : list (nat * ntgt)) (s s' : seg) : bool :=
 
 Definition mat_eqb_s (F : list (lexp * lexp)) (ntm : nat) (facts : list (nat * nat * aexp)) (e e' : aexp) : bool :=
   let N := Nat.max (apmax e) (Nat.max (apmax e') (fpmax facts)) in
-  match anorm_s N F ntm e (mk_sst [] []) with
+  match anorm_s N F ntm e sst0 with
   | Some (st1, WEnd S1) =>
       match anorm_s N F ntm e' st1 with
       | Some (st2, WEnd S2) =>
@@ -129,13 +129,13 @@ Theorem apply_result_s_sound e h i h' j :
   apply_result_s F ntm e h i = Some (h', j) ->
   rapply (aeden penv e) (mk_rvar (lden h) i) = inl (mk_rvar (lden h') j).
 Proof.
-  unfold apply_result_s; destruct (anorm_s (apmax e) F ntm e (mk_sst [] [])) as [[st w]|] eqn:E; [|discriminate].
+  unfold apply_result_s; destruct (anorm_s (apmax e) F ntm e sst0) as [[st w]|] eqn:E; [|discriminate].
   destruct (wtgt F w h i) as [[h1 j1|]|] eqn:Et; try discriminate; intros H; injection H as <- <-.
   destruct (pad_spec (apmax e) penv) as [P [HP Hag]].
   pose proof (proj1 (scope_max (apmax e)) e (le_n _)) as Sc.
   rewrite <- (proj1 (eden_agree lenv tenv aenv (apmax e) P penv Hag) e Sc).
   rewrite <- HP in E, Sc.
-  assert (Hi0 : inv lenv tenv aenv P (alabs e) (mk_sst [] [])) by (split; [exact I|constructor]).
+  pose proof (inv0 lenv tenv aenv P (alabs e)) as Hi0.
   destruct (proj1 (norm_s_spec lenv tenv aenv P (alabs e) F HF ntm Hntm) e (incl_refl _) Sc _ _ _ Hi0 E) as [_ [_ [Hw D]]].
   rewrite <- D, (proj2 (wtgt_sound lenv tenv aenv _ F HF ntm Hntm w h i _ (wnf_dist _ _ _ _ _ Hw) Et)); reflexivity.
 Qed.
@@ -145,7 +145,7 @@ Theorem apply_bind_s_sound e h i eb u x :
   rapply (aeden penv e) (mk_rvar (lden h) i) = inr (x, rpcompose (aeden penv eb) rpidentity).
 Proof.
   unfold apply_bind_check_s; set (N := Nat.max (apmax e) (apmax eb)).
-  destruct (anorm_s N F ntm e (mk_sst [] [])) as [[st1 w]|] eqn:E; [|discriminate].
+  destruct (anorm_s N F ntm e sst0) as [[st1 w]|] eqn:E; [|discriminate].
   destruct (wtgt F w h i) as [[|u0 p b]|] eqn:Et; try discriminate.
   destruct (tnorm_s N F ntm (TBindE u0 (PComp eb PId)) st1) as [[st2 t']|] eqn:Eb; [|discriminate].
   destruct (ntgt_eqb (NBind u0 p b) t') eqn:Eq; [|discriminate]; intros H; injection H as <-; intros Hx.
@@ -156,7 +156,7 @@ Proof.
   rewrite <- (proj1 (eden_agree lenv tenv aenv N P penv Hag) e S1), <- (proj1 (eden_agree lenv tenv aenv N P penv Hag) eb S2).
   rewrite <- HP in E, Eb, S1, S2.
   set (labs := alabs e ++ alabs eb).
-  assert (Hi0 : inv lenv tenv aenv P labs (mk_sst [] [])) by (split; [exact I|constructor]).
+  pose proof (inv0 lenv tenv aenv P labs) as Hi0.
   assert (Hl1 : incl (alabs e) labs) by (intros y Hy; apply in_or_app; left; exact Hy).
   assert (Hl2 : incl (tlabs (TBindE u0 (PComp eb PId))) labs).
   { intros y Hy; apply in_or_app; right; change (In y (alabs eb ++ [])) in Hy; rewrite app_nil_r in Hy; exact Hy. }
@@ -268,7 +268,7 @@ Theorem mat_s_sound e e' :
   mat_eqb_s F ntm facts e e' = true -> forall v, mrel g (rapply (aeden penv e) v) (rapply (aeden penv e') v).
 Proof.
   unfold mat_eqb_s; set (N := Nat.max (apmax e) (Nat.max (apmax e') (fpmax facts))).
-  destruct (anorm_s N F ntm e (mk_sst [] [])) as [[st1 [S1|]]|] eqn:E1; try discriminate.
+  destruct (anorm_s N F ntm e sst0) as [[st1 [S1|]]|] eqn:E1; try discriminate.
   destruct (anorm_s N F ntm e' st1) as [[st2 [S2|]]|] eqn:E2; try discriminate.
   destruct (nfacts N F ntm facts st2) as [[st3 l]|] eqn:E3; [|discriminate]; intros Hm.
   destruct (pad_spec N penv) as [P [HP Hag]].
@@ -283,7 +283,7 @@ Proof.
   assert (Hfs : forall k u eb, In (k, u, eb) facts -> incl (alabs eb) labs /\ ascope (List.length P) eb).
   { intros k u eb H; split; [|rewrite HP; exact (Scf k u eb H)].
     intros y Hy; apply in_or_app; right; apply in_or_app; right; apply in_flat_map; exists (k, u, eb); exact (conj H Hy). }
-  assert (Hi0 : inv lenv tenv aenv P labs (mk_sst [] [])) by (split; [exact I|constructor]).
+  pose proof (inv0 lenv tenv aenv P labs) as Hi0.
   pose proof Sc1 as Sc1'; pose proof Sc2 as Sc2'; rewrite <- HP in E1, E2, E3, Sc1', Sc2'.
   destruct (proj1 (norm_s_spec lenv tenv aenv P labs F HF ntm Hntm) e Hl1 Sc1' _ _ _ Hi0 E1) as [Hi1 [_ [Hw1 D1]]].
   destruct (proj1 (norm_s_spec lenv tenv aenv P labs F HF ntm Hntm) e' Hl2 Sc2' _ _ _ Hi1 E2) as [Hi2 [Hx2 [Hw2 D2]]].
@@ -390,7 +390,7 @@ Inductive shown : Type :=
 | ShWord (w : word).
 
 Definition anorm_show (F : list (lexp * lexp)) (ntm : nat) (e : aexp) : shown :=
-  match anorm_s (apmax e) F ntm e (mk_sst [] []) with
+  match anorm_s (apmax e) F ntm e sst0 with
   | Some (st, w) =>
       match unfold_small (apmax e) show_budget (sdefs st) w with Some w' => ShWord w' | None => ShLarge end
   | None => ShNone
@@ -399,7 +399,7 @@ Definition anorm_show (F : list (lexp * lexp)) (ntm : nat) (e : aexp) : shown :=
 (** A variable sent to a term whose payload ends with the identity: the
     term and the payload word, for [names] to show the word. *)
 Definition apply_payload_s (F : list (lexp * lexp)) (ntm : nat) (e : aexp) (h : lexp) (i : nat) : option (nat * word) :=
-  match anorm_s (apmax e) F ntm e (mk_sst [] []) with
+  match anorm_s (apmax e) F ntm e sst0 with
   | Some (st, w) =>
       match wtgt F w h i with
       | Some (NBind u p None) => Some (u, p)

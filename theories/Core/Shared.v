@@ -12,9 +12,19 @@
     The operations of the normaliser run unchanged on flat words, a
     defined atom being as opaque as any payload atom; [flatten] then names
     the payloads of the result.  The meaning of a definition table is an
-    extension of the payload environment. *)
+    extension of the payload environment.
 
-From Stdlib Require Import Arith List Lia Bool Sorted.
+    This is the normaliser: [anorm_s] normalises an expression into a
+    table, and [nf_eq_sh] decides an equation by normalising both sides
+    into one table and comparing the stored words.  The normal form of
+    [docs/normal-forms.md] is the [unfold]ing of a stored word, and its
+    theorems are here: the unfolding is in normal form
+    ([anorm_s_normal]) and means what the expression means
+    ([anorm_s_sound]); the decision is sound ([nf_eq_sh_sound]) and
+    complete ([complete_sh]); a stuck evaluation has no result
+    ([eval_stuck]). *)
+
+From Stdlib Require Import Arith List Lia Bool Sorted PArith FMapPositive.
 From ShiftedNames.Core Require Import Label Var Adjustment Laws Normalise Unique Normal Complete.
 Import ListNotations.
 
@@ -29,17 +39,30 @@ Definition obeqb (b b' : option nat) : bool :=
 Lemma obeqb_eq b b' : obeqb b b' = true -> b = b'.
 Proof. destruct b, b'; cbn; try discriminate; [intros H; apply Nat.eqb_eq in H; subst|]; reflexivity. Qed.
 
-Definition pdef_eqb (d d' : pdef) : bool := word_eqb (fst d) (fst d') && obeqb (snd d) (snd d').
+Definition pdef_eqb (d d' : pdef) : bool := if word_eqb (fst d) (fst d') then obeqb (snd d) (snd d') else false.
 
 Lemma pdef_eqb_eq d d' : pdef_eqb d d' = true -> d = d'.
 Proof.
-  destruct d as [w b], d' as [w' b']; unfold pdef_eqb; cbn [fst snd]; intros H; apply andb_true_iff in H as [H1 H2].
+  destruct d as [w b], d' as [w' b']; unfold pdef_eqb; cbn [fst snd]; intros H; apply landb_true_iff in H as [H1 H2].
   apply (proj2 (proj2 (proj2 nf_eqb_eq))) in H1; apply obeqb_eq in H2; subst; reflexivity.
 Qed.
 
-(** The definitions, newest first, and what has been flattened already:
-    [(β, p, b')] says [p] over the defined atom [β] is [b']. *)
-Record sst := mk_sst { sdefs : list pdef; smemo : list (nat * word * option nat) }.
+(** What has been flattened already: [(β, p, b')] says [p] over the
+    defined atom [β] is [b'].  Kept per atom. *)
+Definition memo := PositiveMap.t (list (nat * word * option nat)).
+
+Definition mkey (β : nat) : positive := Pos.of_succ_nat β.
+
+Definition mget (m : memo) (β : nat) : list (nat * word * option nat) :=
+  match PositiveMap.find (mkey β) m with Some l => l | None => [] end.
+
+Definition madd (m : memo) (β : nat) (p : word) (r : option nat) : memo :=
+  PositiveMap.add (mkey β) ((β, p, r) :: mget m β) m.
+
+(** The definitions, newest first, and the memo. *)
+Record sst := mk_sst { sdefs : list pdef; smemo : memo }.
+
+Definition sst0 : sst := mk_sst [] (PositiveMap.empty _).
 
 Definition is_id (w : word) : bool := match w with WEnd SNil => true | _ => false end.
 
@@ -69,11 +92,13 @@ Definition alloc (ds : list pdef) (w : word) (b : option nat) : list pdef * opti
        | None => ((w, b) :: ds, Some (np + List.length ds))
        end.
 
-Fixpoint mlook (m : list (nat * word * option nat)) (β : nat) (p : word) : option (option nat) :=
+Fixpoint blook (m : list (nat * word * option nat)) (β : nat) (p : word) : option (option nat) :=
   match m with
   | [] => None
-  | (β', p', r) :: m => if Nat.eqb β β' && word_eqb p p' then Some r else mlook m β p
+  | (β', p', r) :: m => if (if Nat.eqb β β' then word_eqb p p' else false) then Some r else blook m β p
   end.
+
+Definition mlook (m : memo) (β : nat) (p : word) : option (option nat) := blook (mget m β) β p.
 
 (** ** Flattening *)
 
@@ -117,7 +142,7 @@ Definition fl_t (st : sst) (t : ntgt) : option (sst * ntgt) :=
                                   | None => None
                                   | Some (st2, q') =>
                                       let '(ds, b') := alloc (sdefs st2) q' b0 in
-                                      Some (mk_sst ds ((β, p1, b') :: smemo st2), NBind u (WEnd SNil) b')
+                                      Some (mk_sst ds (madd (smemo st2) β p1 b'), NBind u (WEnd SNil) b')
                                   end
                               end
                           end
@@ -260,7 +285,7 @@ with pnorm_e_s (p : pexp) (st : sst) : option (sst * (word * option nat)) :=
 (** The decision: normalised in one table, the two sides are the same
     stored word. *)
 Definition nf_eq_s (e1 e2 : aexp) : bool :=
-  match anorm_s e1 (mk_sst [] []) with
+  match anorm_s e1 sst0 with
   | Some (st1, w1) =>
       match anorm_s e2 st1 with
       | Some (_, w2) => word_eqb w1 w2
@@ -922,16 +947,32 @@ Proof.
   rewrite (bden_up _ _ _ Hx H3), (wden_up _ _ _ _ Hx H1), (bden_up _ _ _ Hx H2); exact H4.
 Qed.
 
-Definition inv (st : sst) : Prop := dok (sdefs st) /\ Forall (mok (sdefs st)) (smemo st).
+Definition mall (Q : nat * word * option nat -> Prop) (m : memo) : Prop := forall β e, In e (mget m β) -> Q e.
 
-Lemma mlook_in m β p r : mlook m β p = Some r -> In (β, p, r) m.
+Lemma mall_add Q m β p r : mall Q m -> Q (β, p, r) -> mall Q (madd m β p r).
 Proof.
-  induction m as [|[[β' p'] r'] m IH]; cbn [mlook]; [discriminate|].
-  destruct (Nat.eqb β β' && word_eqb p p') eqn:E.
-  - intros H; injection H as <-; apply andb_true_iff in E as [E1 E2]; apply Nat.eqb_eq in E1.
+  intros Hm Hq β' e; unfold madd, mget at 1.
+  destruct (Pos.eq_dec (mkey β') (mkey β)) as [E|E].
+  - rewrite E, PositiveMap.gss; intros [<-|H]; [exact Hq|exact (Hm β e H)].
+  - rewrite PositiveMap.gso by exact E; exact (Hm β' e).
+Qed.
+
+Definition inv (st : sst) : Prop := dok (sdefs st) /\ mall (mok (sdefs st)) (smemo st).
+
+Lemma inv0 : inv sst0.
+Proof. split; [exact I|intros β e; unfold mget; cbn [smemo sst0]; rewrite PositiveMap.gempty; intros []]. Qed.
+
+Lemma blook_in m β p r : blook m β p = Some r -> In (β, p, r) m.
+Proof.
+  induction m as [|[[β' p'] r'] m IH]; cbn [blook]; [discriminate|].
+  destruct (if Nat.eqb β β' then word_eqb p p' else false) eqn:E.
+  - intros H; injection H as <-; apply landb_true_iff in E as [E1 E2]; apply Nat.eqb_eq in E1.
     apply (proj2 (proj2 (proj2 nf_eqb_eq))) in E2; subst; left; reflexivity.
   - intros H; right; exact (IH H).
 Qed.
+
+Lemma mlook_in m β p r : mlook m β p = Some r -> In (β, p, r) (mget m β).
+Proof. apply blook_in. Qed.
 
 Definition flspec (f : sst -> word -> option (sst * word)) : Prop :=
   forall st w st' w' nm, inv st -> wnf (np + List.length (sdefs st)) nm w -> f st w = Some (st', w') ->
@@ -980,7 +1021,7 @@ Proof.
        /\ tden (ext ds) (NBind u (WEnd SNil) b') = tden (ext ds) (NBind u p b)).
     { intros Hbr ds b' Ea.
       destruct (alloc_spec _ _ _ _ _ (proj1 Hi1) Hp1 Hbr Ea) as [Hd [Hx [Hb' Eb']]].
-      split; [split; [exact Hd|eapply Forall_impl; [|exact (proj2 Hi1)]; intros e; apply mok_up, Hx]|].
+      split; [split; [exact Hd|intros β0 e He; exact (mok_up _ _ _ Hx (proj2 Hi1 β0 e He))]|].
       split; [exact (extends_trans _ _ _ Hx1 Hx)|split; [apply flat_tnf, Hb'|split; [exact I|]]].
       apply tden_flat; rewrite Eb', Ep1, (wden_up _ _ _ _ Hx1 Hp), (wden_up _ _ _ _ (extends_trans _ _ _ Hx1 Hx) Hp).
       rewrite (bden_real ds b Hbr); reflexivity. }
@@ -992,7 +1033,7 @@ Proof.
       exact (Hdirect Hβ ds b' eq_refl). }
     destruct (mlook (smemo st1) β p1) as [b'|] eqn:Em.
     { intros H; injection H as <- <-.
-      pose proof (proj1 (Forall_forall _ _) (proj2 Hi1) _ (mlook_in _ _ _ _ Em)) as [M1 [M2 [M3 M4]]].
+      pose proof (proj2 Hi1 _ _ (mlook_in _ _ _ _ Em)) as [M1 [M2 [M3 M4]]].
       split; [exact Hi1|split; [exact Hx1|split; [apply flat_tnf, M3|split; [exact I|]]]].
       apply tden_flat; rewrite M4, Ep1; reflexivity. }
     destruct (dget (sdefs st1) (β - np)) as [[w0 b0]|] eqn:Eg; [|discriminate].
@@ -1020,9 +1061,9 @@ Proof.
       rewrite (wden_up _ _ _ _ Hx13 Hp1); f_equal; cbn [bden]; rewrite <- Eβ.
       destruct Hx13 as [new ->]; symmetry; apply ext_agree; cbn [bok] in Hb; lia. }
     split.
-    { split; [exact Hd3|constructor].
-      - refine (conj (wnf_up _ _ _ _ Hx13 Hp1) (conj _ (conj Hb' E3))); cbn [bok sdefs] in *; lia.
-      - eapply Forall_impl; [|exact (proj2 Hi2)]; intros e; apply mok_up, Hx3. }
+    { split; [exact Hd3|apply mall_add].
+      - intros β0 e He; exact (mok_up _ _ _ Hx3 (proj2 Hi2 β0 e He)).
+      - refine (conj (wnf_up _ _ _ _ Hx13 Hp1) (conj _ (conj Hb' E3))); cbn [bok sdefs] in *; lia. }
     split; [exact (extends_trans _ _ _ Hx1 Hx13)|split; [apply flat_tnf, Hb'|split; [exact I|]]].
     apply tden_flat; rewrite E3, (wden_up _ _ _ _ Hx13 Hp1), Ep1, (wden_up _ _ _ _ Hx1 Hp).
     rewrite (wden_up _ _ _ _ (extends_trans _ _ _ Hx1 Hx13) Hp); reflexivity.
@@ -1073,12 +1114,6 @@ Lemma souts_sim s : forall s' (tail : radj T), ssim s s' -> souts lenv s' tail =
 Proof.
   induction s as [|h ts m r IH] using seg_spine; intros [|h' ts' m' r'] tail; cbn [ssim]; try contradiction; [reflexivity|].
   intros [<- [<- [_ Hr]]]; cbn [souts]; rewrite (IH _ tail Hr); reflexivity.
-Qed.
-
-Lemma sins_up ds ds' s : extends ds ds' -> snf (np + List.length ds) s ->
-  forall tail, sins (ext ds') s tail = sins (ext ds) s tail.
-Proof.
-  intros [new ->] Hs; apply (proj1 (proj2 (proj2 (den_agree (np + List.length ds) _ _ (fun n Hn => ext_agree new ds n Hn))))), Hs.
 Qed.
 
 Section FlSpec.
@@ -1340,10 +1375,10 @@ Theorem nf_eq_s_sound e1 e2 :
   nf_eq_s np F ntm e1 e2 = true -> aeden penv e1 = aeden penv e2.
 Proof.
   intros Hl1 Hl2 Hs1 Hs2; unfold nf_eq_s.
-  destruct (anorm_s e1 (mk_sst [] [])) as [[st1 w1]|] eqn:E1; [|discriminate].
+  destruct (anorm_s e1 sst0) as [[st1 w1]|] eqn:E1; [|discriminate].
   destruct (anorm_s e2 st1) as [[st2 w2]|] eqn:E2; [|discriminate]; intros Ew.
   apply (proj2 (proj2 (proj2 nf_eqb_eq))) in Ew; subst w2.
-  assert (Hi0 : inv (mk_sst [] [])) by (split; [exact I|constructor]).
+  pose proof inv0 as Hi0.
   destruct (proj1 norm_s_spec e1 Hl1 Hs1 _ _ _ Hi0 E1) as [Hi1 [_ [Hw1 D1]]].
   destruct (proj1 norm_s_spec e2 Hl2 Hs2 _ _ _ Hi1 E2) as [_ [Hx2 [_ D2]]].
   rewrite <- D1, <- D2; symmetry; exact (wden_up _ _ _ _ Hx2 Hw1).
@@ -1580,17 +1615,17 @@ Qed.
 (** Two expressions normalised in one table. *)
 Theorem two_spec e1 e2 st1 w1 st2 w2 :
   incl (alabs e1) labs -> incl (alabs e2) labs -> ascope np e1 -> ascope np e2 ->
-  anorm_s e1 (mk_sst [] []) = Some (st1, w1) -> anorm_s e2 st1 = Some (st2, w2) ->
+  anorm_s e1 sst0 = Some (st1, w1) -> anorm_s e2 st1 = Some (st2, w2) ->
   wnf np false (unfold np (sdefs st2) w1) /\ wnf np false (unfold np (sdefs st2) w2)
   /\ wden penv (unfold np (sdefs st2) w1) = aeden penv e1
   /\ wden penv (unfold np (sdefs st2) w2) = aeden penv e2
   /\ (unfold np (sdefs st2) w1 = unfold np (sdefs st2) w2 -> w1 = w2).
 Proof.
   intros Hl1 Hl2 Hs1 Hs2 E1 E2.
-  assert (Hi0 : inv (mk_sst [] [])) by (split; [exact I|constructor]).
+  pose proof inv0 as Hi0.
   destruct (proj1 norm_s_spec e1 Hl1 Hs1 _ _ _ Hi0 E1) as [Hi1 [_ [Hw1 D1]]].
   destruct (proj1 norm_s_spec e2 Hl2 Hs2 _ _ _ Hi1 E2) as [Hi2 [Hx2 [Hw2 D2]]].
-  destruct (proj1 (norm_s_can np F ntm) e1 (mk_sst [] []) _ _ I E1) as [Hc1 Hf1].
+  destruct (proj1 (norm_s_can np F ntm) e1 sst0 _ _ I E1) as [Hc1 Hf1].
   destruct (proj1 (norm_s_can np F ntm) e2 _ _ _ Hc1 E2) as [Hc2 Hf2].
   pose proof (wnf_up _ _ _ _ Hx2 Hw1) as Hw1'.
   destruct (unfold_spec _ _ _ (proj1 Hi2) Hc2 Hw1' Hf1) as [A1 B1].
@@ -1646,7 +1681,7 @@ Lemma two_spec_at {T : Type} (lenv : list label) (tenv : list T) (aenv : list (r
     (labs : list lexp) (F : list (lexp * lexp)) (HF : facts_ok lenv F) (ntm : nat) (Hntm : ntm <= List.length tenv)
     (N : nat) (e1 e2 : aexp) st1 w1 st2 w2 :
   List.length penv = N -> incl (alabs e1) labs -> incl (alabs e2) labs -> ascope N e1 -> ascope N e2 ->
-  anorm_s N F ntm e1 (mk_sst [] []) = Some (st1, w1) -> anorm_s N F ntm e2 st1 = Some (st2, w2) ->
+  anorm_s N F ntm e1 sst0 = Some (st1, w1) -> anorm_s N F ntm e2 st1 = Some (st2, w2) ->
   wnf lenv labs N false (unfold N (sdefs st2) w1) /\ wnf lenv labs N false (unfold N (sdefs st2) w2)
   /\ wden lenv tenv aenv penv (unfold N (sdefs st2) w1) = aeden lenv tenv aenv penv e1
   /\ wden lenv tenv aenv penv (unfold N (sdefs st2) w2) = aeden lenv tenv aenv penv e2
@@ -1657,7 +1692,7 @@ Lemma one_spec_at {T : Type} (lenv : list label) (tenv : list T) (aenv : list (r
     (labs : list lexp) (F : list (lexp * lexp)) (HF : facts_ok lenv F) (ntm : nat) (Hntm : ntm <= List.length tenv)
     (N : nat) (e : aexp) st w :
   List.length penv = N -> incl (alabs e) labs -> ascope N e ->
-  anorm_s N F ntm e (mk_sst [] []) = Some (st, w) ->
+  anorm_s N F ntm e sst0 = Some (st, w) ->
   wnf lenv labs N false (unfold N (sdefs st) w)
   /\ wden lenv tenv aenv penv (unfold N (sdefs st) w) = aeden lenv tenv aenv penv e.
 Proof.
@@ -1670,7 +1705,7 @@ Qed.
     normaliser returns is in normal form. *)
 Theorem anorm_s_normal lenv labs F ntm N e st w :
   facts_ok lenv F -> incl (alabs e) labs -> apmax e <= N ->
-  anorm_s N F ntm e (mk_sst [] []) = Some (st, w) -> wnf lenv labs N false (unfold N (sdefs st) w).
+  anorm_s N F ntm e sst0 = Some (st, w) -> wnf lenv labs N false (unfold N (sdefs st) w).
 Proof.
   intros HF Hl HN E; destruct (pad_spec N (@nil (rpadj unit))) as [P [HP _]].
   assert (Hntm : ntm <= List.length (repeat tt ntm)) by (rewrite repeat_length; lia).
@@ -1680,7 +1715,7 @@ Qed.
 (** ... and means what the expression means. *)
 Theorem anorm_s_sound {T : Type} (lenv : list label) (tenv : list T) (aenv : list (radj T)) (penv : list (rpadj T))
     (F : list (lexp * lexp)) (HF : facts_ok lenv F) (ntm : nat) (Hntm : ntm <= List.length tenv) (N : nat) (e : aexp) st w :
-  apmax e <= N -> anorm_s N F ntm e (mk_sst [] []) = Some (st, w) ->
+  apmax e <= N -> anorm_s N F ntm e sst0 = Some (st, w) ->
   wden lenv tenv aenv penv (unfold N (sdefs st) w) = aeden lenv tenv aenv penv e.
 Proof.
   intros HN E; destruct (pad_spec N penv) as [P [HP Hag]]; pose proof (proj1 (scope_max N) e HN) as Hs.
@@ -1693,7 +1728,7 @@ Theorem complete_sh lenv F ntm e1 e2 st1 w1 st2 w2 :
   facts_ok lenv F ->
   (forall lenv' (T : Type) (tenv : list T) aenv penv, facts_ok lenv' F -> ntm <= List.length tenv ->
      aeden lenv' tenv aenv penv e1 = aeden lenv' tenv aenv penv e2) ->
-  anorm_s (Nat.max (apmax e1) (apmax e2)) F ntm e1 (mk_sst [] []) = Some (st1, w1) ->
+  anorm_s (Nat.max (apmax e1) (apmax e2)) F ntm e1 sst0 = Some (st1, w1) ->
   anorm_s (Nat.max (apmax e1) (apmax e2)) F ntm e2 st1 = Some (st2, w2) ->
   nf_eq_sh F ntm e1 e2 = true.
 Proof.
@@ -1751,7 +1786,7 @@ Proof.
 Qed.
 
 Theorem eval_stuck lenv F ntm e st w h i :
-  facts_ok lenv F -> anorm_s (apmax e) F ntm e (mk_sst [] []) = Some (st, w) -> wtrace F w h i = Some None ->
+  facts_ok lenv F -> anorm_s (apmax e) F ntm e sst0 = Some (st, w) -> wtrace F w h i = Some None ->
   ~ exists t, forall (T : Type) (tenv : list T) aenv penv, ntm <= List.length tenv ->
       rapply (aeden lenv tenv aenv penv e) (mk_rvar (lden lenv h) i) = rtarget_result (tden lenv tenv aenv penv t).
 Proof.

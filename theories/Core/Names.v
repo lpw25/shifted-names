@@ -8,10 +8,10 @@
     in the context ([label_compare] provides them by case analysis).
 
     The goal is taken to the raw layer, reified into [aexp], both sides are
-    normalised
-    (Normalise.v), and the normal forms compared.  The tactic fails when
-    the normal forms differ, or when normalisation needed the order
-    between two labels and no hypothesis gave it. *)
+    normalised into one table (Shared.v), and the stored normal forms
+    compared.  The tactic fails when the normal forms differ, or when
+    normalisation needed the order between two labels and no hypothesis
+    gave it. *)
 
 From Stdlib Require Import List String Arith Bool StrictProp.
 Open Scope bool_scope.
@@ -675,7 +675,7 @@ Fixpoint mat_targets (s : seg) : list (nat * word) :=
 Fixpoint mat_lookup (rep : list (nat * word * nat)) (u : nat) (wp : word) : option nat :=
   match rep with
   | [] => None
-  | (u', wp', k) :: r => if Nat.eqb u u' && word_eqb wp wp' then Some k else mat_lookup r u wp
+  | (u', wp', k) :: r => if (if Nat.eqb u u' then word_eqb wp wp' else false) then Some k else mat_lookup r u wp
   end.
 
 Fixpoint smat_apply (rep : list (nat * word * nat)) (s : seg) : seg :=

@@ -3,6 +3,9 @@
     Goals between adjustments are decided by reflection: both sides are
     reified into [aexp], an expression over label atoms, adjustment atoms,
     payload atoms and term atoms, normalised to a [word], and compared.
+    This file has the words, the operations on them that the normaliser
+    is built from, and their soundness; the normaliser itself, which
+    stores payloads shared, is in [Shared].
 
     ** Normal forms
 
@@ -161,9 +164,6 @@ Proof.
     destruct (lt_known F b a) eqn:L2; [intros H; injection H as <-; apply lt_known_sound, L2|discriminate].
 Qed.
 
-Lemma lcmp_eq a b : lcmp F a b = Some Eq -> lden a = lden b.
-Proof. intros H; apply lcmp_sound in H; cbn in H; subst; reflexivity. Qed.
-
 Lemma lcmp_neq a b c : lcmp F a b = Some c -> c <> Eq -> lden a <> lden b.
 Proof.
   intros H Hc; apply lcmp_sound in H; destruct c; cbn in H; [contradiction| |];
@@ -232,40 +232,49 @@ Fixpoint stargets (s : seg) : list ntgt :=
 Lemma tl_of_list ts : tl_of (tl_list ts) = ts.
 Proof. induction ts; cbn; congruence. Qed.
 
-(** *** Decidable equality *)
+(** *** Decidable equality
+
+    With the lazy conjunction: a comparison stops at the first
+    difference, also under [vm_compute], which evaluates the arguments
+    of [&&] before calling it. *)
+
+Local Open Scope lazy_bool_scope.
+
+Lemma landb_true_iff (a b : bool) : a &&& b = true <-> a = true /\ b = true.
+Proof. destruct a, b; cbn; tauto. Qed.
 
 Fixpoint lifts_eqb (L L' : list (lexp * nat)) : bool :=
   match L, L' with
   | [], [] => true
-  | (h, n) :: L, (h', n') :: L' => lexp_eqb h h' && Nat.eqb n n' && lifts_eqb L L'
+  | (h, n) :: L, (h', n') :: L' => lexp_eqb h h' &&& Nat.eqb n n' &&& lifts_eqb L L'
   | _, _ => false
   end.
 
 Lemma lifts_eqb_eq L L' : lifts_eqb L L' = true -> L = L'.
 Proof.
   revert L'; induction L as [|[h n] L IH]; intros [|[h' n'] L']; cbn; try discriminate; [reflexivity|].
-  intros H; apply andb_true_iff in H as [H H3]; apply andb_true_iff in H as [H1 H2].
+  intros H; apply landb_true_iff in H as [H H3]; apply landb_true_iff in H as [H1 H2].
   apply lexp_eqb_eq in H1; apply Nat.eqb_eq in H2; subst; f_equal; apply IH, H3.
 Qed.
 
 Fixpoint ntgt_eqb (t1 t2 : ntgt) : bool :=
   match t1, t2 with
-  | NVar h i, NVar h' i' => lexp_eqb h h' && Nat.eqb i i'
+  | NVar h i, NVar h' i' => lexp_eqb h h' &&& Nat.eqb i i'
   | NBind u w b, NBind u' w' b' =>
-      Nat.eqb u u' && word_eqb w w'
-      && match b, b' with None, None => true | Some n, Some n' => Nat.eqb n n' | _, _ => false end
+      Nat.eqb u u' &&& word_eqb w w'
+      &&& match b, b' with None, None => true | Some n, Some n' => Nat.eqb n n' | _, _ => false end
   | _, _ => false
   end
 with tlist_eqb (ts1 ts2 : tlist) : bool :=
   match ts1, ts2 with
   | TNil, TNil => true
-  | TCons t r, TCons t' r' => ntgt_eqb t t' && tlist_eqb r r'
+  | TCons t r, TCons t' r' => ntgt_eqb t t' &&& tlist_eqb r r'
   | _, _ => false
   end
 with seg_eqb (s1 s2 : seg) : bool :=
   match s1, s2 with
   | SNil, SNil => true
-  | SEnt h ts m r, SEnt h' ts' m' r' => lexp_eqb h h' && tlist_eqb ts ts' && Nat.eqb m m' && seg_eqb r r'
+  | SEnt h ts m r, SEnt h' ts' m' r' => lexp_eqb h h' &&& tlist_eqb ts ts' &&& Nat.eqb m m' &&& seg_eqb r r'
   | _, _ => false
   end
 with word_eqb (w1 w2 : word) : bool :=
@@ -273,8 +282,8 @@ with word_eqb (w1 w2 : word) : bool :=
   | WEnd s, WEnd s' => seg_eqb s s'
   | WAtom s L a w, WAtom s' L' a' w' =>
       seg_eqb s s'
-      && lifts_eqb L L'
-      && Nat.eqb a a' && word_eqb w w'
+      &&& lifts_eqb L L'
+      &&& Nat.eqb a a' &&& word_eqb w w'
   | _, _ => false
   end.
 
@@ -286,23 +295,25 @@ Lemma nf_eqb_eq :
 Proof.
   apply nf_mind.
   - intros h i [h' i'|] H; cbn in H; [|discriminate].
-    apply andb_true_iff in H as [H1 H2]; apply lexp_eqb_eq in H1; apply Nat.eqb_eq in H2; subst; reflexivity.
+    apply landb_true_iff in H as [H1 H2]; apply lexp_eqb_eq in H1; apply Nat.eqb_eq in H2; subst; reflexivity.
   - intros u w IH b [|u' w' b'] H; cbn in H; [discriminate|].
-    apply andb_true_iff in H as [H H3]; apply andb_true_iff in H as [H1 H2].
+    apply landb_true_iff in H as [H H3]; apply landb_true_iff in H as [H1 H2].
     apply Nat.eqb_eq in H1; apply IH in H2; subst.
     destruct b as [n|], b' as [n'|]; try discriminate; [apply Nat.eqb_eq in H3; subst|]; reflexivity.
   - intros [|]; cbn; congruence.
   - intros t IHt r IHr [|t' r'] H; cbn in H; [discriminate|].
-    apply andb_true_iff in H as [H1 H2]; f_equal; [apply IHt, H1|apply IHr, H2].
+    apply landb_true_iff in H as [H1 H2]; f_equal; [apply IHt, H1|apply IHr, H2].
   - intros [|]; cbn; congruence.
   - intros h ts IHts m r IHr [|h' ts' m' r'] H; cbn in H; [discriminate|].
-    apply andb_true_iff in H as [H H4]; apply andb_true_iff in H as [H H3]; apply andb_true_iff in H as [H1 H2].
+    apply landb_true_iff in H as [H H4]; apply landb_true_iff in H as [H H3]; apply landb_true_iff in H as [H1 H2].
     apply lexp_eqb_eq in H1; apply Nat.eqb_eq in H3; subst; f_equal; [apply IHts, H2|apply IHr, H4].
   - intros s IH [s'|] H; cbn in H; [f_equal; apply IH, H|discriminate].
   - intros s IHs L a w IHw [|s' L' a' w'] H; cbn in H; [discriminate|].
-    apply andb_true_iff in H as [H H4]; apply andb_true_iff in H as [H H3]; apply andb_true_iff in H as [H1 H2].
+    apply landb_true_iff in H as [H H4]; apply landb_true_iff in H as [H H3]; apply landb_true_iff in H as [H1 H2].
     apply Nat.eqb_eq in H3; subst; f_equal; [apply IHs, H1|apply lifts_eqb_eq, H2|apply IHw, H4].
 Qed.
+
+Local Close Scope lazy_bool_scope.
 
 (** ** Denotation *)
 
@@ -1148,14 +1159,6 @@ Proof.
   - exact (proj1 (tldist_iff ts) Ht t H).
 Qed.
 
-(** Segments with the same entries are the same adjustment. *)
-Lemma sden_ext s s' :
-  sdist s -> sdist s' -> (forall l j, esem l (sget l s) j = esem l (sget l s') j) -> sden s = sden s'.
-Proof.
-  intros Hd Hd' H; apply rextensionality; intros v.
-  rewrite !rapply_sden by assumption; apply H.
-Qed.
-
 (** *** Composition with a segment *)
 
 Definition cres (a : radj T) (r : rresult T) : rresult T :=
@@ -1501,16 +1504,6 @@ Proof.
 Qed.
 
 (** *** Pulls *)
-
-Lemma iter_rlift_fix l k : forall j (x : radj T), j < k -> rapply (iter k (rlift l) x) (mk_rvar l j) = inl (mk_rvar l j).
-Proof.
-  induction k as [|k IH]; intros j x Hj; [lia|]; cbn [iter]; rewrite rapply_lift.
-  destruct j as [|j]; [rewrite rvar_eqb_refl; reflexivity|].
-  destruct (rvar_eqb_spec (mk_rvar l (S j)) (mk_rvar l 0)) as [E|_]; [injection E; discriminate|].
-  replace (unshift_rvar (mk_rvar l 0) (mk_rvar l (S j))) with (mk_rvar l j)
-    by (unfold unshift_rvar; cbn [v_label v_index]; rewrite label_eqb_refl; cbn; f_equal; lia).
-  rewrite IH by lia; unfold shift_rvar; cbn [v_label v_index]; rewrite label_eqb_refl; cbn; f_equal; f_equal; lia.
-Qed.
 
 Lemma tden_bind u w b y : nth_error tenv u = Some y -> tden (NBind u w b) = RBind y (rpcompose (wden w) (bden b)).
 Proof. intros H; cbn [tden]; rewrite H; reflexivity. Qed.

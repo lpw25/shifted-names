@@ -37,9 +37,6 @@ Definition ssorted (es : list (lexp * list ntgt * nat)) : Prop :=
 Definition known (h : lexp) (e : lexp * list ntgt * nat) : Prop :=
   exists c, lcmp F h (fst (fst e)) = Some c /\ c <> Eq.
 
-Lemma ekey_eq e : ekey e = lden (fst (fst e)).
-Proof. destruct e as [[h xs] m]; reflexivity. Qed.
-
 (** ** Segments *)
 
 Lemma sdel_shape h s s' : sdel F h s = Some s' ->
