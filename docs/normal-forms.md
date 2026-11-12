@@ -477,39 +477,75 @@ Two rules were tried and dropped:
   that has used up its payload in front of shields it must see through.
   Hence postorder with the terms that ride along.
 
-### Not settled
+### Computing it directly: not settled
 
 The prototype computes the form from the stored form, which is the
-quadratic thing it is meant to replace. The normal form has to be
-computed directly: composing two layered words should be writing one
-after the other and composing the term-free end of the first with the
-root's remainder of the second, by the operation on words there is
-now.
+quadratic thing it is meant to replace. A normal form has to be
+computed directly: composing two layered words should cost about what
+the seam costs.
 
-Tried on random pairs: that gives exactly the layered form of the
-composition for 86 percent of pairs (92 percent without the bound
-label). The differences found are in where the rule above puts things,
-not in the idea:
+What is established (the three laws are checked with `names_eq`):
 
-- An entry of the bound label commutes with the instantiation of a
-  term that has no bound variables coming in, so it can sit before or
-  after it. The rule puts it after (at the end); composing on the left
-  then has to move it there.
-- The prototype shares an atom only when what a party does after it is
-  sending passed variables to terms. An output created after the atom
-  could move before it under one more lift, and is not recognised.
+- Terms never see the bound label, so a lift is a close and an open
+  around the word, and a substitution for the lifted name afterwards
+  meets the open at the seam:
 
-So the rule should be fixed the other way round: state the conditions a
-layered word satisfies so that writing two side by side and composing
-at the seam keeps them, and take this prototype as the reference where
-the two agree. What is needed before the proofs move:
+      ⟦ x | a ⟧  =  ⟦ x \ · ⟧ ⨾ ⟦ · | a ⟧ ⨾ ⟦ · \ x ⟧
+      ⟦ y | a ⟧ ⨾ ⟦ y := v ⟧  =  ⟦ y \ · ⟧ ⨾ ⟦ · | a ⟧ ⨾ ⟦ · := v ⟧
 
-1. Those conditions, and composition, lift and the two entry
-   operations directly on layered words, in the prototype, compared
-   with `layers` by the fuzzer.
-2. A bound on the case that is not local: a term on the left that has
-   a renaming payload touching what the right does (the *shielded*
-   term). The fast path applies when no term on the left has one.
-3. Then the predicate, uniqueness by induction from the end of the
-   word, and the operations' proofs. The free model and the soundness
-   lemmas for segments and words carry over.
+  A word that does not mention the bound label is its own lift over
+  it, so neither costs more than the seam.
+- A term whose payload ends with the step before it moves in front of
+  that step, one step at a time:
+
+      ⟦ x | ⟦ y := w ⟧ ⟧ ⨾ ⟦ x := u⟨ y := w ⟩ ⟧  =  ⟦ x := u ⟧ ⨾ ⟦ y := w ⟧
+
+- Writing two layered words side by side and composing at the seam
+  gives the prototype's form for 86 percent of random pairs (92 percent
+  without the bound label). Two of the differences are in where the
+  rule puts things and could be changed in the rule: an entry of the
+  bound label next to the instantiation of a term that does not see it,
+  and an atom shared only when what follows it sends variables to
+  terms.
+
+What stands in the way is not in the details of the rule:
+
+- **Independent families.** When an adjustment has two families of
+  terms that do not see each other, either can be the main line of the
+  word, with the other's variables carried through it as bound
+  variables. `⟦ y₁; y₂ | B ⟧ ⨾ C` with `B` and `C` chains is also
+  `⟦ x₁; x₂; x₃ | C ⟧ ⨾ B`; composing at the seam gives two different
+  words, and the prototype's form is a third (it keeps the last term
+  of `B` for the end). A normal form has to choose, the choice cannot
+  come from the order of composition, and no choice is determined by
+  the adjustment itself: it has to be made by an order on labels or
+  terms. Whenever composition creates such a pair, the word has to be
+  laid out again, however far back the families go.
+- **Equal terms.** Two parts of a word can be the same term with the
+  same payload only because of what comes after both (`⟦ y := v;
+  z := v ⟧` makes exchanging `y` and `z` before it invisible). So what
+  is written early in a word is in normal form only relative to the
+  rest, and a composition on the right can change that.
+
+So there are three things the layered form could be:
+
+1. *The normal form, with a global rule* (the prototype's, or another
+   that fixes the choices above). Composition is concatenation and the
+   seam when no choice arises, and a new layout when one does. The
+   predicate, uniqueness and the operations are new: most of
+   `Normalise.v`, `Normal.v`, `Unique.v`, `Complete.v` and `Shared.v`.
+2. *A representation that is sound but not unique*: layered words kept
+   reduced by the local laws above, with soundness proved. The decision
+   compares the reduced words and, when they differ, falls back on the
+   stored form. The normal form and theorems 1–4 stay as they are; the
+   speed is there when both sides reduce to the same word, which the
+   laws above cover, and not otherwise.
+3. *What `names` shows*: the stored form stays the normal form and what
+   everything is computed with, and the layered form (this prototype,
+   a function of the stored form and so the same for equal adjustments)
+   is how a large normal form is displayed, instead of leaving the
+   adjustment as written.
+
+Since chains are normalised from the last step, the stored form is
+quadratic in space on a chain and nothing worse: 250 substitutions in
+0.4 seconds.
