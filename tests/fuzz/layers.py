@@ -9,7 +9,9 @@ order it needed is unknown), expressions with no layered form,
 expressions whose layered form normalises to a different stored word,
 and expressions whose layered form normalises to the same one.  The
 second and third should be 0.  Then the indices of any of those, and
-the total sizes of the layered forms, the stored forms and the trees.
+the total sizes of the layered forms, the stored forms, the trees and
+the expressions themselves, all counting entries, outputs, lifts, atoms
+and terms.
 """
 import random, sys
 seed=int(sys.argv[1]); n=int(sys.argv[2]); depth=int(sys.argv[3]); mode=sys.argv[4] if len(sys.argv)>4 else "conc"
@@ -50,17 +52,17 @@ print("""From Stdlib Require Import String List NArith.
 From ShiftedNames.Core Require Import Label Var Adjustment Normalise Normal Shared Eval Layers.
 Import ListNotations. Open Scope string_scope.
 Definition O := order_of (%s : list (lexp * lexp)).
-Definition classify (e : aexp) : nat * (nat * N * N) :=
+Definition classify (e : aexp) : nat * (nat * N * N * nat) :=
   let n := apmax e in
   match anorm_s n O 4 e sst0 with
   | Some (st, w) =>
-      match layers n O (sdefs st) w with
+      match layers n O 4 (sdefs st) w with
       | Some le =>
           let ok := match anorm_s n O 4 le st with Some (_, w') => word_eqb w w' | None => false end in
-          ((if ok then 3 else 2), (asize le, N.of_nat (stored_size (sdefs st) w), wsz_u n (usz n (sdefs st)) w))
-      | None => (1, (0, 0%%N, 0%%N))
+          ((if ok then 3 else 2), (csize le, N.of_nat (stored_size (sdefs st) w), N.of_nat (match tree_size n (sdefs st) w with Some k => k | None => 0 end), csize e))
+      | None => (1, (0, 0%%N, 0%%N, 0))
       end
-  | None => (0, (0, 0%%N, 0%%N))
+  | None => (0, (0, 0%%N, 0%%N, 0))
   end.
 Definition tests : list aexp := ["""%FACTS)
 print(";\n".join(aexp(depth) for _ in range(n)))
@@ -70,5 +72,5 @@ Definition count k := List.length (filter (fun r => Nat.eqb (fst r) k) rs).
 Eval vm_compute in (count 0, count 1, count 2, count 3).
 Eval vm_compute in (map fst (filter (fun p => Nat.eqb (fst (snd p)) 2) (combine (seq 0 (List.length rs)) rs))).
 Eval vm_compute in (map fst (filter (fun p => Nat.eqb (fst (snd p)) 1) (combine (seq 0 (List.length rs)) rs))).
-Eval vm_compute in (fold_right (fun r acc => let '(a,b,c) := acc in let '(x,y,z) := snd r in (a + x, (b + y)%N, (c + z)%N)) (0, 0%N, 0%N) (filter (fun r => Nat.eqb (fst r) 3) rs)).
+Eval vm_compute in (fold_right (fun r acc => let '(a,b,c,d) := acc in let '(x,y,z,v) := snd r in (a + x, (b + y)%N, (c + z)%N, d + v)) (0, 0%N, 0%N, 0) (filter (fun r => Nat.eqb (fst r) 3) rs)).
 """)
