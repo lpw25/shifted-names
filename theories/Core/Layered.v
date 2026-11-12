@@ -179,6 +179,17 @@ with byp (d w : nat) (h : lexp) (G : list lexp) (a : aexp)
 
 Definition lnorm (e : aexp) : option lword := fold 0 e [].
 
+(** ** Multiplying out
+
+    The word of the normal form of [Normalise]: every step composed into
+    the next, so that each term carries its whole payload. *)
+Fixpoint expand (l : lword) : option word :=
+  match l with
+  | [] => Some (WEnd SNil)
+  | LS s :: r => obind (expand r) (fun w => wcomp F ntm w (WEnd s))
+  | LA L a :: r => obind (expand r) (fun w => wcomp F ntm w (WAtom SNil L a (WEnd SNil)))
+  end.
+
 (** The equations of the four functions. *)
 Lemma fold_compose d a b K : fold d (ACompose a b) K = obind (fold d a K) (fold d b).
 Proof. reflexivity. Qed.
@@ -443,6 +454,27 @@ Proof.
         rewrite rcompose_identity_r; reflexivity.
       * split; [constructor; assumption|exact Hgoal].
     + intros H; injection H as <-; split; [constructor; assumption|reflexivity].
+Qed.
+
+(** The multiplied-out word means the same. *)
+Lemma expand_sound l : forall w, lwdist l -> expand F ntm l = Some w ->
+  Normalise.wdist lenv w /\ Normalise.wden lenv tenv aenv penv w = lwden l.
+Proof.
+  induction l as [|[s|L a] r IH]; intros w Hl; cbn [expand].
+  - intros H; injection H as <-; split; [exact I|reflexivity].
+  - inversion Hl as [|? ? Hs Hr]; subst.
+    destruct (expand F ntm r) as [w0|] eqn:E; [|discriminate]; cbn [obind]; intros H.
+    destruct (IH w0 Hr eq_refl) as [Hd0 D0].
+    destruct (wcomp_sound lenv tenv aenv penv F HF ntm Hntm w0 (WEnd s) w Hd0 Hs H) as [Hd D].
+    split; [exact Hd|]; rewrite D, D0; reflexivity.
+  - inversion Hl as [|? ? _ Hr]; subst.
+    destruct (expand F ntm r) as [w0|] eqn:E; [|discriminate]; cbn [obind]; intros H.
+    destruct (IH w0 Hr eq_refl) as [Hd0 D0].
+    destruct (wcomp_sound lenv tenv aenv penv F HF ntm Hntm w0 (WAtom SNil L a (WEnd SNil)) w Hd0 (conj I I) H) as [Hd D].
+    split; [exact Hd|]; rewrite D, D0, wden_atom; cbn [lwden].
+    change (Normalise.sden lenv tenv aenv penv SNil) with (@ridentity T).
+    change (Normalise.wden lenv tenv aenv penv (WEnd SNil)) with (@ridentity T).
+    rewrite rcompose_identity_l, rcompose_identity_r; reflexivity.
 Qed.
 
 (** What an optional segment means, when there is one. *)
