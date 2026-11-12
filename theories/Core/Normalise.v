@@ -4,8 +4,8 @@
     reified into [aexp], an expression over label atoms, adjustment atoms,
     payload atoms and term atoms, normalised to a [word], and compared.
     This file has the words, the operations on them that the normaliser
-    is built from, and their soundness; the normaliser itself, which
-    stores payloads shared, is in [Shared].
+    is built from, and their soundness; the normaliser itself is the
+    fold of [Layered].
 
     ** Normal forms
 
@@ -1019,44 +1019,6 @@ with pexp : Type :=
 | PAtom (n : nat)
 | PComp (a : aexp) (p : pexp)
 | PShift (h : lexp) (p : pexp).
-
-(** *** Re-nesting compositions
-
-    Composing a short word before a long one costs little: the terms of
-    the short one get the long one as their payload.  Composing it after
-    costs a new payload for every term of the long one.  So a chain of
-    compositions is normalised from its last step: [renest e k] is [e]
-    followed by [k], with every composition nested that way, also inside
-    targets and payloads. *)
-
-Definition renest_wrap (k : option aexp) (e : aexp) : aexp :=
-  match k with Some r => ACompose r e | None => e end.
-
-Definition renest_pwrap (k : option aexp) (p : pexp) : pexp :=
-  match k with Some r => PComp r p | None => p end.
-
-Fixpoint renest (e : aexp) (k : option aexp) : aexp :=
-  match e with
-  | AId => renest_wrap k AId
-  | AAtom n => renest_wrap k (AAtom n)
-  | ACompose a b => renest b (Some (renest a k))
-  | AOuter h a => renest_wrap k (AOuter h (renest a None))
-  | AInner h t a => renest_wrap k (AInner h (renest_t t) (renest a None))
-  | ALift h a => renest_wrap k (ALift h (renest a None))
-  end
-with renest_t (t : texp) : texp :=
-  match t with
-  | TVarE h i => TVarE h i
-  | TBindE u p => TBindE u (renest_p p None)
-  | TShiftE h t => TShiftE h (renest_t t)
-  end
-with renest_p (p : pexp) (k : option aexp) : pexp :=
-  match p with
-  | PId => renest_pwrap k PId
-  | PAtom n => renest_pwrap k (PAtom n)
-  | PComp a p => renest_p p (Some (renest a k))
-  | PShift h p => renest_pwrap k (PShift h (renest_p p None))
-  end.
 
 (** ** Soundness *)
 
@@ -2420,32 +2382,6 @@ Scheme aexp_mind := Induction for aexp Sort Prop
 with texp_mind := Induction for texp Sort Prop
 with pexp_mind := Induction for pexp Sort Prop.
 Combined Scheme exp_mind from aexp_mind, texp_mind, pexp_mind.
-
-Lemma renest_sound :
-  (forall e k, aeden (renest e k) = match k with Some r => rcompose (aeden r) (aeden e) | None => aeden e end)
-  /\ (forall t, teden (renest_t t) = teden t)
-  /\ (forall p k, peden (renest_p p k) = match k with Some r => rpcompose (aeden r) (peden p) | None => peden p end).
-Proof.
-  apply exp_mind.
-  - intros [r|]; reflexivity.
-  - intros n [r|]; reflexivity.
-  - intros a IHa b IHb k; cbn [renest]; rewrite IHb, IHa; destruct k as [r|]; cbn [aeden]; [|reflexivity].
-    symmetry; apply rcompose_assoc.
-  - intros h a IHa [r|]; cbn [renest renest_wrap aeden]; rewrite IHa; reflexivity.
-  - intros h t IHt a IHa [r|]; cbn [renest renest_wrap aeden]; rewrite IHt, IHa; reflexivity.
-  - intros h a IHa [r|]; cbn [renest renest_wrap aeden]; rewrite IHa; reflexivity.
-  - reflexivity.
-  - intros u p IHp; cbn [renest_t teden]; rewrite IHp; reflexivity.
-  - intros h t IHt; cbn [renest_t teden]; rewrite IHt; reflexivity.
-  - intros [r|]; reflexivity.
-  - intros n [r|]; reflexivity.
-  - intros a IHa p IHp k; cbn [renest_p]; rewrite IHp, IHa; destruct k as [r|]; cbn [peden]; [|reflexivity].
-    symmetry; apply rpcompose_compose.
-  - intros h p IHp [r|]; cbn [renest_p renest_pwrap peden]; rewrite IHp; reflexivity.
-Qed.
-
-Lemma aeden_renest e : aeden (renest e None) = aeden e.
-Proof. exact (proj1 renest_sound e None). Qed.
 
 Lemma wden_id : wden (WEnd SNil) = ridentity.
 Proof. reflexivity. Qed.

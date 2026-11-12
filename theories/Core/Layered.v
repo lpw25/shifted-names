@@ -21,7 +21,7 @@
     label inside a payload, and shifted targets. *)
 
 From Stdlib Require Import Arith List Lia Bool.
-From ShiftedNames.Core Require Import Label Var Adjustment Laws Normalise Unique Normal Shared.
+From ShiftedNames.Core Require Import Label Var Adjustment Laws Normalise Unique Normal.
 Import ListNotations.
 
 Inductive lstep : Type :=
@@ -296,15 +296,96 @@ Definition rclose {T} (x : label) : radj T :=
 Definition ropen {T} (x : label) : radj T :=
   rpush_inner None (RRename (mk_rvar (Some x) 0)) (rpush_outer (Some x) ridentity).
 
+(** Four laws, each computed with the operations on segments and words. *)
+Definition law_O : order := order_of [].
+Definition law_c : seg := SEnt (LAtom 0) (TCons (NVar LNone 0) TNil) 0 (SEnt LNone TNil 1 SNil).
+Definition law_o : seg := SEnt (LAtom 0) TNil 1 (SEnt LNone (TCons (NVar (LAtom 0) 0) TNil) 0 SNil).
+Definition law_wa : word := WAtom SNil [(LNone, 1)] 0 (WEnd SNil).
+Definition law_wr : word := WAtom SNil [(LAtom 0, 1)] 0 (WEnd SNil).
+
+Lemma law_ok (l : list label) : facts_ok l law_O.
+Proof. apply order_of_ok; unfold lfacts_ok; constructor. Qed.
+
+Lemma law_close {T} (x : label) (ae : list (radj T)) : sden [x] (@nil T) ae [] law_c = rclose x.
+Proof.
+  assert (Ec : sfront law_O (LAtom 0) (NVar LNone 0) (shseg LNone 1) = Some law_c) by (vm_compute; reflexivity).
+  destruct (sfront_sound [x] (@nil T) ae [] law_O (law_ok _) 0 (le_n _) (LAtom 0) (NVar LNone 0) (shseg LNone 1) law_c
+              (shseg_dd [x] LNone 1) I Ec) as [_ Sc].
+  rewrite Sc, sden_shseg; reflexivity.
+Qed.
+
+Lemma law_open {T} (x : label) (ae : list (radj T)) : sden [x] (@nil T) ae [] law_o = ropen x.
+Proof.
+  assert (Eo : sfront law_O LNone (NVar (LAtom 0) 0) (shseg (LAtom 0) 1) = Some law_o) by (vm_compute; reflexivity).
+  destruct (sfront_sound [x] (@nil T) ae [] law_O (law_ok _) 0 (le_n _) LNone (NVar (LAtom 0) 0) (shseg (LAtom 0) 1) law_o
+              (shseg_dd [x] (LAtom 0) 1) I Eo) as [_ So].
+  rewrite So, sden_shseg; reflexivity.
+Qed.
+
 Lemma lift_close_open {T} (x : label) (a : radj T) :
   rlift (Some x) a = rcompose (rcompose (ropen x) (rlift None a)) (rclose x).
 Proof.
-  set (e1 := ALift (LAtom 0) (AAtom 0)).
-  set (e2 := ACompose (ACompose (AInner LNone (TVarE (LAtom 0) 0) (AOuter (LAtom 0) AId)) (ALift LNone (AAtom 0)))
-                      (AInner (LAtom 0) (TVarE LNone 0) (AOuter LNone AId))).
-  change (aeden [x] (@nil T) [a] [] e1 = aeden [x] (@nil T) [a] [] e2).
-  refine (nf_eq_sh_sound [x] (@nil T) [a] [] (order_of []) _ 0 (le_n _) e1 e2 _); [|vm_compute; reflexivity].
-  apply order_of_ok; unfold lfacts_ok; repeat constructor.
+  assert (Ew : match wcomp law_O 0 (WEnd law_o) law_wa with
+               | Some w => wcomp law_O 0 w (WEnd law_c)
+               | None => None
+               end = Some law_wr) by (vm_compute; reflexivity).
+  destruct (wcomp law_O 0 (WEnd law_o) law_wa) as [w1|] eqn:E1; [|discriminate Ew].
+  assert (Da : wdist [x] law_wa) by (cbn; repeat split; exact I).
+  assert (Do : wdist [x] (WEnd law_o)) by (cbn; repeat split; exact I).
+  assert (Dc : wdist [x] (WEnd law_c)) by (cbn; repeat split; exact I).
+  destruct (wcomp_sound [x] (@nil T) [a] [] law_O (law_ok _) 0 (le_n _) (WEnd law_o) law_wa w1 Do Da E1) as [D1 S1].
+  destruct (wcomp_sound [x] (@nil T) [a] [] law_O (law_ok _) 0 (le_n _) w1 (WEnd law_c) law_wr D1 Dc Ew) as [_ S2].
+  rewrite S1, !wden_end, law_open, law_close in S2.
+  unfold law_wr, law_wa in S2; rewrite !wden_atom, !wden_end in S2.
+  change (sden [x] (@nil T) [a] [] SNil) with (@ridentity T) in S2.
+  rewrite !rcompose_identity_l, !rcompose_identity_r in S2.
+  exact S2.
+Qed.
+
+Lemma law_outer {T} (x : label) :
+  rcompose (rcompose (rpush_inner None (RRename (mk_rvar (Some x) 0)) ridentity)
+                     (rlift None (rpush_outer (Some x) ridentity)))
+           (rclose x) = @ridentity T.
+Proof.
+  assert (Ew : match sfront law_O LNone (NVar (LAtom 0) 0) SNil, slift law_O 0 LNone (shseg (LAtom 0) 1) with
+               | Some e, Some l => match scomp law_O 0 l law_c with Some s => scomp law_O 0 e s | None => None end
+               | _, _ => None
+               end = Some SNil) by (vm_compute; reflexivity).
+  destruct (sfront law_O LNone (NVar (LAtom 0) 0) SNil) as [e|] eqn:E1; [|discriminate Ew].
+  destruct (slift law_O 0 LNone (shseg (LAtom 0) 1)) as [l|] eqn:E2; [|discriminate Ew].
+  destruct (scomp law_O 0 l law_c) as [s0|] eqn:E3; [|discriminate Ew].
+  assert (Dc : sdistd [x] law_c) by (cbn; repeat split; exact I).
+  destruct (sfront_sound [x] (@nil T) [] [] law_O (law_ok _) 0 (le_n _) LNone (NVar (LAtom 0) 0) SNil e I I E1) as [De Se].
+  destruct (slift_sound [x] (@nil T) [] [] law_O (law_ok _) 0 (le_n _) LNone (shseg (LAtom 0) 1) l (shseg_dd [x] (LAtom 0) 1) E2)
+    as [Dl Sl].
+  destruct (scomp_sound [x] (@nil T) [] [] law_O (law_ok _) 0 (le_n _) l law_c s0 Dl Dc E3) as [D0 S0].
+  destruct (scomp_sound [x] (@nil T) [] [] law_O (law_ok _) 0 (le_n _) e s0 SNil De D0 Ew) as [_ S1].
+  rewrite S0, Se, Sl, sden_shseg, law_close, rcompose_assoc in S1.
+  symmetry; exact S1.
+Qed.
+
+Lemma law_outer_bound {T} :
+  rcompose (rpush_inner None (RRename (mk_rvar None 0)) ridentity) (rlift None (rpush_outer None ridentity)) = @ridentity T.
+Proof.
+  assert (Ew : match sfront law_O LNone (NVar LNone 0) SNil, slift law_O 0 LNone (shseg LNone 1) with
+               | Some e, Some l => scomp law_O 0 e l
+               | _, _ => None
+               end = Some SNil) by (vm_compute; reflexivity).
+  destruct (sfront law_O LNone (NVar LNone 0) SNil) as [e|] eqn:E1; [|discriminate Ew].
+  destruct (slift law_O 0 LNone (shseg LNone 1)) as [l|] eqn:E2; [|discriminate Ew].
+  destruct (sfront_sound [] (@nil T) [] [] law_O (law_ok _) 0 (le_n _) LNone (NVar LNone 0) SNil e I I E1) as [De Se].
+  destruct (slift_sound [] (@nil T) [] [] law_O (law_ok _) 0 (le_n _) LNone (shseg LNone 1) l (shseg_dd [] LNone 1) E2) as [Dl Sl].
+  destruct (scomp_sound [] (@nil T) [] [] law_O (law_ok _) 0 (le_n _) e l SNil De Dl Ew) as [_ S1].
+  rewrite Se, Sl, sden_shseg in S1.
+  symmetry; exact S1.
+Qed.
+
+Lemma law_lift_shift {T} (y : label) : rlift (Some y) (rpush_outer None (@ridentity T)) = rpush_outer None ridentity.
+Proof.
+  assert (Ew : slift law_O 0 (LAtom 0) (shseg LNone 1) = Some (shseg LNone 1)) by (vm_compute; reflexivity).
+  destruct (slift_sound [y] (@nil T) [] [] law_O (law_ok _) 0 (le_n _) (LAtom 0) (shseg LNone 1) _ (shseg_dd [y] LNone 1) Ew)
+    as [_ S1].
+  rewrite sden_shseg in S1; symmetry; exact S1.
 Qed.
 
 (** ** The algebra of going around a payload
@@ -400,11 +481,7 @@ Lemma bpair_outer x :
 Proof.
   split; [|rewrite shiftk_one; apply rcompose_push_inner_shift].
   unfold lifted, rshift, rclose; cbn [iter].
-  set (e1 := ACompose (ACompose (AInner LNone (TVarE (LAtom 0) 0) AId) (ALift LNone (AOuter (LAtom 0) AId)))
-                      (AInner (LAtom 0) (TVarE LNone 0) (AOuter LNone AId))).
-  change (aeden [x] (@nil T) [] [] e1 = aeden [x] (@nil T) [] [] AId).
-  refine (nf_eq_sh_sound [x] (@nil T) [] [] (order_of []) _ 0 (le_n _) e1 AId _); [|vm_compute; reflexivity].
-  apply order_of_ok; unfold lfacts_ok; repeat constructor.
+  exact (law_outer x).
 Qed.
 
 Lemma bpair_outer_bound :
@@ -412,19 +489,13 @@ Lemma bpair_outer_bound :
 Proof.
   split; [|rewrite shiftk_one; apply rcompose_push_inner_shift].
   rewrite rcompose_identity_r; unfold lifted, rshift; cbn [iter].
-  set (e1 := ACompose (AInner LNone (TVarE LNone 0) AId) (ALift LNone (AOuter LNone AId))).
-  change (aeden [] (@nil T) [] [] e1 = aeden [] (@nil T) [] [] AId).
-  refine (nf_eq_sh_sound [] (@nil T) [] [] (order_of []) _ 0 (le_n _) e1 AId _); [|vm_compute; reflexivity].
-  apply order_of_ok; unfold lfacts_ok; repeat constructor.
+  exact law_outer_bound.
 Qed.
 
 Lemma rlift_shift_bound y : rlift (Some y) (@rshift T None) = rshift None.
 Proof.
   unfold rshift.
-  set (e1 := ALift (LAtom 0) (AOuter LNone AId)).
-  change (aeden [y] (@nil T) [] [] e1 = aeden [y] (@nil T) [] [] (AOuter LNone AId)).
-  refine (nf_eq_sh_sound [y] (@nil T) [] [] (order_of []) _ 0 (le_n _) e1 _ _); [|vm_compute; reflexivity].
-  apply order_of_ok; unfold lfacts_ok; repeat constructor.
+  exact (law_lift_shift y).
 Qed.
 
 Lemma rlift_shiftk_bound y t : rlift (Some y) (@shiftk T None t) = shiftk None t.

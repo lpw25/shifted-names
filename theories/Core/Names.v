@@ -7,15 +7,16 @@
     the order between label variables comes from hypotheses [label_lt x y]
     in the context ([label_compare] provides them by case analysis).
 
-    The goal is taken to the raw layer, reified into [aexp], both sides are
-    normalised into one table (Shared.v), and the stored normal forms
-    compared.  The tactic fails when the normal forms differ, or when
-    normalisation needed the order between two labels and no hypothesis
-    gave it. *)
+    The goal is taken to the raw layer, reified into [aexp], and both
+    sides are normalised to layered words (Layered.v), which are compared;
+    when they differ and are small, their trees are compared (LEval.v).
+    The tactic fails when the normal forms differ, when normalisation
+    needed the order between two labels and no hypothesis gave it, or when
+    the words differ and are too large to multiply out. *)
 
 From Stdlib Require Import List String Arith Bool StrictProp.
 Open Scope bool_scope.
-From ShiftedNames.Core Require Import Label Var Adjustment Indexed Syntax Normalise Shared Eval Layered LEval.
+From ShiftedNames.Core Require Import Label Var Adjustment Indexed Syntax Normalise Layered LEval.
 Import ListNotations.
 
 (** ** Reification *)

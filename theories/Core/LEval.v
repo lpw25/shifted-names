@@ -7,8 +7,51 @@
     word multiplied out ([expand]). *)
 
 From Stdlib Require Import Arith List Lia Bool NArith.
-From ShiftedNames.Core Require Import Label Var Adjustment Laws Normalise Shared Eval Layered.
+From ShiftedNames.Core Require Import Label Var Adjustment Laws Normalise Layered.
 Import ListNotations.
+
+(** Larger normal forms are not shown: as a tree, a chain of
+    substitutions doubles with each step. *)
+Definition show_budget : N := 250%N.
+
+Inductive shown : Type :=
+| ShNone
+| ShLarge
+| ShWord (w : word).
+
+(** ** Materialised payloads
+
+    Two adjustments that are the same except that, where the first sends
+    a variable to a term [u⟨w⟩], the second sends it to a term atom [k]
+    with the identity payload adjustment, where [k] is [u] with the
+    payload adjustment applied ([facts]: [(k, u, eb)], [eb] the reified
+    adjustment the payload was shown as).  The first adjustment must
+    have [u] with the tree of [eb] as payload where the second has [k]. *)
+Fixpoint nfind (l : list (nat * ntgt)) (k : nat) : option ntgt :=
+  match l with [] => None | (k', t) :: r => if Nat.eqb k k' then Some t else nfind r k end.
+
+Definition tmat_s (ntm : nat) (l : list (nat * ntgt)) (t t' : ntgt) : bool :=
+  if ntgt_eqb t t' then true
+  else match t' with
+       | NBind k (WEnd SNil) None =>
+           match nfind l k with Some tk => ntgt_eqb t tk && (k <? ntm) | None => false end
+       | _ => false
+       end.
+
+Fixpoint tlmat_s (ntm : nat) (l : list (nat * ntgt)) (ts ts' : tlist) : bool :=
+  match ts, ts' with
+  | TNil, TNil => true
+  | TCons t r, TCons t' r' => tmat_s ntm l t t' && tlmat_s ntm l r r'
+  | _, _ => false
+  end.
+
+Fixpoint smat_s (ntm : nat) (l : list (nat * ntgt)) (s s' : seg) : bool :=
+  match s, s' with
+  | SNil, SNil => true
+  | SEnt h ts m r, SEnt h' ts' m' r' =>
+      lexp_eqb h h' && tlmat_s ntm l ts ts' && Nat.eqb m m' && smat_s ntm l r r'
+  | _, _ => false
+  end.
 
 Section Defs.
 
@@ -62,7 +105,7 @@ Definition lapply_bind_check (e : aexp) (h : lexp) (i : nat) (eb : aexp) : optio
   | None => None
   end.
 
-(** Materialised payloads: see [Eval.mat_eqb_s]. *)
+(** The facts, with the payloads as trees. *)
 Fixpoint lfacts (facts : list (nat * nat * aexp)) : option (list (nat * ntgt)) :=
   match facts with
   | [] => Some []
@@ -281,12 +324,55 @@ Proof.
   exact (proj2 (expand_sound lenv tenv aenv penv F HF ntm Hntm l2 w1 (lnorm_dist e2 l2 E2) X2)).
 Qed.
 
+Lemma tlmat_s_len l ts ts' : tlmat_s ntm l ts ts' = true -> tlen ts = tlen ts'.
+Proof.
+  revert ts'; induction ts as [|t r IH] using tlist_spine; intros [|t' r']; cbn; try discriminate; [reflexivity|].
+  intros H; apply andb_true_iff in H as [_ H]; rewrite (IH _ H); reflexivity.
+Qed.
+
+Lemma tlmat_s_nth l ts ts' j :
+  tlmat_s ntm l ts ts' = true -> j < tlen ts -> tmat_s ntm l (tnth ts j) (tnth ts' j) = true.
+Proof.
+  revert ts' j; induction ts as [|t r IH] using tlist_spine; intros [|t' r'] j; cbn; try discriminate; [lia|].
+  intros H Hj; apply andb_true_iff in H as [H1 H2]; destruct j; [exact H1|apply IH; [exact H2|lia]].
+Qed.
+
+Lemma smat_s_get l s s' lab : smat_s ntm l s s' = true ->
+  match sget lenv lab s, sget lenv lab s' with
+  | Some (ts, m), Some (ts', m') => tlmat_s ntm l ts ts' = true /\ m = m'
+  | None, None => True
+  | _, _ => False
+  end.
+Proof.
+  revert s'; induction s as [|h ts m r IH] using seg_spine; intros [|h' ts' m' r']; cbn [smat_s]; try discriminate; [cbn; tauto|].
+  intros H; apply andb_true_iff in H as [H H4]; apply andb_true_iff in H as [H H3]; apply andb_true_iff in H as [H1 H2].
+  apply lexp_eqb_eq in H1; apply Nat.eqb_eq in H3; subst h' m'; cbn [sget].
+  destruct (label_eqb (lden h) lab); [split; [exact H2|reflexivity]|apply IH, H4].
+Qed.
+
 Section Mat.
 
 Variable g : rpadj T -> T -> T.
 Variable facts : list (nat * nat * aexp).
 Hypothesis Hfacts : Forall (fun f => let '(k, u, eb) := f in
   forall y, nth_error tenv u = Some y -> nth_error tenv k = Some (g (rpcompose (aeden eb) rpidentity) y)) facts.
+
+Lemma tmat_s_sound l t t' :
+  (forall k tk, nfind l k = Some tk ->
+     exists u eb y, mfind facts k = Some (u, eb) /\ nth_error tenv u = Some y
+       /\ tden tk = RBind y (rpcompose (aeden eb) rpidentity)) ->
+  tmat_s ntm l t t' = true -> mrel g (rtarget_result (tden t)) (rtarget_result (tden t')).
+Proof.
+  intros Hfind; unfold tmat_s; destruct (ntgt_eqb t t') eqn:E; cbn [orb].
+  { intros _; left; apply (proj1 nf_eqb_eq) in E; subst; reflexivity. }
+  destruct t' as [|k [[|]|] [b'|]]; try discriminate.
+  destruct (nfind l k) as [tk|] eqn:Ef; [|discriminate]; intros H; apply andb_true_iff in H as [H1 H2].
+  apply (proj1 nf_eqb_eq) in H1; subst tk.
+  destruct (Hfind k t Ef) as [u [eb [y [Em [Ey Dt]]]]].
+  right; exists y, (rpcompose (aeden eb) rpidentity); rewrite Dt; split; [reflexivity|].
+  rewrite (tden_bind lenv tenv aenv penv _ _ _ _ (mfind_fact lenv tenv aenv penv g facts Hfacts _ _ _ _ Em Ey)).
+  cbn [rtarget_result]; do 2 f_equal; exact (rpcompose_identity _).
+Qed.
 
 Lemma lfacts_spec fs : forall l, lfacts F ntm fs = Some l ->
   forall k tk, nfind l k = Some tk ->
@@ -316,12 +402,12 @@ Proof.
   rewrite <- D1, <- D2, !wden_end.
   pose proof (sdistd_sdist lenv _ HD) as Hd; pose proof (sdistd_sdist lenv _ HD') as Hd'; intros [lab j].
   rewrite !rapply_sden by assumption.
-  cbn [v_label v_index]; pose proof (smat_s_get lenv _ _ _ _ lab Hm) as Hg.
+  cbn [v_label v_index]; pose proof (smat_s_get _ _ _ lab Hm) as Hg.
   destruct (sget lenv lab S1) as [[ts m]|] eqn:Eg, (sget lenv lab S2) as [[ts' m']|]; try contradiction; [|left; reflexivity].
-  destruct Hg as [Ht <-]; cbn [esem]; rewrite <- (tlmat_s_len _ _ _ _ Ht).
+  destruct Hg as [Ht <-]; cbn [esem]; rewrite <- (tlmat_s_len _ _ _ Ht).
   destruct (j <? tlen ts) eqn:Ej; [|left; reflexivity].
-  apply (tmat_s_sound lenv tenv aenv penv ntm g facts Hfacts penv l _ _ (lfacts_spec facts l E3)).
-  apply (tlmat_s_nth tenv ntm Hntm); [exact Ht|apply Nat.ltb_lt, Ej].
+  apply (tmat_s_sound l _ _ (lfacts_spec facts l E3)).
+  apply tlmat_s_nth; [exact Ht|apply Nat.ltb_lt, Ej].
 Qed.
 
 End Mat.

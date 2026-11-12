@@ -3,8 +3,7 @@
     For theorem 1 of [docs/normal-forms.md]: each operation the
     normaliser is built from returns a word satisfying the normal-form
     conditions [wnf] of [Core/Unique.v] when its arguments do.  Nothing
-    is checked at run time.  The theorem itself is [anorm_s_normal] in
-    [Core/Shared.v]. *)
+    is checked at run time. *)
 
 From Stdlib Require Import Arith List Lia Bool Sorted.
 From ShiftedNames.Core Require Import Label Var Adjustment Laws Normalise Unique.

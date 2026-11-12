@@ -105,7 +105,7 @@ Example payload_entries_commute {N} x y z (u v w : T) :
   (⟦ z := w⟨ x := u; y := v ⟩ \ ⟧ : adj T N N) = ⟦ z := w⟨ y := v; x := u ⟩ \ ⟧.
 Proof. intros; names_eq. Qed.
 
-(** A long chain is decided on the stored form, where each payload is
+(** A long chain is decided on its layered word, where each term is
     written once; as a tree the normal form doubles with each step, and
     [names] leaves such a chain as it is.  However it is nested, it is
     normalised from its last step. *)
