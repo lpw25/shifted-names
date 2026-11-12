@@ -579,8 +579,8 @@ choice, and the rule for it has to survive composition:
   variable an output entry creates is carried past it as a bound
   variable (`bypass_step`).
 - `lnorm_sound`: the layered word of an expression means what the
-  expression means. Not covered yet: an atom, or a lift by the bound
-  label, inside a payload; shifted targets.
+  expression means. Not covered: an atom, or a lift by the bound
+  label, inside a payload (the fold then has no word).
 
 `Core/LayeredUnique.v` has the normal-form conditions and uniqueness,
 for every layered word:
@@ -636,17 +636,163 @@ for every layered word:
 word, and `Tests/LayeredNfTests.v` uses it to show that a chain of two
 substitutions satisfies `lnf` with `gt_sz`.
 
-What the fold returns is not yet in this form. Still to do:
+### Where `names` uses it
 
-- That the fold keeps `lnf`. It has to send variables with the same
-  result to one variable (condition 3), number bound variables by
-  their sources (condition 4), put a term that does not see the first
-  layer further in, and remove bound variables nothing uses. It also
-  needs every payload that occurs to have a normal word, which is the
-  multiplied-out word (`expand`) once that is related to the free
-  meaning.
+`names_eq` computes the layered words of the two sides and compares
+them (`nf_eq_l`, sound by `nf_eq_l_sound`). When they are the same the
+equation is proved. When they differ, or the fold has no word for a
+side, it decides on the stored form as before (`nf_eq_r`), which is
+complete. So the decision is sound and complete, and the layered form
+is its first attempt. Everything else (`names` showing a normal form,
+applying an adjustment to a variable, materialising payloads) still
+reads the stored form.
+
+Of the 93 equations decided while building the tests and examples, 89
+are proved by the layered words. The other four:
+
+- Three are the laws that relate a substitution in a payload to the
+  same substitution in the word, for example
+
+      ⟦ x | ⟦ y := w ⟧ ⟧ ⨾ ⟦ x := u⟨ y := w ⟩ ⟧  =  ⟦ x := u ⟧ ⨾ ⟦ y := w ⟧
+
+  The fold gives the two sides different words. On the left it writes
+  `w` twice, once for the lifted substitution and once for the payload,
+  where the form wants it once: the first `w` has the payload of the
+  last layer and belongs there, and the bound variable that then
+  carries `y` has the same result as `y` itself.
+- One has labels whose order is not known
+  (`⟦ z := w⟨ x := u; y := v ⟩ ⟧` with `z` unrelated to `x` and `y`).
+  The layered word puts the weakenings of `x` and `y` in the segment of
+  `z`, which has to be sorted; the stored form keeps the payload apart
+  and never compares them. This is a property of the form, not of the
+  fold.
+
+### What is proved, and what is not
+
+- Sound: `lnorm_sound`, `nf_eq_l_sound`.
+- Unique: two words satisfying `lnf` that mean the same are the same
+  (`lw_unique_real`, and `lw_unique_sz` with the order filled in).
+- **Not proved, and not true of the fold as it is: that the word it
+  returns satisfies `lnf`.** The three laws above are counterexamples.
+  So uniqueness is a theorem about the form, and the fold is a sound
+  way of computing a word that is often, not always, the normal one.
+
+What the fold lacks is the same in every case found so far: deciding
+that a term does not belong in a new first layer. A term `u` put in
+front of a word `K` with a payload `p` other than the identity has the
+payload `p ⨾ K`. The fold always opens a new layer for it, with `p`
+written between that layer and `K`. The form wants `u` in the layer
+whose rest means `p ⨾ K` on named variables, if there is one, and
+otherwise in a new layer at the place the order gives. Finding that
+layer means comparing what `p ⨾ K` and the rests of `K` do. When the
+first segment of `K` sends a named variable to a term, the new layer
+is above it and nothing needs comparing; this is the case of a chain.
+When it does not, `p` and the renamings of `K` have to be followed
+layer by layer until a named variable reaches a term or the word ends:
+
+1. it ends, or reaches a layer, with every named variable where the
+   layer's rest has it: the term joins that layer, through a bound
+   variable carried there;
+2. a named variable reaches a term first: a new layer, and its place
+   among the layers passed on the way is the order's to decide. These
+   are families that do not see each other, and comparing them means
+   comparing payloads as wholes.
+
+With that, the fold also has to send variables with one result to one
+variable, number bound variables by their sources, and drop bound
+variables nothing uses any more (which can cascade down the word).
+None of this is written. Until it is, and `lnf` is proved of the
+result, the stored form cannot go.
+
+### Cost
+
+Measured with `vm_compute` on the reified expressions, both sides
+normalised and compared; times in seconds. *Stored* is `nf_eq_r`,
+*layered* is `nf_eq_l`.
+
+| | steps | stored | layered |
+|---|---|---|---|
+| chain of substitutions, nested to the left against nested to the right | 64 | 0.032 | 0.007 |
+| | 256 | 0.62 | 0.027 |
+| | 1024 | | 0.20 |
+| the same chain with an atom after each substitution | 16 | 1.0 | 0.003 |
+| | 64 | over 250 | 0.007 |
+| | 1024 | | 0.16 |
+| substitutions for one name | 256 | 1.0 | 0.031 |
+| weakenings of distinct names | 256 | 0.20 | 0.18 |
+| | 1024 | | 1.3 |
+| one substitution under nested lifts | 8 | 0.021 | 0.021 |
+| | 64 | 0.064 | 0.19 |
+| | 128 | 0.33 | 1.2 |
+| one simultaneous substitution | 64 | 0.018 | 0.20 |
+| | 128 | 0.12 | 0.68 |
+| a law of the kind above, payload a chain | 128 | 0.17 | 0.16, words differ |
+
+In the number `n` of steps:
+
+- *Chains.* A step in front of a layered word is one new segment: the
+  layered form is linear, in time and size. The stored form writes
+  each payload once and is quadratic. With atoms the stored form
+  carries every term past every atom and is far worse than quadratic;
+  the layered form leaves terms where they are.
+- *Wide segments.* Composing a segment into another looks up every
+  target of the one in the other by walking its entries, and puts each
+  entry back by walking again (`sgo`, `sfind`, `sset`). So composing
+  costs the product of the two widths, and `n` weakenings of distinct
+  names, which end in one segment of `n` entries, cost `n²` in both
+  forms. A merge of the two sorted lists would be linear.
+- *Lifts.* A step under `d` lifts is a segment with `d` bound
+  variables sent to themselves. It was lifted once per lift, `d²` per
+  step; it is now lifted in one pass (`slifts`), which made depth 128
+  eight times faster. The `d` targets are still looked up one by one
+  when the segment is composed into the first segment of the word,
+  `d` times its width, so `n` nested lifts cost `n³`, where the stored
+  form is quadratic: four times slower at depth 128, the same at depth
+  8. Composing under the first `d` bound targets of the word's first
+  segment, without writing them out, would make this quadratic too.
+- *Where the fold is not canonical*, the layered attempt is wasted and
+  the stored form decides: the cost of both.
+
+In practice the normaliser is not where the time goes. For the laws in
+the tests (two or three steps) `names_eq` takes 30 to 80 ms, of which
+either normaliser is under 1 ms; the rest is unfolding the notation,
+reifying, and the kernel. For a chain of `n` substitutions over label
+variables with `n − 1` order hypotheses:
+
+| `n` | `names_eq` | collecting the order hypotheses | reifying | the order table | layered | stored |
+|---|---|---|---|---|---|---|
+| 12 | 0.44 | 0.23 | 0.10 | 0.003 | 0.001 | 0.010 |
+| 24 | 1.9 | 1.3 | 0.18 | 0.039 | 0.001 | 0.004 |
+| 48 | 8.4 | 5.4 | 1.1 | 0.88 | 0.001 | 0.04 |
+
+The last two columns are without the order table, which both need.
+
+- `collect_fact_list` finds one hypothesis `label_lt x y` at a time and
+  starts again from the first after each, reifying both labels by a
+  search of the label list: more than quadratic in the number of
+  hypotheses.
+- `order_of` works out the order of every pair of label variables by
+  following the facts from scratch for each pair; it grows fastest.
+- Reification looks every label and term up in a list.
+
+So for goals as they occur, the two normalisers cannot be told apart,
+and for large goals over label variables the tactic's own bookkeeping
+costs a thousand times more than either. The layered form matters for
+long compositions over concrete labels and, most of all, for anything
+with atoms between substitutions, where the stored form stops being
+usable at a few dozen steps.
+
+`names` itself (as opposed to `names_eq`) normalises each adjustment
+on the stored form to show it, and then proves the two equal with
+`names_eq`; it gains only in that second step.
+
+Still to do, in the order it would pay off:
+
+- The fold canonical as described above, `lnf` of its result, and then
+  showing, applying and materialising from layered words, so that the
+  stored form goes.
+- Composition under bound targets and a linear merge of segments.
+- `collect_fact_list` in one pass, and the order table by one closure.
 - `ord_sz` puts layers of two families that do not see each other in
   size order, which interleaves them; an order that keeps a family
-  together (by the atoms a payload mentions, before size) would give
-  smaller words and fits the same construction.
-- Then `names` moves over and the stored form goes.
+  together would give smaller words and fits the same construction.
