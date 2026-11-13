@@ -912,3 +912,49 @@ Proof.
 Qed.
 
 End Sem.
+
+(** ** A renaming in front of a canonical word *)
+
+Section Rcons.
+
+Variable F : order.
+Variable ntm : nat.
+
+Definition named_id (G : seg) : bool := match sdrop_none G with SNil => true | _ => false end.
+
+(** A segment with terms in front of the canonical word [K], the word
+    after it having been put in canonical form: a last segment that only
+    renames bound variables joins it. *)
+Definition fixlast (S : seg) (K : lword) : option lword :=
+  match K with
+  | [LS G] => if has_terms G then Some (LS S :: K)
+              else if named_id G then option_map (fun X => [LS X]) (scomp F ntm G S)
+              else Some (LS S :: K)
+  | _ => Some (LS S :: K)
+  end.
+
+Fixpoint rcons (rho : seg) (K : lword) {struct K} : option lword :=
+  match K with
+  | [] => Some (lpre rho)
+  | LS Sg :: K1 =>
+      match scomp F ntm Sg rho with
+      | Some S' =>
+          if has_terms S' then
+            match renum1 F S' with
+            | Some (S'', io) =>
+                obind (match io with SNil => Some K1 | _ => rcons io K1 end) (fixlast S'')
+            | None => None
+            end
+          else rcons S' K1
+      | None => None
+      end
+  | LA L a :: K2 =>
+      match wcomp F ntm (WAtom SNil L a (WEnd SNil)) (WEnd rho) with
+      | Some (WAtom Q L' a' (WEnd U)) =>
+          if has_terms Q then None
+          else obind (match Q with SNil => Some K2 | _ => rcons Q K2 end) (fun K2' => Some (lpre U ++ LA L' a' :: K2'))
+      | _ => None
+      end
+  end.
+
+End Rcons.
