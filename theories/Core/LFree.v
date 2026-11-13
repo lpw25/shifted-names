@@ -164,7 +164,7 @@ Hypothesis HF : facts_ok lenv F.
 
 Local Notation lden := (lden lenv).
 Local Notation R := (R lenv).
-Local Notation lnf := (lnf lenv labs gtP route_min).
+Local Notation lnf := (lnf lenv labs gtP route_min (num_first lenv)).
 Local Notation sterm := (sterm lenv).
 
 Lemma seg_tgt_sres s h i t : seg_tgt F s h i = Some t -> sres lenv s (mk_rvar (lden h) i) = tres lenv t.
@@ -234,10 +234,10 @@ Proof.
   - destruct Hr as [Hn2 [Hr2 [[Hs2 HS2]|[_ [Hren2 [->|[L [a [r3 [-> _]]]]]]]]]].
     + assert (G : gtP (R (LS s2 :: r2)) (R r2)).
       { destruct Hs2 as [y [[[u b] s] Ey]].
-        pose proof (sres_pure lenv labs s2 y (so_pure _ _ _ _ _ _ HS2)) as Hp; rewrite Ey in Hp.
+        pose proof (sres_pure lenv labs s2 y (so_pure _ _ _ _ _ _ _ HS2)) as Hp; rewrite Ey in Hp.
         assert (ER : R (LS s2 :: r2) y = FTerm u b (fun z => fs lenv s (R r2) z)).
-        { rewrite (R_cons lenv labs _ _ (so_pure _ _ _ _ _ _ HS2)); unfold res; rewrite Ey; reflexivity. }
-        pose proof (so_order _ _ _ _ _ _ HS y u b _ ER) as G.
+        { rewrite (R_cons lenv labs _ _ (so_pure _ _ _ _ _ _ _ HS2)); unfold res; rewrite Ey; reflexivity. }
+        pose proof (so_order _ _ _ _ _ _ _ HS y u b _ ER) as G.
         exact (gtP_keq _ _ _ _ (keq_refl _) (pay_keq lenv labs b s (R r2) Hp) G). }
       destruct (Nat.eq_dec d2 (List.length r2)) as [->|Hne].
       * rewrite (suf_cons _ _ _ (le_n _)), suf_all; exact G.
@@ -1038,7 +1038,7 @@ Proof.
 Qed.
 
 Theorem pcmp_sound K e1 e2 c :
-  lnf lenv labs gtP route_min K -> lgood K -> e1 <= List.length K -> e2 <= List.length K -> pcmp F K e1 e2 = Some c ->
+  lnf lenv labs gtP route_min (num_first lenv) K -> lgood K -> e1 <= List.length K -> e2 <= List.length K -> pcmp F K e1 e2 = Some c ->
   match c with
   | Gt => gtP (R (suf K e1)) (R (suf K e2))
   | Lt => gtP (R (suf K e2)) (R (suf K e1))

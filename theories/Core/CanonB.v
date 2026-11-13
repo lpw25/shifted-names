@@ -51,8 +51,8 @@ Local Notation fs := (fs lenv).
 Local Notation sres := (sres lenv).
 Local Notation sp1 := (sp1 lenv labs ntm).
 Local Notation lw1 := (lw1 lenv labs ntm).
-Local Notation lnf := (lnf lenv labs gtP route_min).
-Local Notation segok := (segok lenv labs gtP route_min).
+Local Notation lnf := (lnf lenv labs gtP route_min (num_first lenv)).
+Local Notation segok := (segok lenv labs gtP route_min (num_first lenv)).
 
 Theorem layer_ok Z W K' : lnf W -> lw1 W -> sp1 Z -> sterm lenv Z ->
   (forall y u b k, R W y = FTerm u b k -> gtP (R W) k) ->
@@ -235,8 +235,8 @@ Local Notation sres := (sres lenv).
 Local Notation sp1 := (sp1 lenv labs ntm).
 Local Notation tp1 := (tp1 labs ntm).
 Local Notation lw1 := (lw1 lenv labs ntm).
-Local Notation lnf := (lnf lenv labs gtP route_min).
-Local Notation segok := (segok lenv labs gtP route_min).
+Local Notation lnf := (lnf lenv labs gtP route_min (num_first lenv)).
+Local Notation segok := (segok lenv labs gtP route_min (num_first lenv)).
 
 Definition tterm (t : ntgt) : Prop := match t with NBind u w b => w = WEnd SNil /\ b = None /\ u < ntm | _ => False end.
 
@@ -277,7 +277,7 @@ Proof.
   intros Hl Hw Hk y u b k E.
   assert (Atom : forall L a K2 z, lnf K2 -> R (LA L a :: K2) z = FTerm u b k -> exists e, e < natl (LA L a :: K2) /\ deep e k).
   { intros L a K2 z H2 Ez; rewrite (R_atom lenv) in Ez; unfold latom in Ez; destruct (_ <? _); [|discriminate Ez].
-    destruct (tdeep lenv labs gtP route_min K2 H2 z u b k Ez) as [e [He Hd]]; exists e; split; [cbn [natl]; lia|exact Hd]. }
+    destruct (tdeep lenv labs gtP route_min (num_first lenv) K2 H2 z u b k Ez) as [e [He Hd]]; exists e; split; [cbn [natl]; lia|exact Hd]. }
   assert (Fin : forall e, e < natl K -> deep e k -> gtP (R K) k) by (intros e He Hd; exact (gtP_deep _ _ _ _ (deep_R lenv K) Hd He)).
   destruct K as [|[S1|L a] K1]; [discriminate E| |destruct (Atom L a K1 y (proj2 Hl) E) as [e [He Hd]]; exact (Fin e He Hd)].
   inversion Hw as [|? ? HS Hw1]; subst; destruct Hl as [_ [Hl1 [[[x [t Ex]] _]|[_ [Hren Hr]]]]].
@@ -294,7 +294,7 @@ Proof.
   destruct Hl as [_ [_ [[_ HSo]|[_ [Hren _]]]]]; [|rewrite (sren_noterms labs S1 Hren) in Ht; discriminate].
   rewrite (R_seg lenv), (res_free lenv labs ntm S1 _ y HS) in E.
   destruct (sres S1 y) as [y'|[[u' b'] s']] eqn:Ey.
-  - exact (gtP_trans _ _ _ Hgt (so_order _ _ _ _ _ _ HSo y' u b k E)).
+  - exact (gtP_trans _ _ _ Hgt (so_order _ _ _ _ _ _ _ HSo y' u b k E)).
   - injection E as <- <- <-; apply (gtP_keq _ _ (R K1) _ (keq_refl _)); [apply keq_refl|exact Hgt].
 Qed.
 
@@ -752,7 +752,7 @@ Proof.
     + rewrite Er_ in F0; destruct (R K1 (sv lenv rho z)) as [|u1 b1 k1|] eqn:E1; cbn [feq] in F0; try contradiction.
       destruct F0 as [_ [<- Fk]].
       apply (gtP_keq _ _ _ _ (keq_sym _ _ Kw) (fun z0 Hz => feq_sym _ _ (Fk z0 (fun _ => Hz)))).
-      exact (so_order _ _ _ _ _ _ HSo _ _ _ _ E1).
+      exact (so_order _ _ _ _ _ _ _ HSo _ _ _ _ E1).
     + cbn [feq] in F0; destruct F0 as [_ [<- Fk]].
       exact (gtP_keq _ _ _ _ (keq_refl _) (fun z0 Hz => feq_sym _ _ (Fk z0 (fun _ => Hz))) Gp).
   - destruct HSt as [[[x|] i] [t Ex]].

@@ -226,6 +226,24 @@ Variable route : (rvar -> fres) -> rvar -> rvar -> Prop.
 Hypothesis route_uniq : forall k k' x y y', keq k k' -> route k x y -> route k' x y' ->
   feq (k y) (k' y') -> named y -> y = y'.
 
+(** The rule for numbering the bound variables of the rest is a
+    parameter too: [num Sg k] for the segment [Sg] before [k].  Uniqueness
+    needs that two segments that send the same inputs to bound variables
+    with the same results, each using every number once, number them the
+    same. *)
+Variable num : seg -> (rvar -> fres) -> Prop.
+Hypothesis num_uniq : forall Sg k Sg' k',
+  (forall x i, sres Sg x = inl (mk_rvar None i) -> exists i', sres Sg' x = inl (mk_rvar None i')) ->
+  (forall x i', sres Sg' x = inl (mk_rvar None i') -> exists i, sres Sg x = inl (mk_rvar None i)) ->
+  (forall x x0 i i' j', sres Sg x = inl (mk_rvar None i) -> sres Sg x0 = inl (mk_rvar None i) ->
+     sres Sg' x = inl (mk_rvar None i') -> sres Sg' x0 = inl (mk_rvar None j') -> i' = j') ->
+  (forall x x0 i' i j, sres Sg' x = inl (mk_rvar None i') -> sres Sg' x0 = inl (mk_rvar None i') ->
+     sres Sg x = inl (mk_rvar None i) -> sres Sg x0 = inl (mk_rvar None j) -> i = j) ->
+  (forall i, exists x, sres Sg x = inl (mk_rvar None i)) -> (forall i, exists x, sres Sg' x = inl (mk_rvar None i)) ->
+  (forall x i i', sres Sg x = inl (mk_rvar None i) -> sres Sg' x = inl (mk_rvar None i') ->
+     feq (k (mk_rvar None i)) (k' (mk_rvar None i'))) ->
+  num Sg k -> num Sg' k' -> forall n x, sres Sg x = inl (mk_rvar None n) -> sres Sg' x = inl (mk_rvar None n).
+
 Record segok (Sg : seg) (r : lword) : Prop := {
   so_shape : sshape false Sg;
   so_pure : spure Sg;
@@ -235,10 +253,7 @@ Record segok (Sg : seg) (r : lword) : Prop := {
   so_pay : forall x u n s i, sres Sg x = inr (u, Some n, s) -> routed (R r) (sv s (mk_rvar None i));
   so_hit : r <> [] -> forall y, bound y -> exists x, sres Sg x = inl y;
   so_binj : binj (R r);
-  so_src : r <> [] -> forall x x' i j,
-             sres Sg x = inl (mk_rvar None i) -> sres Sg x' = inl (mk_rvar None j) -> i < j ->
-             exists x0, sres Sg x0 = inl (mk_rvar None i)
-                        /\ forall x'', sres Sg x'' = inl (mk_rvar None j) -> vlt x0 x''
+  so_num : r <> [] -> num Sg (R r)
 }.
 
 Fixpoint lnf (l : lword) : Prop :=
@@ -295,9 +310,10 @@ Lemma segok_entry h x u r :
   (forall G, r = [LS G] -> keq (R r) FVar -> sterm G) ->
   (forall v y, route (R r) v y) ->
   binj (R r) ->
+  (r <> [] -> num (entry_seg h u) (R r)) ->
   segok (entry_seg h u) r.
 Proof.
-  intros Hx Hin Ho Hl Hi Hb; constructor.
+  intros Hx Hin Ho Hl Hi Hb Hnum; constructor.
   - split; [repeat constructor|]; constructor; [|constructor].
     split; [exact Hin|split; [exact I|split; [left; discriminate|discriminate]]].
   - constructor; [exists SNil; split; reflexivity|constructor].
@@ -308,11 +324,7 @@ Proof.
     destruct (label_eqb (Some x) (v_label v)); [destruct (v_index v); discriminate E|discriminate E].
   - intros _ y Hy; exists y; rewrite (sres_entry h u x _ Hx); unfold bound in Hy; rewrite Hy; reflexivity.
   - exact Hb.
-  - intros _ v v' i j _ _ Hij; exists (mk_rvar None i); split; [rewrite (sres_entry h u x _ Hx); reflexivity|].
-    intros v'' E; rewrite (sres_entry h u x _ Hx) in E.
-    destruct (label_eqb_spec (Some x) (v_label v'')) as [El|_].
-    + destruct (v_index v''); [discriminate E|]; injection E as E _; rewrite E in El; discriminate El.
-    + injection E as ->; right; split; [reflexivity|exact Hij].
+  - exact Hnum.
 Qed.
 
 (** ** Two words that begin with a segment with a term *)
@@ -525,8 +537,7 @@ Proof.
     assert (Hne' : r' <> []) by (intros H; exact (Hne (Hnn' H))).
     destruct y as [ly i], y' as [ly' i']; unfold bound in Hy, Hy'; cbn in Hy, Hy'; subst ly ly'.
     enough (H : sres Sg' x = inl (mk_rvar None i)) by exact H.
-    apply (class_index (fun x i => sres Sg x = inl (mk_rvar None i)) (fun x i => sres Sg' x = inl (mk_rvar None i))).
-    + intros x0 a b Ha Hb; rewrite Ha in Hb; injection Hb as Hb; exact Hb.
+    apply (num_uniq Sg (R r) Sg' (R r')).
     + intros x0 a Ha; destruct (var_bound _ _ _ _ HS HS' K E x0 _ Ha eq_refl) as [[l a'] [Ha' [Hl _]]].
       unfold bound in Hl; cbn in Hl; subst l; exists a'; exact Ha'.
     + intros x0 a Ha; destruct (var_bound _ _ _ _ HS' HS (keq_sym _ _ K) E' x0 _ Ha eq_refl) as [[l a'] [Ha' [Hl _]]].
@@ -545,8 +556,9 @@ Proof.
       injection Eq as Eq; exact Eq.
     + intros a; exact (so_hit _ _ HS Hne (mk_rvar None a) eq_refl).
     + intros a; exact (so_hit _ _ HS' Hne' (mk_rvar None a) eq_refl).
-    + exact (so_src _ _ HS Hne).
-    + exact (so_src _ _ HS' Hne').
+    + intros x0 a a' H0 H0'; pose proof (E x0) as F0; unfold res in F0; rewrite H0, H0' in F0; exact F0.
+    + exact (so_num _ _ HS Hne).
+    + exact (so_num _ _ HS' Hne').
     + exact Ex.
 Qed.
 
@@ -871,6 +883,47 @@ Qed.
 
 End Routes.
 
+(** ** Two rules for numbering *)
+
+Section Numbers.
+
+Variable lenv : list label.
+Local Notation sres := (sres lenv).
+
+(** In the order of the first input sent to each. *)
+Definition num_first (Sg : seg) (k : rvar -> fres) : Prop :=
+  forall x x' i j, sres Sg x = inl (mk_rvar None i) -> sres Sg x' = inl (mk_rvar None j) -> i < j ->
+    exists x0, sres Sg x0 = inl (mk_rvar None i) /\ forall x'', sres Sg x'' = inl (mk_rvar None j) -> vlt x0 x''.
+
+Lemma num_first_uniq Sg k Sg' k' :
+  (forall x i, sres Sg x = inl (mk_rvar None i) -> exists i', sres Sg' x = inl (mk_rvar None i')) ->
+  (forall x i', sres Sg' x = inl (mk_rvar None i') -> exists i, sres Sg x = inl (mk_rvar None i)) ->
+  (forall x x0 i i' j', sres Sg x = inl (mk_rvar None i) -> sres Sg x0 = inl (mk_rvar None i) ->
+     sres Sg' x = inl (mk_rvar None i') -> sres Sg' x0 = inl (mk_rvar None j') -> i' = j') ->
+  (forall x x0 i' i j, sres Sg' x = inl (mk_rvar None i') -> sres Sg' x0 = inl (mk_rvar None i') ->
+     sres Sg x = inl (mk_rvar None i) -> sres Sg x0 = inl (mk_rvar None j) -> i = j) ->
+  (forall i, exists x, sres Sg x = inl (mk_rvar None i)) -> (forall i, exists x, sres Sg' x = inl (mk_rvar None i)) ->
+  (forall x i i', sres Sg x = inl (mk_rvar None i) -> sres Sg' x = inl (mk_rvar None i') ->
+     feq (k (mk_rvar None i)) (k' (mk_rvar None i'))) ->
+  num_first Sg k -> num_first Sg' k' -> forall n x, sres Sg x = inl (mk_rvar None n) -> sres Sg' x = inl (mk_rvar None n).
+Proof.
+  intros Ha Ha' Hb Hb' Hs Hs' _ Hn Hn'.
+  apply (class_index (fun x i => sres Sg x = inl (mk_rvar None i)) (fun x i => sres Sg' x = inl (mk_rvar None i)));
+    try assumption.
+  intros x0 a b H1 H2; rewrite H1 in H2; injection H2 as H2; exact H2.
+Qed.
+
+Lemma num_first_entry h x u k : lden lenv h = Some x -> num_first (entry_seg h u) k.
+Proof.
+  intros Hx v v' i j _ _ Hij; exists (mk_rvar None i); split; [rewrite (sres_entry lenv h u x _ Hx); reflexivity|].
+  intros v'' E; rewrite (sres_entry lenv h u x _ Hx) in E.
+  destruct (label_eqb_spec (Some x) (v_label v'')) as [El|_].
+  - destruct (v_index v''); [discriminate E|]; injection E as E _; rewrite E in El; discriminate El.
+  - injection E as ->; right; split; [reflexivity|exact Hij].
+Qed.
+
+End Numbers.
+
 (** ** From every interpretation to the free model
 
     As for words ([Unique.adequacy]): layered words that mean the same
@@ -943,13 +996,25 @@ Theorem lw_unique_real (labs : list lexp)
     (gt_keq : forall k1 k1' k2 k2', keq k1 k1' -> keq k2 k2' -> gt k1 k2 -> gt k1' k2')
     (route : (rvar -> fres) -> rvar -> rvar -> Prop)
     (route_uniq : forall k k' x y y', keq k k' -> route k x y -> route k' x y' -> feq (k y) (k' y') -> named y -> y = y')
+    (num : seg -> (rvar -> fres) -> Prop)
+    (num_uniq : forall Sg k Sg' k',
+       (forall x i, sres lenv Sg x = inl (mk_rvar None i) -> exists i', sres lenv Sg' x = inl (mk_rvar None i')) ->
+       (forall x i', sres lenv Sg' x = inl (mk_rvar None i') -> exists i, sres lenv Sg x = inl (mk_rvar None i)) ->
+       (forall x x0 i i' j', sres lenv Sg x = inl (mk_rvar None i) -> sres lenv Sg x0 = inl (mk_rvar None i) ->
+          sres lenv Sg' x = inl (mk_rvar None i') -> sres lenv Sg' x0 = inl (mk_rvar None j') -> i' = j') ->
+       (forall x x0 i' i j, sres lenv Sg' x = inl (mk_rvar None i') -> sres lenv Sg' x0 = inl (mk_rvar None i') ->
+          sres lenv Sg x = inl (mk_rvar None i) -> sres lenv Sg x0 = inl (mk_rvar None j) -> i = j) ->
+       (forall i, exists x, sres lenv Sg x = inl (mk_rvar None i)) -> (forall i, exists x, sres lenv Sg' x = inl (mk_rvar None i)) ->
+       (forall x i i', sres lenv Sg x = inl (mk_rvar None i) -> sres lenv Sg' x = inl (mk_rvar None i') ->
+          feq (k (mk_rvar None i)) (k' (mk_rvar None i'))) ->
+       num Sg k -> num Sg' k' -> forall n x, sres lenv Sg x = inl (mk_rvar None n) -> sres lenv Sg' x = inl (mk_rvar None n))
     nt l m :
-  lnf lenv labs gt route l -> lnf lenv labs gt route m -> lwok (tenvT nt) l -> lwok (tenvT nt) m ->
+  lnf lenv labs gt route num l -> lnf lenv labs gt route num m -> lwok (tenvT nt) l -> lwok (tenvT nt) m ->
   (forall aenv penv, lwden lenv (tenvT nt) aenv penv l = lwden lenv (tenvT nt) aenv penv m) ->
   l = m.
 Proof.
   intros Hl Hm Ol Om Heq.
-  exact (lw_unique lenv labs Hinj gt gt_irrefl gt_trans gt_keq route route_uniq l m Hl Hm (lw_adequacy nt l m Ol Om Heq)).
+  exact (lw_unique lenv labs Hinj gt gt_irrefl gt_trans gt_keq route route_uniq num num_uniq l m Hl Hm (lw_adequacy nt l m Ol Om Heq)).
 Qed.
 
 End Adequacy.

@@ -52,8 +52,8 @@ Local Notation sres := (sres lenv).
 Local Notation sp1 := (sp1 lenv labs ntm).
 Local Notation tp1 := (tp1 labs ntm).
 Local Notation lw1 := (lw1 lenv labs ntm).
-Local Notation lnf := (lnf lenv labs gtP route_min).
-Local Notation segok := (segok lenv labs gtP route_min).
+Local Notation lnf := (lnf lenv labs gtP route_min (num_first lenv)).
+Local Notation segok := (segok lenv labs gtP route_min (num_first lenv)).
 
 Lemma follow1_lt l : forall h i d, follow1 F l h i = Some d ->
   match d with DV _ _ => True | DT _ e => e < List.length l | DS _ _ _ e => e < List.length l end.
@@ -617,7 +617,7 @@ Qed.
 
 (** The representative means the same, is where the variable must go,
     and is the same for variables that mean the same. *)
-Theorem rep_ok W x : lnf lenv labs gtP route_min W -> lw1 W -> In (fst x) labs ->
+Theorem rep_ok W x : lnf lenv labs gtP route_min (num_first lenv) W -> lw1 W -> In (fst x) labs ->
   In (fst (rep F W x)) labs /\ feq (R W (pv (rep F W x))) (R W (pv x)) /\ routed (R W) (pv (rep F W x))
   /\ forall x', In (fst x') labs -> feq (R W (pv x')) (R W (pv x)) -> rep F W x' = rep F W x.
 Proof.
@@ -805,7 +805,7 @@ Proof. intros E; destruct y; unfold pv; cbn in *; rewrite E; reflexivity. Qed.
 Section WithW.
 
 Variable W : lword.
-Hypothesis Hl : lnf lenv labs gtP route_min W.
+Hypothesis Hl : lnf lenv labs gtP route_min (num_first lenv) W.
 Hypothesis Hw : lw1 W.
 
 Lemma unm_val y : ~ llab (v_label y) ->

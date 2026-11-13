@@ -76,10 +76,10 @@ Qed.
 
 (** Uniqueness of layered normal forms for the order from [ord]. *)
 Theorem lw_unique_of nt l m :
-  lnf lenv labs gt_of route_min l -> lnf lenv labs gt_of route_min m -> lwok lenv (tenvT nt) l -> lwok lenv (tenvT nt) m ->
+  lnf lenv labs gt_of route_min (num_first lenv) l -> lnf lenv labs gt_of route_min (num_first lenv) m -> lwok lenv (tenvT nt) l -> lwok lenv (tenvT nt) m ->
   (forall aenv penv, lwden lenv (tenvT nt) aenv penv l = lwden lenv (tenvT nt) aenv penv m) ->
   l = m.
-Proof. exact (lw_unique_real lenv labs Hinj gt_of gt_of_irrefl gt_of_trans gt_of_keq route_min route_min_uniq nt l m). Qed.
+Proof. exact (lw_unique_real lenv labs Hinj gt_of gt_of_irrefl gt_of_trans gt_of_keq route_min route_min_uniq (num_first lenv) (num_first_uniq lenv) nt l m). Qed.
 
 End Lift.
 
@@ -248,7 +248,7 @@ Definition gt_sz : (rvar -> fres) -> (rvar -> fres) -> Prop := gt_of lenv labs n
 (** Two layered words in normal form for this order that mean the same
     under every interpretation of the atoms are the same word. *)
 Theorem lw_unique_sz nt l m :
-  lnf lenv labs gt_sz route_min l -> lnf lenv labs gt_sz route_min m -> lwok lenv (tenvT nt) l -> lwok lenv (tenvT nt) m ->
+  lnf lenv labs gt_sz route_min (num_first lenv) l -> lnf lenv labs gt_sz route_min (num_first lenv) m -> lwok lenv (tenvT nt) l -> lwok lenv (tenvT nt) m ->
   (forall aenv penv, lwden lenv (tenvT nt) aenv penv l = lwden lenv (tenvT nt) aenv penv m) ->
   l = m.
 Proof. exact (lw_unique_of lenv labs npa Hinj ord_sz ord_sz_irrefl ord_sz_trans nt l m). Qed.
