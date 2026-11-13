@@ -320,3 +320,68 @@ So the realistic goal is the following:
   `BUnique.v` would become unnecessary: its conditions describe a
   placement policy that the readback would fix instead. `CanonW` and
   `CanonBr` would be replaced by the readback.
+
+## Canonical compression of words (log factor accepted)
+
+Checked against the papers; theorem numbers are those of the arXiv
+versions.
+
+- **Jeż, recompression** ([arXiv 1301.5842](https://arxiv.org/abs/1301.5842)).
+  `TtoG` alternates two steps:
+  - compress every maximal block `aᵏ`;
+  - compress the pairs `ab` with `a ∈ Σℓ` and `b ∈ Σr`.
+
+  The partition comes from `GreedyPairs` (Alg. 2). It is deterministic,
+  and it reads only pair counts in the current word and an order on
+  letters, which is first occurrence in the word (Lemma 1). The cover
+  guarantee (≥ ¼ of pairs, Lemma 4) holds for any letter order.
+  Theorem 2 bounds the size by `O(g log(N/g))` in the worst case.
+  Naming each new letter structurally (as the pair or block it
+  replaces) therefore makes the output a function of the word alone:
+  **canonical, deterministic, within a log factor.** Caveat: TtoG runs
+  on the uncompressed word.
+- **Restricted recompression** (Kociumaka, Navarro and Prezza,
+  [arXiv 1910.02151](https://arxiv.org/abs/1910.02151), Construction
+  V.6, Theorem V.18).
+  - Symbols are named structurally, `A = Σ ∪ A×A ∪ A×ℕ≥2`, which is
+    exactly hash-consing.
+  - Size `O(δ log(N/δ))` (≤ `O(g log N)`).
+  - The partition is uniformly random, so a fixed seeded hash gives the
+    bound only in expectation. That is not usable for a mechanised
+    worst-case bound.
+  - Kempa and Kociumaka ([arXiv 2308.03635](https://arxiv.org/abs/2308.03635),
+    Cor. 5.23) derandomise it at an extra log factor.
+- **Signature encodings** (Nishimoto et al.,
+  [arXiv 1605.01488](https://arxiv.org/abs/1605.01488)). Deterministic
+  coin tossing reads the integer IDs of symbols, and the IDs depend on
+  insertion order (§5). So the *shape* of the grammar is not canonical.
+  Avoid.
+- **Trees.**
+  - Top DAGs (Bille et al., [arXiv 1304.5702](https://arxiv.org/abs/1304.5702))
+    are canonical, but merges ignore labels. They are within `O(log n)`
+    of the minimal DAG (Thm 2), not of tree grammars.
+  - Tree recompression (Jeż and Lohrey,
+    [arXiv 1309.4958](https://arxiv.org/abs/1309.4958), Thm 1) is
+    `O(r g log(n/g))` and canonical by the same argument as for words,
+    but defined on uncompressed trees.
+
+**Inference, not stated in any paper.** Run recompression on an SLP
+instead of the word (as Jeż does for compressed pattern matching), and
+choose each partition by `GreedyPairs` on the *word's* pair counts and
+first-occurrence order. Both are computable from the SLP. Every phase
+then makes exactly the choices `TtoG` would make on the word. The
+result is the same canonical grammar, with Theorem 2's bound, in time
+polynomial in the input SLP and `log N`. This needs checking: that the
+proof of Theorem 2 uses nothing but Lemma 4, and the cost of
+first-occurrence order and pair counts on an SLP.
+
+**For our normal form.** The atom word of a line becomes a recompression
+grammar. The open part is everything that is not a word: segments
+interact with neighbouring atoms (lifts, terms hopping), and a term's
+payload is a *suffix* of the line. A suffix is not a symbol of the
+grammar; it is a path through it. Payload sharing therefore has to be
+expressed as "suffix of a grammar symbol". A balanced grammar (depth
+`O(log N)`, Ganardi, Jeż and Lohrey,
+[arXiv 1902.03568](https://arxiv.org/abs/1902.03568)) makes each suffix
+a list of `O(log N)` symbols. That is a log factor per distinct payload
+start, which is within budget.
