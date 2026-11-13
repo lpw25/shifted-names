@@ -51,14 +51,12 @@ For a segment `S` followed by the rest `r`, as in `LayeredUnique.lnf`:
    it goes to the least named variable of the rest with its result, and
    to a bound variable only when there is none.
 4. **Bound variables.** Every bound variable of the rest is used,
-   distinct ones have distinct results, and they are numbered in the
-   order of their results: a term before a variable or a stuck atom, then
-   by the index of the variable reached (or the variable an atom is stuck
-   on), then by the order `rgt` on results. This numbering depends on the
-   rest only. Numbering by first use from the segment above, as now,
-   makes one new layer on top renumber every layer below (Θ(L) per step).
-   With this order a variable carried around lifts keeps its index, so a
-   run of carried variables stays one run.
+   distinct ones have distinct results, and they are numbered by first
+   use from the segment above. Variables carried through a layer keep
+   their relative order, so they stay one run: this costs no size.
+   (`Order.num_order`, numbering by results, is the proved alternative; it
+   avoids renumbering below a new layer but makes ordering need the full
+   results, so it is not cheaper.)
 5. **Branches are minimal.** A term's payload is `P ⨾ A ⨾ R(r)` with the
    fewest atoms in `P` over every way of writing it with a suffix of the
    line. This one rule is both former conventions: anything a payload
@@ -92,7 +90,11 @@ constant number of times).
 
 ## Time
 
-Paper only, in `docs/normal-forms.md`, from the mechanised size facts and
-the data structures (binary indices, label comparisons from the facts
-table, per-layer heights stored with the line so comparisons need not
-recompute them).
+Paper only, in `docs/normal-forms.md`. The target is O(n²) overall: each
+input step costs O(size of the current canonical form), with indices in
+binary. Mechanised size facts bound each pass. What this rules out: an
+operation that makes a pass over the rest at every layer it visits
+(the recursion under a layer must not re-cons the whole rest at each
+level), and recomputing the height of payloads from scratch (heights are
+computed in one bottom-up pass, linear in the word). Faster than O(n²) is
+later work.
