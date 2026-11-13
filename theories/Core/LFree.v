@@ -161,10 +161,12 @@ Variable lenv : list label.
 Variable labs : list lexp.
 Variable F : order.
 Hypothesis HF : facts_ok lenv F.
+Variable route : (rvar -> fres) -> rvar -> rvar -> Prop.
+Variable num : seg -> (rvar -> fres) -> Prop.
 
 Local Notation lden := (lden lenv).
 Local Notation R := (R lenv).
-Local Notation lnf := (lnf lenv labs gtP route_min (num_first lenv)).
+Local Notation lnf := (lnf lenv labs gtP route num).
 Local Notation sterm := (sterm lenv).
 
 Lemma seg_tgt_sres s h i t : seg_tgt F s h i = Some t -> sres lenv s (mk_rvar (lden h) i) = tres lenv t.
@@ -868,6 +870,8 @@ Variable labs : list lexp.
 Hypothesis Hinj : forall h h', In h labs -> In h' labs -> lden lenv h = lden lenv h' -> h = h'.
 Variable F : order.
 Hypothesis HF : facts_ok lenv F.
+Variable route : (rvar -> fres) -> rvar -> rvar -> Prop.
+Variable num : seg -> (rvar -> fres) -> Prop.
 
 Local Notation lden := (lden lenv).
 Local Notation R := (R lenv).
@@ -1038,7 +1042,7 @@ Proof.
 Qed.
 
 Theorem pcmp_sound K e1 e2 c :
-  lnf lenv labs gtP route_min (num_first lenv) K -> lgood K -> e1 <= List.length K -> e2 <= List.length K -> pcmp F K e1 e2 = Some c ->
+  lnf lenv labs gtP route num K -> lgood K -> e1 <= List.length K -> e2 <= List.length K -> pcmp F K e1 e2 = Some c ->
   match c with
   | Gt => gtP (R (suf K e1)) (R (suf K e2))
   | Lt => gtP (R (suf K e2)) (R (suf K e1))
@@ -1132,7 +1136,7 @@ Proof.
                  end).
   { intros h i c' Ef; unfold f in Ef.
     destruct (dfollow F l1 h i) as [x|] eqn:Ex; [|discriminate]; destruct (dfollow F l2 h i) as [x'|] eqn:Ex'; [|discriminate].
-    pose proof (dcmp_sound lenv labs F HF K e1 e2 h i h i x x' HK He1 He2 Ex Ex') as D; rewrite Ef in D; exact D. }
+    pose proof (dcmp_sound lenv labs F HF route num K e1 e2 h i h i x x' HK He1 He2 Ex Ex') as D; rewrite Ef in D; exact D. }
   assert (AI : forall h, (forall i, i <= B -> f h i = Some Eq) -> forall i, feq (R l1 (mk_rvar (lden h) i)) (R l2 (mk_rvar (lden h) i))).
   { intros h Hh i; destruct (Nat.le_gt_cases i B) as [Hi|Hi]; [exact (fS h i Eq (Hh i Hi))|].
     apply (genq_far l1 l2 (lden h) B Gq); [unfold B; lia|unfold B; lia|exact (fS h B Eq (Hh B (le_n _)))|lia]. }

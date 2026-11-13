@@ -858,7 +858,7 @@ Proof.
   assert (Suf1 : suf (LS S1 :: K1) (List.length (LS S1 :: K1)) = LS S1 :: K1) by apply suf_all.
   assert (Suf2 : suf (LS S1 :: K1) (List.length K1) = K1) by (rewrite (suf_cons _ _ _ (le_n _)); apply suf_all).
   destruct (pcmp F (LS S1 :: K1) (List.length (LS S1 :: K1)) (List.length K1)) as [c|] eqn:Ec; [|discriminate].
-  pose proof (pcmp_sound lenv labs Hinj F HF (LS S1 :: K1) (List.length (LS S1 :: K1)) (List.length K1) c Hl
+  pose proof (pcmp_sound lenv labs Hinj F HF route_min (num_first lenv) (LS S1 :: K1) (List.length (LS S1 :: K1)) (List.length K1) c Hl
                 (lw1_lgood _ Hw) (le_n _) ltac:(cbn; lia) Ec) as Hc.
   rewrite Suf1, Suf2 in Hc.
   inversion Hw as [|? ? HS HK1]; subst.
