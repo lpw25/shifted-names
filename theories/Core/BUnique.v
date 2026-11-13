@@ -1415,4 +1415,211 @@ Proof.
     replace (j - lc l L1 + lc l L1) with j in E by lia; exact E.
 Qed.
 
+(** *** How a word begins *)
+
+Lemma phant_nil p : phant lenv p p SNil.
+Proof. destruct p as [n|]; [intros i; reflexivity|exact I]. Qed.
+
+Lemma bres_nil x : bres SNil x = inl x.
+Proof. reflexivity. Qed.
+
+Lemma head_b K p l : lnfL K p l ->
+  (exists Sg r p', l = LS Sg :: r /\ btrm lenv Sg /\ bsegok lenv labs gt route bp K p p' Sg r /\ lnfL K p' r)
+  \/ (exists U p', l = pre U /\ sshape lenv labs false U /\ sren labs U /\ phant lenv p p' U
+        /\ (forall x y, dom p x -> bres U x = inl y -> dom p' y))
+  \/ (exists U p' L a r2, l = pre U ++ LA L a :: r2 /\ sshape lenv labs false U /\ sren labs U /\ lpos lenv U L
+        /\ phant lenv p p' U /\ (forall x y, dom p x -> bres U x = inl y -> dom p' y)
+        /\ (forall y, bound y -> dom p' y -> exists x, dom p x /\ bres U x = inl y)
+        /\ lok lenv labs L /\ ldom p' L /\ lnfL K None r2 /\ nohop lenv K L a r2).
+Proof.
+  assert (Rn : forall x y, dom p x -> bres SNil x = inl y -> dom p y) by (intros x y Hx E; rewrite bres_nil in E; injection E as <-; exact Hx).
+  assert (Hn0 : forall y, bound y -> dom p y -> exists x, dom p x /\ bres SNil y = inl y) by (intros y _ Hy; exists y; split; [exact Hy|reflexivity]).
+  destruct l as [|[Sg|L a] r]; cbn [lnfL].
+  - intros _; right; left; exists SNil, p; split; [reflexivity|].
+    split; [exact (conj (Sorted.SSorted_nil _) (Forall_nil _))|split; [exact (Forall_nil _)|split; [apply phant_nil|exact Rn]]].
+  - intros [Hne [p' [Hr [[Ht HS]|[Hs [Hren [Hph [Hre [->|[L [a [r2 [-> [Hp Hh]]]]]]]]]]]]]].
+    + left; exists Sg, r, p'; auto.
+    + right; left; exists Sg, p'; split; [destruct Sg; [destruct (Hne eq_refl)|reflexivity]|auto].
+    + right; right; exists Sg, p', L, a, r2; split; [destruct Sg; [destruct (Hne eq_refl)|reflexivity]|].
+      cbn [lnfL] in Hr; destruct Hr as [HL [Hld [Hr2 Hnh]]].
+      exact (conj Hs (conj Hren (conj Hp (conj Hph (conj Hre (conj Hh (conj HL (conj Hld (conj Hr2 Hnh))))))))).
+  - intros [HL [Hld [Hr Hnh]]]; right; right; exists SNil, p, L, a, r; split; [reflexivity|].
+    split; [exact (conj (Sorted.SSorted_nil _) (Forall_nil _))|split; [exact (Forall_nil _)|split; [apply (lpos_nil lenv)|split; [apply phant_nil|]]]].
+    split; [exact Rn|split; [intros y Hy Hd; exists y; split; [exact Hd|reflexivity]|]].
+    split; [exact HL|split; [exact Hld|split; [exact Hr|exact Hnh]]].
+Qed.
+
+Lemma flw_head U L a r2 K v : sren labs U ->
+  flw (pre U ++ LA L a :: r2) K v = Unique.latom lenv L a (flw r2 K) (sv U v).
+Proof. intros Hr; rewrite flw_app, flw_pre; cbn [flw]; apply (fs_ren lenv labs), Hr. Qed.
+
+Lemma natl_preU U r : natl (pre U ++ r) = natl r.
+Proof. destruct U; reflexivity. Qed.
+
+Lemma natl_pre0 U : natl (pre U) = 0.
+Proof. destruct U; reflexivity. Qed.
+
+(** *** Uniqueness by induction on the length *)
+
+Theorem lu N : forall l m K K' p e, List.length l < N -> lnfL K p l -> lnfL K' p m -> natl l = natl m ->
+  deep e K -> nstuck e K -> deep e K' -> nstuck e K' ->
+  ((K = FVar /\ K' = FVar) \/ ((l = [] \/ lend l) /\ (m = [] \/ lend m))) ->
+  (p <> None -> lend l /\ lend m) ->
+  (forall v, dom p v -> feq (flw l K v) (flw m K' v)) ->
+  l = m /\ (lend l -> forall v, feq (K v) (K' v)).
+Proof.
+  induction N as [|N IH]; intros l m K K' p e Hlen Hl Hm Hn Hd Hs Hd' Hs' Hbase Hpl E; [lia|].
+  assert (E' : forall v, dom p v -> feq (flw m K' v) (flw l K v)) by (intros v Hv; apply feq_sym, E, Hv).
+  assert (Hdb : forall B, dom p (mk_rvar lbig B)) by (intros B; destruct p; [left; apply named_big|exact I]).
+  (* A word that ends with a renaming has neither terms nor atoms, so the base is FVar. *)
+  assert (Pre : forall U (l0 : lword), l0 = pre U -> U <> SNil -> ~ lend l0)
+    by (intros U l0 -> HU [l1 [L [a E1]]]; destruct U; [destruct (HU eq_refl)|]; destruct l1 as [|? [|]]; discriminate E1).
+  destruct (head_b K p l Hl) as [[Sg [r [p1 [-> [Ht [HS Hr]]]]]]|[[U [p1 [-> [HsU [HrU [PhU ReU]]]]]]|[U [p1 [L [a [r2 [-> [HsU [HrU [HpU [PhU [ReU [HiU [HL [HLd [Hr2 Hnh]]]]]]]]]]]]]]]]];
+  destruct (head_b K' p m Hm) as [[Sg' [r' [p2 [-> [Ht' [HS' Hr']]]]]]|[[U' [p2 [-> [HsU' [HrU' [PhU' ReU']]]]]]|[U' [p2 [L' [a' [r2' [-> [HsU' [HrU' [HpU' [PhU' [ReU' [HiU' [HL' [HLd' [Hr2' Hnh']]]]]]]]]]]]]]]]].
+  - (* Two segments with terms. *)
+    cbn [natl] in Hn.
+    assert (Hp1 : p <> None -> lend (LS Sg :: r)) by (intros H; exact (proj1 (Hpl H))).
+    assert (Hp2 : p <> None -> lend (LS Sg' :: r')) by (intros H; exact (proj2 (Hpl H))).
+    assert (Hb2 : (K = FVar /\ K' = FVar) \/ (lend (LS Sg :: r) /\ lend (LS Sg' :: r'))).
+    { destruct Hbase as [B|[[B1|B1] [B2|B2]]]; [left; exact B|discriminate B1|discriminate B1|discriminate B2|right; split; assumption]. }
+    assert (E1 : forall v, dom p v -> feq (fs Sg (flw r K) v) (fs Sg' (flw r' K') v)) by exact E.
+    assert (E1' : forall v, dom p v -> feq (fs Sg' (flw r' K') v) (fs Sg (flw r K) v)) by exact E'.
+    pose proof (first_layer K K' p p1 p2 e Sg Sg' r r' Hl Hm HS Hr HS' Hr' Hn Hd Hs Hd' Hs' Hb2 E1 Ht Ht') as Hk.
+    destruct (list_eq_dec_nil r) as [Er|Hne].
+    + (* The last segment of a line. *)
+      pose proof (rnil K K' p p1 p2 e Sg Sg' r r' HS HS' Hr' Hn Hd Hd' Hs' Hb2 E1 Hk Er) as Er'.
+      subst r r'.
+      destruct Hb2 as [[-> ->]|[B _]]; [|exfalso; destruct B as [l1 [L [a B]]]; destruct l1 as [|? [|]]; discriminate B].
+      assert (Ep : p = None) by (destruct p; [exfalso; destruct (Hpl ltac:(discriminate)) as [B _];
+                                 destruct B as [l1 [L [a B]]]; destruct l1 as [|? [|]]; discriminate B|reflexivity]).
+      assert (Hvs : forall x y, dom p x -> bres Sg x = inl y -> bres Sg' x = inl y).
+      { intros x y Hx Ex; destruct (var_var FVar FVar p p1 p2 e Sg Sg' [] [] Hl Hm HS Hr HS' Hn Hd Hs Hd' Hs'
+                                     (or_introl (conj eq_refl eq_refl)) E1 Hk x y Hx Ex) as [y' [Ex' F]].
+        cbn [flw feq] in F; subst y'; exact Ex'. }
+      assert (Hvs' : forall x y, dom p x -> bres Sg' x = inl y -> bres Sg x = inl y).
+      { intros x y Hx Ex; destruct (var_var FVar FVar p p2 p1 e Sg' Sg [] [] Hm Hl HS' Hr' HS eq_refl Hd' Hs' Hd Hs
+                                     (or_introl (conj eq_refl eq_refl)) E1' (keq_sym _ _ Hk) x y Hx Ex) as [y' [Ex' F]].
+        cbn [flw feq] in F; subst y'; exact Ex'. }
+      assert (Ep12 : p1 = p2) by (subst p; rewrite (phant_none _ _ _ (bo_phant _ _ _ _ _ _ _ _ _ _ HS) eq_refl),
+                                   (phant_none _ _ _ (bo_phant _ _ _ _ _ _ _ _ _ _ HS') eq_refl); reflexivity).
+      subst p2.
+      rewrite (seg_final FVar FVar p p1 e Sg Sg' [] HS HS' Hd Hs Hd' Hs' (fun v => feq_refl _) Hvs Hvs' E1).
+      split; [reflexivity|intros B; exfalso; destruct B as [l1 [L [a B]]]; destruct l1 as [|? [|]]; discriminate B].
+    + assert (Hne' : r' <> []).
+      { intros E0; apply Hne; exact (rnil K' K p p2 p1 e Sg' Sg r' r HS' HS Hr (eq_sym Hn) Hd' Hd Hs
+                                       (base_sym _ _ _ _ Hb2) E1' (keq_sym _ _ Hk) E0). }
+      pose proof (doms K K' p p1 p2 e Sg Sg' r r' Hl Hm HS Hr HS' Hr' Hn Hd Hs Hd' Hs' Hb2 Hp1 E1 Ht Ht' Hne) as Ep12.
+      subst p2.
+      destruct (IH r r' K K' p1 e ltac:(cbn [List.length] in Hlen; lia) Hr Hr' Hn Hd Hs Hd' Hs') as [Err HK].
+      * destruct Hb2 as [B|[B1 B2]]; [left; exact B|right; split; right; [exact (lend_cons _ _ B1 Hne)|exact (lend_cons _ _ B2 Hne')]].
+      * intros H; assert (Hp0 : p <> None).
+        { intros ->; rewrite (phant_none _ _ _ (bo_phant _ _ _ _ _ _ _ _ _ _ HS) eq_refl) in H; exact (H eq_refl). }
+        destruct (Hpl Hp0) as [B1 B2]; split; [exact (lend_cons _ _ B1 Hne)|exact (lend_cons _ _ B2 Hne')].
+      * exact (rest_eq K K' p p1 p1 e Sg Sg' r r' Hl Hm HS Hr HS' Hr' Hn Hd Hs Hd' Hs' Hb2 Hp1 E1 Ht Ht' Hne).
+      * subst r'.
+        assert (Hbk : forall v, feq (flw r K v) (flw r K' v)).
+        { destruct Hb2 as [[-> ->]|[B1 _]]; [intros v; apply feq_refl|].
+          intros v; apply flw_cong, HK, (lend_cons _ _ B1 Hne). }
+        pose proof (var_same K K' p p1 p1 e Sg Sg' r r Hl Hm HS Hr HS' Hr' Hn Hd Hs Hd' Hs' Hb2 Hp1 E1 Ht Ht' Hne) as Hvs.
+        pose proof (var_same K' K p p1 p1 e Sg' Sg r r Hm Hl HS' Hr' HS Hr (eq_sym Hn) Hd' Hs' Hd Hs
+                      (base_sym _ _ _ _ Hb2) Hp2 E1' Ht' Ht Hne') as Hvs'.
+        rewrite (seg_final K K' p p1 e Sg Sg' r HS HS' Hd Hs Hd' Hs' Hbk Hvs Hvs' E1).
+        split; [reflexivity|intros B; apply HK, (lend_cons _ _ B Hne)].
+  - (* A segment with a term against a renaming at the end. *)
+    exfalso; destruct Ht as [x [[[u b] w] Ex]].
+    pose proof (E x (phant_dom lenv _ _ _ _ _ (bo_phant _ _ _ _ _ _ _ _ _ _ HS) Ex)) as F.
+    cbn [flw] in F; rewrite fs_bres, Ex, flw_pre, (fs_ren lenv labs _ _ _ HrU') in F.
+    assert (HK' : K' = FVar).
+    { destruct Hbase as [[_ HK']|[[Bl|Bl] _]]; [exact HK'|discriminate Bl|].
+      pose proof (lend_natl _ Bl) as Nl; rewrite Hn in Nl; destruct U'; cbn in Nl; lia. }
+    rewrite HK' in F; destruct F.
+  - (* A segment with a term against an atom. *)
+    exfalso; destruct Ht as [x [[[u b] w] Ex]].
+    pose proof (bo_br _ _ _ _ _ _ _ _ _ _ HS x u b w Ex) as Hb.
+    pose proof (E x (phant_dom lenv _ _ _ _ _ (bo_phant _ _ _ _ _ _ _ _ _ _ HS) Ex)) as F.
+    rewrite (flw_head U' L' a' r2' K' x HrU') in F; cbn [flw] in F; rewrite fs_bres, Ex in F.
+    unfold Unique.latom in F; destruct (Nat.ltb_spec (v_index (sv U' x)) (lc (v_label (sv U' x)) L')) as [Hy|Hy];
+      [|destruct F].
+    destruct (flw r2' K' (sv U' x)) as [|u2 b2 k2|] eqn:Ey; cbn [feq] in F; try contradiction.
+    refine (cross lenv labs gt route bp K K' p (LS Sg :: r) (pre U' ++ LA L' a' :: r2') e x u b w r u2 b2 k2
+              (pre U') L' a' r2' (sv U' x) Hm Hn Hd Hd' (fun i => E _ (Hdb i)) _ (proj1 Hb) eq_refl
+              (natl_pre0 U') Hy Ey F).
+    cbn [treach]; rewrite Ex; reflexivity.
+  - (* A renaming at the end against a segment with a term. *)
+    exfalso; destruct Ht' as [x [[[u b] w] Ex]].
+    pose proof (E' x (phant_dom lenv _ _ _ _ _ (bo_phant _ _ _ _ _ _ _ _ _ _ HS') Ex)) as F.
+    cbn [flw] in F; rewrite fs_bres, Ex, flw_pre, (fs_ren lenv labs _ _ _ HrU) in F.
+    assert (HK : K = FVar).
+    { destruct Hbase as [[HK _]|[_ [Bm|Bm]]]; [exact HK|discriminate Bm|].
+      pose proof (lend_natl _ Bm) as Nl; rewrite <- Hn in Nl; destruct U; cbn in Nl; lia. }
+    rewrite HK in F; destruct F.
+  - (* Two renamings at the end. *)
+    destruct (list_eq_dec_nil (pre U)) as [EU|NU].
+    + assert (EU' : pre U' = []).
+      { destruct (list_eq_dec_nil (pre U')) as [EU'|NU']; [exact EU'|exfalso].
+        destruct U as [|h ts m0 r0]; [|discriminate EU]; destruct U' as [|h' ts' m' r'0]; [destruct (NU' eq_refl)|].
+        destruct Hbase as [[-> ->]|[_ [Bm|Bm]]]; [|discriminate Bm|exact (Pre (SEnt h' ts' m' r'0) _ eq_refl ltac:(discriminate) Bm)].
+        assert (Ep : p = None) by (destruct p; [destruct (Hpl ltac:(discriminate)) as [B _]; destruct (lend_nil B)|reflexivity]).
+        assert (H0 : SNil = SEnt h' ts' m' r'0).
+        { apply (ren_unique lenv labs Hinj false); try assumption; intros v _.
+          pose proof (E v ltac:(rewrite Ep; exact I)) as F; cbn [flw pre] in F.
+          rewrite (fs_ren lenv labs _ _ _ HrU') in F; cbn [feq] in F; exact F. }
+        discriminate H0. }
+      rewrite EU, EU'; split; [reflexivity|intros B; destruct (lend_nil B)].
+    + assert (HKK : K = FVar /\ K' = FVar).
+      { destruct Hbase as [B|[[Bl|Bl] _]]; [exact B|exact (False_ind _ (NU Bl))|].
+        exfalso; apply (Pre U _ eq_refl); [intros ->; exact (NU eq_refl)|exact Bl]. }
+      destruct HKK as [-> ->].
+      assert (Ep : p = None).
+      { destruct p; [|reflexivity]; destruct (Hpl ltac:(discriminate)) as [B _].
+        exfalso; apply (Pre U _ eq_refl); [intros ->; exact (NU eq_refl)|exact B]. }
+      assert (EU : U = U').
+      { apply (ren_unique lenv labs Hinj false); try assumption; intros v _.
+        pose proof (E v ltac:(rewrite Ep; exact I)) as F; rewrite !flw_pre, !(fs_ren lenv labs) in F by assumption.
+        cbn [feq] in F; exact F. }
+      subst U'; split; [reflexivity|intros B; exfalso; apply (Pre U _ eq_refl); [intros ->; exact (NU eq_refl)|exact B]].
+  - (* A renaming at the end against an atom. *)
+    exfalso; rewrite natl_pre0, natl_preU in Hn; cbn [natl] in Hn; lia.
+  - (* An atom against a segment with a term. *)
+    exfalso; destruct Ht' as [x [[[u b] w] Ex]].
+    pose proof (bo_br _ _ _ _ _ _ _ _ _ _ HS' x u b w Ex) as Hb.
+    pose proof (E' x (phant_dom lenv _ _ _ _ _ (bo_phant _ _ _ _ _ _ _ _ _ _ HS') Ex)) as F.
+    rewrite (flw_head U L a r2 K x HrU) in F; cbn [flw] in F; rewrite fs_bres, Ex in F.
+    unfold Unique.latom in F; destruct (Nat.ltb_spec (v_index (sv U x)) (lc (v_label (sv U x)) L)) as [Hy|Hy];
+      [|destruct F].
+    destruct (flw r2 K (sv U x)) as [|u2 b2 k2|] eqn:Ey; cbn [feq] in F; try contradiction.
+    refine (cross lenv labs gt route bp K' K p (LS Sg' :: r') (pre U ++ LA L a :: r2) e x u b w r' u2 b2 k2
+              (pre U) L a r2 (sv U x) Hl (eq_sym Hn) Hd' Hd (fun i => E' _ (Hdb i)) _ (proj1 Hb) eq_refl
+              (natl_pre0 U) Hy Ey F).
+    cbn [treach]; rewrite Ex; reflexivity.
+  - (* An atom against a renaming at the end. *)
+    exfalso; rewrite natl_pre0, natl_preU in Hn; cbn [natl] in Hn; lia.
+  - (* Two atoms. *)
+    rewrite !natl_preU in Hn; cbn [natl] in Hn; injection Hn as Hn.
+    destruct (peel_dom p p1 p2 U L a (flw r2 K) (natl r2 + e) U' L' a' (flw r2' K') (natl r2' + e)
+                HsU HrU HL HpU PhU ReU HiU HLd HsU' HrU' HL' HpU' PhU' ReU' HiU' HLd'
+                (deep_flw lenv _ _ _ Hd) (nstuck_flw lenv _ _ _ Hs Hd) (deep_flw lenv _ _ _ Hd') (nstuck_flw lenv _ _ _ Hs' Hd'))
+      as [<- [<- [<- [<- HR]]]].
+    { intros v Hv; pose proof (E v Hv) as F; rewrite !flw_head in F by assumption; exact F. }
+    assert (Hlen2 : List.length r2 < N) by (rewrite length_app in Hlen; cbn [List.length] in Hlen; lia).
+    assert (Hb2 : (K = FVar /\ K' = FVar) \/ ((r2 = [] \/ lend r2) /\ (r2' = [] \/ lend r2'))).
+    { destruct Hbase as [B|[[Bl|Bl] [Bm|Bm]]]; [left; exact B| | | |].
+      - destruct U; discriminate Bl.
+      - destruct U; discriminate Bl.
+      - destruct U; discriminate Bm.
+      - right; split.
+        + destruct (list_eq_dec_nil r2) as [->|Ne]; [left; reflexivity|right].
+          destruct Bl as [l1 [L1 [a1 Bl]]]; destruct (@exists_last _ r2 Ne) as [r3 [st Er3]]; rewrite Er3 in Bl |- *.
+          rewrite app_comm_cons, app_assoc in Bl; apply app_inj_tail in Bl as [_ ->]; exists r3, L1, a1; reflexivity.
+        + destruct (list_eq_dec_nil r2') as [->|Ne]; [left; reflexivity|right].
+          destruct Bm as [l1 [L1 [a1 Bm]]]; destruct (@exists_last _ r2' Ne) as [r3 [st Er3]]; rewrite Er3 in Bm |- *.
+          rewrite app_comm_cons, app_assoc in Bm; apply app_inj_tail in Bm as [_ ->]; exists r3, L1, a1; reflexivity. }
+    destruct (IH r2 r2' K K' None e Hlen2 Hr2 Hr2' Hn Hd Hs Hd' Hs' Hb2 (fun H => False_ind _ (H eq_refl))
+                (fun v _ => HR v)) as [<- HK].
+    split; [reflexivity|]; intros B.
+    destruct (list_eq_dec_nil r2) as [->|Ne]; [exact HR|].
+    apply HK; destruct B as [l1 [L1 [a1 B]]]; destruct (@exists_last _ r2 Ne) as [r3 [st Er3]]; rewrite Er3 in B |- *.
+    rewrite app_comm_cons, app_assoc in B; apply app_inj_tail in B as [_ ->]; exists r3, L1, a1; reflexivity.
+Qed.
+
 End Main.
