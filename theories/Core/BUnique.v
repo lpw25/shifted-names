@@ -586,6 +586,8 @@ Section Facts2.
 
 Variable lenv : list label.
 Variable labs : list lexp.
+Variable gt : (rvar -> fres) -> (rvar -> fres) -> Prop.
+Variable route : (rvar -> fres) -> rvar -> rvar -> Prop.
 
 Local Notation fs := (fs lenv).
 Local Notation fw := (fw lenv).
@@ -654,5 +656,103 @@ Proof.
   - intros _ _ E; destruct (wl w); discriminate E.
   - intros Hw Hw' E ->; apply app_inj_tail in E as [E E']; injection E' as -> ->; f_equal; apply wl_inj; assumption.
 Qed.
+
+(** *** What the conditions give *)
+
+Lemma nohop_at bp K p m1 L a l1 :
+  lnfL lenv labs gt route bp K p (m1 ++ LA L a :: l1) -> nohop lenv K L a l1.
+Proof.
+  revert p; induction m1 as [|[s|L0 a0] m1 IH]; intros p H; cbn [app lnfL] in H.
+  - tauto.
+  - destruct H as [_ [p' [H _]]]; exact (IH _ H).
+  - destruct H as [_ [_ [H _]]]; exact (IH _ H).
+Qed.
+
+Lemma treach_brok bp K p l y rt u b w :
+  lnfL lenv labs gt route bp K p l -> treach lenv l y = Some (rt, (u, b, w)) -> brok lenv labs bp (flw rt K) b w.
+Proof.
+  revert p y; induction l as [|[s|L a] r IH]; intros p y H E; cbn [treach] in E; try discriminate.
+  destruct H as [_ [p' [Hr [[_ HS]|[_ [Hren _]]]]]].
+  - destruct (bres s y) as [y'|t] eqn:Ey; [exact (IH _ _ Hr E)|injection E as -> ->].
+    exact (bo_br _ _ _ _ _ _ _ _ _ _ HS y u b w Ey).
+  - rewrite (bres_ren lenv labs s y Hren) in E; exact (IH _ _ Hr E).
+Qed.
+
+Lemma phant_dom p p' Sg x t : phant lenv p p' Sg -> bres Sg x = inr t -> dom p x.
+Proof.
+  destruct p as [n|]; [|intros _ _; exact I]; destruct p' as [n'|]; [|intros []].
+  intros Hp E; destruct (named_or_bound x) as [Hx|Hx]; [left; exact Hx|right].
+  destruct (Nat.lt_ge_cases (v_index x) n) as [Hi|Hi]; [exact Hi|exfalso].
+  destruct x as [l i]; unfold bound in Hx; cbn in Hx, Hi; subst l.
+  pose proof (Hp (i - n)) as E'; replace (n + (i - n)) with i in E' by lia; rewrite E in E'; discriminate E'.
+Qed.
+
+Lemma lend_cons st r : lend (st :: r) -> r <> [] -> lend r.
+Proof.
+  intros [l0 [L [a E]]] Hr; destruct l0 as [|st0 l0]; cbn in E; injection E as _ E; [congruence|].
+  exists l0, L, a; exact E.
+Qed.
+
+Lemma lend_natl l : lend l -> 1 <= natl l.
+Proof. intros [l0 [L [a ->]]]; rewrite natl_app; cbn; lia. Qed.
+
+Lemma lend_nil : ~ lend [].
+Proof. intros [l0 [L [a E]]]; destruct l0; discriminate E. Qed.
+
+Lemma deep_fw_body w K e : deep e K -> deep (natl (wbody w) + e) (fw w K).
+Proof. intros H; rewrite fw_body; apply deep_flw, deep_fs, H. Qed.
+
+Lemma nstuck_fw_body w K e : nstuck e K -> deep e K -> nstuck (natl (wbody w) + e) (fw w K).
+Proof. intros Hn Hd; rewrite fw_body; apply nstuck_flw; [apply nstuck_fs, Hn|apply deep_fs, Hd]. Qed.
+
+(** *** A term in the first stretch of one word against one past an atom
+    of the other
+
+    Far along [lbig] the payload meets its branch's atoms, then the atoms
+    of the first word; the latter are the atoms of the second word, with
+    the same continuations.  So the branch of the term in the second word
+    ends with the atom it is lifted around, with that atom's continuation:
+    the no-hop rule fails there. *)
+
+Lemma cross bp' K K' p' l m e x u b w rt u' b' k' m1 L a l1 y :
+  lnfL lenv labs gt route bp' K' p' m -> natl l = natl m -> deep e K -> deep e K' ->
+  (forall i, feq (flw l K (mk_rvar lbig i)) (flw m K' (mk_rvar lbig i))) ->
+  treach lenv l x = Some (rt, (u, b, w)) -> wtop w ->
+  m = m1 ++ LA L a :: l1 -> natl m1 = 0 -> v_index y < lc (v_label y) L -> flw l1 K' y = FTerm u' b' k' ->
+  feq (FTerm u b (fw w (flw rt K))) (FTerm u' b' k') -> False.
+Proof.
+  intros Hm Hn He He' E Ht Hw Em Hm1 Hy Ek F.
+  destruct (treach_term lenv l K x rt u b w Ht) as [_ [Hnr [r0 [Er Hr0]]]].
+  assert (Hnm : natl m = S (natl l1)) by (rewrite Em, natl_app; cbn [natl]; lia).
+  (* The first atom of [m], and of [l]. *)
+  set (cm := fun z => flw l1 K' (shiftL L z)).
+  assert (Sm : stuck_at (flw m K') 1 a cm).
+  { rewrite Em; pose proof (stuck_at_atom lenv m1 L a l1 K') as S; rewrite Hm1 in S; exact S. }
+  assert (Sl : stuck_at (flw l K) 1 a cm) by exact (stuck_at_far_of _ _ _ _ _ (far_of_feq _ _ E) Sm).
+  assert (Srt : stuck_at (flw rt K) 1 a cm).
+  { destruct (atom_at rt 1 ltac:(lia)) as [rt1 [L' [a' [rt2 [Ert Hrt1]]]]].
+    pose proof (stuck_at_atom lenv rt1 L' a' rt2 K) as S; rewrite <- Ert in S.
+    replace (Datatypes.S (natl rt1)) with 1 in S by lia.
+    assert (Hf : far_of (flw l K) (flw rt K)) by (rewrite Er; exact (far_of_segs lenv r0 rt K Hr0)).
+    pose proof (stuck_at_far_of _ _ _ _ _ Hf S) as S'.
+    destruct (stuck_at_det _ _ _ _ _ _ S' Sl) as [-> Hc].
+    exact (stuck_at_cont _ _ _ _ S _ Hc). }
+  (* What the term meets far along. *)
+  set (P := wbody w).
+  assert (Sk : stuck_at (fw w (flw rt K)) (natl P + 1) a cm).
+  { rewrite fw_body; exact (stuck_at_base lenv P _ 1 a cm (stuck_at_fs lenv 1 _ _ _ _ Srt)). }
+  cbn [feq] in F; destruct F as [<- [<- Fk]].
+  assert (Fb : forall i, feq (fw w (flw rt K) (mk_rvar lbig i)) (k' (mk_rvar lbig i))) by (intros i; apply Fk; intros _; discriminate).
+  assert (Sk' : stuck_at k' (natl P + 1) a cm).
+  { refine (stuck_at_far_of _ _ _ _ _ _ Sk); intros N; exists N; intros i Hi; exists i; split; [exact Hi|].
+    apply feq_sym, Fb. }
+  assert (Dk' : deep (natl P + natl rt + e) k').
+  { apply (deep_feq _ _ _ Fb); replace (natl P + natl rt + e) with (natl (wbody w) + (natl rt + e)) by (unfold P; lia).
+    apply deep_fw_body, deep_flw, He. }
+  apply (nohop_at bp' K' p' m1 L a l1 ltac:(rewrite <- Em; exact Hm) y u b k' (natl P + natl rt + e) e Hy Ek Dk' He');
+    [lia|].
+  replace (natl P + natl rt + e - natl l1 - e) with (natl P + 1) by lia; exact Sk'.
+Qed.
+
 
 End Facts2.
