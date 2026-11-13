@@ -462,4 +462,92 @@ Proof.
   - apply (desc_eqb_spec d d Hd Hd); reflexivity.
 Qed.
 
+Lemma ments_labs W : lw1 W -> forall g, In g (ments W) -> In g labs.
+Proof.
+  induction W as [|[s0|L a] r IH]; intros Hw g; cbn [ments]; [intros []|inversion Hw as [|? ? Hs Hr]; subst|].
+  - intros H; apply in_app_or in H as [H|H]; [|exact (IH Hr g H)].
+    apply filter_In in H as [H _]; apply in_map_iff in H as [[[h ts] m] [<- He]].
+    apply (sshape_labs lenv labs false s0 (proj1 Hs) h (tl_list ts) m).
+    rewrite <- (ents_sents s0); apply (in_map (fun e => (fst (fst e), tl_list (snd (fst e)), snd e))) in He; exact He.
+  - inversion Hw as [|? ? HL Hr]; subst; intros H; apply in_app_or in H as [H|H]; [|exact (IH Hr g H)].
+    apply filter_In in H as [H _]; apply in_map_iff in H as [[h n] [<- He]].
+    exact (proj1 (proj1 (Forall_forall _ _) (proj2 HL) _ He)).
+Qed.
+
+Definition llab (l : option label) : Prop := exists g, In g labs /\ lden g = l.
+
+Lemma val_lab W : lw1 W -> forall h i, In h labs ->
+  match R W (mk_rvar (lden h) i) with FVar z => llab (v_label z) | FStuck _ z _ => llab (v_label z) | _ => True end.
+Proof.
+  induction W as [|[s0|L a] r IH]; intros Hw h i Hh.
+  - exists h; split; [exact Hh|reflexivity].
+  - inversion Hw as [|? ? Hs Hr]; subst; rewrite (R_seg lenv).
+    destruct (seg_tgt_total s0 h i Hs Hh) as [t [Et Ht]]; rewrite (seg_tgt_free lenv F HF s0 h i t _ Et).
+    destruct t as [g j|u w b]; [exact (IH Hr g j Ht)|exact I].
+  - inversion Hw as [|? ? HL Hr]; subst; rewrite (R_atom lenv); unfold latom; cbn [v_label v_index].
+    destruct (_ <? _); [exact (IH Hr h i Hh)|exists h; split; [exact Hh|reflexivity]].
+Qed.
+
+(** A variable that means the same as one of the labels has one of the labels. *)
+Lemma feq_lab W y h i : lw1 W -> In h labs -> In LNone labs -> feq (R W y) (R W (mk_rvar (lden h) i)) -> llab (v_label y).
+Proof.
+  intros Hw Hh HN Fe; destruct y as [l k]; cbn [v_label].
+  destruct l as [x|]; [|exists LNone; split; [exact HN|reflexivity]].
+  destruct (existsb (fun g => label_eqb (lden g) (Some x)) labs) eqn:Ex.
+  - apply existsb_exists in Ex as [g [Hg Eg]]; exists g; split; [exact Hg|apply label_eqb_eq, Eg].
+  - exfalso.
+    assert (Hm : ~ In (Some x) (map lden (ments W))).
+    { intros Hin; apply in_map_iff in Hin as [g [Eg Hg]].
+      assert (existsb (fun g => label_eqb (lden g) (Some x)) labs = true)
+        by (apply existsb_exists; exists g; split; [exact (ments_labs W Hw g Hg)|rewrite Eg; apply label_eqb_refl]).
+      congruence. }
+    assert (Nl : ~ llab (Some x)).
+    { intros [g [Hg Eg]]; assert (existsb (fun g => label_eqb (lden g) (Some x)) labs = true)
+        by (apply existsb_exists; exists g; split; [exact Hg|rewrite Eg; apply label_eqb_refl]).
+      congruence. }
+    pose proof (val_lab W Hw h i Hh) as V.
+    rewrite (unmentioned lenv W (Some x) k ltac:(discriminate) Hm) in Fe.
+    destruct (firstatom W) as [[[L a] d]|];
+      destruct (R W (mk_rvar (lden h) i)) as [z|u b k'|a' z k']; cbn [feq] in Fe; try contradiction.
+    + destruct Fe as [_ [<- _]]; exact (Nl V).
+    + subst z; exact (Nl V).
+Qed.
+
+Lemma pv_inj x y : In (fst x) labs -> In (fst y) labs -> pv x = pv y -> x = y.
+Proof.
+  destruct x as [h i], y as [h' i']; unfold pv; cbn [fst snd]; intros Hh Hh' E; injection E as Eh ->.
+  rewrite (Hinj h h' Hh Hh' Eh); reflexivity.
+Qed.
+
+(** The representative means the same, is where the variable must go,
+    and is the same for variables that mean the same. *)
+Theorem rep_ok W x : lnf lenv labs gtP W -> lw1 W -> In LNone labs -> In (fst x) labs ->
+  In (fst (rep F labs W x)) labs /\ feq (R W (pv (rep F labs W x))) (R W (pv x)) /\ routed (R W) (pv (rep F labs W x))
+  /\ forall x', In (fst x') labs -> feq (R W (pv x')) (R W (pv x)) -> rep F labs W x' = rep F labs W x.
+Proof.
+  intros Hl Hw HN Hx.
+  destruct (follow1_total W Hw (fst x) (snd x) Hx) as [d [Ed _]].
+  destruct (rep_spec W x d Hw Hx Ed) as [Hr [Er Hmin]].
+  set (r := rep F labs W x) in *.
+  assert (Ch : forall y, In (fst y) labs -> follow1 F W (fst y) (snd y) = Some d <-> feq (R W (pv y)) (R W (pv x))).
+  { intros y Hy; destruct (follow1_total W Hw (fst y) (snd y) Hy) as [dy [Ey _]]; rewrite Ey.
+    rewrite (follow1_char lenv labs Hinj ntm F HF W Hl Hw (fst y) (snd y) (fst x) (snd x) dy d Hy Hx Ey Ed).
+    split; [intros H; injection H as ->; reflexivity|intros ->; reflexivity]. }
+  assert (Hcl : forall y', feq (R W y') (R W (pv r)) -> exists y, y' = pv y /\ In (fst y) labs /\ follow1 F W (fst y) (snd y) = Some d).
+  { intros y' Fe; destruct (feq_lab W y' (fst r) (snd r) Hw Hr HN Fe) as [g [Hg Eg]].
+    exists (g, v_index y'); split; [destruct y'; unfold pv; cbn in *; rewrite Eg; reflexivity|split; [exact Hg|]].
+    apply Ch; [exact Hg|]; refine (feq_trans _ _ _ _ (proj1 (Ch r Hr) Er)).
+    replace (pv (g, v_index y')) with y' by (destruct y'; unfold pv; cbn in *; rewrite Eg; reflexivity); exact Fe. }
+  split; [exact Hr|split; [exact (proj1 (Ch r Hr) Er)|split]].
+  - split.
+    + intros _ y' _ Fe; destruct (Hcl y' Fe) as [y [-> [Hy Ey]]]; exact (Hmin y Hy Ey).
+    + intros Hb y' Hy' Fe; destruct (Hcl y' Fe) as [y [-> [Hy Ey]]]; apply (Hmin y Hy Ey).
+      left; unfold olabel_lt; unfold bound in Hb; unfold named in Hy'; rewrite Hb.
+      destruct (v_label (pv y)) as [lx|]; [reflexivity|destruct (Hy' eq_refl)].
+  - intros x' Hx' Fe; apply Ch in Fe; [|exact Hx'].
+    destruct (rep_spec W x' d Hw Hx' Fe) as [Hr' [Er' Hmin']].
+    apply pv_inj; [exact Hr'|exact Hr|].
+    destruct (vlt_total (pv (rep F labs W x')) (pv r)) as [H|[H|H]]; [destruct (Hmin _ Hr' Er' H)|exact H|destruct (Hmin' _ Hr Er H)].
+Qed.
+
 End RepSound.
