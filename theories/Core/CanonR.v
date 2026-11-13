@@ -230,6 +230,33 @@ Definition rep (W : lword) (x : lexp * nat) : lexp * nat :=
 
 End Reps.
 
+(** ** Sending the targets of a segment to their representatives *)
+
+Section Reroute.
+
+Variable F : order.
+Variable labs : list lexp.
+
+(** Beyond [rbound W h] along [h], every variable is its own representative. *)
+Definition rbound (W : lword) (h : lexp) : nat :=
+  fold_left (fun acc x => if lexp_eqb (fst x) h then Nat.max acc (S (snd x)) else acc) (rdom F labs W) 0.
+
+Definition rr_tgt (W : lword) (t : ntgt) : ntgt :=
+  match t with NVar h j => let '(g, k) := rep F labs W (h, j) in NVar g k | _ => t end.
+
+Definition rr_ent (W : lword) (e : lexp * tlist * nat) : lexp * (list ntgt * nat) :=
+  let '(h, ts, m) := e in
+  let B := rbound W h in
+  (h, (map (rr_tgt W) (tl_list ts ++ map (fun k => NVar h (m + k)) (seq 0 (B - m))), m + (B - m))).
+
+Definition rr_new (W : lword) (h : lexp) : lexp * (list ntgt * nat) :=
+  let B := rbound W h in (h, (map (rr_tgt W) (map (fun k => NVar h k) (seq 0 B)), B)).
+
+Definition reroute (W : lword) (Z : seg) : option seg :=
+  sbuild F (map (rr_ent W) (ents Z) ++ map (rr_new W) (map fst (rdom F labs W))).
+
+End Reroute.
+
 Section RepSound.
 
 Variable lenv : list label.
@@ -548,6 +575,145 @@ Proof.
     destruct (rep_spec W x' d Hw Hx' Fe) as [Hr' [Er' Hmin']].
     apply pv_inj; [exact Hr'|exact Hr|].
     destruct (vlt_total (pv (rep F labs W x')) (pv r)) as [H|[H|H]]; [destruct (Hmin _ Hr' Er' H)|exact H|destruct (Hmin' _ Hr Er H)].
+Qed.
+
+Lemma rep_id W x : lw1 W -> In (fst x) labs -> ~ In x (rdom F labs W) -> rep F labs W x = x.
+Proof.
+  intros Hw Hx Hn; destruct (follow1_total W Hw (fst x) (snd x) Hx) as [d [Ed [Hd _]]].
+  unfold rep; rewrite Ed.
+  destruct (map fst (filter (fun e => desc_eqb (snd e) d) (keyed F labs W))) as [|z L] eqn:EL; [reflexivity|exfalso].
+  assert (Hz : In z (map fst (filter (fun e => desc_eqb (snd e) d) (keyed F labs W)))) by (rewrite EL; left; reflexivity).
+  apply in_map_iff in Hz as [[z' dz] [<- Hz]]; apply filter_In in Hz as [Hz Eq]; apply keyed_in in Hz as [Hz Ez].
+  cbn [fst snd] in *; pose proof (rdom_labs W Hw z' Hz) as Hzl.
+  destruct (follow1_total W Hw (fst z') (snd z') Hzl) as [dz' [Ez' [Hdz _]]]; rewrite Ez in Ez'; injection Ez' as <-.
+  rewrite (proj1 (desc_eqb_spec dz d Hdz Hd) Eq) in Ez.
+  destruct (pair_dec x z') as [->|Hne]; [exact (Hn Hz)|].
+  apply Hn, (rdom_complete W x z' Hw Hx Hzl Hne); [rewrite Ed, Ez; reflexivity|rewrite Ed; discriminate].
+Qed.
+
+Lemma rbound_spec W h i : In (h, i) (rdom F labs W) -> i < rbound F labs W h.
+Proof.
+  unfold rbound; generalize 0; intros a0 Hin.
+  assert (G : forall l acc, (forall x, In x l -> lexp_eqb (fst x) h = true -> snd x < S (snd x)) ->
+            acc <= fold_left (fun acc x => if lexp_eqb (fst x) h then Nat.max acc (S (snd x)) else acc) l acc
+            /\ forall x, In x l -> lexp_eqb (fst x) h = true ->
+                 S (snd x) <= fold_left (fun acc x => if lexp_eqb (fst x) h then Nat.max acc (S (snd x)) else acc) l acc).
+  { induction l as [|y l IH]; intros acc _; cbn [fold_left]; [split; [lia|intros x []]|].
+    destruct (IH (if lexp_eqb (fst y) h then Nat.max acc (S (snd y)) else acc) (fun x _ _ => Nat.lt_succ_diag_r _)) as [A B].
+    split; [revert A; destruct (lexp_eqb (fst y) h); intros A; lia|].
+    intros x [<-|Hx] Ex; [rewrite Ex in A |- *; pose proof (Nat.le_max_r acc (S (snd y))); lia|exact (B x Hx Ex)]. }
+  destruct (G (rdom F labs W) a0 (fun x _ _ => Nat.lt_succ_diag_r _)) as [_ B].
+  specialize (B (h, i) Hin (proj2 (lexp_eqb_eq h h) eq_refl)); cbn [snd] in B; lia.
+Qed.
+
+Definition rv (W : lword) (y : rvar) : rvar :=
+  match find (fun g => label_eqb (lden g) (v_label y)) labs with
+  | Some g => pv (rep F labs W (g, v_index y))
+  | None => y
+  end.
+
+Lemma rv_pv W g k : In g labs -> rv W (pv (g, k)) = pv (rep F labs W (g, k)).
+Proof.
+  intros Hg; unfold rv, pv; cbn [fst snd v_label v_index].
+  destruct (find (fun g' => label_eqb (lden g') (lden g)) labs) as [g'|] eqn:E.
+  - apply find_some in E as [E Hg']; apply label_eqb_eq in E; rewrite (Hinj g' g Hg' Hg E); reflexivity.
+  - exfalso; pose proof (find_none _ _ _ E Hg) as H; cbn in H; rewrite label_eqb_refl in H; discriminate.
+Qed.
+
+Definition rvres (W : lword) (r : rvar + tm) : rvar + tm := match r with inl y => inl (rv W y) | inr t => inr t end.
+
+Lemma nth_map_lt {A B} (f : A -> B) l i da db : i < List.length l -> nth i (map f l) db = f (nth i l da).
+Proof. intros Hi; rewrite (nth_indep _ db (f da)) by (rewrite length_map; exact Hi); apply map_nth. Qed.
+
+Lemma rr_tgt_tres W t : lw1 W -> tp1 t -> tres lenv (rr_tgt F labs W t) = rvres W (tres lenv t) /\ tp1 (rr_tgt F labs W t).
+Proof.
+  intros Hw Ht; destruct t as [g j|u w b]; [|split; [reflexivity|exact Ht]]; cbn [rr_tgt].
+  destruct (follow1_total W Hw g j Ht) as [d [Ed _]].
+  destruct (rep_spec W (g, j) d Hw Ht Ed) as [Hr _].
+  destruct (rep F labs W (g, j)) as [g' k'] eqn:Er; cbn [tres rvres].
+  change (mk_rvar (lden g) j) with (pv (g, j)); rewrite (rv_pv W g j Ht), Er; split; [reflexivity|exact Hr].
+Qed.
+
+Lemma rr_ent_etgt W h ts m i : lw1 W -> In h labs -> Forall tp1 (tl_list ts) ->
+  etgt lenv h (fst (snd (rr_ent F labs W (h, ts, m)))) (snd (snd (rr_ent F labs W (h, ts, m)))) i
+  = rvres W (etgt lenv h (tl_list ts) m i).
+Proof.
+  intros Hw Hh Hts; cbn [rr_ent fst snd]; set (B := rbound F labs W h); set (xs := tl_list ts) in *.
+  unfold etgt; rewrite length_map, length_app, length_map, length_seq.
+  destruct (Nat.ltb_spec i (List.length xs)) as [H1|H1].
+  - rewrite (proj2 (Nat.ltb_lt _ _)) by lia.
+    rewrite (nth_map_lt _ _ _ (NVar LNone 0)) by (rewrite length_app, length_map, length_seq; lia).
+    rewrite app_nth1 by exact H1.
+    exact (proj1 (rr_tgt_tres W _ Hw (proj1 (Forall_forall _ _) Hts _ (nth_In _ _ H1)))).
+  - destruct (Nat.ltb_spec i (List.length xs + (B - m))) as [H2|H2].
+    + rewrite (nth_map_lt _ _ _ (NVar LNone 0)) by (rewrite length_app, length_map, length_seq; lia).
+      rewrite app_nth2 by exact H1.
+      rewrite (nth_map_lt _ _ _ 0) by (rewrite length_seq; lia); rewrite seq_nth by lia.
+      rewrite (proj1 (rr_tgt_tres W (NVar h (m + (0 + (i - List.length xs)))) Hw Hh)); cbn [tres rvres].
+      do 3 f_equal; lia.
+    + cbn [rvres]; f_equal.
+      change (mk_rvar (lden h) (i - List.length xs + m)) with (pv (h, i - List.length xs + m)).
+      rewrite (rv_pv W h _ Hh), rep_id; [unfold pv; cbn; f_equal; lia|exact Hw|exact Hh|].
+      intros Hin; pose proof (rbound_spec W h _ Hin); unfold B in *; lia.
+Qed.
+
+Lemma rr_new_etgt W h i : lw1 W -> In h labs ->
+  etgt lenv h (fst (snd (rr_new F labs W h))) (snd (snd (rr_new F labs W h))) i = inl (rv W (pv (h, i))).
+Proof.
+  intros Hw Hh; cbn [rr_new fst snd]; set (B := rbound F labs W h); unfold etgt; rewrite !length_map, length_seq.
+  destruct (Nat.ltb_spec i B) as [H1|H1].
+  - rewrite (nth_map_lt _ _ _ (NVar LNone 0)) by (rewrite length_map, length_seq; lia).
+    rewrite (nth_map_lt _ _ _ 0) by (rewrite length_seq; lia); rewrite seq_nth by lia.
+    exact (proj1 (rr_tgt_tres W (NVar h (0 + i)) Hw Hh)).
+  - f_equal; rewrite (rv_pv W h i Hh), rep_id; [unfold pv; cbn; f_equal; lia|exact Hw|exact Hh|].
+    intros Hin; pose proof (rbound_spec W h _ Hin); unfold B in *; lia.
+Qed.
+
+Theorem reroute_ok W Z Z' : lw1 W -> sp1 Z -> reroute F labs W Z = Some Z' ->
+  sp1 Z' /\ forall x, sres lenv Z' x = rvres W (sres lenv Z x).
+Proof.
+  intros Hw HZ E.
+  assert (HlZ : forall h ts m, In (h, ts, m) (ents Z) -> In h labs).
+  { intros h ts m Hin; apply (sshape_labs lenv labs false Z (proj1 HZ) h (tl_list ts) m).
+    rewrite <- ents_sents; apply (in_map (fun e => (fst (fst e), tl_list (snd (fst e)), snd e)) _ _ Hin). }
+  assert (HtZ : forall h ts m, In (h, ts, m) (ents Z) -> Forall tp1 (tl_list ts)).
+  { intros h ts m Hin; apply Forall_forall; intros t Ht.
+    exact (proj1 (Forall_forall _ _) (proj2 HZ) t (ents_stgts Z h ts m t Hin Ht)). }
+  split.
+  - destruct (sbuild_shape lenv labs F HF _ _ E) as [Hs [Ht _]].
+    { intros h xs m Hin; apply in_app_or in Hin as [Hin|Hin]; apply in_map_iff in Hin as [e [Ee Hin]].
+      - destruct e as [[h' ts'] m']; cbn [rr_ent] in Ee; injection Ee as <- _ _; exact (HlZ _ _ _ Hin).
+      - unfold rr_new in Ee; injection Ee as <- _ _; apply in_map_iff in Hin as [x [<- Hx]]; exact (rdom_labs W Hw x Hx). }
+    split; [exact Hs|apply Forall_forall; intros t Hin; destruct (Ht t Hin) as [h [xs [m [He Hx]]]]].
+    apply in_app_or in He as [He|He]; apply in_map_iff in He as [e [Ee He]].
+    + destruct e as [[h' ts'] m']; cbn [rr_ent] in Ee; injection Ee as <- <- <-.
+      apply in_map_iff in Hx as [t0 [<- Hx]]; apply (rr_tgt_tres W t0 Hw); apply in_app_or in Hx as [Hx|Hx].
+      * exact (proj1 (Forall_forall _ _) (HtZ _ _ _ He) t0 Hx).
+      * apply in_map_iff in Hx as [k [<- _]]; exact (HlZ _ _ _ He).
+    + unfold rr_new in Ee; injection Ee as <- <- <-; apply in_map_iff in He as [x [<- Hx0]].
+      apply in_map_iff in Hx as [t0 [<- Hx]]; apply in_map_iff in Hx as [k [<- _]].
+      apply (rr_tgt_tres W _ Hw); exact (rdom_labs W Hw x Hx0).
+  - intros [l i]; rewrite (sres_sbuild lenv F HF _ _ E l i), (sres_ents lenv Z l i).
+    pose proof (find_map_lab lenv (rr_ent F labs W) (fun e => fst (fst e)) fst (ents Z) l
+                  (fun e => match e with (h, ts, m) => eq_refl end)) as Fm.
+    destruct (find (fun e => label_eqb (lden (fst (fst e))) l) (ents Z)) as [[[h ts] m]|] eqn:Ef.
+    + cbn [option_map] in Fm; rewrite (find_app_some _ _ _ _ Fm).
+      apply find_some in Ef as [_ Hin].
+      destruct (rr_ent F labs W (h, ts, m)) as [h' [xs' m']] eqn:Er.
+      pose proof (rr_ent_etgt W h ts m i Hw (HlZ _ _ _ Hin) (HtZ _ _ _ Hin)) as R1; rewrite Er in R1; cbn [fst snd] in R1.
+      assert (h' = h) as -> by (cbn [rr_ent] in Er; injection Er as <- _ _; reflexivity); exact R1.
+    + cbn [option_map] in Fm; rewrite (find_app_none _ _ _ Fm).
+      rewrite (find_map_lab lenv (rr_new F labs W) (fun h => h) fst _ l) by (intros h; reflexivity).
+      destruct (find (fun h => label_eqb (lden h) l) (map fst (rdom F labs W))) as [h|] eqn:Eh.
+      * apply find_some in Eh as [Eh Hin]; apply label_eqb_eq in Eh; subst l; cbn [option_map].
+        apply in_map_iff in Hin as [x [<- Hx]].
+        exact (rr_new_etgt W (fst x) i Hw (rdom_labs W Hw x Hx)).
+      * cbn [rvres]; f_equal; unfold rv; cbn [v_label v_index].
+        destruct (find (fun g => label_eqb (lden g) l) labs) as [g|] eqn:Eg; [|reflexivity].
+        apply find_some in Eg as [Eg Hg]; apply label_eqb_eq in Eg; subst l.
+        rewrite rep_id; [reflexivity|exact Hw|exact Hg|].
+        intros Hin; pose proof (find_none _ _ _ Eh (in_map fst _ (g, i) Hin)) as H; cbn in H.
+        rewrite label_eqb_refl in H; discriminate.
 Qed.
 
 End RepSound.
