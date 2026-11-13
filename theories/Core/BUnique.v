@@ -1623,3 +1623,84 @@ Proof.
 Qed.
 
 End Main.
+
+(** ** Uniqueness of canonical words with branches *)
+
+Section Final.
+
+Variable lenv : list label.
+Variable labs : list lexp.
+Hypothesis Hinj : forall h h', In h labs -> In h' labs -> lden lenv h = lden lenv h' -> h = h'.
+Variable gt : (rvar -> fres) -> (rvar -> fres) -> Prop.
+Hypothesis gt_irrefl : forall k k', keq k k' -> ~ gt k k'.
+Hypothesis gt_trans : forall k1 k2 k3, gt k1 k2 -> gt k2 k3 -> gt k1 k3.
+Hypothesis gt_keq : forall k1 k1' k2 k2', keq k1 k1' -> keq k2 k2' -> gt k1 k2 -> gt k1' k2'.
+Variable route : (rvar -> fres) -> rvar -> rvar -> Prop.
+Hypothesis route_uniq : forall k k' x y y', keq k k' -> route k x y -> route k' x y' ->
+  feq (k y) (k' y') -> named y -> y = y'.
+
+Local Notation lnfB := (lnfB lenv labs gt route).
+Local Notation flw := (flw lenv).
+
+Theorem bu n : forall l m K K' p e, lnfB n K p l -> lnfB n K' p m -> natl l = natl m ->
+  deep e K -> nstuck e K -> deep e K' -> nstuck e K' ->
+  ((K = FVar /\ K' = FVar) \/ ((l = [] \/ lend l) /\ (m = [] \/ lend m))) ->
+  (p <> None -> lend l /\ lend m) ->
+  (forall v, dom p v -> feq (flw l K v) (flw m K' v)) ->
+  l = m /\ (lend l -> forall v, feq (K v) (K' v)).
+Proof.
+  induction n as [|n IH]; intros l m K K' p e Hl Hm; cbn [lnfB] in Hl, Hm.
+  - exact (lu lenv labs Hinj gt gt_irrefl gt_trans gt_keq route route_uniq (fun _ _ _ => False)
+             (fun _ _ _ _ _ _ H => False_ind _ H) (S (List.length l)) l m K K' p e (Nat.lt_succ_diag_r _) Hl Hm).
+  - refine (lu lenv labs Hinj gt gt_irrefl gt_trans gt_keq route route_uniq (lnfB n) _
+             (S (List.length l)) l m K K' p e (Nat.lt_succ_diag_r _) Hl Hm).
+    intros l0 m0 K0 K0' p0 e0 H0 H0' Hn Hd Hs Hd' Hs' B0 B0' E0.
+    destruct (IH l0 m0 K0 K0' p0 e0 H0 H0' Hn Hd Hs Hd' Hs' (or_intror (conj (or_intror B0) (or_intror B0')))
+                (fun _ => conj B0 B0') E0) as [Eq HK].
+    split; [exact Eq|exact (HK B0)].
+Qed.
+
+(** Branches nest at most [n] deep; more room changes nothing. *)
+Lemma bsegok_mono (bp bp' : (rvar -> fres) -> option nat -> lword -> Prop) K p p' Sg r :
+  (forall K p l, bp K p l -> bp' K p l) ->
+  bsegok lenv labs gt route bp K p p' Sg r -> bsegok lenv labs gt route bp' K p p' Sg r.
+Proof.
+  intros Hb HS; destruct HS; constructor; try assumption.
+  intros x u b w E; destruct (bo_br0 x u b w E) as [A [B [C [D G]]]].
+  split; [exact A|split; [exact B|split; [exact C|split; [exact D|intros H; exact (Hb _ _ _ (G H))]]]].
+Qed.
+
+Lemma lnfL_mono (bp bp' : (rvar -> fres) -> option nat -> lword -> Prop) :
+  (forall K p l, bp K p l -> bp' K p l) ->
+  forall l K p, lnfL lenv labs gt route bp K p l -> lnfL lenv labs gt route bp' K p l.
+Proof.
+  intros Hb l; induction l as [|st r IH]; intros K p; [exact (fun H => H)|].
+  destruct st as [s|L a]; cbn [lnfL].
+  - intros [Hne [p' [Hr Hc]]]; split; [exact Hne|exists p'; split; [exact (IH _ _ Hr)|]].
+    destruct Hc as [[Ht HS]|Hren]; [left; split; [exact Ht|exact (bsegok_mono bp bp' _ _ _ _ _ Hb HS)]|right; exact Hren].
+  - intros [A [B [C D]]]; split; [exact A|split; [exact B|split; [exact (IH _ _ C)|exact D]]].
+Qed.
+
+Lemma lnfB_mono n : forall n' K p l, n <= n' -> lnfB n K p l -> lnfB n' K p l.
+Proof.
+  induction n as [|n IH]; intros [|n'] K p l Hle; cbn [lnfB]; try lia.
+  - apply lnfL_mono; intros _ _ _ [].
+  - apply lnfL_mono; intros _ _ _ [].
+  - apply lnfL_mono; intros K0 p0 l0; apply IH; lia.
+Qed.
+
+(** Canonical lines that mean the same in the free model are the same. *)
+Theorem line_unique n n' l m : lnfB n FVar None l -> lnfB n' FVar None m ->
+  (forall v, feq (flw l FVar v) (flw m FVar v)) -> l = m.
+Proof.
+  intros Hl Hm E.
+  apply (bu (Nat.max n n') l m FVar FVar None 0); try apply deep_FVar; try apply nstuck_FVar.
+  - exact (lnfB_mono n _ _ _ _ (Nat.le_max_l _ _) Hl).
+  - exact (lnfB_mono n' _ _ _ _ (Nat.le_max_r _ _) Hm).
+  - apply (deep_unique _ _ _ _ (deep_R lenv l) (deep_R lenv m)); intros i; apply E.
+  - left; split; reflexivity.
+  - intros H; destruct (H eq_refl).
+  - intros v _; apply E.
+Qed.
+
+End Final.
