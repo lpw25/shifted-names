@@ -427,3 +427,79 @@ function of the meaning, and `canon e` means what `e` means, so
   same atoms, and `share` read as `share`;
 - the tactic must not fail with "no progress" on a goal already in
   normal form.
+
+## Payloads
+
+### The rest must stay implicit
+
+A term's payload in the current form is `P ⨾ rest`: a branch word `P`
+followed by whatever the line does after the term's segment. The
+"rest" part is positional, not a reference. The graph view of §1–3
+would replace it with an explicit reference to a payload node. That
+breaks compression:
+
+    share x := ⟦y := u⟧ ⨾ a in x ⨾ x ⨾ … ⨾ x      (2^k copies, via nested shares)
+
+Each copy of `u` has a different payload, `a` followed by a different
+rest. That gives 2^k distinct payload continuations.
+
+- **Explicit references:** every copy of the letter `⟦y := u⟨ref⟩⟧`
+  differs, so the line is incompressible and exponential.
+- **Implicit rest:** every copy is the same letter `⟦y := u⟧`, and the
+  line compresses to O(k).
+
+So payloads must stay relative to their position. The explicit-node
+graph of §1–3 is the wrong representation for them. What carries over
+from the literature is the *method*: canonicity as a function of the
+meaning, and sharing by canonical compression of words.
+
+### The resulting form
+
+- **Uncompressed canonical line:** the line of `docs/design-nf2.md`.
+  Its letters are segments and lifted atoms; a term carries a branch
+  word and has the implicit rest as payload. Its conditions are
+  `BUnique.lnfB`, and uniqueness is already proved (`line_unique`).
+- **Sharing:** recompression of the line, and of every branch body,
+  as words over letters. Letters are hash-consed, so equal letters (and
+  equal branch words inside them) are one symbol. The
+  "every-suffix-is-a-share" encoding and branch numbering of
+  `design-nf2.md` are dropped; the readback prints a `share` for each
+  symbol used twice or more.
+- **Canonicity:** `line_unique`, plus the fact that recompression is a
+  function of the word.
+
+### Which branch conditions are intrinsic
+
+Most of `lnfB` decides how a continuation factors through the rest, and
+any form with positional payloads has to decide that:
+
+| Condition | Why it is there |
+|---|---|
+| order within a stretch | a term's position is fixed by which rest its payload factors through |
+| routes | the rest can identify variables; pick the least |
+| phantoms | bound inputs of a payload with no payload atom are not observable |
+| no-hop | `⟦x \| σ⟧ ⨾ ⟦x := u⟨σ⟩⟧ = ⟦x := u⟧ ⨾ σ` |
+| tails, users | a branch must end exactly at the rest, which it cannot change |
+
+`lev` is only a stratification of the definition. None of these is an
+artefact of how sharing was encoded. The cost the user objected to sits
+in *existence*: an algorithm whose output provably satisfies them
+(task 6).
+
+### Open: compressibility of the canonical line
+
+With `share`, the canonical line can be exponentially long. The
+algorithm must produce it in compressed form directly. Letters depend
+on the rest through routes, order and no-hop, so one input symbol used
+in different contexts can give different letters.
+
+For the bound to hold, that dependence must go through a small
+interface of the rest:
+
+- which variables it identifies;
+- the order of its payload behaviour on named variables;
+- its stuck continuations at the next atom.
+
+That interface must take few values along a line. Identifications only
+grow along a line, so they stabilise after at most `n` steps. Whether
+the order and no-hop interfaces stabilise similarly is not yet known.
