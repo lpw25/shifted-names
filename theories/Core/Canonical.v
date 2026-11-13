@@ -762,14 +762,15 @@ Definition comp (l : list seg) : option seg :=
 
 Definition segs_of (l : lword) : list seg := flat_map (fun x => match x with LS s => [s] | _ => [] end) l.
 
-Definition hop_prop (L : list (lexp * nat)) (a : nat) (p : nat) (K : lword) : option (seg * seg * list (lexp * nat) * lword) :=
+Definition hop_prop (L : list (lexp * nat)) (a : nat) (p : nat) (K : lword) (T0 : ntgt)
+  : option (seg * seg * list (lexp * nat) * lword) :=
   let segs := segs_of (firstn p K) in
   let K2 := skipn p K in
   if negb (Nat.eqb (List.length segs) p) then None else
   match rev segs, segs with
   | Sp :: rpre, S1 :: rest =>
-      match find (hop_cand a) (stargets Sp), comp segs with
-      | Some (NBind u (WAtom A LT _ w') b), Some Sg0 =>
+      match T0, comp segs with
+      | NBind u (WAtom A LT _ w') b, Some Sg0 =>
           let T := NBind u (WAtom A LT a w') b in
           let labs := fold_right (linsert F) (linsert F LNone (wlabs F [LS Sg0])) (map fst L ++ map fst LT) in
           match line_tail Sg0 L LT A labs with
@@ -824,10 +825,25 @@ Definition hop_chk (L : list (lexp * nat)) (a p : nat) (K : lword) (Sp1 e0 : seg
      | [] => false
      end.
 
-Definition hop_at (L : list (lexp * nat)) (a : nat) (p : nat) (K : lword) : option (seg * list (lexp * nat) * lword) :=
-  match hop_prop L a p K with
+Definition hop_try (L : list (lexp * nat)) (a : nat) (p : nat) (K : lword) (T0 : ntgt)
+  : option (seg * list (lexp * nat) * lword) :=
+  match hop_prop L a p K T0 with
   | Some (Sp1, e0, L2, Kx) => if hop_chk L a p K Sp1 e0 L2 Kx then Some (e0, L2, Kx) else None
   | None => None
+  end.
+
+Fixpoint first_some {A B} (f : A -> option B) (l : list A) : option B :=
+  match l with
+  | [] => None
+  | x :: r => match f x with Some y => Some y | None => first_some f r end
+  end.
+
+(** The first term of the [p]-th segment that can go in front of the
+    atom. *)
+Definition hop_at (L : list (lexp * nat)) (a : nat) (p : nat) (K : lword) : option (seg * list (lexp * nat) * lword) :=
+  match rev (segs_of (firstn p K)) with
+  | Sp :: _ => first_some (hop_try L a p K) (filter (hop_cand a) (stargets Sp))
+  | [] => None
   end.
 
 Fixpoint nlead (l : lword) : nat := match l with LS _ :: r => S (nlead r) | _ => 0 end.
@@ -1865,10 +1881,18 @@ Proof.
   rewrite <- !rcompose_assoc in D2; rewrite D2; reflexivity.
 Qed.
 
+Lemma first_some_in {A B} (f : A -> option B) l y : first_some f l = Some y -> exists x, f x = Some y.
+Proof.
+  induction l as [|x r IH]; cbn [first_some]; [discriminate|].
+  destruct (f x) as [z|] eqn:E; [intros H; injection H as <-; exists x; exact E|exact IH].
+Qed.
+
 Lemma hop_at_sound L a p K e0 L2 Kx : lwdist K -> hop_at F ntm L a p K = Some (e0, L2, Kx) ->
   sdistd e0 /\ lwdist Kx /\ rcompose (lwden (LA L2 a :: Kx)) (sden e0) = lwden (LA L a :: K).
 Proof.
-  intros HK; unfold hop_at; destruct (hop_prop F ntm L a p K) as [[[[Sp1 e] L'] Kx']|]; [|discriminate].
+  intros HK; unfold hop_at; destruct (rev (segs_of (firstn p K))) as [|Sp rpre]; [discriminate|].
+  intros H; apply first_some_in in H as [T0 H]; revert H; unfold hop_try.
+  destruct (hop_prop F ntm L a p K T0) as [[[[Sp1 e] L'] Kx']|]; [|discriminate].
   destruct (hop_chk F ntm L a p K Sp1 e L' Kx') eqn:E; [|discriminate].
   intros H; injection H as <- <- <-; exact (hop_chk_sound L a p K Sp1 e L' Kx' HK E).
 Qed.
