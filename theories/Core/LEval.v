@@ -7,7 +7,7 @@
     word multiplied out ([expand]). *)
 
 From Stdlib Require Import Arith List Lia Bool NArith.
-From ShiftedNames.Core Require Import Label Var Adjustment Laws Normalise Unique Normal Complete Layered LNormal.
+From ShiftedNames.Core Require Import Label Var Adjustment Laws Normalise Unique Normal Complete Layered Canon LNormal.
 Import ListNotations.
 
 (** Larger normal forms are not shown: as a tree, a chain of
@@ -174,7 +174,7 @@ Definition lshow (e : aexp) : shown :=
 Definition nf_eq_t (e1 e2 : aexp) : bool :=
   match lnorm F ntm e1, lnorm F ntm e2 with
   | Some l1, Some l2 =>
-      if lword_eqb l1 l2 then true
+      if match canon F ntm l1, canon F ntm l2 with Some c1, Some c2 => lword_eqb c1 c2 | _, _ => false end then true
       else match expand_c cap l1, expand_c cap l2 with
            | Some w1, Some w2 => word_eqb w1 w2
            | _, _ => false
@@ -307,7 +307,12 @@ Proof.
   destruct (lnorm F ntm e2) as [l2|] eqn:E2; [|discriminate].
   rewrite <- (lnorm_sound lenv tenv aenv penv F HF ntm Hntm e1 l1 E1),
           <- (lnorm_sound lenv tenv aenv penv F HF ntm Hntm e2 l2 E2).
-  destruct (lword_eqb l1 l2) eqn:El; [intros _; apply lword_eqb_eq in El; subst; reflexivity|].
+  destruct (match canon F ntm l1, canon F ntm l2 with Some c1, Some c2 => lword_eqb c1 c2 | _, _ => false end) eqn:El.
+  { intros _; destruct (canon F ntm l1) as [c1|] eqn:C1; [|discriminate El].
+    destruct (canon F ntm l2) as [c2|] eqn:C2; [|discriminate El].
+    apply lword_eqb_eq in El; subst c2.
+    rewrite <- (proj2 (canon_sound lenv tenv aenv penv F HF ntm Hntm l1 c1 (lnorm_dist e1 l1 E1) C1)).
+    exact (proj2 (canon_sound lenv tenv aenv penv F HF ntm Hntm l2 c1 (lnorm_dist e2 l2 E2) C2)). }
   destruct (expand_c F ntm cap l1) as [w1|] eqn:X1; [|discriminate].
   destruct (expand_c F ntm cap l2) as [w2|] eqn:X2; [|discriminate]; intros Hw.
   apply expand_c_some in X1, X2.
@@ -484,7 +489,8 @@ Theorem nf_eq_t_complete lenv l ntm e1 e2 l1 l2 :
   nf_eq_t (order_of l) ntm e1 e2 = true.
 Proof.
   intros HF Heq E1 E2 X1 X2; unfold nf_eq_t; rewrite E1, E2.
-  destruct (lword_eqb l1 l2); [reflexivity|].
+  destruct (match canon (order_of l) ntm l1, canon (order_of l) ntm l2 with
+            | Some c1, Some c2 => lword_eqb c1 c2 | _, _ => false end); [reflexivity|].
   destruct (expand_c (order_of l) ntm cap l1) as [w1|] eqn:Ew1; [|contradiction].
   destruct (expand_c (order_of l) ntm cap l2) as [w2|] eqn:Ew2; [|contradiction].
   apply expand_c_some in Ew1, Ew2.
