@@ -22,9 +22,6 @@ Local Notation lnf := (lnf lenv labs gtP route_id (num_first lenv)).
 Local Notation sp1 := (sp1 lenv labs ntm).
 Local Notation lw1 := (lw1 lenv labs ntm).
 
-Lemma psok_nil : psok lenv labs SNil.
-Proof. split; [exact (conj (Sorted.SSorted_nil _) (Forall_nil _))|split; [exact (Forall_nil _)|intros v _; reflexivity]]. Qed.
-
 Lemma sp1_bres s x u b w : sp1 s -> bres lenv s x = inr (u, b, w) -> w = WEnd SNil /\ b = None.
 Proof.
   intros [_ Ht] E; unfold bres in E; destruct (Normalise.sget lenv (v_label x) s) as [[ts m]|] eqn:Eg; [|discriminate E].
