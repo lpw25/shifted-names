@@ -246,7 +246,7 @@ Nested substitutions are covered:
 
 - `⟦x := u[r] | r⟧` (`AInner x (TBindE u (PComp r PId)) r`): both
   uses have continuation `[]`.
-- `⟦x := u[r][a] | r ∘ a⟧`: both uses have continuation `[a]`.
+- `⟦x := u[r][a] | a ∘ r⟧`: both uses have continuation `[a]`.
 - `u[r][a]` next to a bare `r`: the continuations are `[a]` and `[]`.
   This is not well behaved, and it is exactly the shape of the
   exponential example.
