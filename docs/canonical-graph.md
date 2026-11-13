@@ -187,3 +187,46 @@ exponential.
 
 **Remaining risk.** A lookup or edit at a large index walks the cells
 before it.
+
+## Enforcing it: tail bindings (proposal)
+
+Replace `share` with a binder for *tails*, in the spirit of
+second-class continuation binders. Its identifiers can only be used
+in tail position, so nothing is ever composed after a use. That is the
+well-behaved condition above, enforced by typing.
+
+**Syntax**, with tails of type `tail s N M` inside a block:
+
+    t ::= k                        a bound tail
+        | ↑a                       coercion from an adjustment
+        | a ⨾ t                    an adjustment, then a tail
+        | ⟦ entries | t ⟧          context form; its tail is a tail
+        | tlet k := t in t
+    entry payloads u[t] take tails too.
+
+    block : (∀ s, tail s N M) → adj N M
+
+Composition `⨾` is defined on adjustments only. There is no way to put
+anything after a tail.
+
+**Why the block has a rank-2 type.** If a tail could be turned back
+into an adjustment, an open tail could be closed and composed:
+`tlet k := … in ↑(close ⟦… | k⟧ ⨾ c)`. That breaks the condition.
+With the `runST` trick, a tail variable has type `tvar s`, and only
+`tail s` accepts it. An inner `block` has its own `s'`, so it cannot
+mention an outer `k`. An `adj` is therefore always closed, and
+composing it is safe. The semantics interprets a block by instantiating
+`s` with adjustments; the type only restricts what can be written.
+
+**Remaining points:**
+
+- **Slots shift tails.** `⟦ · | k ⟧` shifts `k`'s results past the
+  slot, so uses of `k` under different numbers of slots differ by a
+  shift. Shifts commute, and they stay one node if shifts are labels on
+  graph edges.
+- **Coq's `let`.** A user can still reuse an adjustment through a Coq
+  `let`. `names` sees through it, so the size bound is on the unfolded
+  term, as for any Coq term.
+- **Output.** `names` prints the graph as one block: a `tlet` for each
+  node with two or more parents. The output is well typed by
+  construction, so it is in the fragment, and idempotence holds.
