@@ -12,7 +12,8 @@
 
     - when the first segments of [K] do nothing to named variables that
       the rest can tell from the identity, the terms of [s] join a later
-      segment, carried there by bound variables ([thread]);
+      segment: the variables that reach them when it has them already
+      ([shared]), else carried there by bound variables ([thread]);
     - when the terms of the first segment of [K] are all on bound
       variables, the order between payloads ([above]) decides which of
       the two segments goes first ([swap]);

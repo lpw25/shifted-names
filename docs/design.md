@@ -132,8 +132,8 @@ adjustment has atoms) is left as it is.
 
 Every comparison between labels goes through `lcmp`, which knows concrete
 labels, the bound label (the greatest), and the context's facts closed
-under transitivity. Soundness and uniqueness of normal forms are proved
-(`docs/normal-forms.md`).
+under transitivity. The normal form is the canonical layered word;
+what is proved about it is in `docs/normal-forms.md`.
 
 ## Representation
 
