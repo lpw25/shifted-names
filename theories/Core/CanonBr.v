@@ -68,9 +68,18 @@ Proof.
       * intros x y _ Ex; apply E; apply bres_sres, Ex.
       * intros; exact I.
       * exact I.
-      * intros Hne' y Hy _; destruct (H Hne' y Hy) as [x Ex]; exists x; split; [exact I|apply bres_sres, Ex].
+      * intros Hne' j _; destruct (H Hne' (mk_rvar None j) eq_refl) as [x Ex]; left; exists x; split; [exact I|apply bres_sres, Ex].
+      * intros x i j [u [b [w [Ex [Hlv _]]]]]; exfalso; destruct (sp1_bres s x u b w Hs Ex) as [-> ->].
+        destruct Hlv as [Hl0|Hl0]; [exact (Hl0 eq_refl)|exact (Hl0 eq_refl)].
       * exact I0.
-      * exact J.
+      * intros Hne' a a' i j Ha Ha' Hij.
+        assert (Hin : forall a0 k, uhit lenv s a0 k -> exists x, a0 = UIn x /\ LayeredUnique.sres lenv s x = inl (mk_rvar None k)).
+        { intros [x|x i0] k Hk; [exists x; split; [reflexivity|apply bres_sres, Hk]|].
+          exfalso; destruct Hk as [u [b [w [Ex [Hlv _]]]]]; destruct (sp1_bres s x u b w Hs Ex) as [-> ->].
+          destruct Hlv as [Hl0|Hl0]; [exact (Hl0 eq_refl)|exact (Hl0 eq_refl)]. }
+        destruct (Hin _ _ Ha) as [x [-> Ex]]; destruct (Hin _ _ Ha') as [x' [-> Ex']].
+        destruct (J Hne' x x' i j Ex Ex' Hij) as [x0 [E0 H0]]; exists (UIn x0); split; [apply bres_sres, E0|].
+        intros a'' Ha''; destruct (Hin _ _ Ha'') as [x'' [-> Ex'']]; cbn [ult dom]; right; split; [tauto|exact (H0 x'' Ex'')].
       * intros x u b w Ex; destruct (sp1_bres s x u b w Hs Ex) as [-> ->].
         split; [exact I|split; [exact psok_nil|split; [intros [H0|H0]; [destruct (H0 eq_refl)|destruct (H0 eq_refl)]|]]].
         split; [intros _ _; reflexivity|intros H0; destruct (H0 eq_refl)].
