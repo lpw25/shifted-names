@@ -127,43 +127,63 @@ Both denote adjustments.
 3. Whether reading the graph back gives readable syntax, compared
    with the line form.
 
-## Restricting `share` (proposal)
+## The well-behaved fragment of `share`
 
-`share` exists so that payloads can be shown as nested substitutions,
-one flat context form per payload, without writing the same payload or
-tail twice. That is a let for the nodes of this graph, and nothing
-more.
+`share` exists so that payloads can be shown as nested substitutions
+without writing the same payload or tail twice. We do not restrict the
+language. We promise good performance on a fragment, and `names` only
+produces terms in that fragment.
 
-**Restriction.** A `share`-bound variable may appear only as a payload
-(`u[r]`) or as a tail (`⟦ … | r ⟧`). It may not appear under `⨾`,
-lift or any other operator on adjustments. Composition is still
-allowed outside `share`s, on whole expressions.
+**The condition.** `share r := a in b` is well behaved when every use
+of `r` in `b` has the *same continuation after it*: nothing is composed
+after one use that is not composed after all of them. Then `r` denotes
+one node of the graph, and the graph is no bigger than the term.
 
-**Why this removes the exponential cases.** Every blow-up so far
-(`share x₂ := x₁ ⨾ x₁`, …) composes `share`-bound adjustments. That
-is what gives the input the power of a grammar. Without it:
+**Once per path is not enough.**
 
-- **Restricted input.** An expression in the restricted language with
-  no composition *is* a graph of flat forms. Normalising it is
-  hash-consing plus the local encoding rules: linear, and canonical by
-  construction.
-- **Composition.** `σ ⨾ τ` maps each node `n` of `σ` to `n ⨾ τ`,
-  memoised per node, and reuses `τ`'s nodes. That gives at most
-  `|σ| + |τ|` nodes, after composition chains are associated to the
-  right.
-- **Output.** The output is the graph printed with a `share` for each
-  node that has two or more parents. It is again in the restricted
-  language, so `names` is idempotent and never grows its own output.
-  `share x := o in x ⨾ x` cannot be written.
+    r₀ := a
+    rₖ := ⟦x := u[rₖ₋₁ ⨾ c₁], y := v[rₖ₋₁ ⨾ c₂]⟧
 
-No recompression, no log factor and no layers are needed.
+Every path uses each `rᵢ` once. But a term in `rₖ` has, as payload,
+`rᵢ` composed with every word of length `k − i` over `{c₁, c₂}`. That
+is 2^k distinct continuations, so the meaning needs a grammar again.
+
+**Payload and tail together are fine.** In context forms a pushed term
+is not composed with the tail (`rpush_inner` is cons). So
+`⟦x := u[r] | r⟧` sends `x` to `u[r]` and every other input through
+`r`. Each path passes through `r` once, with nothing after it: one
+node. It would be `r ⨾ r` only if a term's payload were composed with
+the tail, as in the old line form, where a payload is "the rest".
+
+**Closure.** The fragment is closed under:
+
+- composing a whole well-behaved term with anything, which adds the
+  same continuation to every use;
+- lifting a whole term;
+- using a whole term as a payload;
+- copying a term, which copies its binders, so the copies are
+  separate `share`s.
+
+The output of `names` is the graph printed with a `share` per node that
+has two or more parents. Every use of such a `share` is a payload or
+tail position, so the output is in the fragment. A user who starts
+without `share` therefore stays in the fragment whatever they do.
+
+**Lifts.** A use under a lift inside `b` gets `↑` composed after it,
+and other uses do not. Shifts commute, so this is quadratic at worst,
+not exponential. It stays one node if shifts are labels on graph edges,
+in co-de Bruijn style: a continuation is a core node plus a thinning,
+with the core using all its outputs.
 
 **Constructs needed:**
 
 - per-label tails (`⟦ x: … | r₁ ; y: … | r₂ ⟧`), because the lists of
-  one node can share suffixes with different nodes. The alternative is
-  to choose one tail, which brings back a tie-break.
+  one node can share suffixes with different nodes;
 - an entry stuck at an atom: "port `z` of `a ⨾ r`".
 
+**Outside the fragment.** No size guarantee. Inputs that need a
+grammar (`share x₂ := x₁ ⨾ x₁`) still normalise correctly, but can be
+exponential.
+
 **Remaining risk.** A lookup or edit at a large index walks the cells
-before it, which is the deep-index risk above.
+before it.
