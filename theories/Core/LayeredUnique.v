@@ -213,17 +213,25 @@ Hypothesis gt_irrefl : forall k k', keq k k' -> ~ gt k k'.
 Hypothesis gt_trans : forall k1 k2 k3, gt k1 k2 -> gt k2 k3 -> gt k1 k3.
 Hypothesis gt_keq : forall k1 k1' k2 k2', keq k1 k1' -> keq k2 k2' -> gt k1 k2 -> gt k1' k2'.
 
-(** Where a variable goes on to, among the variables of [k]. *)
+(** Where a variable goes on to, among the variables of [k]: the least
+    named variable with its result, a bound one only when there is none. *)
 Definition routed (k : rvar -> fres) (y : rvar) : Prop :=
   (named y -> forall y', named y' -> feq (k y') (k y) -> ~ vlt y' y)
   /\ (bound y -> forall y', named y' -> ~ feq (k y') (k y)).
+
+(** The rule for routes is a parameter: [route k x y] says the input [x]
+    may go on as [y] of [k].  Uniqueness needs only that two routes of the
+    same input with the same result, one of them named, agree. *)
+Variable route : (rvar -> fres) -> rvar -> rvar -> Prop.
+Hypothesis route_uniq : forall k k' x y y', keq k k' -> route k x y -> route k' x y' ->
+  feq (k y) (k' y') -> named y -> y = y'.
 
 Record segok (Sg : seg) (r : lword) : Prop := {
   so_shape : sshape false Sg;
   so_pure : spure Sg;
   so_order : forall y u b k, R r y = FTerm u b k -> gt (R r) k;
   so_last : forall G, r = [LS G] -> keq (R r) FVar -> sterm G;
-  so_route : forall x y, sres Sg x = inl y -> routed (R r) y;
+  so_route : forall x y, sres Sg x = inl y -> route (R r) x y;
   so_pay : forall x u n s i, sres Sg x = inr (u, Some n, s) -> routed (R r) (sv s (mk_rvar None i));
   so_hit : r <> [] -> forall y, bound y -> exists x, sres Sg x = inl y;
   so_binj : binj (R r);
@@ -285,7 +293,7 @@ Lemma segok_entry h x u r :
   lden h = Some x -> In h labs ->
   (forall y u' b k, R r y = FTerm u' b k -> gt (R r) k) ->
   (forall G, r = [LS G] -> keq (R r) FVar -> sterm G) ->
-  (forall y y', named y' -> feq (R r y') (R r y) -> y' = y) ->
+  (forall v y, route (R r) v y) ->
   binj (R r) ->
   segok (entry_seg h u) r.
 Proof.
@@ -295,9 +303,7 @@ Proof.
   - constructor; [exists SNil; split; reflexivity|constructor].
   - exact Ho.
   - exact Hl.
-  - intros v y _; split.
-    + intros Hy y' Hy' F H; rewrite (Hi y y' Hy' F) in H; exact (vlt_irrefl _ H).
-    + intros Hy y' Hy' F; rewrite (Hi y y' Hy' F) in Hy'; exact (Hy' Hy).
+  - intros v y _; exact (Hi v y).
   - intros v u' n s i E; rewrite (sres_entry h u x _ Hx) in E.
     destruct (label_eqb (Some x) (v_label v)); [destruct (v_index v); discriminate E|discriminate E].
   - intros _ y Hy; exists y; rewrite (sres_entry h u x _ Hx); unfold bound in Hy; rewrite Hy; reflexivity.
@@ -411,12 +417,7 @@ Lemma var_named Sg r Sg' r' :
 Proof.
   intros HS HS' K E x y Ex Hy; destruct (var_var _ _ _ _ HS HS' K E x y Ex) as [y' [Ex' F]].
   rewrite Ex'; f_equal.
-  destruct (so_route _ _ HS x y Ex) as [Hn _]; destruct (so_route _ _ HS' x y' Ex') as [Hn' Hb'].
-  destruct (named_or_bound y') as [Hy'|Hy'].
-  - destruct (vlt_total y y') as [H|[H|H]]; [|symmetry; exact H|]; exfalso.
-    + exact (Hn' Hy' y Hy (feq_trans _ _ _ (feq_sym _ _ (K y Hy)) F) H).
-    + exact (Hn Hy y' Hy' (feq_trans _ _ _ (K y' Hy') (feq_sym _ _ F)) H).
-  - exfalso; exact (Hb' Hy' y Hy (feq_trans _ _ _ (feq_sym _ _ (K y Hy)) F)).
+  symmetry; exact (route_uniq _ _ x y y' K (so_route _ _ HS x y Ex) (so_route _ _ HS' x y' Ex') F Hy).
 Qed.
 
 Lemma var_bound Sg r Sg' r' :
@@ -810,6 +811,66 @@ Proof. exact (lw_unique_n (S (List.length l)) l m (Nat.lt_succ_diag_r _)). Qed.
 
 End LUnique.
 
+(** ** Two rules for routes *)
+
+Section Routes.
+
+(** Always the least variable with the result. *)
+Definition route_min (k : rvar -> fres) (x y : rvar) : Prop := routed k y.
+
+Lemma route_min_uniq k k' x y y' : keq k k' -> route_min k x y -> route_min k' x y' ->
+  feq (k y) (k' y') -> named y -> y = y'.
+Proof.
+  intros K [Hn _] [Hn' Hb'] F Hy.
+  destruct (named_or_bound y') as [Hy'|Hy'].
+  - destruct (vlt_total y y') as [H|[H|H]]; [|exact H|]; exfalso.
+    + exact (Hn' Hy' y Hy (feq_trans _ _ _ (feq_sym _ _ (K y Hy)) F) H).
+    + exact (Hn Hy y' Hy' (feq_trans _ _ _ (K y' Hy') (feq_sym _ _ F)) H).
+  - exfalso; exact (Hb' Hy' y Hy (feq_trans _ _ _ (feq_sym _ _ (K y Hy)) F)).
+Qed.
+
+(** A named input goes on as itself when the variable of the same name has
+    its result; otherwise as the least named variable with it, and as a
+    bound variable only when there is none.  This keeps the entries of a
+    segment to what it changes. *)
+Definition route_id (k : rvar -> fres) (x y : rvar) : Prop :=
+  (named x -> feq (k x) (k y) -> y = x)
+  /\ (named y -> y = x \/ forall y', named y' -> feq (k y') (k y) -> ~ vlt y' y)
+  /\ (bound y -> forall y', named y' -> ~ feq (k y') (k y)).
+
+Lemma route_id_uniq k k' x y y' : keq k k' -> route_id k x y -> route_id k' x y' ->
+  feq (k y) (k' y') -> named y -> y = y'.
+Proof.
+  intros K [Ix [Nx Bx]] [Ix' [Nx' Bx']] F Hy.
+  destruct (named_or_bound y') as [Hy'|Hy']; [|exfalso; exact (Bx' Hy' y Hy (feq_trans _ _ _ (feq_sym _ _ (K y Hy)) F))].
+  destruct (Nx Hy) as [E1|Mn], (Nx' Hy') as [E2|Mn'].
+  - congruence.
+  - subst y; symmetry; apply Ix'; [exact Hy|]; exact (feq_trans _ _ _ (feq_sym _ _ (K x Hy)) F).
+  - subst y'; apply Ix; [exact Hy'|]; exact (feq_trans _ _ _ (K x Hy') (feq_sym _ _ F)).
+  - destruct (vlt_total y y') as [H|[H|H]]; [|exact H|]; exfalso.
+    + exact (Mn' y Hy (feq_trans _ _ _ (feq_sym _ _ (K y Hy)) F) H).
+    + exact (Mn y' Hy' (feq_trans _ _ _ (K y' Hy') (feq_sym _ _ F)) H).
+Qed.
+
+(** When the results of named variables are distinct, every route is
+    allowed by either rule. *)
+Lemma route_min_inj k x y : (forall y y', named y' -> feq (k y') (k y) -> y' = y) -> route_min k x y.
+Proof.
+  intros Hi; split.
+  - intros Hy y' Hy' F H; rewrite (Hi y y' Hy' F) in H; exact (vlt_irrefl _ H).
+  - intros Hy y' Hy' F; rewrite (Hi y y' Hy' F) in Hy'; exact (Hy' Hy).
+Qed.
+
+Lemma route_id_inj k x y : (forall y y', named y' -> feq (k y') (k y) -> y' = y) -> route_id k x y.
+Proof.
+  intros Hi; split; [|split].
+  - intros Hx F; symmetry; exact (Hi y x Hx F).
+  - intros Hy; right; intros y' Hy' F H; rewrite (Hi y y' Hy' F) in H; exact (vlt_irrefl _ H).
+  - intros Hy y' Hy' F; rewrite (Hi y y' Hy' F) in Hy'; exact (Hy' Hy).
+Qed.
+
+End Routes.
+
 (** ** From every interpretation to the free model
 
     As for words ([Unique.adequacy]): layered words that mean the same
@@ -880,13 +941,15 @@ Theorem lw_unique_real (labs : list lexp)
     (gt_irrefl : forall k k', keq k k' -> ~ gt k k')
     (gt_trans : forall k1 k2 k3, gt k1 k2 -> gt k2 k3 -> gt k1 k3)
     (gt_keq : forall k1 k1' k2 k2', keq k1 k1' -> keq k2 k2' -> gt k1 k2 -> gt k1' k2')
+    (route : (rvar -> fres) -> rvar -> rvar -> Prop)
+    (route_uniq : forall k k' x y y', keq k k' -> route k x y -> route k' x y' -> feq (k y) (k' y') -> named y -> y = y')
     nt l m :
-  lnf lenv labs gt l -> lnf lenv labs gt m -> lwok (tenvT nt) l -> lwok (tenvT nt) m ->
+  lnf lenv labs gt route l -> lnf lenv labs gt route m -> lwok (tenvT nt) l -> lwok (tenvT nt) m ->
   (forall aenv penv, lwden lenv (tenvT nt) aenv penv l = lwden lenv (tenvT nt) aenv penv m) ->
   l = m.
 Proof.
   intros Hl Hm Ol Om Heq.
-  exact (lw_unique lenv labs Hinj gt gt_irrefl gt_trans gt_keq l m Hl Hm (lw_adequacy nt l m Ol Om Heq)).
+  exact (lw_unique lenv labs Hinj gt gt_irrefl gt_trans gt_keq route route_uniq l m Hl Hm (lw_adequacy nt l m Ol Om Heq)).
 Qed.
 
 End Adequacy.

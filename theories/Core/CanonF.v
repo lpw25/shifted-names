@@ -980,8 +980,8 @@ Local Notation fs := (fs lenv).
 Local Notation sres := (sres lenv).
 Local Notation sp1 := (sp1 lenv labs ntm).
 Local Notation lw1 := (lw1 lenv labs ntm).
-Local Notation lnf := (lnf lenv labs gtP).
-Local Notation segok := (segok lenv labs gtP).
+Local Notation lnf := (lnf lenv labs gtP route_min).
+Local Notation segok := (segok lenv labs gtP route_min).
 
 Lemma has_terms_sterm s : sp1 s -> has_terms s = true -> sterm lenv s.
 Proof.

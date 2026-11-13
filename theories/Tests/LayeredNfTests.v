@@ -50,11 +50,11 @@ Proof.
   rewrite !R2; cbn; intros E; exact E.
 Qed.
 
-Example chain_normal : lnf [] labs gt [LS S1; LS S2].
+Example chain_normal : lnf [] labs gt route_min [LS S1; LS S2].
 Proof.
   split; [discriminate|split; [split; [discriminate|split; [exact I|left; split; [apply (sterm_entry [] (LCon "y") "y" 1 eq_refl)|]]]|]].
   2:{ left; split; [apply (sterm_entry [] (LCon "x") "x" 0 eq_refl)|].
-  apply (segok_entry [] labs gt (LCon "x") "x" 0 [LS S2] eq_refl); [left; reflexivity| | |exact R2_inj|exact R2_binj].
+  apply (segok_entry [] labs gt route_min (LCon "x") "x" 0 [LS S2] eq_refl); [left; reflexivity| | |intros v y; apply route_min_inj, R2_inj|exact R2_binj].
     + intros y u b k E; rewrite R2 in E.
       destruct (label_eqb (@Some label "y") (v_label y)); [destruct (v_index y)|]; try discriminate E.
       injection E as _ _ <-.
@@ -68,8 +68,8 @@ Proof.
         split; [split; constructor|exact I].
       * left; cbn; lia.
     + intros G E _; injection E as <-; exists (mk_rvar (Some "y") 0), (1, None, SNil); reflexivity. }
-  - apply (segok_entry [] labs gt (LCon "y") "y" 1 [] eq_refl); [right; left; reflexivity| | | |apply binj_var].
+  - apply (segok_entry [] labs gt route_min (LCon "y") "y" 1 [] eq_refl); [right; left; reflexivity| | | |apply binj_var].
     + intros y u b k E; discriminate E.
     + intros G E; discriminate E.
-    + intros y y' _ E; exact E.
+    + intros v y; apply route_min_inj; intros y0 y' _ E; exact E.
 Qed.

@@ -78,7 +78,7 @@ Local Notation sres := (sres lenv).
 Local Notation sp1 := (sp1 lenv labs ntm).
 Local Notation tp1 := (tp1 labs ntm).
 Local Notation lw1 := (lw1 lenv labs ntm).
-Local Notation lnf := (lnf lenv labs gtP).
+Local Notation lnf := (lnf lenv labs gtP route_min).
 
 Lemma rn_ts_len n xs : forall c, List.length (rn_ts n c xs) = List.length xs.
 Proof. induction xs as [|[[|y|y] j|u w b] xs IH]; intros c; cbn; f_equal; auto. Qed.
@@ -271,7 +271,7 @@ Proof.
   intros Hl Hm Heq El Em.
   destruct (canon_ok l Kl Hl El) as [Al [_ Cl]]; destruct (canon_ok m Km Hm Em) as [Am [_ Cm]].
   pose proof (lw_adequacy lenv ntm l m (lw1_lwok lenv labs ntm l Hl) (lw1_lwok lenv labs ntm m Hm) Heq) as Ad.
-  apply (lw_unique lenv labs Hinj gtP gtP_irrefl gtP_trans gtP_keq Kl Km Al Am).
+  apply (lw_unique lenv labs Hinj gtP gtP_irrefl gtP_trans gtP_keq route_min route_min_uniq Kl Km Al Am).
   intros v; exact (feq_trans _ _ _ (Cl v) (feq_trans _ _ _ (Ad v) (feq_sym _ _ (Cm v)))).
 Qed.
 
