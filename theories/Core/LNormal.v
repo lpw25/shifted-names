@@ -205,6 +205,46 @@ Proof.
     exact (wcomp_normal lenv labs npa F HF ntm w0 (WAtom SNil L a (WEnd SNil)) w (IH w0 Hr eq_refl) Hs H).
 Qed.
 
+Lemma simple_tnf t tg : incl (tlabs t) labs -> simple F ntm t = Some tg -> tnf tg.
+Proof.
+  intros Hl; destruct t as [g i|u p|h t']; cbn [simple].
+  - intros H; injection H as <-; apply Hl; left; reflexivity.
+  - destruct p; try discriminate; destruct (u <? ntm); [|discriminate]; intros H; injection H as <-.
+    split; [exact I|split; [split; constructor|exact I]].
+  - destruct (Layered.tvar F (TShiftE h t')) as [[g i]|] eqn:Ev; [|discriminate]; intros H; injection H as <-.
+    exact (Hl _ (tvar_labs _ _ _ Ev)).
+Qed.
+
+Lemma spine_normal e : forall s b, incl (alabs e) labs -> spine F ntm e = Some (s, b) -> segN s.
+Proof.
+  induction e as [|n|a1 IH1 a2 IH2|g a IH|h t a IH|g a IH]; intros s b Hl; cbn [spine]; try discriminate.
+  - intros H; injection H as <- <-; exact segN_nil.
+  - destruct (simple F ntm t) as [tg|] eqn:Et; [|discriminate].
+    destruct (spine F ntm a) as [[s0 b0]|] eqn:Ea; [|discriminate].
+    assert (Hh : In h labs) by (apply Hl; left; reflexivity).
+    pose proof (simple_tnf t tg (fun x Hx => Hl x (or_intror (in_or_app _ _ _ (or_introl Hx)))) Et) as Htg.
+    pose proof (IH s0 b0 (fun x Hx => Hl x (or_intror (in_or_app _ _ _ (or_intror Hx)))) eq_refl) as H0.
+    match goal with |- (if ?X then _ else _) = _ -> _ => destruct X eqn:Eb end.
+    + apply andb_true_iff in Eb as [_ Eb]; intros H; injection H as <- <-.
+      destruct H0 as [[Hso Hsh] Hnf]; split; [split|].
+      * change (sents (SEnt h (TCons tg TNil) 0 s0)) with ((h, [tg], 0) :: sents s0).
+        constructor; [exact Hso|].
+        destruct s0 as [|g ts m r]; [constructor|].
+        destruct (lcmp F h g) as [[| |]|] eqn:Ec; try discriminate.
+        pose proof (lcmp_sound lenv F HF _ _ _ Ec) as Hlt; cbn in Hlt.
+        change (sents (SEnt g ts m r)) with ((g, tl_list ts, m) :: sents r) in Hso |- *.
+        inversion Hso as [|? ? Hso' Hfa]; subst.
+        constructor; [exact Hlt|].
+        eapply Forall_impl; [|exact Hfa]; intros e He; exact (olabel_lt_trans _ _ _ Hlt He).
+      * change (sents (SEnt h (TCons tg TNil) 0 s0)) with ((h, [tg], 0) :: sents s0).
+        constructor; [|exact Hsh].
+        split; [exact Hh|split; [unfold trimmed; cbn; destruct tg; exact I|split; [left; discriminate|discriminate]]].
+      * apply snf_iff; intros t' Ht'; rewrite stgts_cons in Ht'; cbn in Ht'.
+        destruct Ht' as [<-|Ht']; [exact Htg|exact (snf_in _ _ _ _ Hnf _ Ht')].
+    + destruct (sfront F h tg s0) as [s'|] eqn:Ef; [|discriminate]; cbn [option_map]; intros H; injection H as <- <-.
+      exact (nok_front h tg s0 Hh Htg H0 s' Ef).
+Qed.
+
 Theorem fold_normal :
   (forall e, incl (alabs e) labs -> ascope npa e ->
      (forall d K K', lwnf K -> fold F ntm d e K = Some K' -> lwnf K')
@@ -246,6 +286,8 @@ Proof.
     pose proof (IHt (fun x Hx => Hl x (or_intror (in_or_app _ _ _ (or_introl Hx)))) St) as Ct.
     destruct (IHa (fun x Hx => Hl x (or_intror (in_or_app _ _ _ (or_intror Hx)))) Sa) as [Fa Ba]; split.
     + intros d K K' HK; rewrite fold_inner.
+      destruct (spine F ntm (AInner g t a)) as [[s b]|] eqn:Esp;
+        [intros H; exact (cons_lifted_normal _ _ _ _ (nok_some s (spine_normal _ s b Hl Esp)) HK H)|].
       destruct (centry F ntm d [] g t K) as [K1|] eqn:E1; [|discriminate]; cbn [obind].
       pose proof (Ct d [] g K K1 Hg (fun x Hx => match Hx with end) HK E1) as H1.
       destruct (is_bound g); [exact (Fa _ _ _ H1)|].

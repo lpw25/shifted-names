@@ -199,6 +199,37 @@ Fixpoint tvar (t : texp) : option (lexp * nat) :=
       end
   end.
 
+(** A target that takes no payload. *)
+Definition simple (t : texp) : option ntgt :=
+  match t with
+  | TVarE g i => Some (NVar g i)
+  | TBindE u PId => if u <? ntm then Some (NBind u (WEnd SNil) None) else None
+  | TBindE _ _ => None
+  | TShiftE _ _ => match tvar t with Some (g, i) => Some (NVar g i) | None => None end
+  end.
+
+(** Entries with such targets, one inside the other and nothing else,
+    are one segment: no lift is needed.  The boolean says that the
+    labels of the segment are known to be in order, the first below the
+    others; an entry whose label is below the first is then put in
+    front as it is. *)
+Fixpoint spine (e : aexp) : option (seg * bool) :=
+  match e with
+  | AId => Some (SNil, true)
+  | AInner h t a =>
+      match simple t, spine a with
+      | Some tg, Some (s, b) =>
+          if b && match s with
+                  | SNil => true
+                  | SEnt g _ _ _ => match lcmp F h g with Some Lt => true | _ => false end
+                  end
+          then Some (SEnt h (TCons tg TNil) 0 s, true)
+          else option_map (fun s' => (s', false)) (sfront F h tg s)
+      | _, _ => None
+      end
+  | _ => None
+  end.
+
 (** [fold d e K]: [e] under [d] lifts by the bound label, then [K].
     [centry d G h t K]: the entry of [h] with target [t], under the
     lifts [G] and [d] lifts by the bound label, then [K].
@@ -213,10 +244,14 @@ Fixpoint fold (d : nat) (e : aexp) (K : lword) {struct e} : option lword :=
   | ACompose a b => obind (fold d a K) (fold d b)
   | AOuter h a => obind (cons_lifted d (Some (shseg h 1)) K) (fold d a)
   | AInner h t a =>
+      match spine e with
+      | Some (s, _) => cons_lifted d (Some s) K
+      | None =>
       obind (centry d [] h t K) (fun K1 =>
       if is_bound h then fold (S d) a K1
       else obind (cons_lifted d (open_seg h) K1) (fun K2 =>
            obind (fold (S d) a K2) (cons_lifted d (close_seg h))))
+      end
   | ALift h a =>
       if is_bound h then fold (S d) a K
       else obind (cons_lifted d (open_seg h) K) (fun K2 =>
@@ -291,10 +326,14 @@ Lemma fold_outer d h a K : fold d (AOuter h a) K = obind (cons_lifted d (Some (s
 Proof. reflexivity. Qed.
 Lemma fold_inner d h t a K :
   fold d (AInner h t a) K
-  = obind (centry d [] h t K) (fun K1 =>
-      if is_bound h then fold (S d) a K1
-      else obind (cons_lifted d (open_seg h) K1) (fun K2 =>
-           obind (fold (S d) a K2) (cons_lifted d (close_seg h)))).
+  = match spine (AInner h t a) with
+    | Some (s, _) => cons_lifted d (Some s) K
+    | None =>
+        obind (centry d [] h t K) (fun K1 =>
+          if is_bound h then fold (S d) a K1
+          else obind (cons_lifted d (open_seg h) K1) (fun K2 =>
+               obind (fold (S d) a K2) (cons_lifted d (close_seg h))))
+    end.
 Proof. reflexivity. Qed.
 Lemma fold_lift d h a K :
   fold d (ALift h a) K
@@ -915,6 +954,82 @@ Proof.
       destruct (label_eqb (lden h) (lden g1)) eqn:El; [apply label_eqb_eq in El; contradiction|reflexivity].
 Qed.
 
+(** *** A chain of entries as one segment *)
+
+Fixpoint lows (l : option label) (s : seg) : Prop :=
+  match s with SNil => True | SEnt h _ _ r => olabel_lt l (lden h) /\ lows l r end.
+
+Lemma lows_get l s : lows l s -> Normalise.sget lenv l s = None.
+Proof.
+  induction s as [|h ts m r IH] using seg_spine; [reflexivity|]; intros [H1 H2]; cbn [Normalise.sget].
+  destruct (label_eqb (lden h) l) eqn:E; [apply label_eqb_eq in E; subst; destruct (olabel_lt_irrefl _ H1)|exact (IH H2)].
+Qed.
+
+Lemma lows_trans a b s : olabel_lt a b -> lows b s -> lows a s.
+Proof.
+  intros Hab; induction s as [|h ts m r IH] using seg_spine; [exact (fun H => H)|]; intros [H1 H2].
+  split; [exact (olabel_lt_trans _ _ _ Hab H1)|exact (IH H2)].
+Qed.
+
+Lemma scons_sound h t s : sdistd s -> Normalise.tdist lenv t -> Normalise.sget lenv (lden h) s = None ->
+  sdistd (SEnt h (TCons t TNil) 0 s)
+  /\ sden (SEnt h (TCons t TNil) 0 s) = rpush_inner (lden h) (tden t) (sden s).
+Proof.
+  intros Hdd Ht Hn.
+  assert (Hd' : sdistd (SEnt h (TCons t TNil) 0 s)) by (split; [exact Hn|split; [split; [exact Ht|exact I]|exact Hdd]]).
+  split; [exact Hd'|]; apply rextensionality; intros [l j].
+  rewrite rapply_push_inner; unfold rvar_eqb, unshift_rvar; cbn [v_label v_index].
+  rewrite (label_eqb_sym l (lden h)).
+  rewrite (rapply_sden lenv tenv aenv penv) by (apply sdistd_sdist; exact Hd'); cbn [v_label v_index Normalise.sget].
+  destruct (label_eqb_spec (lden h) l) as [<-|Hne]; cbn [andb].
+  - destruct j as [|j]; [reflexivity|]; cbn [Nat.eqb].
+    replace (0 <? S j) with true by reflexivity; replace (S j - 1) with j by lia.
+    rewrite (rapply_sden lenv tenv aenv penv) by (apply sdistd_sdist; exact Hdd); cbn [v_label v_index].
+    rewrite Hn; cbn [Normalise.esem Normalise.tlen Normalise.tnth].
+    replace (S j <? 1) with false by reflexivity; do 2 f_equal; lia.
+  - rewrite (rapply_sden lenv tenv aenv penv) by (apply sdistd_sdist; exact Hdd); reflexivity.
+Qed.
+
+Lemma simple_sound t tg : simple F ntm t = Some tg ->
+  Normalise.tdist lenv tg /\ tden tg = Normalise.teden lenv tenv aenv penv t.
+Proof.
+  destruct t as [g i|u p|h t']; cbn [simple].
+  - intros H; injection H as <-; split; [exact I|reflexivity].
+  - destruct p; try discriminate.
+    destruct (u <? ntm) eqn:Eu; [|discriminate]; apply Nat.ltb_lt in Eu; intros H; injection H as <-.
+    split; [exact I|].
+    destruct (nth_error tenv u) as [y|] eqn:Ey; [|apply nth_error_None in Ey; lia].
+    rewrite (tden_bind lenv tenv aenv penv u (WEnd SNil) None y Ey); cbn [Normalise.teden Normalise.peden]; rewrite Ey.
+    cbn [Normalise.wden Normalise.sins Normalise.souts Normalise.bden]; rewrite rpcompose_identity; reflexivity.
+  - destruct (tvar F (TShiftE h t')) as [[g i]|] eqn:Ev; [|discriminate]; intros H; injection H as <-.
+    split; [exact I|]; rewrite (tvar_sound _ _ _ Ev); reflexivity.
+Qed.
+
+Lemma spine_sound e : forall s b, spine F ntm e = Some (s, b) ->
+  sdistd s /\ sden s = aeden e
+  /\ (b = true -> match s with SNil => True | SEnt g _ _ r => lows (lden g) r end).
+Proof.
+  induction e as [|n|a1 IH1 a2 IH2|g a IH|h t a IH|g a IH]; intros s b; cbn [spine]; try discriminate.
+  - intros H; injection H as <- <-; split; [exact I|split; [reflexivity|intros _; exact I]].
+  - destruct (simple F ntm t) as [tg|] eqn:Et; [|discriminate].
+    destruct (spine F ntm a) as [[s0 b0]|] eqn:Ea; [|discriminate].
+    destruct (simple_sound t tg Et) as [Htg Dtg]; destruct (IH s0 b0 eq_refl) as [Hs0 [Ds0 Hb0]].
+    match goal with |- (if ?X then _ else _) = _ -> _ => destruct X eqn:Eb end.
+    + apply andb_true_iff in Eb as [Eb1 Eb2]; intros H; injection H as <- <-.
+      assert (Hl : lows (lden h) s0).
+      { destruct s0 as [|g ts m r]; [exact I|].
+        destruct (lcmp F h g) as [[| |]|] eqn:Ec; try discriminate.
+        pose proof (lcmp_sound lenv F HF _ _ _ Ec) as Hlt; cbn in Hlt.
+        split; [exact Hlt|exact (lows_trans _ _ _ Hlt (Hb0 Eb1))]. }
+      destruct (scons_sound h tg s0 Hs0 Htg (lows_get _ _ Hl)) as [A B].
+      split; [exact A|split; [|intros _; exact Hl]].
+      rewrite B, Dtg, Ds0; reflexivity.
+    + destruct (sfront F h tg s0) as [s'|] eqn:Ef; [|discriminate]; cbn [option_map]; intros H; injection H as <- <-.
+      destruct (sfront_sound lenv tenv aenv penv F HF ntm Hntm h tg s0 s' Hs0 Htg Ef) as [A B].
+      split; [exact A|split; [|discriminate]].
+      rewrite B, Dtg, Ds0; reflexivity.
+Qed.
+
 Theorem sound :
   (forall e,
      (forall d K K', lwdist K -> fold F ntm d e K = Some K' ->
@@ -962,6 +1077,10 @@ Proof.
     { cbn [Normalise.aeden]; rewrite <- (rpush_inner_compose tenv ntm Hntm), rcompose_identity_l; reflexivity. }
     split.
     + intros d K K' HK; rewrite fold_inner.
+      destruct (spine F ntm (AInner g t a)) as [[s b]|] eqn:Esp.
+      { intros H; destruct (spine_sound _ s b Esp) as [Hd [Hden _]].
+        destruct (cons_lifted_sound d _ _ K K' (sok_some s Hd) HK H) as [A B]; split; [exact A|].
+        rewrite B, Hden; reflexivity. }
       destruct (centry F ntm d [] g t K) as [K1|] eqn:E1; [|discriminate]; cbn [obind].
       destruct (IHt d [] g K K1 (Forall_nil _) HK E1) as [H1 D1]; cbn [glden] in D1.
       destruct (is_bound g) eqn:Eb.
