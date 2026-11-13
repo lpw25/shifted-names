@@ -91,18 +91,34 @@ Definition rest_pay (r : lword) : option word :=
 
 (** A variable sent to a term, checked against the reified adjustment
     [eb] its payload was shown as. *)
-Definition lapply_bind_check (e : aexp) (h : lexp) (i : nat) (eb : aexp) : option nat :=
-  match lnorm F ntm e with
+(** The canonical layered word of an expression. *)
+Definition lcanon (e : aexp) : option lword := obind (lnorm F ntm e) (canon F ntm).
+
+(** The rest of a word as a payload: without what it does to the bound
+    variables it starts with. *)
+Definition lrestrict (r : lword) : option lword :=
+  match r with
+  | LS s1 :: K => ccons F ntm (4 * List.length r + 100) (sdrop_none s1) K
+  | _ => Some r
+  end.
+
+(** A variable sent to a term: the term and the rest of the word after
+    it, for [names] to show as the payload. *)
+Definition lapply_rest (e : aexp) (h : lexp) (i : nat) : option (nat * lword) :=
+  match lcanon e with
   | Some l =>
       match ltgt l h i with
-      | Some (NBind u (WEnd SNil) None, r) =>
-          match rest_pay r, tnorm eb with
-          | Some p, Some wb => if word_eqb p (pnorm wb) then Some u else None
-          | _, _ => None
-          end
+      | Some (NBind u (WEnd SNil) None, r) => option_map (pair u) (lrestrict r)
       | _ => None
       end
   | None => None
+  end.
+
+(** ... checked against the reified adjustment [eb] it was shown as. *)
+Definition lapply_bind_check (e : aexp) (h : lexp) (i : nat) (eb : aexp) : option nat :=
+  match lapply_rest e h i, lcanon eb with
+  | Some (u, r), Some lb => if lword_eqb lb r then Some u else None
+  | _, _ => None
   end.
 
 (** The facts, with the payloads as trees. *)
@@ -282,24 +298,40 @@ Qed.
 Lemma pnorm_pay w : rpcompose (wden (pnorm w)) rpidentity = rpcompose (wden w) (@rpidentity T).
 Proof. symmetry; apply rpcompose_named, named_pnorm. Qed.
 
+Lemma lcanon_sound e l : lcanon F ntm e = Some l -> lwdist l /\ lwden l = aeden e.
+Proof.
+  unfold lcanon; destruct (lnorm F ntm e) as [l0|] eqn:E; [|discriminate]; cbn [obind]; intros H.
+  destruct (canon_sound lenv tenv aenv penv F HF ntm Hntm l0 l (lnorm_dist e l0 E) H) as [A B].
+  split; [exact A|]; rewrite B; exact (lnorm_sound lenv tenv aenv penv F HF ntm Hntm e l0 E).
+Qed.
+
+Lemma lrestrict_sound r r' : lwdist r -> lrestrict F ntm r = Some r' ->
+  rpcompose (lwden r') rpidentity = rpcompose (lwden r) (@rpidentity T).
+Proof.
+  intros Hr; destruct r as [|[s1|L a] K]; cbn [lrestrict]; try (intros H; injection H as <-; reflexivity).
+  inversion Hr as [|? ? Hs1 HK]; subst; intros H.
+  destruct (ccons_sound lenv tenv aenv penv F HF ntm Hntm _ _ K r' (sdrop_dd lenv _ Hs1) HK H) as [_ D].
+  rewrite D; cbn [Layered.lwden]; apply rpcompose_named; intros v Hv.
+  rewrite !rapply_compose_cres, (named_sdrop_none lenv tenv aenv penv s1 v Hv); reflexivity.
+Qed.
+
 Theorem lapply_bind_sound e h i eb u x :
   lapply_bind_check F ntm e h i eb = Some u -> nth_error tenv u = Some x ->
   rapply (aeden e) (mk_rvar (lden h) i) = inr (x, rpcompose (aeden eb) rpidentity).
 Proof.
-  unfold lapply_bind_check; destruct (lnorm F ntm e) as [l|] eqn:E; [|discriminate].
+  unfold lapply_bind_check, lapply_rest; destruct (lcanon F ntm e) as [l|] eqn:E; [|discriminate].
   destruct (ltgt F l h i) as [[[|u0 [[|]|] [|]] r]|] eqn:Et; try discriminate.
-  unfold rest_pay; destruct (expand F ntm r) as [wr|] eqn:Er; [|discriminate].
-  destruct (tnorm F ntm eb) as [wb|] eqn:Eb; [|discriminate].
-  destruct (word_eqb (pnorm wr) (pnorm wb)) eqn:Eq; [|discriminate]; intros H; injection H as <-; intros Hx.
-  apply (proj2 (proj2 (proj2 nf_eqb_eq))) in Eq.
-  destruct (ltgt_sound l h i _ _ (lnorm_dist e l E) Et) as [Hr D].
-  destruct (expand_sound lenv tenv aenv penv F HF ntm Hntm r wr Hr Er) as [_ Dr].
-  destruct (tnorm_sound eb wb Eb) as [_ Db].
-  rewrite <- (lnorm_sound lenv tenv aenv penv F HF ntm Hntm e l E), D.
-  rewrite (tden_bind lenv tenv aenv penv _ _ _ _ Hx); cbn [rtarget_result cres bden].
+  destruct (lrestrict F ntm r) as [r'|] eqn:Er; [|discriminate]; cbn [option_map].
+  destruct (lcanon F ntm eb) as [lb|] eqn:Eb; [|discriminate].
+  destruct (lword_eqb lb r') eqn:Eq; [|discriminate]; intros H; injection H as <-; intros Hx.
+  apply lword_eqb_eq in Eq; subst lb.
+  destruct (lcanon_sound e l E) as [Hl Dl]; destruct (lcanon_sound eb r' Eb) as [_ Db].
+  destruct (ltgt_sound l h i _ _ Hl Et) as [Hr D].
+  rewrite <- Dl, D, (tden_bind lenv tenv aenv penv _ _ _ _ Hx); cbn [rtarget_result cres bden].
   rewrite wden_end; change (sden SNil) with (@ridentity T); rewrite rpcompose_identity.
-  rewrite <- Dr, <- Db, <- (pnorm_pay wr), <- (pnorm_pay wb), Eq; reflexivity.
+  rewrite <- Db, (lrestrict_sound r r' Hr Er); reflexivity.
 Qed.
+
 
 Theorem nf_eq_t_sound e1 e2 : nf_eq_t F ntm e1 e2 = true -> aeden e1 = aeden e2.
 Proof.

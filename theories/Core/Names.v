@@ -882,8 +882,8 @@ Ltac names_unfold :=
        in_bound in_free out_bound out_free pctx_den pctx_pay noslot pcompose padj_raw pid
        to_target var_raw bvar bvar0 fvar lvar vdummy vshift_bound vshift_free].
 
-(** Proving two adjustments equal by comparing their normal forms. *)
-Ltac names_eq := apply adj_eq; names_unfold; names_decide.
+(** An adjustment and its displayed normal form are the same: their normal forms are compared. *)
+Local Ltac names_same := apply adj_eq; names_unfold; names_decide.
 
 Ltac is_adj_expr a :=
   lazymatch a with
@@ -939,7 +939,7 @@ Ltac names_rewrite_k a kt kn :=
                       let b := eval cbv delta [bb] in bb in
                       clear bb;
                       tryif constr_eq a b then kt te'
-                      else (let E := fresh "E" in assert (E : a = b) by names_eq; rewrite E; clear E; kt te')
+                      else (let E := fresh "E" in assert (E : a = b) by names_same; rewrite E; clear E; kt te')
                   | None => kn
                   end
               | None => kn
@@ -988,10 +988,10 @@ Ltac names_var_eq t E :=
                                 [ apply order_of_ok; unfold lfacts_ok; repeat constructor; cbn [lden nth]; assumption
                                 | vm_compute; reflexivity ])
                       | None =>
-                          let pr := eval vm_compute in (lapply_payload F (List.length te) e eh i) in
+                          let pr := eval vm_compute in (lapply_rest F (List.length te) e eh i) in
                           lazymatch pr with
                           | Some (?u, ?wp) =>
-                              let d := eval vm_compute in (display_nf F (List.length te) (Some wp)) in
+                              let d := eval vm_compute in (ldisplay F (List.length te) wp) in
                               lazymatch d with
                               | Some ?ps =>
                                   let te' := restore_terms te a in

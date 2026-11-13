@@ -489,6 +489,35 @@ Definition swap (s s1 : seg) : option (seg * seg * seg * seg) :=
   | _, _ => None
   end.
 
+(** ** In front of an atom
+
+    A segment with terms in front of a lifted atom: the variables it
+    sends around the atom are put in canonical form as above, among the
+    variables the lifts pass around, and a bound variable that nothing
+    reaches is one lift less.  The result is checked by composing. *)
+Definition lcn (L : list (lexp * nat)) (g : lexp) : nat := match lcnt F g L with Some c => c | None => 0 end.
+
+Definition setb (L : list (lexp * nat)) (c : nat) : list (lexp * nat) :=
+  filter (fun p => negb (lexp_eqb (fst p) LNone)) L ++ match c with 0 => [] | _ => [(LNone, c)] end.
+
+Local Notation atom3 s L a s1 := (wcomp F ntm (WAtom s1 L a (WEnd SNil)) (WEnd s)) (only parsing).
+
+Definition iface_a (s : seg) (L : list (lexp * nat)) (a : nat) (s1 : seg) : seg * list (lexp * nat) * seg :=
+  let lim := fun g => Some (lcn L g) in
+  match reroute lim s s1 with
+  | Some sa =>
+      match obind (prune lim sa s1) (fun '(sb, s1b) => renumber lim sb s1b) with
+      | Some (s', s1') =>
+          let L' := setb L (lcn L LNone - List.length (dead lim sa)) in
+          match atom3 s L a s1, atom3 s' L' a s1' with
+          | Some w1, Some w2 => if word_eqb w1 w2 && sdistb s' && sdistb s1' then (s', L', s1') else (s, L, s1)
+          | _, _ => (s, L, s1)
+          end
+      | None => (s, L, s1)
+      end
+  | None => (s, L, s1)
+  end.
+
 (** ** The canonical cons *)
 
 Definition reroute_c (s s1 : seg) : seg :=
@@ -575,7 +604,21 @@ Fixpoint ccons (fuel : nat) (s : seg) (K : lword) : option lword :=
                          end
                 end
             end
-      | _ => cons_seg F ntm s K
+      | LA L a :: Ka =>
+          if has_terms s then
+            let '(s1, K') := match Ka with LS s1 :: K' => (s1, K') | _ => (SNil, Ka) end in
+            let '(s', L', s1') := iface_a s L a s1 in
+            if seg_eqb s1 s1' then Some (LS s' :: LA L' a :: Ka)
+            else obind (match s1' with SNil => Some K' | _ => ccons f s1' K' end)
+                       (fun K1 => ccons f s' (LA L' a :: K1))
+          else
+            match wcomp F ntm (WAtom SNil L a (WEnd SNil)) (WEnd s) with
+            | Some (WAtom sq L' a' (WEnd U)) =>
+                obind (match sq with SNil => Some Ka | _ => ccons f sq Ka end)
+                      (fun K'' => Some (lpre U ++ LA L' a' :: K''))
+            | _ => None
+            end
+      | [] => cons_seg F ntm s K
       end
   end.
 
@@ -1045,6 +1088,38 @@ Proof.
   refine (conj Ha (conj Hb _)); rewrite <- D1, <- D2; reflexivity.
 Qed.
 
+Lemma atom3_sound s L a s1 w : sdistd s -> sdistd s1 ->
+  wcomp F ntm (WAtom s1 L a (WEnd SNil)) (WEnd s) = Some w ->
+  wden w = rcompose (sden s1) (rcompose (lifts lenv L (aden aenv a)) (sden s)).
+Proof.
+  intros Hs Hs1 E.
+  rewrite (proj2 (wcomp_sound lenv tenv aenv penv F HF ntm Hntm (WAtom s1 L a (WEnd SNil)) (WEnd s) w (conj Hs1 I) Hs E)).
+  rewrite wden_atom, wden_id, wden_end, rcompose_identity_r, !rcompose_assoc; reflexivity.
+Qed.
+
+Lemma iface_a_sound s L a s1 s' L' s1' : sdistd s -> sdistd s1 -> iface_a F ntm s L a s1 = (s', L', s1') ->
+  sdistd s' /\ sdistd s1'
+  /\ rcompose (sden s1') (rcompose (lifts lenv L' (aden aenv a)) (sden s'))
+     = rcompose (sden s1) (rcompose (lifts lenv L (aden aenv a)) (sden s)).
+Proof.
+  intros Hs Hs1; unfold iface_a.
+  assert (Hid : (s, L, s1) = (s', L', s1') -> sdistd s' /\ sdistd s1'
+     /\ rcompose (sden s1') (rcompose (lifts lenv L' (aden aenv a)) (sden s'))
+        = rcompose (sden s1) (rcompose (lifts lenv L (aden aenv a)) (sden s)))
+    by (intros H; injection H as <- <- <-; auto).
+  destruct (reroute F ntm _ s s1) as [sa|]; [|exact Hid].
+  destruct (obind _ _) as [[x y]|]; [|exact Hid].
+  destruct (wcomp F ntm (WAtom s1 L a (WEnd SNil)) (WEnd s)) as [w1|] eqn:E1; [|exact Hid].
+  destruct (wcomp F ntm (WAtom y _ a (WEnd SNil)) (WEnd x)) as [w2|] eqn:E2; [|exact Hid].
+  destruct (word_eqb w1 w2 && sdistb F x && sdistb F y) eqn:Eb; [|exact Hid].
+  intros H; injection H as <- <- <-.
+  apply andb_true_iff in Eb as [Eb H3]; apply andb_true_iff in Eb as [H1 H2].
+  pose proof (sdistb_sound _ H2) as Ha; pose proof (sdistb_sound _ H3) as Hb.
+  apply (proj2 (proj2 (proj2 nf_eqb_eq))) in H1; subst w2.
+  refine (conj Ha (conj Hb _)).
+  rewrite <- (atom3_sound _ _ _ _ _ Ha Hb E2); exact (atom3_sound _ _ _ _ _ Hs Hs1 E1).
+Qed.
+
 Definition cc_ok (cc : seg -> lword -> option lword) : Prop :=
   forall s K K', sdistd s -> lwdist K -> cc s K = Some K' -> lwdist K' /\ lwden K' = rcompose (lwden K) (sden s).
 
@@ -1108,8 +1183,58 @@ Proof.
   induction fuel as [|f IH]; intros s K K' Hs HK;
     [exact (cons_seg_sound lenv tenv aenv penv F HF ntm Hntm K s K' Hs HK)|].
   destruct K as [|[s1|L a] K0];
-    [exact (cons_seg_sound lenv tenv aenv penv F HF ntm Hntm _ s K' Hs HK)|
-    |exact (cons_seg_sound lenv tenv aenv penv F HF ntm Hntm _ s K' Hs HK)].
+    [exact (cons_seg_sound lenv tenv aenv penv F HF ntm Hntm _ s K' Hs HK)| |].
+  2:{ inversion HK as [|? ? _ HK0]; subst; cbn [ccons].
+      destruct (has_terms s).
+      - assert (Hgen : forall s1 Kq, sdistd s1 -> lwdist Kq -> lwden K0 = rcompose (lwden Kq) (sden s1) ->
+          (let '(s', L', s1') := iface_a F ntm s L a s1 in
+           if seg_eqb s1 s1' then Some (LS s' :: LA L' a :: K0)
+           else obind (match s1' with SNil => Some Kq | _ => ccons F ntm f s1' Kq end)
+                      (fun K1 => ccons F ntm f s' (LA L' a :: K1))) = Some K' ->
+          lwdist K' /\ lwden K' = rcompose (lwden (LA L a :: K0)) (sden s)).
+        { intros s1 Kq Hs1 HKq DK.
+          destruct (iface_a F ntm s L a s1) as [[s' L'] s1'] eqn:Ei.
+          destruct (iface_a_sound s L a s1 s' L' s1' Hs Hs1 Ei) as [Hs' [Hs1' D]].
+          destruct (seg_eqb s1 s1') eqn:Eq.
+          - apply (proj1 (proj2 (proj2 nf_eqb_eq))) in Eq; subst s1'; intros H; injection H as <-.
+            split; [constructor; [exact Hs'|constructor; [exact I|exact HK0]]|].
+            cbn [Layered.lwden]; rewrite DK, <- !rcompose_assoc, D; reflexivity.
+          - assert (H1 : forall K1, match s1' with SNil => Some Kq | _ => ccons F ntm f s1' Kq end = Some K1 ->
+                      lwdist K1 /\ lwden K1 = rcompose (lwden Kq) (sden s1')).
+            { intros K1; destruct s1' as [|h ts m r]; [|exact (IH _ Kq K1 Hs1' HKq)].
+              intros H; injection H as <-; split; [exact HKq|].
+              change (sden SNil) with (@ridentity T); rewrite rcompose_identity_r; reflexivity. }
+            destruct (match s1' with SNil => Some Kq | _ => ccons F ntm f s1' Kq end) as [K1|]; [|discriminate].
+            cbn [obind]; intros H; destruct (H1 K1 eq_refl) as [HK1 DK1].
+            assert (HA : lwdist (LA L' a :: K1)) by (constructor; [exact I|exact HK1]).
+            destruct (IH s' (LA L' a :: K1) K' Hs' HA H) as [A B].
+            split; [exact A|]; rewrite B; cbn [Layered.lwden]; rewrite DK1, DK, <- !rcompose_assoc, D; reflexivity. }
+        destruct K0 as [|[s1|L2 a2] K1].
+        + apply (Hgen SNil []); [exact I|constructor|].
+          change (sden SNil) with (@ridentity T); rewrite rcompose_identity_r; reflexivity.
+        + inversion HK0; subst; apply (Hgen s1 K1); [assumption|assumption|reflexivity].
+        + apply (Hgen SNil (LA L2 a2 :: K1)); [exact I|exact HK0|].
+          change (sden SNil) with (@ridentity T); rewrite rcompose_identity_r; reflexivity.
+      - destruct (wcomp F ntm (WAtom SNil L a (WEnd SNil)) (WEnd s)) as [[s0|sq L' a' [U|s2 L2 a2 w2]]|] eqn:E;
+          [intros H; discriminate H| |intros H; discriminate H|intros H; discriminate H].
+        destruct (wcomp_sound lenv tenv aenv penv F HF ntm Hntm (WAtom SNil L a (WEnd SNil)) (WEnd s) _ (conj I I) Hs E)
+          as [[Hd' HdU] D].
+        assert (H1 : forall K1, match sq with SNil => Some K0 | _ => ccons F ntm f sq K0 end = Some K1 ->
+                    lwdist K1 /\ lwden K1 = rcompose (lwden K0) (sden sq)).
+        { intros K1; destruct sq as [|h ts m r]; [|exact (IH _ K0 K1 Hd' HK0)].
+          intros H; injection H as <-; split; [exact HK0|].
+          change (sden SNil) with (@ridentity T); rewrite rcompose_identity_r; reflexivity. }
+        destruct (match sq with SNil => Some K0 | _ => ccons F ntm f sq K0 end) as [K1|]; [|discriminate].
+        cbn [obind]; intros H; injection H as <-; destruct (H1 K1 eq_refl) as [HK1 DK1].
+        split; [apply lwdist_lpre; [exact HdU|constructor; [exact I|exact HK1]]|].
+        rewrite lwden_lpre; cbn [Layered.lwden]; rewrite DK1.
+        rewrite !wden_atom in D.
+        change (Normalise.sden lenv tenv aenv penv SNil) with (@ridentity T) in D.
+        change (Normalise.wden lenv tenv aenv penv (WEnd SNil)) with (@ridentity T) in D.
+        change (Normalise.wden lenv tenv aenv penv (WEnd U)) with (sden U) in D.
+        change (Normalise.wden lenv tenv aenv penv (WEnd s)) with (sden s) in D.
+        rewrite rcompose_identity_l, rcompose_identity_r in D.
+        rewrite <- !rcompose_assoc, D; reflexivity. }
   inversion HK as [|? ? Hs1 HK0]; subst; cbn [ccons].
   destruct (negb (has_terms s) || (bound_only s1 && no_atoms s)).
   { destruct (fcomp F ntm s1 s) as [s'|] eqn:E; [|discriminate].

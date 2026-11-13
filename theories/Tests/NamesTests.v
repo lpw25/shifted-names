@@ -103,7 +103,7 @@ Proof. intros; names; reflexivity. Qed.
 Example payload_entries_commute {N} x y z (u v w : T) :
   label_lt x y -> label_lt y z ->
   (⟦ z := w⟨ x := u; y := v ⟩ \ ⟧ : adj T N N) = ⟦ z := w⟨ y := v; x := u ⟩ \ ⟧.
-Proof. intros; names_eq. Qed.
+Proof. intros; names; reflexivity. Qed.
 
 (** A long chain is decided on its layered word, where each term is
     written once; as a tree the normal form doubles with each step, and
@@ -115,7 +115,7 @@ Example long_chain {N} x1 x2 x3 x4 x5 x6 x7 x8 x9 x10 x11 x12 (u1 u2 u3 u4 u5 u6
   label_lt x9 x10 -> label_lt x10 x11 -> label_lt x11 x12 ->
   ((((((((((((⟦ x1 := u1 ⟧ ⨾ ⟦ x2 := u2 ⟧) ⨾ ⟦ x3 := u3 ⟧) ⨾ ⟦ x4 := u4 ⟧) ⨾ ⟦ x5 := u5 ⟧) ⨾ ⟦ x6 := u6 ⟧) ⨾ ⟦ x7 := u7 ⟧) ⨾ ⟦ x8 := u8 ⟧) ⨾ ⟦ x9 := u9 ⟧) ⨾ ⟦ x10 := u10 ⟧) ⨾ ⟦ x11 := u11 ⟧) ⨾ ⟦ x12 := u12 ⟧) : adj T N N)
   = (⟦ x1 := u1 ⟧ ⨾ (⟦ x2 := u2 ⟧ ⨾ (⟦ x3 := u3 ⟧ ⨾ (⟦ x4 := u4 ⟧ ⨾ (⟦ x5 := u5 ⟧ ⨾ (⟦ x6 := u6 ⟧ ⨾ (⟦ x7 := u7 ⟧ ⨾ (⟦ x8 := u8 ⟧ ⨾ (⟦ x9 := u9 ⟧ ⨾ (⟦ x10 := u10 ⟧ ⨾ (⟦ x11 := u11 ⟧ ⨾ ⟦ x12 := u12 ⟧))))))))))).
-Proof. intros; names_eq. Qed.
+Proof. intros; names; reflexivity. Qed.
 
 Example long_chain_left_alone {N} x1 x2 x3 x4 x5 x6 x7 x8 x9 x10 x11 x12 (u1 u2 u3 u4 u5 u6 u7 u8 u9 u10 u11 u12 : T) (P : adj T N N -> Prop) :
   label_lt x1 x2 -> label_lt x2 x3 -> label_lt x3 x4 -> label_lt x4 x5 ->
@@ -232,4 +232,4 @@ Proof. names; reflexivity. Qed.
 Example merged_after_atom (σ : adj nat 0 0) (u : nat) :
   (⟦ "z" := u⟨ "y" as c ⟩; "x" as c; "x" as d \ "x" as c; "x" as d ⟧ : adj nat 0 0) ⨾ ⟦ "x"; "x" | σ ⟧ ⨾ ⟦ "x" as c; "x" as c \ "x" as c ⟧
   = (⟦ "z" := u⟨ "y" as d ⟩; "x" as c; "x" as d \ "x" as c; "x" as d ⟧ : adj nat 0 0) ⨾ ⟦ "x"; "x" | σ ⟧ ⨾ ⟦ "x" as c; "x" as c \ "x" as c ⟧.
-Proof. names_eq. Qed.
+Proof. names; reflexivity. Qed.
