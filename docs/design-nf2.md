@@ -6,6 +6,45 @@ layered word of `docs/normal-forms.md` (routes to the least variable,
 unary entries, payloads with atoms kept as trees) and the tree normal
 form.
 
+## Status of the theory
+
+`Core/BUnique.v` proves uniqueness for these conditions (`line_unique`,
+no admits): canonical lines whose terms carry branches nested to any
+depth, with the same free meaning, are equal. `Core/CanonBr.v` shows
+the canonical words that `CanonW.canon` builds for the pure fragment
+satisfy them.
+
+Notes from the proof:
+
+- The no-hop rule is stated on the free model and covers every lifted
+  input of the atom, including those whose result comes from the base
+  of a branch (a term of the line the branch reaches past its last
+  atom). Without it two branch words over different bases can mean the
+  same: a private term in one against a term of the line reached by a
+  lift in the other. With it, the private form is the canonical one;
+  when the line term is also used by the line, the canonical form keeps
+  both (a private copy in the branch and the term in the line), which
+  costs a constant per term.
+- A term in a branch's first segment whose result in the other word is
+  past an atom is excluded by the no-hop rule at that atom (`cross`);
+  terms of one stretch are ordered by the rests they reach.
+- Bound inputs of a payload without a payload atom are phantoms in the
+  branch's first stretch: shifted past the real ones, never given an
+  explicit target, never lifted.
+
+## The algorithm with branches (to do)
+
+Built from the right as `CanonW.canon`, over a base and a domain so the
+same code canonicalises branch bodies:
+
+1. A segment with branch terms: each branch body is canonicalised over
+   its base (its tail, then the canonical rest); then the terms go in
+   as now (join, new layer, swap), with classes, routes and the order
+   taking branch payloads into account.
+2. An atom: the terms its lifted inputs reach whose branch ends with
+   this atom and its continuation hop in front of it; the rest of the
+   line is re-routed so that the atom's lifts stay what they must be.
+
 ## Sizes
 
 The size of an expression counts every constructor once and every number
