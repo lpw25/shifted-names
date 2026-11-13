@@ -530,7 +530,9 @@ Definition try_join (s s1 : seg) (K : lword) : option (nat * seg * lword) :=
        end.
 
 Definition try_swap (s s1 : seg) (K K' : lword) : option (seg * seg * seg * seg) :=
-  if named_term s1 || negb (has_terms s1) || above K K' then None else swap s s1.
+  if named_term s1 then None
+  else if has_terms s1 then (if above K K' then None else swap s s1)
+  else None.
 
 Fixpoint ccons (fuel : nat) (s : seg) (K : lword) : option lword :=
   match fuel with
@@ -1128,7 +1130,8 @@ Proof.
     destruct (sweep_sound _ IH j x r K' Hx Hr H) as [A B]; split; [exact A|].
     cbn [Layered.lwden] in Du; rewrite B, Du, Dm, rcompose_assoc; exact D. }
   destruct (try_swap F ntm s s1 (LS s1 :: K0) K0) as [[[[sa f1] n] rho]|] eqn:Esw.
-  { unfold try_swap in Esw; destruct (named_term s1 || negb (has_terms s1) || above F (LS s1 :: K0) K0); [discriminate|].
+  { unfold try_swap in Esw; destruct (named_term s1); [discriminate|].
+    destruct (has_terms s1); [|discriminate]; destruct (above F (LS s1 :: K0) K0); [discriminate|].
     destruct (swap_sound s s1 sa f1 n rho Hs Hs1 Esw) as [Hsa [Hf [Hn [Hr D]]]].
     destruct (ccons F ntm f rho K0) as [X|] eqn:E1; [|discriminate]; cbn [obind].
     destruct (ccons F ntm f n X) as [K1|] eqn:E2; [|discriminate]; cbn [obind].
