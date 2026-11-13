@@ -596,6 +596,34 @@ Local Notation bres := (bres lenv).
 Local Notation shiftL := (shiftL lenv).
 Local Notation lc := (lc lenv).
 
+(** The free meaning depends on the continuation only up to [feq]. *)
+Lemma f_cong :
+  (forall t K1 K2, (forall y, feq (K1 y) (K2 y)) -> feq (Unique.ft lenv t K1) (Unique.ft lenv t K2))
+  /\ (forall ts l m K1 K2 i, (forall y, feq (K1 y) (K2 y)) -> feq (Unique.ftl lenv ts l m K1 i) (Unique.ftl lenv ts l m K2 i))
+  /\ (forall s K1 K2 v, (forall y, feq (K1 y) (K2 y)) -> feq (fs s K1 v) (fs s K2 v))
+  /\ (forall w K1 K2 v, (forall y, feq (K1 y) (K2 y)) -> feq (fw w K1 v) (fw w K2 v)).
+Proof.
+  apply nf_mind.
+  - intros h j K1 K2 H; apply H.
+  - intros u w IH b K1 K2 H; cbn [Unique.ft feq]; split; [reflexivity|split; [reflexivity|]]; intros y _; apply IH, H.
+  - intros l m K1 K2 i H; apply H.
+  - intros t IHt r IHr l m K1 K2 [|i] H; [apply IHt, H|apply IHr, H].
+  - intros K1 K2 v H; apply H.
+  - intros h ts IHts m r IHr K1 K2 v H; cbn [Unique.fs]; destruct (label_eqb _ _); [apply IHts, H|apply IHr, H].
+  - intros s IH K1 K2 v H; apply IH, H.
+  - intros s IHs L a w IHw K1 K2 v H; cbn [Unique.fw]; apply IHw; intros y; unfold Unique.latom.
+    destruct (_ <? _); [apply IHs, H|cbn [feq]; split; [reflexivity|split; [reflexivity|]]; intros z; apply IHs, H].
+  - intros s IHs w IHw K1 K2 v H; cbn [Unique.fw]; apply IHw; intros y; apply IHs, H.
+Qed.
+
+Lemma flw_cong l : forall K1 K2 v, (forall y, feq (K1 y) (K2 y)) -> feq (flw l K1 v) (flw l K2 v).
+Proof.
+  induction l as [|[s|L a] r IH]; intros K1 K2 v H; cbn [flw].
+  - apply H.
+  - apply (proj1 (proj2 (proj2 f_cong))); intros y; apply IH, H.
+  - unfold Unique.latom; destruct (_ <? _); [apply IH, H|cbn [feq]; split; [reflexivity|split; [reflexivity|]]; intros z; apply IH, H].
+Qed.
+
 (** *** Branch words are determined by their body and tail *)
 
 Lemma wl_head w : wok w -> whead w <> SNil -> exists l0, wl w = l0 ++ [LS (whead w)].
@@ -974,6 +1002,9 @@ Qed.
 
 End Layer2.
 
+Lemma list_eq_dec_nil {A} (l : list A) : l = [] \/ l <> [].
+Proof. destruct l; [left; reflexivity|right; discriminate]. Qed.
+
 Lemma opt_cases {A} (o : option A) : o = None \/ exists a, o = Some a.
 Proof. destruct o; [right; eexists; reflexivity|left; reflexivity]. Qed.
 
@@ -1200,5 +1231,60 @@ Proof.
 Qed.
 
 End Layer3.
+
+Lemma routed_feq k k' y : (forall v, feq (k v) (k' v)) -> routed k' y -> routed k y.
+Proof.
+  intros H [H1 H2]; split.
+  - intros Hy y' Hy' F; apply (H1 Hy y' Hy'); exact (feq_trans _ _ _ (feq_sym _ _ (H y')) (feq_trans _ _ _ F (H y))).
+  - intros Hy y' Hy' F; apply (H2 Hy y' Hy'); exact (feq_trans _ _ _ (feq_sym _ _ (H y')) (feq_trans _ _ _ F (H y))).
+Qed.
+
+(** With the rest known, the segments are the same. *)
+Lemma seg_final K K' p p1 e Sg Sg' r :
+  bsegok lenv labs gt route bp K p p1 Sg r -> bsegok lenv labs gt route bp K' p p1 Sg' r ->
+  deep e K -> nstuck e K -> deep e K' -> nstuck e K' ->
+  (forall v, feq (flw r K v) (flw r K' v)) ->
+  (forall x y, dom p x -> bres Sg x = inl y -> bres Sg' x = inl y) ->
+  (forall x y, dom p x -> bres Sg' x = inl y -> bres Sg x = inl y) ->
+  (forall v, dom p v -> feq (fs Sg (flw r K) v) (fs Sg' (flw r K') v)) ->
+  Sg = Sg'.
+Proof.
+  intros HS HS' Hd Hs Hd' Hs' Hbk Hv Hv' E.
+  apply (seg_ext lenv labs Hinj); [exact (bo_shape _ _ _ _ _ _ _ _ _ _ HS)|exact (bo_shape _ _ _ _ _ _ _ _ _ _ HS')
+    |exact (bo_tlab _ _ _ _ _ _ _ _ _ _ HS)|exact (bo_tlab _ _ _ _ _ _ _ _ _ _ HS')|]; intros x.
+  destruct (dom_dec p x) as [Hx|Hx].
+  - destruct (bres Sg x) as [y|[[u b] w]] eqn:Ex; [symmetry; exact (Hv x y Hx Ex)|].
+    destruct (bres Sg' x) as [y'|[[u' b'] w']] eqn:Ex'; [rewrite (Hv' x y' Hx Ex') in Ex; discriminate Ex|].
+    pose proof (E x Hx) as F; rewrite !fs_bres, Ex, Ex' in F.
+    pose proof (bo_br _ _ _ _ _ _ _ _ _ _ HS x u b w Ex) as Hb.
+    pose proof (bo_br _ _ _ _ _ _ _ _ _ _ HS' x u' b' w' Ex') as Hb'.
+    assert (D0 : deep (natl r + e) (flw r K)) by (apply deep_flw, Hd).
+    assert (N0 : nstuck (natl r + e) (flw r K)) by (apply nstuck_flw; assumption).
+    assert (D1 : deep (natl r + e) (flw r K')) by (apply deep_flw, Hd').
+    assert (N1 : nstuck (natl r + e) (flw r K')) by (apply nstuck_flw; assumption).
+    destruct (term_keq _ _ _ _ _ _ _ _ _ Hb Hb' D0 N0 D1 N1 F) as [<- [<- [Ebw [_ Htl]]]].
+    destruct Hb as [Hw [HA [HrA [HnA _]]]]; destruct Hb' as [Hw' [HA' [HrA' [HnA' _]]]].
+    assert (Etl : wtail w = wtail w').
+    { destruct (opt_cases b) as [Eb|[n Eb]]; [destruct (list_eq_dec_nil (wbody w)) as [Ew|Ew]|].
+      - rewrite (HnA Eb Ew), (HnA' Eb (eq_trans (eq_sym Ebw) Ew)); reflexivity.
+      - apply (pay_unique lenv labs Hinj _ _ (flw r K) HA HA' (bo_binj _ _ _ _ _ _ _ _ _ _ HS));
+          [apply HrA; right; exact Ew|intros i; apply (routed_feq _ _ _ Hbk), HrA'; right; rewrite <- Ebw; exact Ew|].
+        intros z; apply (feq_trans _ _ _ (Htl Ew z)).
+        apply (proj1 (proj2 (proj2 (f_cong lenv)))); intros y; apply feq_sym, Hbk.
+      - assert (Bn : b <> None) by (rewrite Eb; discriminate).
+        apply (pay_unique lenv labs Hinj _ _ (flw r K) HA HA' (bo_binj _ _ _ _ _ _ _ _ _ _ HS));
+          [apply HrA; left; exact Bn|intros i; apply (routed_feq _ _ _ Hbk), HrA'; left; exact Bn|].
+        destruct (list_eq_dec_nil (wbody w)) as [Ew|Ew].
+        + intros z; cbn [feq] in F; destruct F as [_ [_ Fk]].
+          pose proof (Fk z (fun H => False_ind _ (Bn H))) as Fz; rewrite !fw_body, <- Ebw, Ew in Fz; cbn [flw] in Fz.
+          apply (feq_trans _ _ _ Fz); apply (proj1 (proj2 (proj2 (f_cong lenv)))); intros y; apply feq_sym, Hbk.
+        + intros z; apply (feq_trans _ _ _ (Htl Ew z)).
+          apply (proj1 (proj2 (proj2 (f_cong lenv)))); intros y; apply feq_sym, Hbk. }
+    rewrite (w_inj w w' Hw Hw' Ebw Etl); reflexivity.
+  - destruct (nondom p x Hx) as [n [a [Ep ->]]].
+    destruct (phant_some _ _ _ n (bo_phant _ _ _ _ _ _ _ _ _ _ HS) Ep) as [n1 [Ep1 H1]].
+    destruct (phant_some _ _ _ n (bo_phant _ _ _ _ _ _ _ _ _ _ HS') Ep) as [n1' [Ep1' H1']].
+    rewrite Ep1 in Ep1'; injection Ep1' as <-; rewrite H1, H1'; reflexivity.
+Qed.
 
 End Main.
