@@ -471,7 +471,7 @@ Definition renok (p p' : option nat) (Sg : seg) (r : lword) : Prop :=
   sshape lenv labs false Sg /\ sren labs Sg /\ phant p p' Sg
   /\ (forall x y, dom p x -> bres Sg x = inl y -> dom p' y)
   /\ (r = [] \/ exists L a r2, r = LA L a :: r2 /\ lpos lenv Sg L
-        /\ forall y, bound y -> dom p' y -> exists x, dom p x /\ bres Sg x = inl y).
+        /\ forall y, bound y -> dom p' y -> p' <> None -> exists x, dom p x /\ bres Sg x = inl y).
 
 Fixpoint lnfL (bp : (rvar -> fres) -> option nat -> lword -> Prop) (K : rvar -> fres) (p : option nat) (l : lword)
     {struct l} : Prop :=
@@ -1298,10 +1298,10 @@ Proof. intros [H _] E; rewrite (H g i E); reflexivity. Qed.
 Lemma peel_dom p p1 p2 U1 L1 a1 R1 n1 U2 L2 a2 R2 n2 :
   sshape lenv labs false U1 -> sren labs U1 -> lok lenv labs L1 -> lpos lenv U1 L1 -> phant lenv p p1 U1 ->
   (forall x y, dom p x -> bres U1 x = inl y -> dom p1 y) ->
-  (forall y, bound y -> dom p1 y -> exists x, dom p x /\ bres U1 x = inl y) -> ldom p1 L1 ->
+  (forall y, bound y -> dom p1 y -> p1 <> None -> exists x, dom p x /\ bres U1 x = inl y) -> ldom p1 L1 ->
   sshape lenv labs false U2 -> sren labs U2 -> lok lenv labs L2 -> lpos lenv U2 L2 -> phant lenv p p2 U2 ->
   (forall x y, dom p x -> bres U2 x = inl y -> dom p2 y) ->
-  (forall y, bound y -> dom p2 y -> exists x, dom p x /\ bres U2 x = inl y) -> ldom p2 L2 ->
+  (forall y, bound y -> dom p2 y -> p2 <> None -> exists x, dom p x /\ bres U2 x = inl y) -> ldom p2 L2 ->
   deep n1 R1 -> nstuck n1 R1 -> deep n2 R2 -> nstuck n2 R2 ->
   (forall v, dom p v -> feq (Unique.latom lenv L1 a1 R1 (sv U1 v)) (Unique.latom lenv L2 a2 R2 (sv U2 v))) ->
   U1 = U2 /\ L1 = L2 /\ a1 = a2 /\ p1 = p2 /\ forall y, feq (R1 y) (R2 y).
@@ -1348,27 +1348,32 @@ Proof.
     - destruct (HB (mk_rvar g i) Hv) as [[-> [-> _]]|[-> [-> _]]]; reflexivity.
     - rewrite (proj1 (Hph _ _ _ _ Ph1 Ld1 Hv Hr1)), (proj1 (Hph _ _ _ _ Ph2 Ld2 Hv Hr2)); reflexivity. }
   (* A lifted position is reached by an observed input. *)
-  assert (Hreach : forall U L q, sren labs U -> lpos lenv U L -> ldom q L ->
-            (forall y, bound y -> dom q y -> exists x, dom p x /\ bres U x = inl y) ->
+  assert (Hreach : forall U L q, sren labs U -> lpos lenv U L -> ldom q L -> phant lenv p q U ->
+            (forall y, bound y -> dom q y -> q <> None -> exists x, dom p x /\ bres U x = inl y) ->
             forall l j, j < lc l L -> exists i, dom p (mk_rvar l i) /\ sv U (mk_rvar l i) = mk_rvar l j).
-  { intros U L q Hr Hp Ld Hi l j Hj; destruct l as [x|].
+  { intros U L q Hr Hp Ld Phq Hi l j Hj; destruct l as [x|].
     - destruct (proj2 Hp _ j Hj) as [i Ei]; exists i; split; [|exact Ei].
       destruct p; [left; discriminate|exact I].
-    - assert (Dq : dom q (mk_rvar None j)) by (destruct q as [n'|]; [right; cbn [ldom] in Ld; cbn; lia|exact I]).
-      destruct (Hi (mk_rvar None j) eq_refl Dq) as [[g i] [Hx Ex]]; rewrite (bres_ren lenv labs U _ Hr) in Ex; injection Ex as Ex.
+    - destruct (opt_cases q) as [Eq|[nq Eq]].
+      { destruct (proj2 Hp _ j Hj) as [i Ei]; exists i; split; [|exact Ei].
+        destruct (opt_cases p) as [Ep|[n Ep]]; [rewrite Ep; exact I|].
+        destruct (phant_some _ _ _ n Phq Ep) as [n' [Eq' _]]; rewrite Eq in Eq'; discriminate Eq'. }
+      assert (Dq : dom q (mk_rvar None j)) by (rewrite Eq in Ld |- *; right; cbn [ldom] in Ld; cbn; lia).
+      destruct (Hi (mk_rvar None j) eq_refl Dq ltac:(rewrite Eq; discriminate)) as [[g i] [Hx Ex]];
+        rewrite (bres_ren lenv labs U _ Hr) in Ex; injection Ex as Ex.
       assert (Eg : g = None).
       { assert (Hin : inVb lenv L (sv U (mk_rvar g i)) = true) by (rewrite Ex; unfold inVb; apply Nat.ltb_lt, Hj).
         rewrite <- (lpos_label U L g i Hp Hin), Ex; reflexivity. }
       subst g; exists i; split; [exact Hx|exact Ex]. }
   assert (Hle : forall l j, j < lc l L1 -> j < lc l L2).
-  { intros l j Hj; destruct (Hreach U1 L1 p1 Hr1 Hp1 Ld1 Hi1 l j Hj) as [i [Hv Ei]].
+  { intros l j Hj; destruct (Hreach U1 L1 p1 Hr1 Hp1 Ld1 Ph1 Hi1 l j Hj) as [i [Hv Ei]].
     destruct (HB (mk_rvar l i) Hv) as [[E1' [E2' _]]|[E1' _]].
     - rewrite (proj1 Hp1 l i E1') in Ei; injection Ei as <-.
       pose proof (proj1 Hp2 l i E2') as E; rewrite E in E2'; unfold inVb in E2'; cbn [v_label v_index] in E2'.
       rewrite Hcnt; apply Nat.ltb_lt, E2'.
     - rewrite Ei in E1'; unfold inVb in E1'; cbn [v_label v_index] in E1'; apply Nat.ltb_ge in E1'; lia. }
   assert (Hle' : forall l j, j < lc l L2 -> j < lc l L1).
-  { intros l j Hj; destruct (Hreach U2 L2 p2 Hr2 Hp2 Ld2 Hi2 l j Hj) as [i [Hv Ei]].
+  { intros l j Hj; destruct (Hreach U2 L2 p2 Hr2 Hp2 Ld2 Ph2 Hi2 l j Hj) as [i [Hv Ei]].
     destruct (HB (mk_rvar l i) Hv) as [[E1' [E2' _]]|[_ [E2' _]]].
     - rewrite (proj1 Hp2 l i E2') in Ei; injection Ei as <-.
       pose proof (proj1 Hp1 l i E1') as E; rewrite E in E1'; unfold inVb in E1'; cbn [v_label v_index] in E1'.
@@ -1390,11 +1395,11 @@ Proof.
     destruct (phant_some _ _ _ n Ph1 Ep) as [m1 [Eq1 _]]; destruct (phant_some _ _ _ n Ph2 Ep) as [m2 [Eq2 _]].
     rewrite Eq1, Eq2; f_equal.
     assert (Hd12 : forall j, j < m1 -> j < m2).
-    { intros j Hj; destruct (Hi1 (mk_rvar None j) eq_refl ltac:(rewrite Eq1; right; exact Hj)) as [x [Hx Ex]].
+    { intros j Hj; destruct (Hi1 (mk_rvar None j) eq_refl ltac:(rewrite Eq1; right; exact Hj) ltac:(rewrite Eq1; discriminate)) as [x [Hx Ex]].
       rewrite Sv1 in Ex; injection Ex as Ex; pose proof (Re2 x _ Hx (Sv2 x)) as R2'.
       rewrite <- (Hsv x Hx), Ex, Eq2 in R2'; destruct R2' as [R2'|R2']; [destruct (R2' eq_refl)|exact R2']. }
     assert (Hd21 : forall j, j < m2 -> j < m1).
-    { intros j Hj; destruct (Hi2 (mk_rvar None j) eq_refl ltac:(rewrite Eq2; right; exact Hj)) as [x [Hx Ex]].
+    { intros j Hj; destruct (Hi2 (mk_rvar None j) eq_refl ltac:(rewrite Eq2; right; exact Hj) ltac:(rewrite Eq2; discriminate)) as [x [Hx Ex]].
       rewrite Sv2 in Ex; injection Ex as Ex; pose proof (Re1 x _ Hx (Sv1 x)) as R1'.
       rewrite (Hsv x Hx), Ex, Eq1 in R1'; destruct R1' as [R1'|R1']; [destruct (R1' eq_refl)|exact R1']. }
     destruct (Nat.lt_trichotomy m1 m2) as [Hlt|[E|Hlt]]; [specialize (Hd21 _ Hlt); lia|exact E|specialize (Hd12 _ Hlt); lia]. }
@@ -1408,7 +1413,7 @@ Proof.
   assert (EU : U1 = U2) by (apply (ren_unique lenv labs Hinj false); try assumption; intros v _; apply Hsv'); subst U2.
   split; [reflexivity|split; [reflexivity|split; [reflexivity|split; [reflexivity|]]]].
   intros [l j]; destruct (Nat.ltb_spec j (lc l L1)) as [Hj|Hj].
-  - destruct (Hreach U1 L1 p1 Hr1 Hp1 Ld1 Hi1 l j Hj) as [i [Hv Ei]].
+  - destruct (Hreach U1 L1 p1 Hr1 Hp1 Ld1 Ph1 Hi1 l j Hj) as [i [Hv Ei]].
     destruct (HB _ Hv) as [[_ [_ E]]|[E _]]; rewrite Ei in E; [exact E|].
     unfold inVb in E; cbn [v_label v_index] in E; apply Nat.ltb_ge in E; lia.
   - pose proof (Hk (mk_rvar l (j - lc l L1))) as E; unfold shiftL in E; cbn [v_label v_index] in E.
@@ -1429,7 +1434,7 @@ Lemma head_b K p l : lnfL K p l ->
         /\ (forall x y, dom p x -> bres U x = inl y -> dom p' y))
   \/ (exists U p' L a r2, l = pre U ++ LA L a :: r2 /\ sshape lenv labs false U /\ sren labs U /\ lpos lenv U L
         /\ phant lenv p p' U /\ (forall x y, dom p x -> bres U x = inl y -> dom p' y)
-        /\ (forall y, bound y -> dom p' y -> exists x, dom p x /\ bres U x = inl y)
+        /\ (forall y, bound y -> dom p' y -> p' <> None -> exists x, dom p x /\ bres U x = inl y)
         /\ lok lenv labs L /\ ldom p' L /\ lnfL K None r2 /\ nohop lenv K L a r2).
 Proof.
   assert (Rn : forall x y, dom p x -> bres SNil x = inl y -> dom p y) by (intros x y Hx E; rewrite bres_nil in E; injection E as <-; exact Hx).
@@ -1445,7 +1450,7 @@ Proof.
       exact (conj Hs (conj Hren (conj Hp (conj Hph (conj Hre (conj Hh (conj HL (conj Hld (conj Hr2 Hnh))))))))).
   - intros [HL [Hld [Hr Hnh]]]; right; right; exists SNil, p, L, a, r; split; [reflexivity|].
     split; [exact (conj (Sorted.SSorted_nil _) (Forall_nil _))|split; [exact (Forall_nil _)|split; [apply (lpos_nil lenv)|split; [apply phant_nil|]]]].
-    split; [exact Rn|split; [intros y Hy Hd; exists y; split; [exact Hd|reflexivity]|]].
+    split; [exact Rn|split; [intros y Hy Hd _; exists y; split; [exact Hd|reflexivity]|]].
     split; [exact HL|split; [exact Hld|split; [exact Hr|exact Hnh]]].
 Qed.
 
