@@ -268,12 +268,33 @@ compressed words are within log factors, not linear: signature
 encodings (Mehlhorn, Sundar and Uhrig) and recompression (Jeż). These
 two references are from memory and not checked.
 
-The design goal has to change in one of these ways:
+### Bounds must not compound
 
-- (a) size linear in the input *where `share` binds no composition of
-  atoms*;
-- (b) canonical size O(n log N), with `N` the unfolded length;
-- (c) give up syntactic canonicity for compositions of atoms.
+Any bound of the form `|canon e| ≤ c · |e|` with `c > 1` compounds.
+Let `o = canon e` and feed `share x := o in x ⨾ x` back in: its size is
+`|o| + O(1)`, so `k` rounds allow `c^k` growth. Restricting the inputs
+(only linear where `share` binds no composition of atoms) is worse:
+`canon`'s own output shares line suffixes containing atoms, so a second
+run has no bound at all.
+
+A bound that survives iteration is stated against an intrinsic measure
+of the *meaning*, the smallest representation `g`, not against the
+input. `share x := o in x ⨾ x` raises `g` by `O(1)`, so nothing
+compounds. For the atom word this is the smallest-grammar setting:
+
+- `c · g` is the open problem above;
+- canonical encodings achieve `O(g · polylog N)`: locally consistent
+  parsing and signature encodings, which are history independent;
+  `O(g log(N/g))` by recompression. These references are from memory,
+  not checked, and the canonicity of recompression in particular needs
+  checking.
+
+So the realistic goal is the following:
+
+- **(b′)** `|canon e| ≤ C · g(e) · log N(e)`, where `g` is the smallest
+  representation with `share` and `N` is the unfolded size;
+- canonical, so `names; reflexivity` decides equality;
+- non-compounding.
 
 ## Open questions
 
