@@ -1215,4 +1215,87 @@ Proof.
     rewrite <- !rcompose_assoc, D; reflexivity.
 Qed.
 
+Lemma scomp_sres Sg rho S' : sp1 Sg -> sshape lenv labs false rho -> sren labs rho ->
+  scomp F ntm Sg rho = Some S' -> forall x, sres S' x = sres Sg (sv lenv rho x).
+Proof.
+  intros HS Hr Hrr E x; pose proof (scomp_sp1 lenv labs ntm F HF Sg rho S' HS Hr Hrr E) as HS'.
+  apply (sres_feq lenv labs ntm S' Sg x _ HS' HS).
+  pose proof (scomp_free lenv labs ntm F HF Sg rho S' HS Hr Hrr E FVar x) as Fx.
+  rewrite (fs_ren lenv labs rho _ x Hrr) in Fx; exact Fx.
+Qed.
+
+(** The canonical word of a renaming then a canonical word is canonical
+    and means the same. *)
+Theorem rcons_ok K : forall rho K', lnf K -> lw1 K -> sshape lenv labs false rho -> sren labs rho ->
+  rcons F ntm rho K = Some K' -> lnf K' /\ lw1 K' /\ forall v, feq (R K' v) (R (LS rho :: K) v).
+Proof.
+  induction K as [|[Sg|L a] K1 IH]; intros rho K' Hl Hw Hr Hrr; cbn [rcons].
+  - intros E; injection E as <-; destruct rho as [|h ts m r]; cbn [lpre].
+    + split; [exact I|split; [constructor|intros v; rewrite (R_seg lenv SNil [] v), fs_nil; apply feq_refl]].
+    + split; [split; [discriminate|split; [exact I|right; split; [exact Hr|split; [exact Hrr|left; reflexivity]]]]|].
+      split; [exact (lw1_one _ (sren_sp1 lenv labs ntm _ Hr Hrr))|intros v; apply feq_refl].
+  - inversion Hw as [|? ? HSg HK1]; subst; destruct Hl as [HnS [HlK1 Hor]].
+    destruct (scomp F ntm Sg rho) as [S'|] eqn:ES; [|discriminate].
+    pose proof (scomp_sp1 lenv labs ntm F HF Sg rho S' HSg Hr Hrr ES) as HS'.
+    pose proof (scomp_free lenv labs ntm F HF Sg rho S' HSg Hr Hrr ES) as Sem0.
+    destruct (has_terms S') eqn:Ht.
+    + assert (HSt : sterm lenv S') by exact (has_terms_sterm S' HS' Ht).
+      assert (Hne : forall X, sterm lenv X -> X <> SNil) by (intros X [x [t E]] ->; discriminate E).
+      destruct Hor as [[_ HSo]|[_ [HSr _]]].
+      2:{ exfalso; destruct HSt as [x [t Ex]]; rewrite (scomp_sres Sg rho S' HSg Hr Hrr ES x), (sres_ren lenv labs Sg _ HSr) in Ex.
+          discriminate Ex. }
+      destruct HSo as [_ _ Hord _ Hroute _ _ Hbinj _].
+      destruct K1 as [|st K1r].
+      * intros E; injection E as <-.
+        split; [split; [exact (Hne S' HSt)|split; [exact I|left; split; [exact HSt|exact (segok_nil S' HS')]]]|].
+        split; [exact (lw1_one S' HS')|intros v; exact (Sem0 _ v)].
+      * destruct (renum1 F S') as [[S'' io]|] eqn:ER; [|discriminate].
+        destruct (renum1_shape lenv labs ntm F HF S' S'' io HN HS' ER) as [HS'' [Hios Hior]].
+        assert (HS''t : sterm lenv S'').
+        { destruct HSt as [x [t Ex]]; exists x, t; rewrite (renum1_comp lenv F HF S' S'' io ER x) in Ex.
+          destruct (sres S'' x) as [y|t']; [|exact Ex].
+          rewrite (sres_ren lenv labs io _ Hior) in Ex; discriminate Ex. }
+        assert (HK1' : forall K1', (match io with SNil => Some (st :: K1r) | _ => rcons F ntm io (st :: K1r) end) = Some K1' ->
+                         lnf K1' /\ lw1 K1' /\ forall v, feq (R K1' v) (fs io (R (st :: K1r)) v)).
+        { intros K1' E1; destruct io as [|h ts m r].
+          - injection E1 as <-; split; [exact HlK1|split; [exact HK1|intros v; rewrite fs_nil; apply feq_refl]].
+          - exact (IH _ K1' HlK1 HK1 Hios Hior E1). }
+        destruct (match io with SNil => Some (st :: K1r) | _ => rcons F ntm io (st :: K1r) end) as [K1'|] eqn:E1;
+          [|discriminate]; cbn [obind]; intros EF.
+        destruct (HK1' K1' eq_refl) as [HlK1' [HwK1' Sem1]].
+        assert (Hro : forall x y, sres S' x = inl y -> routed (R (st :: K1r)) y).
+        { intros x y e; rewrite (scomp_sres Sg rho S' HSg Hr Hrr ES x) in e; exact (Hroute _ _ e). }
+        destruct (fixlast_ok S'' K1' K' HS'' HS''t HlK1' HwK1'
+                    (fun Hlast => segok_renum S' S'' io (st :: K1r) K1' HS' Hro Hord Hbinj ER Sem1 Hlast) EF) as [A [B C]].
+        split; [exact A|split; [exact B|intros v]].
+        apply (feq_trans _ _ _ (C v)); rewrite (R_seg lenv S'' K1' v).
+        apply (feq_trans _ _ _ (fs_cong lenv labs ntm S'' _ _ v HS'' Sem1)).
+        apply (feq_trans _ _ _ (feq_sym _ _ (renum1_free lenv labs ntm F HF S' S'' io HN HS' ER _ v))).
+        exact (Sem0 _ v).
+    + intros E; destruct (IH S' K' HlK1 HK1 (proj1 HS') (noterms_sren S' HS' Ht) E) as [A [B C]].
+      split; [exact A|split; [exact B|intros v; exact (feq_trans _ _ _ (C v) (Sem0 _ v))]].
+  - inversion Hw as [|? ? HL HK1]; subst; destruct Hl as [HLok HlK1].
+    destruct (wcomp F ntm (WAtom SNil L a (WEnd SNil)) (WEnd rho)) as [[s0|Q L' a' [U|s2 L2 a2 w2]]|] eqn:EW;
+      try (intros E; discriminate E).
+    destruct (has_terms Q) eqn:HtQ; [intros E; discriminate E|].
+    destruct (atom_ok rho L a K1 Q L' a' U Hr Hrr HLok HK1 EW HtQ) as [HQs [HQr [HUs [HUr [HL' [Hpos Sem]]]]]].
+    assert (HK2' : forall K2', (match Q with SNil => Some K1 | _ => rcons F ntm Q K1 end) = Some K2' ->
+                     lnf K2' /\ lw1 K2' /\ forall v, feq (R K2' v) (R (LS Q :: K1) v)).
+    { intros K2' E2; destruct Q as [|h ts m r].
+      - injection E2 as <-; split; [exact HlK1|split; [exact HK1|intros v; rewrite (R_seg lenv SNil K1 v), fs_nil; apply feq_refl]].
+      - exact (IH _ K2' HlK1 HK1 HQs HQr E2). }
+    destruct (match Q with SNil => Some K1 | _ => rcons F ntm Q K1 end) as [K2'|] eqn:E2; [|intros E; discriminate E].
+    cbn [obind]; intros E; injection E as <-.
+    destruct (HK2' K2' eq_refl) as [A [B C]].
+    assert (FU : Forall (fun st => match st with LS s => sp1 s | LA _ _ => True end) (lpre U)).
+    { destruct U; [constructor|constructor; [exact (sren_sp1 lenv labs ntm _ HUs HUr)|constructor]]. }
+    split; [|split].
+    + destruct U as [|h ts m r]; cbn [lpre app]; [split; assumption|].
+      split; [discriminate|split; [split; assumption|right; split; [exact HUs|split; [exact HUr|]]]].
+      right; exists L', a', K2'; split; [reflexivity|exact Hpos].
+    + apply lw1_lpre; [exact (sren_sp1 lenv labs ntm _ HUs HUr)|constructor; assumption].
+    + intros v; refine (feq_trans _ _ _ _ (Sem v)).
+      apply (R_app_cong (lpre U) _ _ FU); exact (R_cong lenv labs ntm (LA L' a') _ _ I C).
+Qed.
+
 End RconsOk.
