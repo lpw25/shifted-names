@@ -626,35 +626,6 @@ Fixpoint remove_ix (J : list nat) (l : list ntgt) (k : nat) : list ntgt :=
   match l with [] => [] | x :: r => if mem k J then remove_ix J r (S k) else x :: remove_ix J r (S k) end.
 
 
-(** After the atom, a variable that the atom gives out goes on as the
-    payload's atom would send it. *)
-Definition through_ok (S1 : seg) (L LT : list (lexp * nat)) (g : lexp) : bool :=
-  match entry_of S1 g with
-  | Some (ts, m) =>
-      let cl := lcn F L g in
-      let ct := lcn F LT g in
-      Nat.eqb (m + cl) (ct + List.length ts)
-      && forallb (fun j => match nth_error ts j with
-                           | Some (NVar g' i) => lexp_eqb g' g && Nat.eqb (i + cl) (j + ct)
-                           | _ => false
-                           end) (seq cl (List.length ts - cl))
-  | None => false
-  end.
-
-(** The inputs whose target has to change for that, each with the
-    variable wanted. *)
-Definition npairs (S1 : seg) (L LT : list (lexp * nat)) (g : lexp) : list ((lexp * nat) * (lexp * nat)) :=
-  match entry_of S1 g with
-  | Some (ts, m) =>
-      let cl := lcn F L g in
-      let ct := lcn F LT g in
-      flat_map (fun j => match nth_error ts j with
-                         | Some (NVar g' i) => if lexp_eqb g' g && Nat.eqb (i + cl) (j + ct) then [] else [((g, j), (g, j - cl + ct))]
-                         | _ => []
-                         end) (seq cl (List.length ts - cl))
-  | None => []
-  end.
-
 Definition hop_cand (a : nat) (t : ntgt) : bool :=
   match t with
   | NBind u (WAtom A _ a' _) _ => Nat.eqb a a' && (u <? ntm) && match sdrop_none A with SNil => true | _ => false end
@@ -664,43 +635,42 @@ Definition hop_cand (a : nat) (t : ntgt) : bool :=
 Definition otgt_eqb (x y : option ntgt) : bool :=
   match x, y with Some p, Some q => ntgt_eqb p q | _, _ => false end.
 
-Definition bthrough (S1 : seg) (L LT : list (lexp * nat)) (A : seg) : bool :=
-  let cl := lcn F L LNone in
-  let ct := lcn F LT LNone in
-  let '(ts1, m1) := bent F S1 in
-  let '(tsA, mA) := bent F A in
-  Nat.eqb (m1 + cl + tlen tsA) (mA + ct + tlen ts1)
-  && forallb (fun k => otgt_eqb (seg_tgt F S1 LNone (k + cl)) (seg_tgt F A LNone (k + ct)))
-             (seq 0 (Nat.max (tlen ts1 - cl) (tlen tsA - ct))).
+(** After the atom on the line, what the atom gives out goes on as it
+    does after the atom of the payload, whose tail is [A]. *)
+Definition thr (Sg : seg) (L LT : list (lexp * nat)) (A : seg) (g : lexp) : bool :=
+  let cl := lcn F L g in
+  let ct := lcn F LT g in
+  match entry_of Sg g, entry_of A g with
+  | Some (ts1, m1), Some (tsA, mA) =>
+      Nat.eqb (m1 + cl + List.length tsA) (mA + ct + List.length ts1)
+      && forallb (fun k => otgt_eqb (seg_tgt F Sg g (k + cl)) (seg_tgt F A g (k + ct)))
+                 (seq 0 (Nat.max (List.length ts1 - cl) (List.length tsA - ct)))
+  | _, _ => false
+  end.
 
-Definition bpairs (S1 : seg) (L LT : list (lexp * nat)) (A : seg) : list ((lexp * nat) * (lexp * nat)) :=
-  let cl := lcn F L LNone in
-  let ct := lcn F LT LNone in
-  let '(ts1, m1) := bent F S1 in
-  let '(tsA, mA) := bent F A in
-  flat_map (fun k => match seg_tgt F S1 LNone (k + cl), seg_tgt F A LNone (k + ct) with
-                     | Some (NVar g i), Some (NVar g' i') => if veqb (g, i) (g', i') then [] else [((LNone, k + cl), (g', i'))]
-                     | _, _ => []
-                     end) (seq 0 (Nat.max (tlen ts1 - cl) (tlen tsA - ct))).
+(** The tail that makes it so: what [A] does to the variables the atom
+    of the payload passes around, and what [Sg] does to the others. *)
+Definition line_tail (Sg : seg) (L LT : list (lexp * nat)) (A : seg) (labs : list lexp) : option seg :=
+  obind (omapl (fun g =>
+           let cl := lcn F L g in
+           let ct := lcn F LT g in
+           match entry_of Sg g with
+           | Some (tsS, mS) =>
+               let nS := List.length tsS in
+               option_map (fun l => (g, tl_of l, mS + (cl - nS)))
+                 (omapl (fun x => match x with Some (NVar h i) => Some (NVar h i) | _ => None end)
+                        (map (seg_tgt F A g) (seq 0 ct) ++ map (seg_tgt F Sg g) (seq cl (nS - cl))))
+           | None => None
+           end) labs) (mkseg F).
 
-(** A segment with the targets of some inputs replaced by variables. *)
-Definition sreplace (prs : list ((lexp * nat) * (lexp * nat))) (s : seg) : option seg :=
-  fold_right (fun g acc => obind acc (fun sg =>
-    match entry_of s g with
-    | Some (ts, m) =>
-        let mine := filter (fun pq => lexp_eqb (fst (fst pq)) g) prs in
-        let n := fold_right (fun pq acc => Nat.max (S (snd (fst pq))) acc) (List.length ts) mine in
-        let tsx := map (fun j => match find (fun pq => Nat.eqb (snd (fst pq)) j) mine with
-                                 | Some pq => NVar (fst (snd pq)) (snd (snd pq))
-                                 | None => match seg_tgt F s g j with Some x => x | None => NVar g j end
-                                 end) (seq 0 n) in
-        sset F g (tl_of tsx) (m + (n - List.length ts)) sg
-    | None => None
-    end)) (Some s) (nodup_l (map (fun pq => fst (fst pq)) prs) []).
+(** A segment with the term [T] replaced by [T']. *)
+Definition trepl (T T' : ntgt) (s : seg) : option seg :=
+  mkseg F (map (fun '(g, ts, m) => (g, tl_of (map (fun x => if ntgt_eqb x T then T' else x) (tl_list ts)), m)) (ents s)).
 
 (** Two segments that the word [K] after them cannot tell apart: the
-    same targets, or variables with the same key. *)
-Definition seg_keq (K : lword) (s s' : seg) : bool :=
+    same targets, or variables with the same key, or terms that [tk]
+    accepts. *)
+Definition seg_keqx (tk : ntgt -> ntgt -> bool) (K : lword) (s s' : seg) : bool :=
   forallb (fun g =>
     match entry_of s g, entry_of s' g with
     | Some (ts, m), Some (ts', m') =>
@@ -710,6 +680,7 @@ Definition seg_keq (K : lword) (s s' : seg) : bool :=
                                  ntgt_eqb x y
                                  || match x, y with
                                     | NVar g1 i1, NVar g2 i2 => okey_eqb (vfollow F K g1 i1) (vfollow F K g2 i2)
+                                    | NBind _ _ _, NBind _ _ _ => tk x y
                                     | _, _ => false
                                     end
                              | _, _ => false
@@ -717,66 +688,72 @@ Definition seg_keq (K : lword) (s s' : seg) : bool :=
     | _, _ => false
     end) (nodup_l (LNone :: seg_labels s ++ seg_labels s') []).
 
+Definition seg_keq0 := seg_keqx (fun _ _ => false).
+
+(** The same term, with tails that [K] cannot tell apart. *)
+Definition tkeq (K : lword) (x y : ntgt) : bool :=
+  match x, ttail x, ttail y with
+  | NBind u _ _, Some A, Some A' => (u <? ntm) && ntgt_eqb (tset x A') y && seg_keq0 K A A'
+  | _, _, _ => false
+  end.
+
+Definition seg_keq (K : lword) := seg_keqx (tkeq K) K.
+
 Fixpoint xoff (LT : list (lexp * nat)) (g : lexp) : nat :=
   match LT with [] => 0 | (h, n) :: r => if lexp_eqb h g then 0 else n + xoff r g end.
 
-Definition hopg (L : list (lexp * nat)) (a : nat) (Sp Sg S1 : seg)
-  : option (seg * list (lexp * nat) * seg * list ntgt) :=
-  match find (hop_cand a) (stargets Sp) with
-  | Some (NBind u (WAtom A LT _ w') b) =>
-      let T := NBind u (WAtom A LT a w') b in
-      let labs := fold_right (linsert F) (linsert F LNone (wlabs F [LS Sg; LS S1])) (map fst L ++ map fst LT) in
-      if forallb (fun g => match g with LNone => bthrough Sg L LT A | _ => through_ok Sg L LT g end) labs then
-        let X := flat_map (fun '(g, n) => map (fun j => match g with
-                                                       | LNone => match seg_tgt F A LNone j with Some x => x | None => NVar LNone j end
-                                                       | _ => NVar g j end) (seq 0 n)) LT in
-        let n := List.length X in
-        let Jof := fun g => match entry_of Sg g with
-                            | Some (ts, _) => filter (fun j => match nth_error ts j with Some t => ntgt_eqb t T | None => false end)
-                                                     (seq 0 (List.length ts))
-                            | None => [] end in
-        if forallb (fun g => forallb (fun j => j <? lcn F L g) (Jof g)) labs
-           && negb (forallb (fun g => match Jof g with [] => true | _ => false end) labs) then
-          let extra := fun g => match g with LNone => n | _ => 0 end in
-          let L2of := fun g => lcn F L g - List.length (Jof g) + extra g in
-          let pi := mkseg F (map (fun g =>
-                      let ct := lcn F LT g in
-                      (g, tl_of (map (fun j => NVar LNone (xoff LT g + j)) (seq 0 ct)),
-                       L2of g)) labs) in
-          match obind pi (fun p => wcomp F ntm (WEnd p) w') with
-          | Some w2 =>
-              let T2 := NBind u (match b, w2 with None, WEnd Nx => WEnd (sdrop_none Nx) | _, _ => w2 end) b in
-              let e0 := mkseg F (map (fun g =>
-                          let J := Jof g in
-                          let cl := lcn F L g in
-                          (g, tl_of (map (fun j => if mem j J then T2
-                                                   else NVar g (extra g + j - List.length (filter (fun j' => j' <? j) J))) (seq 0 cl)),
-                           extra g + cl - List.length J)) labs) in
-              let S1r := fold_right (fun g acc => obind acc (fun sg =>
-                           match Jof g, entry_of S1 g with
-                           | [], _ => Some sg
-                           | J, Some (ts, m) =>
-                               let nn := Nat.max (List.length ts) (lcn F L g) in
-                               let tsx := map (fun j => match seg_tgt F S1 g j with Some x => x | None => NVar g j end) (seq 0 nn) in
-                               sset F g (tl_of (remove_ix J tsx 0)) (m + (nn - List.length ts)) sg
-                           | _, None => None end)) (Some S1) labs in
-              let L2 := filter (fun p => negb (Nat.eqb (snd p) 0)) (map (fun g => (g, L2of g)) labs) in
-              match e0, S1r with
-              | Some e, Some sb => Some (e, L2, sb, X)
-              | _, _ => None
-              end
-          | None => None
+Definition hopg (L : list (lexp * nat)) (a u : nat) (A : seg) (LT : list (lexp * nat)) (w' : word) (b : option nat)
+    (T : ntgt) (Sg S1 : seg) : option (seg * list (lexp * nat) * seg * list ntgt) :=
+  let labs := fold_right (linsert F) (linsert F LNone (wlabs F [LS Sg; LS S1; LS A])) (map fst L ++ map fst LT) in
+  if forallb (thr Sg L LT A) labs then
+    let X := flat_map (fun '(g, n) => map (fun j => match seg_tgt F A g j with Some x => x | None => NVar g j end)
+                                          (seq 0 n)) LT in
+    let n := List.length X in
+    let Jof := fun g => match entry_of Sg g with
+                        | Some (ts, _) => filter (fun j => match nth_error ts j with Some t => ntgt_eqb t T | None => false end)
+                                                 (seq 0 (List.length ts))
+                        | None => [] end in
+    if forallb (fun g => forallb (fun j => j <? lcn F L g) (Jof g)) labs
+       && negb (forallb (fun g => match Jof g with [] => true | _ => false end) labs) then
+      let extra := fun g => match g with LNone => n | _ => 0 end in
+      let L2of := fun g => lcn F L g - List.length (Jof g) + extra g in
+      let pi := mkseg F (map (fun g =>
+                  let ct := lcn F LT g in
+                  (g, tl_of (map (fun j => NVar LNone (xoff LT g + j)) (seq 0 ct)),
+                   L2of g)) labs) in
+      match obind pi (fun p => wcomp F ntm (WEnd p) w') with
+      | Some w2 =>
+          let T2 := NBind u (match b, w2 with None, WEnd Nx => WEnd (sdrop_none Nx) | _, _ => w2 end) b in
+          let e0 := mkseg F (map (fun g =>
+                      let J := Jof g in
+                      let cl := lcn F L g in
+                      (g, tl_of (map (fun j => if mem j J then T2
+                                               else NVar g (extra g + j - List.length (filter (fun j' => j' <? j) J))) (seq 0 cl)),
+                       extra g + cl - List.length J)) labs) in
+          let S1r := fold_right (fun g acc => obind acc (fun sg =>
+                       match Jof g, entry_of S1 g with
+                       | [], _ => Some sg
+                       | J, Some (ts, m) =>
+                           let nn := Nat.max (List.length ts) (lcn F L g) in
+                           let tsx := map (fun j => match seg_tgt F S1 g j with Some x => x | None => NVar g j end) (seq 0 nn) in
+                           sset F g (tl_of (remove_ix J tsx 0)) (m + (nn - List.length ts)) sg
+                       | _, None => None end)) (Some S1) labs in
+          let L2 := filter (fun p => negb (Nat.eqb (snd p) 0)) (map (fun g => (g, L2of g)) labs) in
+          match e0, S1r with
+          | Some e, Some sb => Some (e, L2, sb, X)
+          | _, _ => None
           end
-        else None
-      else None
-  | _ => None
-  end.
+      | None => None
+      end
+    else None
+  else None.
 
 (** The term is in the [p]-th segment after the atom. *)
 (** The term is in the [p]-th segment after the atom.  The targets of
-    that segment first become the variables the payload's atom gives
-    (the rest of the word cannot tell, [seg_keq]); then the two words
-    are the same, which is checked by composing them. *)
+    tail of the term first becomes what the segments do to the
+    variables the atom gives (the rest of the word cannot tell,
+    [seg_keq]); then the two words are the same, which is checked by
+    composing them. *)
 Definition comp (l : list seg) : option seg :=
   match l with
   | [] => None
@@ -789,52 +766,39 @@ Definition hop_prop (L : list (lexp * nat)) (a : nat) (p : nat) (K : lword) : op
   let segs := segs_of (firstn p K) in
   let K2 := skipn p K in
   if negb (Nat.eqb (List.length segs) p) then None else
-  match rev segs with
-  | Sp :: rpre =>
+  match rev segs, segs with
+  | Sp :: rpre, S1 :: rest =>
       match find (hop_cand a) (stargets Sp), comp segs with
       | Some (NBind u (WAtom A LT _ w') b), Some Sg0 =>
+          let T := NBind u (WAtom A LT a w') b in
           let labs := fold_right (linsert F) (linsert F LNone (wlabs F [LS Sg0])) (map fst L ++ map fst LT) in
-          let pairs := flat_map (fun g => match g with LNone => bpairs Sg0 L LT A | _ => npairs Sg0 L LT g end) labs in
-          let pre := comp (rev rpre) in
-          let pin := fun v : lexp * nat =>
-            match pre with
-            | None => Some v
-            | Some sg => match seg_tgt F sg (fst v) (snd v) with Some (NVar g i) => Some (g, i) | _ => None end
-            end in
-          let prs := map (fun pq => (pin (fst pq), snd pq)) pairs in
-          if forallb (fun pq => match fst pq with Some _ => true | None => false end) prs then
-            let prs1 := flat_map (fun pq => match fst pq with Some u => [(u, snd pq)] | None => [] end) prs in
-            let Spx := match prs1 with
-                       | [] => Some Sp
-                       | _ => if forallb (fun pq => forallb (fun rs => negb (veqb (fst pq) (fst rs)) || veqb (snd pq) (snd rs)) prs1) prs1
-                              then match sreplace prs1 Sp with
-                                   | Some x => if seg_keq K2 Sp x && sdistb F x then Some x else None
-                                   | None => None
-                                   end
-                              else None
-                       end in
-            match Spx with
-            | Some Sp1 =>
-                let segs1 := rev (Sp1 :: rpre) in
-                match segs1, comp segs1 with
-                | S1 :: rest, Some Sg =>
-                    match hopg L a Sp1 Sg S1 with
-                    | Some (e0, L2, S1r, X) =>
-                        let K1 := LS S1r :: map LS rest ++ K2 in
-                        match (match X with [] => Some K1 | _ => thread p X K1 end) with
-                        | Some Kx => Some (Sp1, e0, L2, Kx)
+          match line_tail Sg0 L LT A labs with
+          | Some A' =>
+              let T' := tset T A' in
+              match (if seg_eqb A A' then Some Sp else trepl T T' Sp) with
+              | Some Sp1 =>
+                  if seg_eqb Sp Sp1 || (seg_keq K2 Sp Sp1 && sdistb F Sp1) then
+                    match comp (rev (Sp1 :: rpre)) with
+                    | Some Sg =>
+                        match hopg L a u A' LT w' b T' Sg S1 with
+                        | Some (e0, L2, S1r, X) =>
+                            let K1 := LS S1r :: map LS rest ++ K2 in
+                            match (match X with [] => Some K1 | _ => thread p X K1 end) with
+                            | Some Kx => Some (Sp1, e0, L2, Kx)
+                            | None => None
+                            end
                         | None => None
                         end
                     | None => None
                     end
-                | _, _ => None
-                end
-            | None => None
-            end
-          else None
+                  else None
+              | None => None
+              end
+          | None => None
+          end
       | _, _ => None
       end
-  | [] => None
+  | _, _ => None
   end.
 
 (** The proposal is checked: the last segment may have changed to one
@@ -1713,10 +1677,13 @@ Proof.
     cbn [Normalise.tden List.length]; do 2 f_equal; lia.
 Qed.
 
-Lemma seg_keq_sound K s s' : sdistd s -> sdistd s' -> lwdist K -> seg_keq F K s s' = true ->
+Lemma seg_keqx_sound tk K s s' :
+  (forall x y, tdist x -> tdist y -> tk x y = true ->
+     cres (lwden K) (rtarget_result (tden y)) = cres (lwden K) (rtarget_result (tden x))) ->
+  sdistd s -> sdistd s' -> lwdist K -> seg_keqx F tk K s s' = true ->
   rcompose (lwden K) (sden s') = rcompose (lwden K) (sden s).
 Proof.
-  intros Hs Hs' HK H; unfold seg_keq in H; rewrite forallb_forall in H.
+  intros Htk Hs Hs' HK H; unfold seg_keqx in H; rewrite forallb_forall in H.
   set (labs := nodup_l (LNone :: seg_labels s ++ seg_labels s') []) in H.
   assert (HA : forall g, In g labs -> forall j,
             cres (lwden K) (rapply (sden s') (mk_rvar (lden g) j)) = cres (lwden K) (rapply (sden s) (mk_rvar (lden g) j))).
@@ -1728,10 +1695,10 @@ Proof.
     - specialize (Hj j (proj2 (in_seq _ _ _) (conj (Nat.le_0_l _) Hlt))).
       destruct (seg_tgt F s g j) as [x|] eqn:Ex; [|discriminate].
       destruct (seg_tgt F s' g j) as [y|] eqn:Ey; [|discriminate].
-      rewrite (proj2 (seg_tgt_sound lenv tenv aenv penv F HF _ _ _ _ Hs Ex)),
-              (proj2 (seg_tgt_sound lenv tenv aenv penv F HF _ _ _ _ Hs' Ey)).
+      destruct (seg_tgt_sound lenv tenv aenv penv F HF _ _ _ _ Hs Ex) as [Dx Rx].
+      destruct (seg_tgt_sound lenv tenv aenv penv F HF _ _ _ _ Hs' Ey) as [Dy Ry]; rewrite Rx, Ry.
       apply orb_true_iff in Hj as [Hj|Hj]; [apply (proj1 nf_eqb_eq) in Hj; subst y; reflexivity|].
-      destruct x as [g1 i1|? ? ?]; [|discriminate]; destruct y as [g2 i2|? ? ?]; [|discriminate].
+      destruct x as [g1 i1|u1 w1 b1]; destruct y as [g2 i2|u2 w2 b2]; try discriminate; [|exact (Htk _ _ Dx Dy Hj)].
       apply okey_eqb_eq in Hj as [k [K1 K2]]; cbn [Normalise.tden rtarget_result cres].
       symmetry; exact (vfollow_sound lenv tenv aenv penv F HF ntm Hntm K HK _ _ _ _ k K1 K2).
     - pose proof (Nat.le_max_l (List.length ts) (List.length ts')) as Hl1.
@@ -1753,6 +1720,25 @@ Proof.
   { destruct (Hin s' ts m E2 (or_intror eq_refl)) as [g [Hg <-]]; exact (HA g Hg j). }
   rewrite !(rapply_sden lenv tenv aenv penv) by (apply sdistd_sdist; assumption); cbn [v_label v_index].
   rewrite E1, E2; reflexivity.
+Qed.
+
+Lemma seg_keq0_sound K s s' : sdistd s -> sdistd s' -> lwdist K -> seg_keq0 F K s s' = true ->
+  rcompose (lwden K) (sden s') = rcompose (lwden K) (sden s).
+Proof. apply seg_keqx_sound; intros x y _ _ H; discriminate H. Qed.
+
+Lemma seg_keq_sound K s s' : sdistd s -> sdistd s' -> lwdist K -> seg_keq F ntm K s s' = true ->
+  rcompose (lwden K) (sden s') = rcompose (lwden K) (sden s).
+Proof.
+  intros Hs Hs' HK; apply seg_keqx_sound; [|exact Hs|exact Hs'|exact HK].
+  intros x y Dx Dy; unfold tkeq; destruct x as [g i|u w b]; [discriminate|].
+  destruct (ttail (NBind u w b)) as [A|] eqn:Ea; [|discriminate].
+  destruct (ttail y) as [A'|] eqn:Ea'; [|discriminate]; intros H.
+  apply andb_true_iff in H as [H H3]; apply andb_true_iff in H as [H1 H2].
+  apply Nat.ltb_lt in H1; apply (proj1 nf_eqb_eq) in H2; subst y.
+  pose proof (ttail_dist _ _ Ea Dx) as HA; pose proof (ttail_dist _ _ Ea' Dy) as HA'.
+  exact (proj2 (tset_rel lenv tenv aenv penv ntm Hntm (lwden K) (lwden K) 0 0 (le_n 0) _ A A' Ea Dx
+                  (ex_intro _ u (ex_intro _ w (ex_intro _ b (conj eq_refl H1)))) HA'
+                  (seg_keq0_sound K A A' HA HA' HK H3))).
 Qed.
 
 (** *** Segments composed into one *)
