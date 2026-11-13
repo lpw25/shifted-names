@@ -393,3 +393,266 @@ Proof.
 Qed.
 
 End SegExt.
+
+(** ** The conditions *)
+
+Section Conditions.
+
+Variable lenv : list label.
+Variable labs : list lexp.
+
+Local Notation lden := (lden lenv).
+Local Notation fs := (fs lenv).
+Local Notation fw := (fw lenv).
+Local Notation flw := (flw lenv).
+Local Notation bres := (bres lenv).
+Local Notation shiftL := (shiftL lenv).
+Local Notation lc := (lc lenv).
+
+Variable gt : (rvar -> fres) -> (rvar -> fres) -> Prop.
+Variable route : (rvar -> fres) -> rvar -> rvar -> Prop.
+
+(** The inputs that are observed: all, or the named ones and the first
+    [n] bound ones (the others are phantoms: bound inputs of a payload
+    without a payload atom, before its first atom). *)
+Definition dom (p : option nat) (v : rvar) : Prop :=
+  match p with None => True | Some n => named v \/ v_index v < n end.
+
+(** Phantoms are only shifted. *)
+Definition phant (p p' : option nat) (Sg : seg) : Prop :=
+  match p, p' with
+  | None, None => True
+  | Some n, Some n' => forall i, bres Sg (mk_rvar None (n + i)) = inl (mk_rvar None (n' + i))
+  | _, _ => False
+  end.
+
+(** Where the variable [y] is sent to a term in the first stretch of [r]:
+    the rest after that term's segment, and the term. *)
+Fixpoint treach (r : lword) (y : rvar) : option (lword * (nat * option nat * word)) :=
+  match r with
+  | LS s :: r' => match bres s y with inl y' => treach r' y' | inr t => Some (r', t) end
+  | _ => None
+  end.
+
+(** No hop: a term that the rest after an atom sends a lifted input to
+    does not have, as the last atom of its branch, this atom with what the
+    line does after it. *)
+Definition nohop (K : rvar -> fres) (L : list (lexp * nat)) (a : nat) (r : lword) : Prop :=
+  forall y u b k d e, v_index y < lc (v_label y) L -> flw r K y = FTerm u b k -> deep d k -> deep e K ->
+    natl r + e < d -> ~ stuck_at k (d - natl r - e) a (fun z => flw r K (shiftL L z)).
+
+Definition bdom (b : option nat) : option nat := match b with None => Some 0 | Some _ => None end.
+
+(** A term's branch word, over [K0], what follows the term's segment. *)
+Definition brok (bp : (rvar -> fres) -> option nat -> lword -> Prop) (K0 : rvar -> fres) (b : option nat) (w : word) : Prop :=
+  wtop w /\ psok lenv labs (wtail w)
+  /\ ((b <> None \/ wbody w <> []) -> forall i, routed K0 (sv lenv (wtail w) (mk_rvar None i)))
+  /\ (b = None -> wbody w = [] -> wtail w = SNil)
+  /\ (wbody w <> [] -> bp (fs (wtail w) K0) (bdom b) (wbody w)).
+
+Record bsegok (bp : (rvar -> fres) -> option nat -> lword -> Prop) (K : rvar -> fres) (p p' : option nat)
+    (Sg : seg) (r : lword) : Prop := {
+  bo_shape : sshape lenv labs false Sg;
+  bo_tlab : Forall (tlab labs) (stgts Sg);
+  bo_order : forall y rt t, treach r y = Some (rt, t) -> gt (flw r K) (flw rt K);
+  bo_last : forall G, r = [LS G] -> keq (flw r K) K -> btrm lenv G;
+  bo_route : forall x y, dom p x -> bres Sg x = inl y -> route (flw r K) x y;
+  bo_real : forall x y, dom p x -> bres Sg x = inl y -> dom p' y;
+  bo_phant : phant p p' Sg;
+  bo_hit : r <> [] -> forall y, bound y -> dom p' y -> exists x, dom p x /\ bres Sg x = inl y;
+  bo_binj : binj (flw r K);
+  bo_num : r <> [] -> num_first lenv Sg (flw r K);
+  bo_br : forall x u b w, bres Sg x = inr (u, b, w) -> brok bp (flw r K) b w
+}.
+
+(** A renaming segment: at the end of the line, or in lift position
+    before an atom. *)
+Definition renok (p p' : option nat) (Sg : seg) (r : lword) : Prop :=
+  sshape lenv labs false Sg /\ sren labs Sg /\ phant p p' Sg
+  /\ (forall x y, dom p x -> bres Sg x = inl y -> dom p' y)
+  /\ (r = [] \/ exists L a r2, r = LA L a :: r2 /\ lpos lenv Sg L
+        /\ forall y, bound y -> dom p' y -> exists x, dom p x /\ bres Sg x = inl y).
+
+Fixpoint lnfL (bp : (rvar -> fres) -> option nat -> lword -> Prop) (K : rvar -> fres) (p : option nat) (l : lword)
+    {struct l} : Prop :=
+  match l with
+  | [] => True
+  | LS Sg :: r =>
+      Sg <> SNil /\ exists p', lnfL bp K p' r /\ ((btrm lenv Sg /\ bsegok bp K p p' Sg r) \/ renok p p' Sg r)
+  | LA L a :: r =>
+      lok lenv labs L /\ (match p with None => True | Some n => lc None L <= n end)
+      /\ lnfL bp K None r /\ nohop K L a r
+  end.
+
+(** [n] bounds how deep branches nest. *)
+Fixpoint lnfB (n : nat) (K : rvar -> fres) (p : option nat) (l : lword) {struct n} : Prop :=
+  lnfL (match n with 0 => fun _ _ _ => False | S n' => lnfB n' end) K p l.
+
+End Conditions.
+
+(** ** Facts about the conditions *)
+
+Section Facts.
+
+Variable lenv : list label.
+Variable labs : list lexp.
+
+Local Notation lden := (lden lenv).
+Local Notation fs := (fs lenv).
+Local Notation fw := (fw lenv).
+Local Notation flw := (flw lenv).
+Local Notation bres := (bres lenv).
+Local Notation shiftL := (shiftL lenv).
+Local Notation lc := (lc lenv).
+Local Notation latom := (latom lenv).
+
+Lemma far_of_trans k1 k2 k3 : far_of k1 k2 -> far_of k2 k3 -> far_of k1 k3.
+Proof.
+  intros H12 H23 N; destruct (H23 N) as [B2 HB2]; destruct (H12 B2) as [B1 HB1]; exists B1; intros i Hi.
+  destruct (HB1 i Hi) as [j [Hj F1]]; destruct (HB2 j Hj) as [j' [Hj' F2]]; exists j'; split; [exact Hj'|].
+  exact (feq_trans _ _ _ F1 F2).
+Qed.
+
+Lemma far_of_feq k k' : (forall i, feq (k (mk_rvar lbig i)) (k' (mk_rvar lbig i))) -> far_of k k'.
+Proof. intros H N; exists N; intros i Hi; exists i; split; [exact Hi|apply H]. Qed.
+
+Lemma deep_feq d : forall k k', (forall i, feq (k (mk_rvar lbig i)) (k' (mk_rvar lbig i))) -> deep d k -> deep d k'.
+Proof.
+  destruct d as [|d]; intros k k' E; cbn [deep].
+  - intros [B H]; exists B; intros i Hi; destruct (H i Hi) as [y Ey]; pose proof (E i) as F; rewrite Ey in F.
+    destruct (k' (mk_rvar lbig i)) as [y'| |]; cbn [feq] in F; [exists y'; reflexivity|contradiction|contradiction].
+  - intros [B [a H]]; exists B, a; intros i Hi; destruct (H i Hi) as [z [k1 [Ek Hd]]]; pose proof (E i) as F.
+    rewrite Ek in F; destruct (k' (mk_rvar lbig i)) as [| |a' z' k1'] eqn:Ek'; cbn [feq] in F; try contradiction.
+    destruct F as [<- [<- F]]; exists z, k1'; split; [reflexivity|].
+    clear -F Hd; revert k1 k1' F Hd; induction d as [|d IH]; intros k1 k1' F; cbn [deep].
+    + intros [B H]; exists B; intros i Hi; destruct (H i Hi) as [y Ey]; pose proof (F (mk_rvar lbig i)) as G; rewrite Ey in G.
+      destruct (k1' (mk_rvar lbig i)) as [y'| |]; cbn [feq] in G; [exists y'; reflexivity|contradiction|contradiction].
+    + intros [B [a H]]; exists B, a; intros i Hi; destruct (H i Hi) as [z [k2 [Ek Hd]]].
+      pose proof (F (mk_rvar lbig i)) as G; rewrite Ek in G.
+      destruct (k1' (mk_rvar lbig i)) as [| |a' z' k2']; cbn [feq] in G; try contradiction.
+      destruct G as [<- [<- G]]; exists z, k2'; split; [reflexivity|exact (IH _ _ G Hd)].
+Qed.
+
+(** Where a term that a word sends a variable to comes from: a segment of
+    its first stretch, a lifted input of an atom, or what follows the
+    word. *)
+Lemma flw_ls s r K y : flw (LS s :: r) K y = fs s (flw r K) y.
+Proof. reflexivity. Qed.
+
+Lemma treach_term r K y rt u b w : treach lenv r y = Some (rt, (u, b, w)) ->
+  flw r K y = FTerm u b (fw w (flw rt K)) /\ natl rt = natl r
+  /\ exists r0, r = r0 ++ rt /\ Forall (fun st => match st with LS _ => True | LA _ _ => False end) r0.
+Proof.
+  revert y; induction r as [|[s|L a] r IH]; intros y; cbn [treach]; try discriminate.
+  rewrite flw_ls, fs_bres; destruct (bres s y) as [y'|[[u' b'] w']].
+  - intros H; destruct (IH y' H) as [E [En [r0 [Er Hr0]]]]; split; [exact E|split; [exact En|]].
+    exists (LS s :: r0); split; [rewrite Er; reflexivity|constructor; [exact I|exact Hr0]].
+  - intros H; injection H as <- <- <- <-; split; [reflexivity|split; [reflexivity|]].
+    exists [LS s]; split; [reflexivity|constructor; [exact I|constructor]].
+Qed.
+
+Lemma far_of_segs r0 rt K : Forall (fun st => match st with LS _ => True | LA _ _ => False end) r0 ->
+  far_of (flw (r0 ++ rt) K) (flw rt K).
+Proof.
+  induction r0 as [|[s|L a] r0 IH]; intros H; cbn [app].
+  - apply far_of_refl.
+  - inversion H as [|? ? _ H']; subst; exact (far_of_trans _ _ _ (far_of_fs lenv s _) (IH H')).
+  - inversion H as [|? ? Hc _]; destruct Hc.
+Qed.
+
+Lemma tsrc m K x u b k : flw m K x = FTerm u b k ->
+  (exists rt w, treach lenv m x = Some (rt, (u, b, w)) /\ k = fw w (flw rt K))
+  \/ (exists m1 L a l1 y, m = m1 ++ LA L a :: l1 /\ natl m1 = 0 /\ v_index y < lc (v_label y) L
+        /\ flw l1 K y = FTerm u b k)
+  \/ (natl m = 0 /\ exists y, K y = FTerm u b k).
+Proof.
+  revert x; induction m as [|[s|L a] r IH]; intros x E.
+  - right; right; split; [reflexivity|exists x; exact E].
+  - rewrite flw_ls, fs_bres in E; cbn [treach natl].
+    destruct (bres s x) as [y|[[u' b'] w']].
+    + destruct (IH y E) as [H|[[m1 [L [a [l1 [y' [-> [Hm [Hy E']]]]]]]]|H]].
+      * left; exact H.
+      * right; left; exists (LS s :: m1), L, a, l1, y'; repeat split; assumption.
+      * right; right; exact H.
+    + injection E as <- <- <-; left; exists r, w'; split; reflexivity.
+  - cbn [flw] in E; unfold Unique.latom in E.
+    destruct (Nat.ltb_spec (v_index x) (lc (v_label x) L)) as [Hl|Hl]; [|discriminate E].
+    right; left; exists [], L, a, r, x; repeat split; [exact Hl|exact E].
+Qed.
+
+End Facts.
+
+Section Facts2.
+
+Variable lenv : list label.
+Variable labs : list lexp.
+
+Local Notation fs := (fs lenv).
+Local Notation fw := (fw lenv).
+Local Notation flw := (flw lenv).
+Local Notation bres := (bres lenv).
+Local Notation shiftL := (shiftL lenv).
+Local Notation lc := (lc lenv).
+
+(** *** Branch words are determined by their body and tail *)
+
+Lemma wl_head w : wok w -> whead w <> SNil -> exists l0, wl w = l0 ++ [LS (whead w)].
+Proof.
+  destruct w as [s|s L a w|s w]; cbn [wl whead wok]; intros _ Hs.
+  - exists []; destruct s; [destruct (Hs eq_refl)|reflexivity].
+  - exists (wl w ++ [LA L a]); destruct s; [destruct (Hs eq_refl)|]; rewrite <- app_assoc; reflexivity.
+  - exists (wl w); reflexivity.
+Qed.
+
+Lemma wl_atom s L a w : wl (WAtom s L a w) =
+  match s with SNil => wl w ++ [LA L a] | _ => (wl w ++ [LA L a]) ++ [LS s] end.
+Proof. cbn [wl]; destruct s; [reflexivity|rewrite <- app_assoc; reflexivity]. Qed.
+
+Lemma snoc_neq {A} (l1 l2 : list A) x y : x <> y -> l1 ++ [x] <> l2 ++ [y].
+Proof. intros H E; apply app_inj_tail in E; exact (H (proj2 E)). Qed.
+
+Ltac lenx E := solve [apply (f_equal (@List.length lstep)) in E; cbn in E; rewrite ?length_app in E; cbn in E; lia
+  | apply (snoc_neq [] _ _ _ ltac:(discriminate)) in E; destruct E
+  | apply eq_sym, (snoc_neq [] _ _ _ ltac:(discriminate)) in E; destruct E
+  | match type of E with context [wl ?w0] =>
+      destruct (wl w0); cbn in E; [discriminate E|];
+      apply (f_equal (@List.length lstep)) in E; cbn in E; rewrite ?length_app in E; cbn in E; lia end].
+
+Lemma wl_inj w : forall w', wok w -> wok w' -> wl w = wl w' -> w = w'.
+Proof.
+  induction w as [s|s L a w IH|s w IH] using word_spine; intros w' Hw Hw' E;
+    destruct w' as [s'|s' L' a' w'|s' w']; try rewrite !wl_atom in E; cbn [wl wok] in *.
+  - destruct s, s'; cbn in E; congruence.
+  - exfalso; destruct s as [|h ts m r], s' as [|h' ts' m' r']; cbn [pre] in E; lenx E.
+  - exfalso; destruct Hw' as [_ [Hh Hw2]]; destruct (wl_head w' Hw2 Hh) as [l0 El]; rewrite El in E.
+    destruct s as [|h ts m r]; cbn [pre] in E; lenx E.
+  - exfalso; destruct s as [|h ts m r], s' as [|h' ts' m' r']; cbn [pre] in E; lenx E.
+  - destruct s as [|h ts m r], s' as [|h' ts' m' r']; cbn beta iota in E.
+    + apply app_inj_tail in E as [E E']; injection E' as -> ->; f_equal; apply IH; assumption.
+    + exfalso; apply app_inj_tail in E as [_ E]; discriminate E.
+    + exfalso; apply app_inj_tail in E as [_ E]; discriminate E.
+    + apply app_inj_tail in E as [E E']; injection E' as -> -> -> ->; apply app_inj_tail in E as [E E'].
+      injection E' as -> ->; f_equal; apply IH; assumption.
+  - exfalso; destruct Hw' as [_ [Hh Hw2]]; destruct (wl_head w' Hw2 Hh) as [l0 El]; rewrite El in E.
+    destruct s as [|h ts m r]; cbn beta iota in E.
+    + apply app_inj_tail in E as [_ E]; discriminate E.
+    + apply app_inj_tail in E as [E _]; apply app_inj_tail in E as [_ E]; discriminate E.
+  - exfalso; destruct Hw as [_ [Hh Hw2]]; destruct (wl_head w Hw2 Hh) as [l0 El]; rewrite El in E.
+    destruct s' as [|h ts m r]; cbn [pre] in E; lenx E.
+  - exfalso; destruct Hw as [_ [Hh Hw2]]; destruct (wl_head w Hw2 Hh) as [l0 El]; rewrite El in E.
+    destruct s' as [|h ts m r]; cbn beta iota in E.
+    + apply app_inj_tail in E as [_ E]; discriminate E.
+    + apply app_inj_tail in E as [E _]; apply app_inj_tail in E as [_ E]; discriminate E.
+  - apply app_inj_tail in E as [E E']; injection E' as ->; f_equal; apply IH; tauto.
+Qed.
+
+Lemma w_inj w w' : wtop w -> wtop w' -> wbody w = wbody w' -> wtail w = wtail w' -> w = w'.
+Proof.
+  destruct w as [s|s L a w|s w], w' as [s'|s' L' a' w'|s' w']; cbn [wtop wbody wtail]; try tauto.
+  - intros _ _ _ ->; reflexivity.
+  - intros _ _ E; destruct (wl w'); discriminate E.
+  - intros _ _ E; destruct (wl w); discriminate E.
+  - intros Hw Hw' E ->; apply app_inj_tail in E as [E E']; injection E' as -> ->; f_equal; apply wl_inj; assumption.
+Qed.
+
+End Facts2.
