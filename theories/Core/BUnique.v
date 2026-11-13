@@ -914,4 +914,178 @@ Proof.
   exact (gt_keq _ _ _ _ (keq_refl _) (keq_sym _ _ K0) G0).
 Qed.
 
+Section Layer2.
+
+Variables (K K' : rvar -> fres) (p p1 p2 : option nat) (e : nat) (Sg Sg' : seg) (r r' : lword).
+Hypothesis Hl : lnfL K p (LS Sg :: r).
+Hypothesis Hm : lnfL K' p (LS Sg' :: r').
+Hypothesis HS : bsegok lenv labs gt route bp K p p1 Sg r.
+Hypothesis Hr : lnfL K p1 r.
+Hypothesis HS' : bsegok lenv labs gt route bp K' p p2 Sg' r'.
+Hypothesis Hr' : lnfL K' p2 r'.
+Hypothesis Hn : natl r = natl r'.
+Hypothesis Hd : deep e K.
+Hypothesis Hs : nstuck e K.
+Hypothesis Hd' : deep e K'.
+Hypothesis Hs' : nstuck e K'.
+Hypothesis Hbase : (K = FVar /\ K' = FVar) \/ (lend (LS Sg :: r) /\ lend (LS Sg' :: r')).
+Hypothesis E : forall v, dom p v -> feq (fs Sg (flw r K) v) (fs Sg' (flw r' K') v).
+Hypothesis Hk : keq (flw r K) (flw r' K').
+
+(** A variable that goes on as a variable in one word does so in the
+    other, with the same result. *)
+Lemma var_var x y : dom p x -> bres Sg x = inl y -> exists y', bres Sg' x = inl y' /\ feq (flw r K y) (flw r' K' y').
+Proof.
+  intros Hx Ex; pose proof (E x Hx) as F; rewrite !fs_bres, Ex in F.
+  destruct (bres Sg' x) as [y'|[[u' b'] w']] eqn:Ex'; [exists y'; split; [reflexivity|exact F]|exfalso].
+  destruct (flw r K y) as [|u b k|] eqn:Ey; cbn [feq] in F; try contradiction.
+  assert (Fm : feq (FTerm u b k) (FTerm u' b' (fw w' (flw r' K')))) by exact F.
+  pose proof (bo_br _ _ _ _ _ _ _ _ _ _ HS' x u' b' w' Ex') as Hb'.
+  destruct (tsrc lenv _ _ _ _ _ _ Ey) as [[rt [w [Et ->]]]|[[m1 [L [a [l1 [y1 [Em1 [Hm1 [Hy Ey1]]]]]]]]|[Hz [y1 Ey1]]]].
+  - destruct (treach_term lenv r K y rt u b w Et) as [_ [Hnr _]].
+    assert (D0 : deep (natl r + e) (flw rt K)) by (rewrite <- Hnr; apply deep_flw, Hd).
+    assert (N0 : nstuck (natl r + e) (flw rt K)) by (rewrite <- Hnr; apply nstuck_flw; assumption).
+    assert (D1 : deep (natl r + e) (flw r' K')) by (rewrite Hn; apply deep_flw, Hd').
+    assert (N1 : nstuck (natl r + e) (flw r' K')) by (rewrite Hn; apply nstuck_flw; assumption).
+    pose proof (proj1 (proj2 (proj2 (proj2 (term_keq _ _ _ _ _ _ _ _ _
+                  (treach_brok lenv labs gt route bp K p1 r y rt u b w Hr Et) Hb' D0 N0 D1 N1 Fm))))) as Kt.
+    pose proof (bo_order _ _ _ _ _ _ _ _ _ _ HS y rt (u, b, w) Et) as G.
+    exact (gt_irrefl _ _ (keq_refl _) (gt_keq _ _ _ _ Hk Kt G)).
+  - apply (cross lenv labs gt route bp K' K p (LS Sg' :: r') (LS Sg :: r) e x u' b' w' r' u b k (LS Sg :: m1) L a l1 y1
+             Hl ltac:(cbn [natl]; symmetry; exact Hn) Hd' Hd).
+    + intros i; apply feq_sym, E; destruct p; [left; apply named_big|exact I].
+    + cbn [treach]; rewrite Ex'; reflexivity.
+    + exact (proj1 Hb').
+    + rewrite Em1; reflexivity.
+    + exact Hm1.
+    + exact Hy.
+    + exact Ey1.
+    + exact (feq_sym _ _ Fm).
+  - destruct Hbase as [[-> _]|[B _]]; [discriminate Ey1|].
+    pose proof (lend_natl _ B) as N; cbn [natl] in N; lia.
+Qed.
+
+Lemma var_named x y : dom p x -> bres Sg x = inl y -> named y -> bres Sg' x = inl y.
+Proof.
+  intros Hx Ex Hy; destruct (var_var x y Hx Ex) as [y' [Ex' F]]; rewrite Ex'; f_equal.
+  symmetry; exact (route_uniq _ _ x y y' Hk (bo_route _ _ _ _ _ _ _ _ _ _ HS x y Hx Ex)
+                     (bo_route _ _ _ _ _ _ _ _ _ _ HS' x y' Hx Ex') F Hy).
+Qed.
+
+End Layer2.
+
+Lemma nondom p x : ~ dom p x -> exists n a, p = Some n /\ x = mk_rvar None (n + a).
+Proof.
+  destruct p as [n|]; [|intros H; destruct (H I)]; intros H; exists n, (v_index x - n); split; [reflexivity|].
+  destruct x as [[l|] i]; cbn [dom v_label v_index] in *.
+  - exfalso; apply H; left; discriminate.
+  - f_equal; destruct (Nat.lt_ge_cases i n) as [Hi|Hi]; [exfalso; apply H; right; exact Hi|lia].
+Qed.
+
+Lemma phant_some p p1 Sg n : phant lenv p p1 Sg -> p = Some n ->
+  exists n1, p1 = Some n1 /\ forall a, bres Sg (mk_rvar None (n + a)) = inl (mk_rvar None (n1 + a)).
+Proof. intros H ->; destruct p1 as [n1|]; [exists n1; split; [reflexivity|exact H]|destruct H]. Qed.
+
+Lemma phant_none p p1 Sg : phant lenv p p1 Sg -> p = None -> p1 = None.
+Proof. intros H ->; destruct p1; [destruct H|reflexivity]. Qed.
+
+Lemma num_conv Sg k : num_first lenv Sg k ->
+  forall x x' i j, bres Sg x = inl (mk_rvar None i) -> bres Sg x' = inl (mk_rvar None j) -> i < j ->
+    exists x0, bres Sg x0 = inl (mk_rvar None i) /\ forall x'', bres Sg x'' = inl (mk_rvar None j) -> vlt x0 x''.
+Proof.
+  intros H x x' i j E1 E2 Hij; apply bres_sres in E1, E2; destruct (H x x' i j E1 E2 Hij) as [x0 [E0 H0]].
+  exists x0; split; [apply bres_sres, E0|intros x'' E''; apply H0, bres_sres, E''].
+Qed.
+
+
+(** The rests are both empty or both not. *)
+Lemma rnil K K' p p1 p2 e Sg Sg' r r' :
+  bsegok lenv labs gt route bp K p p1 Sg r -> 
+  bsegok lenv labs gt route bp K' p p2 Sg' r' -> lnfL K' p2 r' ->
+  natl r = natl r' -> deep e K -> deep e K' -> nstuck e K' ->
+  (K = FVar /\ K' = FVar) \/ (lend (LS Sg :: r) /\ lend (LS Sg' :: r')) ->
+  (forall v, dom p v -> feq (fs Sg (flw r K) v) (fs Sg' (flw r' K') v)) ->
+  keq (flw r K) (flw r' K') -> r = [] -> r' = [].
+Proof.
+  intros HS HS' Hr' Hn Hd Hd' Hs' Hbase E Hk Er.
+  destruct r' as [|[G|L a] r3']; [reflexivity| |exfalso; subst r; cbn [natl] in Hn; lia]; exfalso.
+  assert (Hne : LS G :: r3' <> []) by discriminate.
+  subst r; destruct Hbase as [[EK EK']|[B _]]; [|destruct B as [l0 [L [a B]]]; destruct l0 as [|? [|]]; discriminate B].
+  assert (Hk' : keq FVar (flw (LS G :: r3') K')) by (intros y Hy; pose proof (Hk y Hy) as F; rewrite EK in F; exact F).
+  destruct Hr' as [_ [p3 [Hr3 [[HtG HG]|[_ [HrG [_ [_ [->|[L [a [r2 [Er3 _]]]]]]]]]]]]].
+  - destruct HtG as [x2 [[[u2 b2] w2] E2]].
+    pose proof (phant_dom lenv _ _ _ _ _ (bo_phant _ _ _ _ _ _ _ _ _ _ HG) E2) as Hx2.
+    assert (Et2 : treach lenv (LS G :: r3') x2 = Some (r3', (u2, b2, w2))) by (cbn [treach]; rewrite E2; reflexivity).
+    pose proof (bo_order _ _ _ _ _ _ _ _ _ _ HS' x2 r3' _ Et2) as Gt.
+    destruct (named_or_bound x2) as [Hn2|Hb2].
+    + pose proof (Hk' x2 Hn2) as F; cbn [flw] in F; rewrite fs_bres, E2 in F; destruct F.
+    + destruct (bo_hit _ _ _ _ _ _ _ _ _ _ HS' Hne x2 Hb2 Hx2) as [x [Hx Ex]].
+      pose proof (E x Hx) as F; rewrite (fs_bres lenv Sg'), Ex in F; cbn [flw] in F.
+      rewrite (fs_bres lenv G (flw r3' K') x2), E2 in F.
+      rewrite EK in F; rewrite (fs_bres lenv Sg) in F.
+      destruct (bres Sg x) as [y|[[u b] w]] eqn:Ex0; cbn [feq] in F; [destruct F|].
+      assert (He : e = 0) by (rewrite EK in Hd; exact (deep_unique _ _ _ _ Hd deep_FVar (fun i => feq_refl _))).
+      assert (D1 : deep 0 (flw r3' K')) by (replace 0 with (natl r3' + e) by (cbn [natl] in Hn; lia); apply deep_flw, Hd').
+      assert (N1 : nstuck 0 (flw r3' K')) by (replace 0 with (natl r3' + e) by (cbn [natl] in Hn; lia); apply nstuck_flw; assumption).
+      assert (Hb0 : brok FVar b w) by (pose proof (bo_br _ _ _ _ _ _ _ _ _ _ HS x u b w Ex0) as B; rewrite EK in B; exact B).
+      pose proof (proj1 (proj2 (proj2 (proj2 (term_keq FVar (flw r3' K') 0 u b w u2 b2 w2 Hb0
+                    (bo_br _ _ _ _ _ _ _ _ _ _ HG x2 u2 b2 w2 E2) deep_FVar nstuck_FVar D1 N1 F))))) as K3.
+      exact (gt_irrefl _ _ (keq_refl _) (gt_keq _ _ _ _ (keq_sym _ _ Hk') (keq_sym _ _ K3) Gt)).
+  - assert (HrG' : ~ btrm lenv G) by exact (sren_nobtrm lenv labs G HrG).
+    apply HrG'; refine (bo_last _ _ _ _ _ _ _ _ _ _ HS' G eq_refl _).
+    intros y Hy; apply keq_sym in Hk'; rewrite EK' in Hk' |- *; exact (Hk' y Hy).
+  - subst r3'; cbn [natl] in Hn; lia.
+Qed.
+
+Section Layer3.
+
+Variables (K K' : rvar -> fres) (p p1 p2 : option nat) (e : nat) (Sg Sg' : seg) (r r' : lword).
+Hypothesis Hl : lnfL K p (LS Sg :: r).
+Hypothesis Hm : lnfL K' p (LS Sg' :: r').
+Hypothesis HS : bsegok lenv labs gt route bp K p p1 Sg r.
+Hypothesis Hr : lnfL K p1 r.
+Hypothesis HS' : bsegok lenv labs gt route bp K' p p2 Sg' r'.
+Hypothesis Hr' : lnfL K' p2 r'.
+Hypothesis Hn : natl r = natl r'.
+Hypothesis Hd : deep e K.
+Hypothesis Hs : nstuck e K.
+Hypothesis Hd' : deep e K'.
+Hypothesis Hs' : nstuck e K'.
+Hypothesis Hbase : (K = FVar /\ K' = FVar) \/ (lend (LS Sg :: r) /\ lend (LS Sg' :: r')).
+Hypothesis Hp : p <> None -> lend (LS Sg :: r).
+Hypothesis E : forall v, dom p v -> feq (fs Sg (flw r K) v) (fs Sg' (flw r' K') v).
+Hypothesis Ht : btrm lenv Sg.
+Hypothesis Ht' : btrm lenv Sg'.
+
+Let E' : forall v, dom p v -> feq (fs Sg' (flw r' K') v) (fs Sg (flw r K) v).
+Proof. intros v Hv; apply feq_sym, E, Hv. Qed.
+
+Let Hk : keq (flw r K) (flw r' K').
+Proof. exact (first_layer K K' p p1 p2 e Sg Sg' r r' Hl Hm HS Hr HS' Hr' Hn Hd Hs Hd' Hs' Hbase E Ht Ht'). Qed.
+
+Let VV := var_var K K' p p1 p2 e Sg Sg' r r' Hl Hm HS Hr HS' Hn Hd Hs Hd' Hs' Hbase E Hk.
+Let VV' := var_var K' K p p2 p1 e Sg' Sg r' r Hm Hl HS' Hr' HS (eq_sym Hn) Hd' Hs' Hd Hs (base_sym _ _ _ _ Hbase) E' (keq_sym _ _ Hk).
+Let VN := var_named K K' p p1 p2 e Sg Sg' r r' Hl Hm HS Hr HS' Hn Hd Hs Hd' Hs' Hbase E Hk.
+Let VN' := var_named K' K p p2 p1 e Sg' Sg r' r Hm Hl HS' Hr' HS (eq_sym Hn) Hd' Hs' Hd Hs (base_sym _ _ _ _ Hbase) E' (keq_sym _ _ Hk).
+
+Lemma var_bound x y : dom p x -> bres Sg x = inl y -> bound y ->
+  exists y', bres Sg' x = inl y' /\ bound y' /\ feq (flw r K y) (flw r' K' y').
+Proof.
+  intros Hx Ex Hy; destruct (VV x y Hx Ex) as [y' [Ex' F]].
+  exists y'; split; [exact Ex'|split; [|exact F]].
+  destruct (named_or_bound y') as [Hn'|Hb]; [exfalso|exact Hb].
+  pose proof (VN' x y' Hx Ex' Hn') as E2; rewrite Ex in E2; injection E2 as ->; exact (Hn' Hy).
+Qed.
+
+Lemma var_bound' x y : dom p x -> bres Sg' x = inl y -> bound y ->
+  exists y', bres Sg x = inl y' /\ bound y' /\ feq (flw r' K' y) (flw r K y').
+Proof.
+  intros Hx Ex Hy; destruct (VV' x y Hx Ex) as [y' [Ex' F]].
+  exists y'; split; [exact Ex'|split; [|exact F]].
+  destruct (named_or_bound y') as [Hn'|Hb]; [exfalso|exact Hb].
+  pose proof (VN x y' Hx Ex' Hn') as E2; rewrite Ex in E2; injection E2 as ->; exact (Hn' Hy).
+Qed.
+
+End Layer3.
+
 End Main.
