@@ -52,7 +52,8 @@ Qed.
 
 Theorem lnf_lnfB l : lnf l -> lw1 l -> lnfB lenv labs gtP route_id 0 FVar None l.
 Proof.
-  induction l as [|[s|L a] r IH]; intros Hl Hw; cbn [BUnique.lnfB BUnique.lnfL]; [exact I| |].
+  unfold BUnique.lnfB; cbn [lev fst snd].
+  induction l as [|[s|L a] r IH]; intros Hl Hw; cbn [BUnique.lnfL]; [exact I| |].
   - inversion Hw as [|? ? Hs Hr]; subst; destruct Hl as [Hne [Hlr Hc]].
     split; [exact Hne|exists None; split; [exact (IH Hlr Hr)|]].
     destruct Hc as [[Ht HS]|[Hsh [Hren Hend]]].
@@ -81,8 +82,9 @@ Proof.
         destruct (J Hne' x x' i j Ex Ex' Hij) as [x0 [E0 H0]]; exists (UIn x0); split; [apply bres_sres, E0|].
         intros a'' Ha''; destruct (Hin _ _ Ha'') as [x'' [-> Ex'']]; cbn [ult dom]; right; split; [tauto|exact (H0 x'' Ex'')].
       * intros x u b w Ex; destruct (sp1_bres s x u b w Hs Ex) as [-> ->].
-        split; [exact I|split; [exact psok_nil|split; [intros [H0|H0]; [destruct (H0 eq_refl)|destruct (H0 eq_refl)]|]]].
-        split; [intros _ _; reflexivity|intros H0; destruct (H0 eq_refl)].
+        split; [exact I|split; [|split; [intros _ _; reflexivity|intros H0; destruct (H0 eq_refl)]]].
+        split; [exact (conj (Sorted.SSorted_nil _) (Forall_nil _))|split; [exact (Forall_nil _)|split; [intros v _; reflexivity|]]].
+        split; [intros [H0|H0]; [destruct (H0 eq_refl)|destruct (H0 eq_refl)]|intros i u0 b0 w0 E0; discriminate E0].
     + right; split; [exact Hsh|split; [exact Hren|split; [exact I|split; [intros; exact I|]]]].
       destruct Hend as [->|[L [a [r2 [-> Hp]]]]]; [left; reflexivity|right; exists L, a, r2].
       split; [reflexivity|split; [exact Hp|intros y _ _ H0; destruct (H0 eq_refl)]].
