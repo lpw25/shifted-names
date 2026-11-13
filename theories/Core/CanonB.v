@@ -655,31 +655,169 @@ Proof.
       * rewrite (proj2 (Nat.ltb_ge i (n + List.length (tl_list xs)))) by lia; cbn [shr v_label v_index Normalise.lden]; do 2 f_equal; lia.
 Qed.
 
-Theorem bcore_ok fuel T K K' E : Forall tterm T -> T <> [] -> lnf K -> lw1 K -> ET F T = Some E ->
+Lemma mu_shape n S1 mu : sp1 S1 -> mu_sw F n S1 = Some mu -> sshape lenv labs false mu /\ sren labs mu.
+Proof.
+  intros HS E; unfold mu_sw in E.
+  destruct (sbuild_shape lenv labs F HF _ _ E) as [Hs [Hts _]].
+  { intros h xs m [Eh|Hin]; [injection Eh as <- _ _; exact HN|].
+    apply in_map_iff in Hin as [[[h' ts] m'] [Eh He]]; injection Eh as <- _ _; exact (named_ents_labs S1 _ HS He). }
+  split; [exact Hs|apply Forall_forall; intros t Hin; destruct (Hts t Hin) as [h [xs [m [[Eh|Hes] Hx]]]]].
+  - injection Eh as <- <- <-; apply in_map_iff in Hx as [j [<- _]]; exact HN.
+  - apply in_map_iff in Hes as [[[h' ts] m'] [Eh He]]; injection Eh as <- <- <-.
+    apply in_map_iff in Hx as [j [<- _]]; unfold pre_sw.
+    destruct (findpos h' j (named_ents S1)) as [[g p]|] eqn:Ef; [|exact HN].
+    destruct (findpos_some h' j _ g p Ef) as [ts' [m'' [Hg _]]]; exact (named_ents_labs S1 _ HS Hg).
+Qed.
+
+Lemma S1_named_var S1 x i : sp1 S1 -> existsb is_term (ntgts S1) = false ->
+  exists y, sres S1 (mk_rvar (Some x) i) = inl y.
+Proof.
+  intros HS Ht; rewrite (sres_ents lenv S1 (Some x) i).
+  destruct (find (fun e => label_eqb (lden (fst (fst e))) (Some x)) (ents S1)) as [[[h ts] m]|] eqn:Ef; [|eauto].
+  apply find_some in Ef as [Eh Hin]; cbn [fst] in Eh; apply label_eqb_eq in Eh.
+  assert (He : In (h, ts, m) (named_ents S1)).
+  { apply filter_In; split; [exact Hin|cbn; destruct (lexp_eqb h LNone) eqn:E'; [|reflexivity]].
+    apply lexp_eqb_eq in E'; subst h; discriminate Eh. }
+  unfold etgt; destruct (Nat.ltb_spec i (List.length (tl_list ts))) as [Hi|Hi]; [|eauto].
+  assert (Hn : In (nth i (tl_list ts) (NVar LNone 0)) (ntgts S1)).
+  { apply in_flat_map; exists (h, ts, m); split; [exact He|apply nth_In, Hi]. }
+  destruct (nth i (tl_list ts) (NVar LNone 0)) as [g j|u w b]; [eexists; reflexivity|exfalso].
+  assert (existsb is_term (ntgts S1) = true) by (apply existsb_exists; exists (NBind u w b); split; [exact Hn|reflexivity]).
+  congruence.
+Qed.
+
+Lemma swap_core T S1 K1 rho mu Z E W :
+  Forall tterm T -> sp1 S1 -> sterm lenv S1 -> lw1 K1 -> segok S1 K1 -> existsb is_term (ntgts S1) = false ->
+  rho_sw F S1 = Some rho -> mu_sw F (List.length T) S1 = Some mu -> lift_sw F (List.length T) S1 = Some Z ->
+  ET F T = Some E -> gtP (R K1) (R (LS S1 :: K1)) ->
+  (forall v, feq (R W v) (fs mu (fun z => fs E (fun z' => fs rho (R K1) z') z) v)) ->
+  (forall y u b k, R W y = FTerm u b k -> gtP (R W) k) /\ sterm lenv Z /\ sp1 Z
+  /\ forall v, feq (fs Z (R W) v) (fs E (R (LS S1 :: K1)) v).
+Proof.
+  intros HT HS HSt HK1 HSo Hnt Er Em Ez EE Hc HW; set (n := List.length T) in *.
+  destruct (rho_ok S1 rho HS Hnt Er) as [Hrs [Hrr [Hrn Hrb]]].
+  destruct (mu_shape n S1 mu HS Em) as [Hms Hmr].
+  destruct (lift_ok n S1 Z HS Ez) as [HZ [Hzn Hzb]].
+  destruct (ET_ok T E HT EE) as [HE HEs].
+  set (k := List.length (missing S1)) in *.
+  assert (Rw : forall y, feq (R W y) (fs E (fun z' => fs rho (R K1) z') (sv lenv mu y))).
+  { intros y; rewrite <- (fs_ren lenv labs mu _ y Hmr); exact (HW y). }
+  assert (Svm : forall y z, sres mu y = inl z -> sv lenv mu y = z).
+  { intros y z e; rewrite (sres_ren lenv labs mu y Hmr) in e; injection e as e; exact e. }
+  assert (Svr : forall y z, sres rho y = inl z -> sv lenv rho y = z).
+  { intros y z e; rewrite (sres_ren lenv labs rho y Hrr) in e; injection e as e; exact e. }
+  assert (Er_ : forall z, fs rho (R K1) z = R K1 (sv lenv rho z)) by (intros z; exact (fs_ren lenv labs rho _ z Hrr)).
+  assert (Ee : forall K z, fs E K z = match sres E z with inl y => K y | inr (u, b, _) => FTerm u b K end)
+    by (intros K z; exact (res_free lenv labs ntm E K z HE)).
+  (* named variables *)
+  assert (WS1 : forall x i, feq (R W (mk_rvar (Some x) i)) (R K1 (mk_rvar (Some x) i))).
+  { intros x i; refine (feq_trans _ _ _ (Rw _) _).
+    destruct (mu_named n S1 mu HS Em x i) as [z [Ez0 [[Hz Ez1]|[idx [Hidx [-> Ex]]]]]]; rewrite (Svm _ _ Ez0).
+    - destruct z as [[zl|] zi]; [|destruct (Hz eq_refl)]; rewrite Ee, HEs; cbv beta iota; rewrite Er_.
+      rewrite (Svr _ _ (eq_trans (Hrn zl zi) Ez1)); apply feq_refl.
+    - rewrite Ee, HEs; fold n; rewrite (proj2 (Nat.ltb_ge (n + idx) n)) by lia; cbv beta iota.
+      replace (n + idx - n) with idx by lia.
+      rewrite Er_, (Svr _ _ (Hrb _)); fold k; rewrite (proj2 (Nat.ltb_lt idx k) Hidx), Ex; apply feq_refl. }
+  assert (WS3 : forall j, feq (R W (mk_rvar None (n + j))) (R K1 (mk_rvar None j))).
+  { intros j; refine (feq_trans _ _ _ (Rw _) _); rewrite (Svm _ _ (mu_bound n S1 mu Em (n + j))).
+    rewrite (proj2 (Nat.ltb_ge (n + j) n)) by lia; rewrite Ee, HEs; fold n; fold k.
+    rewrite (proj2 (Nat.ltb_ge (n + j - n + (n + k)) n)) by lia; cbv beta iota.
+    rewrite Er_, (Svr _ _ (Hrb _)); fold k; rewrite (proj2 (Nat.ltb_ge (n + j - n + (n + k) - n) k)) by lia.
+    replace (n + j - n + (n + k) - n - k) with j by lia; apply feq_refl. }
+  assert (WS2 : forall i, i < n -> exists u, nth i T (NVar LNone 0) = NBind u (WEnd SNil) None
+                                     /\ feq (R W (mk_rvar None i)) (FTerm u None (fun z => fs rho (R K1) z))).
+  { intros i Hi; pose proof (proj1 (Forall_forall _ _) HT _ (nth_In T (NVar LNone 0) Hi)) as Ht.
+    destruct (nth i T (NVar LNone 0)) as [|u w b] eqn:Et; [destruct Ht|destruct Ht as [-> [-> _]]].
+    exists u; split; [reflexivity|]; refine (feq_trans _ _ _ (Rw _) _).
+    rewrite (Svm _ _ (mu_bound n S1 mu Em i)), (proj2 (Nat.ltb_lt _ _) Hi), Ee, HEs; fold n.
+    rewrite (proj2 (Nat.ltb_lt _ _) Hi), Et; apply feq_refl. }
+  assert (Kw : keq (R W) (R K1)) by (intros [[x|] i] Hy; [exact (WS1 x i)|destruct (Hy eq_refl)]).
+  assert (Kr : keq (fun z => fs rho (R K1) z) (R (LS S1 :: K1))).
+  { intros [[x|] i] Hy; [|destruct (Hy eq_refl)]; rewrite (R_seg lenv), (res_free lenv labs ntm S1 _ _ HS), Er_.
+    destruct (S1_named_var S1 x i HS Hnt) as [y Ey]; rewrite Ey, (Svr _ _ (eq_trans (Hrn x i) Ey)); apply feq_refl. }
+  assert (Gp : gtP (R W) (fun z => fs rho (R K1) z))
+    by exact (gtP_keq _ _ _ _ (keq_sym _ _ Kw) (keq_sym _ _ Kr) Hc).
+  (* results of S1 after the rest, against the lifted segment after W *)
+  assert (Res : forall r : rvar + tm, (match r with inl y => True | inr (_, b, s) => b = None /\ s = SNil end) ->
+                  feq (match shr n r with inl y => R W y | inr (u, b, _) => FTerm u b (R W) end)
+                      (match r with inl y => R K1 y | inr (u, b, _) => FTerm u b (R K1) end)).
+  { intros [[[x|] j]|[[u b] s']] Hr; cbn [shr v_label v_index].
+    - exact (WS1 x j).
+    - exact (WS3 j).
+    - destruct Hr as [-> ->]; cbn [feq]; split; [reflexivity|split; [reflexivity|]].
+      intros y Hy; exact (Kw y (Hy eq_refl)). }
+  split; [|split; [|split; [exact HZ|]]].
+  - intros y u b k0 Ey; pose proof (Rw y) as F0; rewrite Ey in F0.
+    rewrite Ee in F0; destruct (sres E (sv lenv mu y)) as [z|[[u' b'] s']] eqn:Ez0.
+    + rewrite Er_ in F0; destruct (R K1 (sv lenv rho z)) as [|u1 b1 k1|] eqn:E1; cbn [feq] in F0; try contradiction.
+      destruct F0 as [_ [<- Fk]].
+      apply (gtP_keq _ _ _ _ (keq_sym _ _ Kw) (fun z0 Hz => feq_sym _ _ (Fk z0 (fun _ => Hz)))).
+      exact (so_order _ _ _ _ _ HSo _ _ _ _ E1).
+    + cbn [feq] in F0; destruct F0 as [_ [<- Fk]].
+      exact (gtP_keq _ _ _ _ (keq_refl _) (fun z0 Hz => feq_sym _ _ (Fk z0 (fun _ => Hz))) Gp).
+  - destruct HSt as [[[x|] i] [t Ex]].
+    + exists (mk_rvar (Some x) i), t; rewrite Hzn, Ex; reflexivity.
+    + exists (mk_rvar None (n + i)), t; rewrite Hzb, (proj2 (Nat.ltb_ge _ _)) by lia.
+      replace (n + i - n) with i by lia; rewrite Ex; reflexivity.
+  - intros [[x|] i]; rewrite (res_free lenv labs ntm Z _ _ HZ), Ee, HEs.
+    + rewrite Hzn, (R_seg lenv), (res_free lenv labs ntm S1 _ _ HS).
+      apply Res; exact (sres_pure1 lenv labs ntm S1 _ HS).
+    + rewrite Hzb; fold n; destruct (Nat.ltb_spec i n) as [Hi|Hi].
+      * destruct (WS2 i Hi) as [u [Et Fw]]; rewrite Et; cbn [tres].
+        refine (feq_trans _ _ _ Fw _); cbn [feq]; split; [reflexivity|split; [reflexivity|]].
+        intros y Hy; exact (Kr y (Hy eq_refl)).
+      * rewrite (R_seg lenv), (res_free lenv labs ntm S1 _ _ HS).
+        apply Res; exact (sres_pure1 lenv labs ntm S1 _ HS).
+Qed.
+
+Theorem bcore_ok fuel : forall T K K' E, Forall tterm T -> T <> [] -> lnf K -> lw1 K -> ET F T = Some E ->
   bcore F labs ntm fuel T K = Some K' -> lnf K' /\ lw1 K' /\ forall v, feq (R K' v) (R (LS E :: K) v).
 Proof.
-  intros HT Hne Hl Hw EE; destruct fuel as [|fuel']; [discriminate|cbn [bcore]; rewrite EE].
+  induction fuel as [|fuel' IH]; intros T K K' E HT Hne Hl Hw EE; [discriminate|cbn [bcore]; rewrite EE].
   destruct (ET_ok T E HT EE) as [HE HEs].
   assert (HEt : sterm lenv E).
   { destruct T as [|t T']; [destruct (Hne eq_refl)|]; exists (mk_rvar None 0); rewrite HEs; cbn [List.length nth Nat.ltb].
     inversion HT as [|? ? Ht _]; subst; destruct t as [|u w b]; [destruct Ht|eexists; reflexivity]. }
-  assert (New : forall K0, lnf K0 -> lw1 K0 -> (forall y u b k, R K0 y = FTerm u b k -> gtP (R K0) k) ->
-                  layer F labs ntm E K0 = Some K' -> lnf K' /\ lw1 K' /\ forall v, feq (R K' v) (R (LS E :: K0) v)).
-  { intros K0 H1 H2 H3 H4; exact (layer_ok lenv labs Hinj HN ntm F HF Htot E K0 K' H1 H2 HE HEt H3 H4). }
-  destruct K as [|[S1|L a] K1]; [exact (New _ Hl Hw (hor_noterm _ Hl Hw I))| |exact (New _ Hl Hw (hor_noterm _ Hl Hw I))].
-  destruct (has_terms S1) eqn:Ht; [|exact (New _ Hl Hw (hor_noterm _ Hl Hw Ht))].
+  assert (New : forall K0 K0', lnf K0 -> lw1 K0 -> (forall y u b k, R K0 y = FTerm u b k -> gtP (R K0) k) ->
+                  forall Z, sp1 Z -> sterm lenv Z ->
+                  layer F labs ntm Z K0 = Some K0' -> lnf K0' /\ lw1 K0' /\ forall v, feq (R K0' v) (R (LS Z :: K0) v)).
+  { intros K0 K0' H1 H2 H3 Z HZ HZt H4; exact (layer_ok lenv labs Hinj HN ntm F HF Htot Z K0 K0' H1 H2 HZ HZt H3 H4). }
+  destruct K as [|[S1|L a] K1]; [exact (New _ _ Hl Hw (hor_noterm _ Hl Hw I) E HE HEt)| |exact (New _ _ Hl Hw (hor_noterm _ Hl Hw I) E HE HEt)].
+  destruct (has_terms S1) eqn:Ht; [|exact (New _ _ Hl Hw (hor_noterm _ Hl Hw Ht) E HE HEt)].
   assert (Suf1 : suf (LS S1 :: K1) (List.length (LS S1 :: K1)) = LS S1 :: K1) by apply suf_all.
   assert (Suf2 : suf (LS S1 :: K1) (List.length K1) = K1) by (rewrite (suf_cons _ _ _ (le_n _)); apply suf_all).
   destruct (pcmp F (LS S1 :: K1) (List.length (LS S1 :: K1)) (List.length K1)) as [c|] eqn:Ec; [|discriminate].
-  pose proof (pcmp_sound lenv labs Hinj F HF (LS S1 :: K1) (List.length (LS S1 :: K1)) (List.length K1) c Hl (lw1_lgood _ Hw) (le_n _) ltac:(cbn; lia) Ec) as Hc.
+  pose proof (pcmp_sound lenv labs Hinj F HF (LS S1 :: K1) (List.length (LS S1 :: K1)) (List.length K1) c Hl
+                (lw1_lgood _ Hw) (le_n _) ltac:(cbn; lia) Ec) as Hc.
   rewrite Suf1, Suf2 in Hc.
-  destruct c; [| |exact (New _ Hl Hw (hor_gt S1 K1 Hl Hw Ht Hc))]; [|admit].
-  destruct (join F T S1) as [J|] eqn:EJ; [|discriminate]; cbn [option_map]; intros EK; injection EK as <-.
   inversion Hw as [|? ? HS HK1]; subst.
-  destruct Hl as [_ [Hl1 [[_ HSo]|[_ [Hren _]]]]]; [|rewrite (sren_noterms labs S1 Hren) in Ht; discriminate].
-  destruct (join_ok T S1 K1 J HT Hne HS HSo EJ) as [HJ [HJt HJo]].
-  split; [split; [intros ->; destruct HJt as [x [t Ex]]; discriminate Ex|split; [exact Hl1|left; split; assumption]]|].
-  split; [constructor; assumption|exact (join_sem T S1 K1 J E HT HS EJ EE Hc HJ)].
-Admitted.
+  pose proof Hl as Hl0; destruct Hl0 as [_ [Hl1 [[HSt HSo]|[_ [Hren _]]]]]; [|rewrite (sren_noterms labs S1 Hren) in Ht; discriminate].
+  destruct c; [| |exact (New _ _ Hl Hw (hor_gt S1 K1 Hl Hw Ht Hc) E HE HEt)].
+  - destruct (join F T S1) as [J|] eqn:EJ; [|discriminate]; cbn [option_map]; intros EK; injection EK as <-.
+    destruct (join_ok T S1 K1 J HT Hne HS HSo EJ) as [HJ [HJt HJo]].
+    split; [split; [intros ->; destruct HJt as [x [t Ex]]; discriminate Ex|split; [exact Hl1|left; split; assumption]]|].
+    split; [constructor; assumption|exact (join_sem T S1 K1 J E HT HS EJ EE Hc HJ)].
+  - destruct (existsb is_term (ntgts S1)) eqn:Hnt; [discriminate|].
+    destruct (rho_sw F S1) as [rho|] eqn:Er; [|discriminate].
+    destruct (mu_sw F (List.length T) S1) as [mu|] eqn:Em; [|discriminate].
+    destruct (lift_sw F (List.length T) S1) as [Z|] eqn:Ez; [|discriminate].
+    destruct (rcons F ntm rho K1) as [K1'|] eqn:EK1; [|discriminate].
+    destruct (bcore F labs ntm fuel' T K1') as [Y|] eqn:EY; [|discriminate].
+    destruct (rcons F ntm mu Y) as [W|] eqn:EW; [|discriminate]; intros EL.
+    destruct (rho_ok S1 rho HS Hnt Er) as [Hrs [Hrr _]].
+    destruct (rcons_ok lenv labs Hinj HN ntm F HF K1 rho K1' Hl1 HK1 Hrs Hrr EK1) as [Hl1' [Hw1' Sem1]].
+    destruct (IH T K1' Y E HT Hne Hl1' Hw1' EE EY) as [HlY [HwY SemY]].
+    destruct (mu_shape _ S1 mu HS Em) as [Hms Hmr].
+    destruct (rcons_ok lenv labs Hinj HN ntm F HF Y mu W HlY HwY Hms Hmr EW) as [HlW [HwW SemW]].
+    assert (HW : forall v, feq (R W v) (fs mu (fun z => fs E (fun z' => fs rho (R K1) z') z) v)).
+    { intros v; refine (feq_trans _ _ _ (SemW v) _); rewrite (R_seg lenv).
+      apply (fs_cong lenv labs ntm mu _ _ v (sren_sp1 lenv labs ntm mu Hms Hmr)); intros y.
+      refine (feq_trans _ _ _ (SemY y) _); rewrite (R_seg lenv).
+      apply (fs_cong lenv labs ntm E _ _ y HE); intros z; exact (Sem1 z). }
+    destruct (swap_core T S1 K1 rho mu Z E W HT HS HSt HK1 HSo Hnt Er Em Ez EE Hc HW) as [Hor [HZt [HZ SemZ]]].
+    destruct (New W K' HlW HwW Hor Z HZ HZt EL) as [A [B C]].
+    split; [exact A|split; [exact B|intros v]].
+    refine (feq_trans _ _ _ (C v) _); rewrite (R_seg lenv Z), (R_seg lenv E); exact (SemZ v).
+Qed.
 
 End BcoreOk.
