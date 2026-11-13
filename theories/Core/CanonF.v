@@ -1120,4 +1120,99 @@ Proof.
   - intros _; exact Hs.
 Qed.
 
+Lemma Hlen : ntm <= List.length (tenvT ntm).
+Proof. unfold tenvT; rewrite length_map, length_seq; lia. Qed.
+
+Lemma merge_sp1 S G X : sp1 S -> sshape lenv labs false G -> sren labs G -> named_id G = true ->
+  scomp F ntm G S = Some X -> sp1 X.
+Proof.
+  intros [HS Ht] Hg Hgr Hid E; unfold scomp in E.
+  assert (Hd0 : sdrop_none G = SNil) by (unfold named_id in Hid; destruct (sdrop_none G); [reflexivity|discriminate]).
+  destruct (sgo_spec lenv labs F HF ntm G S X E Hg (sshape_labs lenv labs _ _ HS)) as [Hs Htg]; split; [exact Hs|].
+  apply Forall_forall; intros t' Hin; destruct (Htg t' Hin) as [H|[t0 [Hi Et]]].
+  - pose proof (proj1 (Forall_forall _ _) Hgr _ H) as Hp; destruct t'; [exact Hp|destruct Hp].
+  - pose proof (proj1 (Forall_forall _ _) Ht t0 Hi) as Hp; destruct t0 as [h i|u w b].
+    + destruct (tapp_var_in lenv F HF ntm G h i t' Et) as [[j ->]|H]; [exact Hp|].
+      pose proof (proj1 (Forall_forall _ _) Hgr _ H) as Hq; destruct t'; [exact Hq|destruct Hq].
+    + destruct Hp as [-> [-> Hu]]; rewrite tapp_bind in Et; apply Nat.ltb_lt in Hu; rewrite Hu in Et.
+      cbn [wapp sgo] in Et; injection Et as <-; cbn [bnorm pnorm]; rewrite Hd0; split; [reflexivity|split; [reflexivity|apply Nat.ltb_lt, Hu]].
+Qed.
+
+Lemma lw1_one s : sp1 s -> lw1 [LS s].
+Proof. intros H; constructor; [exact H|constructor]. Qed.
+
+Lemma fixlast_ok S K1' K' : sp1 S -> sterm lenv S -> lnf K1' -> lw1 K1' ->
+  ((forall G, K1' = [LS G] -> keq (R K1') FVar -> sterm lenv G) -> segok S K1') ->
+  fixlast F ntm S K1' = Some K' ->
+  lnf K' /\ lw1 K' /\ forall v, feq (R K' v) (R (LS S :: K1') v).
+Proof.
+  intros HS Hst Hl Hw Hseg.
+  assert (Hne : forall X, sterm lenv X -> X <> SNil) by (intros X [x [t E]] ->; discriminate E).
+  assert (Gen : (forall G, K1' = [LS G] -> keq (R K1') FVar -> sterm lenv G) ->
+                lnf (LS S :: K1') /\ lw1 (LS S :: K1') /\ forall v, feq (R (LS S :: K1') v) (R (LS S :: K1') v)).
+  { intros H; split; [split; [exact (Hne S Hst)|split; [exact Hl|left; split; [exact Hst|exact (Hseg H)]]]|].
+    split; [constructor; assumption|intros v; apply feq_refl]. }
+  unfold fixlast; destruct K1' as [|[G|L a] [|st r]];
+    try (intros E; injection E as <-; apply Gen; intros G' e; discriminate e).
+  - inversion Hw as [|? ? HG _]; subst.
+    destruct (has_terms G) eqn:Ht.
+    { intros E; injection E as <-; apply Gen; intros G' e _; injection e as <-; exact (has_terms_sterm G HG Ht). }
+    assert (Hgr : sren labs G) by exact (noterms_sren G HG Ht).
+    destruct (named_id G) eqn:Hid.
+    + destruct (scomp F ntm G S) as [X|] eqn:EX; [|discriminate]; cbn [option_map]; intros E; injection E as <-.
+      pose proof (merge_sp1 S G X HS (proj1 HG) Hgr Hid EX) as HX.
+      assert (Sem : forall v, feq (R [LS X] v) (R [LS S; LS G] v)).
+      { intros v; refine (lw_adequacy lenv ntm [LS X] [LS S; LS G] (lw1_lwok lenv labs ntm _ (lw1_one X HX))
+                   (lw1_lwok lenv labs ntm [LS S; LS G] ltac:(constructor; [exact HS|exact Hw])) _ v).
+        intros aenv penv; cbn [lwden]; rewrite !rcompose_identity_l.
+        exact (proj2 (scomp_sound lenv (tenvT ntm) aenv penv F HF ntm Hlen G S X (sp1_dd G HG) (sp1_dd S HS) EX)). }
+      assert (HXt : sterm lenv X).
+      { destruct Hst as [x [[[u b] s'] Ex]]; exists x; pose proof (Sem x) as Fx.
+        unfold LayeredUnique.R in Fx; cbn [flw] in Fx.
+        rewrite (res_free lenv labs ntm X _ x HX), (res_free lenv labs ntm S _ x HS), Ex in Fx.
+        destruct (sres X x) as [y|t]; [destruct Fx|eexists; reflexivity]. }
+      split; [split; [exact (Hne X HXt)|split; [exact I|left; split; [exact HXt|exact (segok_nil X HX)]]]|].
+      split; [exact (lw1_one X HX)|exact Sem].
+    + intros E; injection E as <-; apply Gen; intros G' e Hk; injection e as <-; exfalso.
+      assert (Hk' : keq (fun z => fs G FVar z) FVar) by (intros z Hz; exact (Hk z Hz)).
+      pose proof (named_triv G (proj1 HG) Hgr Hk') as Hd; unfold named_id in Hid; rewrite Hd in Hid; discriminate.
+Qed.
+
+Lemma lw1_lpre U r : sp1 U -> lw1 r -> lw1 (lpre U ++ r).
+Proof. intros HU Hr; destruct U; [exact Hr|constructor; assumption]. Qed.
+
+Lemma atom_ok rho L a K2 Q L' a' U : sshape lenv labs false rho -> sren labs rho -> lok lenv labs L -> lw1 K2 ->
+  wcomp F ntm (WAtom SNil L a (WEnd SNil)) (WEnd rho) = Some (WAtom Q L' a' (WEnd U)) -> has_terms Q = false ->
+  sshape lenv labs false Q /\ sren labs Q /\ sshape lenv labs false U /\ sren labs U /\ lok lenv labs L' /\ lpos lenv U L'
+  /\ forall v, feq (R (lpre U ++ LA L' a' :: LS Q :: K2) v) (R (LS rho :: LA L a :: K2) v).
+Proof.
+  intros Hr Hrr HL HK E Ht.
+  assert (N1 : wnf lenv labs 0 false (WAtom SNil L a (WEnd SNil))).
+  { cbn [wnf whead aok rnf]; split; [split; constructor|split; [exact I|split; [|split; [split; constructor|constructor]]]].
+    split; [exact HL|split; [apply lpos_nil|discriminate]]. }
+  assert (N2 : wnf lenv labs 0 false (WEnd rho)) by (split; [exact Hr|apply sren_snf; exact Hrr]).
+  pose proof (wcomp_normal lenv labs 0 F HF ntm _ _ _ N1 N2 E) as N; cbn [wnf aok rnf whead] in N.
+  destruct N as [HQs [HQn [[HL' [Hpos _]] [HUs HUr]]]].
+  assert (HQr : sren labs Q).
+  { apply Forall_forall; intros t Hin; pose proof (snf_in lenv labs 0 Q HQn t Hin) as Hn; destruct t as [h j|u w b]; [exact Hn|exfalso].
+    assert (has_terms Q = true) by (unfold has_terms; rewrite <- stgts_stargets; apply existsb_exists; exists (NBind u w b); split; [exact Hin|reflexivity]).
+    congruence. }
+  do 6 (split; [assumption|]).
+  intros v; refine (lw_adequacy lenv ntm _ _ (lw1_lwok lenv labs ntm _ _) (lw1_lwok lenv labs ntm (LS rho :: LA L a :: K2) _) _ v).
+  - apply lw1_lpre; [exact (sren_sp1 lenv labs ntm U HUs HUr)|].
+    constructor; [exact HL'|constructor; [exact (sren_sp1 lenv labs ntm Q HQs HQr)|exact HK]].
+  - constructor; [exact (sren_sp1 lenv labs ntm rho Hr Hrr)|constructor; [exact HL|exact HK]].
+  - intros aenv penv.
+    destruct (wcomp_sound lenv (tenvT ntm) aenv penv F HF ntm Hlen (WAtom SNil L a (WEnd SNil)) (WEnd rho) _ (conj I I)
+                (sp1_dd rho (sren_sp1 lenv labs ntm rho Hr Hrr)) E) as [_ D].
+    rewrite lwden_lpre; cbn [lwden].
+    rewrite !wden_atom in D.
+    change (Normalise.sden lenv (tenvT ntm) aenv penv SNil) with (@ridentity tag) in D.
+    change (Normalise.wden lenv (tenvT ntm) aenv penv (WEnd SNil)) with (@ridentity tag) in D.
+    change (Normalise.wden lenv (tenvT ntm) aenv penv (WEnd U)) with (sden lenv (tenvT ntm) aenv penv U) in D.
+    change (Normalise.wden lenv (tenvT ntm) aenv penv (WEnd rho)) with (sden lenv (tenvT ntm) aenv penv rho) in D.
+    rewrite rcompose_identity_l, rcompose_identity_r in D.
+    rewrite <- !rcompose_assoc, D; reflexivity.
+Qed.
+
 End RconsOk.
