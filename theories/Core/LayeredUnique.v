@@ -881,6 +881,15 @@ Proof.
   - intros Hy y' Hy' F; rewrite (Hi y y' Hy' F) in Hy'; exact (Hy' Hy).
 Qed.
 
+(** Routes from bound sources do not depend on the source. *)
+Lemma route_id_src k x x' y : x' = x \/ (bound x /\ bound x') -> route_id k x y -> route_id k x' y.
+Proof.
+  intros [->|[Bx Bx']]; [tauto|]; intros [H1 [H2 H3]]; split; [|split].
+  - intros Hx'; exfalso; exact (Hx' Bx').
+  - intros Hy; right; destruct (H2 Hy) as [->|H]; [exfalso; exact (Hy Bx)|exact H].
+  - exact H3.
+Qed.
+
 End Routes.
 
 (** ** Two rules for numbering *)

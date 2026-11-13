@@ -78,7 +78,7 @@ Local Notation sres := (sres lenv).
 Local Notation sp1 := (sp1 lenv labs ntm).
 Local Notation tp1 := (tp1 labs ntm).
 Local Notation lw1 := (lw1 lenv labs ntm).
-Local Notation lnf := (lnf lenv labs gtP route_min (num_first lenv)).
+Local Notation lnf := (lnf lenv labs gtP route_id (num_first lenv)).
 
 Lemma rn_ts_len n xs : forall c, List.length (rn_ts n c xs) = List.length xs.
 Proof. induction xs as [|[[|y|y] j|u w b] xs IH]; intros c; cbn; f_equal; auto. Qed.
@@ -232,14 +232,14 @@ Theorem cseg_ok s K K' : lnf K -> lw1 K -> sp1 s -> cseg F ntm s K = Some K' ->
   lnf K' /\ lw1 K' /\ forall v, feq (R K' v) (R (LS s :: K) v).
 Proof.
   intros Hl Hw HS; unfold cseg; destruct (terms s) as [|t T'] eqn:Et.
-  - exact (rcons_ok lenv labs Hinj HN ntm F HF K s K' Hl Hw (proj1 HS) (terms_nil s HS Et)).
+  - exact (rcons_ok lenv labs Hinj HN ntm F HF Htot K s K' Hl Hw (proj1 HS) (terms_nil s HS Et)).
   - rewrite <- Et; destruct (sa F (List.length (terms s)) s) as [s'|] eqn:Es; [|discriminate].
     destruct (bcore F ntm (S (List.length K)) (terms s) K) as [Y|] eqn:EY; [|discriminate]; intros EK.
     destruct (bcore_ET _ _ _ _ EY) as [E EE].
     assert (Hne : terms s <> []) by (rewrite Et; discriminate).
     destruct (bcore_ok lenv labs Hinj HN ntm F HF Htot _ _ K Y E (terms_tterm s HS) Hne Hl Hw EE EY) as [HlY [HwY SemY]].
     destruct (sa_ok s s' HS Es) as [Hs' [Hr' _]].
-    destruct (rcons_ok lenv labs Hinj HN ntm F HF Y s' K' HlY HwY Hs' Hr' EK) as [A [B C]].
+    destruct (rcons_ok lenv labs Hinj HN ntm F HF Htot Y s' K' HlY HwY Hs' Hr' EK) as [A [B C]].
     split; [exact A|split; [exact B|intros v]].
     refine (feq_trans _ _ _ (C v) _); rewrite !(R_seg lenv).
     refine (feq_trans _ _ _ (fs_cong lenv labs ntm s' _ _ v (sren_sp1 lenv labs ntm s' Hs' Hr') SemY) _).
@@ -271,7 +271,7 @@ Proof.
   intros Hl Hm Heq El Em.
   destruct (canon_ok l Kl Hl El) as [Al [_ Cl]]; destruct (canon_ok m Km Hm Em) as [Am [_ Cm]].
   pose proof (lw_adequacy lenv ntm l m (lw1_lwok lenv labs ntm l Hl) (lw1_lwok lenv labs ntm m Hm) Heq) as Ad.
-  apply (lw_unique lenv labs Hinj gtP gtP_irrefl gtP_trans gtP_keq route_min route_min_uniq (num_first lenv) (num_first_uniq lenv) Kl Km Al Am).
+  apply (lw_unique lenv labs Hinj gtP gtP_irrefl gtP_trans gtP_keq route_id route_id_uniq (num_first lenv) (num_first_uniq lenv) Kl Km Al Am).
   intros v; exact (feq_trans _ _ _ (Cl v) (feq_trans _ _ _ (Ad v) (feq_sym _ _ (Cm v)))).
 Qed.
 

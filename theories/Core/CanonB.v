@@ -15,22 +15,44 @@ Import ListNotations.
 Section Layer.
 
 Variable F : order.
-Variable labs : list lexp.
 Variable ntm : nat.
 
-Definition layer (Z : seg) (W : lword) : option lword :=
+(** A segment with terms [Z] as a new layer in front of [W]: its targets
+    go to their representatives in [W], its bound targets are numbered by
+    first use, and [rc] puts the renumbering in front of [W]. *)
+Definition layer_with (rc : seg -> lword -> option lword) (Z : seg) (W : lword) : option lword :=
   match reroute F W Z with
   | Some Z' =>
       match W with
       | [] => Some [LS Z']
       | _ =>
           match renum1 F Z' with
-          | Some (S'', io) => obind (match io with SNil => Some W | _ => rcons F ntm io W end) (fixlast F ntm S'')
+          | Some (S'', io) => obind (match io with SNil => Some W | _ => rc io W end) (fixlast F ntm S'')
           | None => None
           end
       end
   | None => None
   end.
+
+(** The canonical word of a renaming [rho] then the canonical word [K]. *)
+Fixpoint rcons (rho : seg) (K : lword) {struct K} : option lword :=
+  match K with
+  | [] => Some (lpre rho)
+  | LS Sg :: K1 =>
+      match scomp F ntm Sg rho with
+      | Some S' => if has_terms S' then layer_with (fun io _ => rcons io K1) S' K1 else rcons S' K1
+      | None => None
+      end
+  | LA L a :: K2 =>
+      match wcomp F ntm (WAtom SNil L a (WEnd SNil)) (WEnd rho) with
+      | Some (WAtom Q L' a' (WEnd U)) =>
+          if has_terms Q then None
+          else obind (match Q with SNil => Some K2 | _ => rcons Q K2 end) (fun K2' => Some (lpre U ++ LA L' a' :: K2'))
+      | _ => None
+      end
+  end.
+
+Definition layer (Z : seg) (W : lword) : option lword := layer_with rcons Z W.
 
 End Layer.
 
@@ -51,19 +73,44 @@ Local Notation fs := (fs lenv).
 Local Notation sres := (sres lenv).
 Local Notation sp1 := (sp1 lenv labs ntm).
 Local Notation lw1 := (lw1 lenv labs ntm).
-Local Notation lnf := (lnf lenv labs gtP route_min (num_first lenv)).
-Local Notation segok := (segok lenv labs gtP route_min (num_first lenv)).
+Local Notation lnf := (lnf lenv labs gtP route_id (num_first lenv)).
+Local Notation segok := (segok lenv labs gtP route_id (num_first lenv)).
 
-Theorem layer_ok Z W K' : lnf W -> lw1 W -> sp1 Z -> sterm lenv Z ->
-  (forall y u b k, R W y = FTerm u b k -> gtP (R W) k) ->
-  layer F ntm Z W = Some K' -> lnf K' /\ lw1 K' /\ forall v, feq (R K' v) (R (LS Z :: W) v).
+Lemma sres_lab Z x y : sp1 Z -> sres Z x = inl y ->
+  llab lenv labs (v_label y) \/ (y = x /\ ~ llab lenv labs (v_label x)).
 Proof.
-  intros Hl Hw HZ HZt Hor; unfold layer.
+  intros HZ; unfold LayeredUnique.sres.
+  destruct (Normalise.sget lenv (v_label x) Z) as [[ts m]|] eqn:E.
+  - intros Ey; left; destruct (sget_ents' lenv (v_label x) Z ts m E) as [g [Hin Hg]].
+    assert (Hgl : In g labs).
+    { apply (sshape_labs lenv labs false Z (proj1 HZ) g (tl_list ts) m).
+      rewrite <- ents_sents; apply (in_map (fun e => (fst (fst e), tl_list (snd (fst e)), snd e)) _ _ Hin). }
+    destruct (Nat.ltb_spec (v_index x) (tlen ts)) as [Hi|Hi].
+    + pose proof (proj1 (Forall_forall _ _) (proj2 HZ) _ (sget_tgts lenv _ _ _ _ E _ (tnth_in _ _ Hi))) as Ht.
+      destruct (tnth ts (v_index x)) as [h j|u w b]; cbn [tres] in Ey; [|discriminate].
+      injection Ey as <-; exists h; split; [exact Ht|reflexivity].
+    + injection Ey as <-; exists g; split; [exact Hgl|exact Hg].
+  - intros Ey; injection Ey as <-.
+    destruct (existsb (fun g => label_eqb (lden g) (v_label x)) labs) eqn:Ex.
+    + left; apply existsb_exists in Ex as [g [Hg Eg]]; apply label_eqb_eq in Eg; exists g; split; [exact Hg|exact Eg].
+    + right; split; [reflexivity|]; intros [g [Hg Eg]].
+      assert (existsb (fun g => label_eqb (lden g) (v_label x)) labs = true)
+        by (apply existsb_exists; exists g; split; [exact Hg|rewrite Eg; apply label_eqb_refl]); congruence.
+Qed.
+
+Lemma layer_with_ok rc Z W K' : lnf W -> lw1 W -> sp1 Z -> sterm lenv Z ->
+  (forall y u b k, R W y = FTerm u b k -> gtP (R W) k) ->
+  (forall io K1', sshape lenv labs false io -> sren labs io -> rc io W = Some K1' ->
+     lnf K1' /\ lw1 K1' /\ forall v, feq (R K1' v) (R (LS io :: W) v)) ->
+  layer_with F ntm rc Z W = Some K' -> lnf K' /\ lw1 K' /\ forall v, feq (R K' v) (R (LS Z :: W) v).
+Proof.
+  intros Hl Hw HZ HZt Hor Hrc; unfold layer_with.
   destruct (reroute F W Z) as [Z'|] eqn:ER; [|discriminate].
   destruct (reroute_ok lenv labs Hinj ntm F HF Htot HN W Z Z' Hw HZ ER) as [HZ' Hres].
   assert (Sem0 : forall v, feq (fs Z' (R W) v) (fs Z (R W) v)).
   { intros v; rewrite (res_free lenv labs ntm Z' _ v HZ'), (res_free lenv labs ntm Z _ v HZ), Hres.
-    destruct (sres Z v) as [y|[[u b] s']]; cbn [rvres]; [exact (rv_feq lenv labs Hinj ntm F HF Htot HN W Hl Hw y)|apply feq_refl]. }
+    destruct (sres Z v) as [y|[[u b] s']]; cbn [rvsres];
+      [exact (rvs_feq lenv labs Hinj ntm F HF Htot HN route_id (num_first lenv) W Hl Hw v y)|apply feq_refl]. }
   assert (HZ't : sterm lenv Z') by (destruct HZt as [x [t Ex]]; exists x, t; rewrite Hres, Ex; reflexivity).
   assert (Hne : forall X, sterm lenv X -> X <> SNil) by (intros X [x [t E]] ->; discriminate E).
   destruct W as [|st Wr].
@@ -76,23 +123,33 @@ Proof.
     { destruct HZ't as [x [t Ex]]; exists x, t; rewrite (renum1_comp lenv F HF Z' S'' io EN x) in Ex.
       destruct (sres S'' x) as [y|t']; [|exact Ex].
       rewrite (sres_ren lenv labs io _ Hior) in Ex; discriminate Ex. }
-    assert (HK1' : forall K1', (match io with SNil => Some (st :: Wr) | _ => rcons F ntm io (st :: Wr) end) = Some K1' ->
+    assert (HK1' : forall K1', (match io with SNil => Some (st :: Wr) | _ => rc io (st :: Wr) end) = Some K1' ->
                      lnf K1' /\ lw1 K1' /\ forall v, feq (R K1' v) (fs io (R (st :: Wr)) v)).
     { intros K1' E1; destruct io as [|h ts m r].
       - injection E1 as <-; split; [exact Hl|split; [exact Hw|intros v; rewrite (fs_nil lenv labs); apply feq_refl]].
-      - exact (rcons_ok lenv labs Hinj HN ntm F HF _ _ K1' Hl Hw Hios Hior E1). }
+      - exact (Hrc _ K1' Hios Hior E1). }
     match goal with |- obind ?X _ = _ -> _ => destruct X as [K1'|] eqn:E1 end;
       [|cbn [obind]; intros H; discriminate H]; cbn [obind]; intros EF.
     destruct (HK1' K1' E1) as [HlK1' [HwK1' Sem1]].
-    assert (Hro : forall x y, sres Z' x = inl y -> routed (R (st :: Wr)) y).
-    { intros x y e; rewrite Hres in e; destruct (sres Z x) as [y0|t]; cbn [rvres] in e; [|discriminate].
-      injection e as <-; exact (rv_routed lenv labs Hinj ntm F HF Htot HN _ Hl Hw y0). }
+    assert (Hro : forall x y, sres Z' x = inl y -> route_id (R (st :: Wr)) x y).
+    { intros x y e; rewrite Hres in e; destruct (sres Z x) as [y0|t] eqn:Ez; cbn [rvsres] in e; [|discriminate].
+      injection e as <-; destruct (sres_lab Z x y0 HZ Ez) as [Hy|[-> Hn]].
+      - exact (rvs_route lenv labs Hinj ntm F HF Htot HN _ _ _ Hl Hw x y0 Hy).
+      - assert (Hx : isnamed x = true)
+          by (unfold isnamed; destruct (v_label x) eqn:El; [reflexivity|exfalso; apply Hn; exists LNone; split; [exact HN|cbn; congruence]]).
+        unfold rvs, same_r; destruct (find (fun g => label_eqb (lden g) (v_label x)) labs) as [g|] eqn:Eg.
+        + exfalso; apply find_some in Eg as [Eg Hg]; apply label_eqb_eq in Eg; apply Hn; exists g; split; assumption.
+        + rewrite andb_false_r; destruct (rv_cases lenv labs F (st :: Wr) x) as [[g [Hg [Eg' _]]]|[_ ->]].
+          * exfalso; apply Hn; exists g; split; assumption.
+          * split; [intros _ _; reflexivity|split; [intros _; left; reflexivity|intros Hb; unfold isnamed, bound in *; rewrite Hb in Hx; discriminate]]. }
     assert (Hbi : forall y y', bound y -> bound y' -> (exists x, sres Z' x = inl y) -> (exists x', sres Z' x' = inl y') ->
                     feq (R (st :: Wr) y) (R (st :: Wr) y') -> y = y').
     { intros y y' Hy Hy' [x e] [x' e']; rewrite Hres in e, e'.
-      destruct (sres Z x) as [y0|t]; cbn [rvres] in e; [|discriminate]; injection e as <-.
-      destruct (sres Z x') as [y0'|t]; cbn [rvres] in e'; [|discriminate]; injection e' as <-.
-      exact (rv_inj lenv labs Hinj ntm F HF Htot HN _ Hl Hw y0 y0' Hy Hy'). }
+      destruct (sres Z x) as [y0|t]; cbn [rvsres] in e; [|discriminate]; injection e as <-.
+      destruct (sres Z x') as [y0'|t]; cbn [rvsres] in e'; [|discriminate]; injection e' as <-.
+      pose proof (rvs_bound lenv labs F _ x y0 Hy) as Eb1; pose proof (rvs_bound lenv labs F _ x' y0' Hy') as Eb2.
+      rewrite Eb1 in Hy |- *; rewrite Eb2 in Hy' |- *.
+      exact (rv_inj lenv labs Hinj ntm F HF Htot HN _ _ _ Hl Hw y0 y0' Hy Hy'). }
     destruct (fixlast_ok lenv labs Hinj ntm F HF S'' K1' K' HS'' HS''t HlK1' HwK1'
                 (fun Hlast => segok_renum lenv labs HN ntm F HF Z' S'' io (st :: Wr) K1' HZ' Hro Hor Hbi EN Sem1 Hlast) EF)
       as [A [B C]].
@@ -101,6 +158,65 @@ Proof.
     apply (feq_trans _ _ _ (fs_cong lenv labs ntm S'' _ _ v HS'' Sem1)).
     apply (feq_trans _ _ _ (feq_sym _ _ (renum1_free lenv labs ntm F HF Z' S'' io HN HZ' EN _ v))).
     exact (Sem0 v).
+Qed.
+
+(** The canonical word of a renaming then a canonical word is canonical
+    and means the same. *)
+Theorem rcons_ok K : forall rho K', lnf K -> lw1 K -> sshape lenv labs false rho -> sren labs rho ->
+  rcons F ntm rho K = Some K' -> lnf K' /\ lw1 K' /\ forall v, feq (R K' v) (R (LS rho :: K) v).
+Proof.
+  induction K as [|[Sg|L a] K1 IH]; intros rho K' Hl Hw Hr Hrr; cbn [rcons].
+  - intros E; injection E as <-; destruct rho as [|h ts m r]; cbn [lpre].
+    + split; [exact I|split; [constructor|intros v; rewrite (R_seg lenv SNil [] v), (fs_nil lenv labs); apply feq_refl]].
+    + split; [split; [discriminate|split; [exact I|right; split; [exact Hr|split; [exact Hrr|left; reflexivity]]]]|].
+      split; [exact (lw1_one lenv labs ntm _ (sren_sp1 lenv labs ntm _ Hr Hrr))|intros v; apply feq_refl].
+  - inversion Hw as [|? ? HSg HK1]; subst; destruct Hl as [HnS [HlK1 Hor]].
+    destruct (scomp F ntm Sg rho) as [S'|] eqn:ES; [|discriminate].
+    pose proof (scomp_sp1 lenv labs ntm F HF Sg rho S' HSg Hr Hrr ES) as HS'.
+    pose proof (scomp_free lenv labs ntm F HF Sg rho S' HSg Hr Hrr ES) as Sem0.
+    destruct (has_terms S') eqn:Ht.
+    + assert (HSt : sterm lenv S') by exact (has_terms_sterm lenv labs ntm S' HS' Ht).
+      destruct Hor as [[_ HSo]|[_ [HSr _]]].
+      2:{ exfalso; destruct HSt as [x [t Ex]].
+          rewrite (scomp_sres lenv labs ntm F HF Sg rho S' HSg Hr Hrr ES x), (sres_ren lenv labs Sg _ HSr) in Ex.
+          discriminate Ex. }
+      intros E.
+      destruct (layer_with_ok (fun io _ => rcons F ntm io K1) S' K1 K' HlK1 HK1 HS' HSt (so_order _ _ _ _ _ _ _ HSo)
+                  (fun io K1' Hios Hior E1 => IH io K1' HlK1 HK1 Hios Hior E1) E) as [A [B C]].
+      split; [exact A|split; [exact B|intros v]].
+      apply (feq_trans _ _ _ (C v)); rewrite (R_seg lenv S' K1 v); exact (Sem0 _ v).
+    + intros E; destruct (IH S' K' HlK1 HK1 (proj1 HS') (noterms_sren lenv labs ntm S' HS' Ht) E) as [A [B C]].
+      split; [exact A|split; [exact B|intros v; exact (feq_trans _ _ _ (C v) (Sem0 _ v))]].
+  - inversion Hw as [|? ? HL HK1]; subst; destruct Hl as [HLok HlK1].
+    destruct (wcomp F ntm (WAtom SNil L a (WEnd SNil)) (WEnd rho)) as [[s0|Q L' a' [U|s2 L2 a2 w2]]|] eqn:EW;
+      try (intros E; discriminate E).
+    destruct (has_terms Q) eqn:HtQ; [intros E; discriminate E|].
+    destruct (atom_ok lenv labs ntm F HF rho L a K1 Q L' a' U Hr Hrr HLok HK1 EW HtQ) as [HQs [HQr [HUs [HUr [HL' [Hpos Sem]]]]]].
+    assert (HK2' : forall K2', (match Q with SNil => Some K1 | _ => rcons F ntm Q K1 end) = Some K2' ->
+                     lnf K2' /\ lw1 K2' /\ forall v, feq (R K2' v) (R (LS Q :: K1) v)).
+    { intros K2' E2; destruct Q as [|h ts m r].
+      - injection E2 as <-; split; [exact HlK1|split; [exact HK1|intros v; rewrite (R_seg lenv SNil K1 v), (fs_nil lenv labs); apply feq_refl]].
+      - exact (IH _ K2' HlK1 HK1 HQs HQr E2). }
+    destruct (match Q with SNil => Some K1 | _ => rcons F ntm Q K1 end) as [K2'|] eqn:E2; [|intros E; discriminate E].
+    cbn [obind]; intros E; injection E as <-.
+    destruct (HK2' K2' eq_refl) as [A [B C]].
+    assert (FU : Forall (fun st => match st with LS s => sp1 s | LA _ _ => True end) (lpre U)).
+    { destruct U; [constructor|constructor; [exact (sren_sp1 lenv labs ntm _ HUs HUr)|constructor]]. }
+    split; [|split].
+    + destruct U as [|h ts m r]; cbn [lpre app]; [split; assumption|].
+      split; [discriminate|split; [split; assumption|right; split; [exact HUs|split; [exact HUr|]]]].
+      right; exists L', a', K2'; split; [reflexivity|exact Hpos].
+    + apply (lw1_lpre lenv labs ntm); [exact (sren_sp1 lenv labs ntm _ HUs HUr)|constructor; assumption].
+    + intros v; refine (feq_trans _ _ _ _ (Sem v)).
+      apply (R_app_cong lenv labs ntm (lpre U) _ _ FU); exact (R_cong lenv labs ntm (LA L' a') _ _ I C).
+Qed.
+
+Lemma layer_ok Z W K' : lnf W -> lw1 W -> sp1 Z -> sterm lenv Z ->
+  (forall y u b k, R W y = FTerm u b k -> gtP (R W) k) ->
+  layer F ntm Z W = Some K' -> lnf K' /\ lw1 K' /\ forall v, feq (R K' v) (R (LS Z :: W) v).
+Proof.
+  intros Hl Hw HZ HZt Hor; apply (layer_with_ok (rcons F ntm) Z W K' Hl Hw HZ HZt Hor).
+  intros io K1' Hios Hior E; exact (rcons_ok W io K1' Hl Hw Hios Hior E).
 Qed.
 
 End LayerOk.
@@ -235,8 +351,8 @@ Local Notation sres := (sres lenv).
 Local Notation sp1 := (sp1 lenv labs ntm).
 Local Notation tp1 := (tp1 labs ntm).
 Local Notation lw1 := (lw1 lenv labs ntm).
-Local Notation lnf := (lnf lenv labs gtP route_min (num_first lenv)).
-Local Notation segok := (segok lenv labs gtP route_min (num_first lenv)).
+Local Notation lnf := (lnf lenv labs gtP route_id (num_first lenv)).
+Local Notation segok := (segok lenv labs gtP route_id (num_first lenv)).
 
 Definition tterm (t : ntgt) : Prop := match t with NBind u w b => w = WEnd SNil /\ b = None /\ u < ntm | _ => False end.
 
@@ -277,7 +393,7 @@ Proof.
   intros Hl Hw Hk y u b k E.
   assert (Atom : forall L a K2 z, lnf K2 -> R (LA L a :: K2) z = FTerm u b k -> exists e, e < natl (LA L a :: K2) /\ deep e k).
   { intros L a K2 z H2 Ez; rewrite (R_atom lenv) in Ez; unfold latom in Ez; destruct (_ <? _); [|discriminate Ez].
-    destruct (tdeep lenv labs gtP route_min (num_first lenv) K2 H2 z u b k Ez) as [e [He Hd]]; exists e; split; [cbn [natl]; lia|exact Hd]. }
+    destruct (tdeep lenv labs gtP route_id (num_first lenv) K2 H2 z u b k Ez) as [e [He Hd]]; exists e; split; [cbn [natl]; lia|exact Hd]. }
   assert (Fin : forall e, e < natl K -> deep e k -> gtP (R K) k) by (intros e He Hd; exact (gtP_deep _ _ _ _ (deep_R lenv K) Hd He)).
   destruct K as [|[S1|L a] K1]; [discriminate E| |destruct (Atom L a K1 y (proj2 Hl) E) as [e [He Hd]]; exact (Fin e He Hd)].
   inversion Hw as [|? ? HS Hw1]; subst; destruct Hl as [_ [Hl1 [[[x [t Ex]] _]|[_ [Hren Hr]]]]].
@@ -369,7 +485,8 @@ Proof.
     + exact (sp1_spure _ _ _ _ HJ).
     + exact Hord.
     + exact Hlast.
-    + intros x y e; exact (Hroute _ _ (proj1 (Hjs x y e))).
+    + intros x y e; refine (route_id_src _ (sg x) x y _ (Hroute _ _ (proj1 (Hjs x y e)))).
+      unfold sg, bound; destruct (v_label x) eqn:El; [left; reflexivity|right; split; reflexivity].
     + intros x u n0 s0 i e; pose proof (sres_pure1 lenv labs ntm J x HJ) as P; rewrite e in P; destruct P as [P _]; discriminate P.
     + intros Hr y Hy; destruct (Hhit Hr y Hy) as [z Ez]; exists (tau z); exact (Hsj z y Ez).
     + exact Hbinj.
@@ -858,7 +975,7 @@ Proof.
   assert (Suf1 : suf (LS S1 :: K1) (List.length (LS S1 :: K1)) = LS S1 :: K1) by apply suf_all.
   assert (Suf2 : suf (LS S1 :: K1) (List.length K1) = K1) by (rewrite (suf_cons _ _ _ (le_n _)); apply suf_all).
   destruct (pcmp F (LS S1 :: K1) (List.length (LS S1 :: K1)) (List.length K1)) as [c|] eqn:Ec; [|discriminate].
-  pose proof (pcmp_sound lenv labs Hinj F HF route_min (num_first lenv) (LS S1 :: K1) (List.length (LS S1 :: K1)) (List.length K1) c Hl
+  pose proof (pcmp_sound lenv labs Hinj F HF route_id (num_first lenv) (LS S1 :: K1) (List.length (LS S1 :: K1)) (List.length K1) c Hl
                 (lw1_lgood _ Hw) (le_n _) ltac:(cbn; lia) Ec) as Hc.
   rewrite Suf1, Suf2 in Hc.
   inversion Hw as [|? ? HS HK1]; subst.
@@ -875,10 +992,10 @@ Proof.
     destruct (bcore F ntm fuel' T K1') as [Y|] eqn:EY; [|discriminate].
     destruct (rcons F ntm mu Y) as [W|] eqn:EW; [|discriminate]; intros EL.
     destruct (rho_ok S1 rho HS Hnt Er) as [Hrs [Hrr _]].
-    destruct (rcons_ok lenv labs Hinj HN ntm F HF K1 rho K1' Hl1 HK1 Hrs Hrr EK1) as [Hl1' [Hw1' Sem1]].
+    destruct (rcons_ok lenv labs Hinj HN ntm F HF Htot K1 rho K1' Hl1 HK1 Hrs Hrr EK1) as [Hl1' [Hw1' Sem1]].
     destruct (IH T K1' Y E HT Hne Hl1' Hw1' EE EY) as [HlY [HwY SemY]].
     destruct (mu_shape _ S1 mu HS Em) as [Hms Hmr].
-    destruct (rcons_ok lenv labs Hinj HN ntm F HF Y mu W HlY HwY Hms Hmr EW) as [HlW [HwW SemW]].
+    destruct (rcons_ok lenv labs Hinj HN ntm F HF Htot Y mu W HlY HwY Hms Hmr EW) as [HlW [HwW SemW]].
     assert (HW : forall v, feq (R W v) (fs mu (fun z => fs E (fun z' => fs rho (R K1) z') z) v)).
     { intros v; refine (feq_trans _ _ _ (SemW v) _); rewrite (R_seg lenv).
       apply (fs_cong lenv labs ntm mu _ _ v (sren_sp1 lenv labs ntm mu Hms Hmr)); intros y.
