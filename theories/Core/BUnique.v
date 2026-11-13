@@ -1287,4 +1287,132 @@ Proof.
     rewrite Ep1 in Ep1'; injection Ep1' as <-; rewrite H1, H1'; reflexivity.
 Qed.
 
+(** *** A renaming and an atom at the head, observed on [dom p] *)
+
+Definition ldom (p : option nat) (L : list (lexp * nat)) : Prop :=
+  match p with None => True | Some n => lc None L <= n end.
+
+Lemma lpos_label U L g i : lpos lenv U L -> inVb lenv L (sv U (mk_rvar g i)) = true -> v_label (sv U (mk_rvar g i)) = g.
+Proof. intros [H _] E; rewrite (H g i E); reflexivity. Qed.
+
+Lemma peel_dom p p1 p2 U1 L1 a1 R1 n1 U2 L2 a2 R2 n2 :
+  sshape lenv labs false U1 -> sren labs U1 -> lok lenv labs L1 -> lpos lenv U1 L1 -> phant lenv p p1 U1 ->
+  (forall x y, dom p x -> bres U1 x = inl y -> dom p1 y) ->
+  (forall y, bound y -> dom p1 y -> exists x, dom p x /\ bres U1 x = inl y) -> ldom p1 L1 ->
+  sshape lenv labs false U2 -> sren labs U2 -> lok lenv labs L2 -> lpos lenv U2 L2 -> phant lenv p p2 U2 ->
+  (forall x y, dom p x -> bres U2 x = inl y -> dom p2 y) ->
+  (forall y, bound y -> dom p2 y -> exists x, dom p x /\ bres U2 x = inl y) -> ldom p2 L2 ->
+  deep n1 R1 -> nstuck n1 R1 -> deep n2 R2 -> nstuck n2 R2 ->
+  (forall v, dom p v -> feq (Unique.latom lenv L1 a1 R1 (sv U1 v)) (Unique.latom lenv L2 a2 R2 (sv U2 v))) ->
+  U1 = U2 /\ L1 = L2 /\ a1 = a2 /\ p1 = p2 /\ forall y, feq (R1 y) (R2 y).
+Proof.
+  intros Hs1 Hr1 Hl1 Hp1 Ph1 Re1 Hi1 Ld1 Hs2 Hr2 Hl2 Hp2 Ph2 Re2 Hi2 Ld2 Hd1' Hst1 Hd2' Hst2 H.
+  assert (Sv1 : forall x, bres U1 x = inl (sv U1 x)) by (intros x; exact (bres_ren lenv labs U1 x Hr1)).
+  assert (Sv2 : forall x, bres U2 x = inl (sv U2 x)) by (intros x; exact (bres_ren lenv labs U2 x Hr2)).
+  assert (Hdb : forall B, dom p (mk_rvar lbig B)) by (intros B; destruct p; [left; apply named_big|exact I]).
+  destruct (sv_big lenv labs U1 lbig (lc lbig L1) Hr1) as [B1 HB1].
+  destruct (sv_big lenv labs U2 lbig (lc lbig L2) Hr2) as [B2 HB2].
+  destruct (HB1 (B1 + B2) ltac:(lia)) as [j1 [Hj1 E1]]; destruct (HB2 (B1 + B2) ltac:(lia)) as [j2 [Hj2 E2]].
+  pose proof (H _ (Hdb (B1 + B2))) as Hb; rewrite E1, E2 in Hb; unfold Unique.latom in Hb; cbn [v_label v_index] in Hb.
+  rewrite (proj2 (Nat.ltb_ge _ _) Hj1), (proj2 (Nat.ltb_ge _ _) Hj2) in Hb; cbn [feq] in Hb.
+  destruct Hb as [<- [_ Hk]].
+  assert (Hd1 : deep n1 (fun y => R1 (shiftL L1 y))) by exact (deep_shift lenv _ L1 _ Hd1').
+  assert (Hd2 : deep n2 (fun y => R2 (shiftL L2 y))) by exact (deep_shift lenv _ L2 _ Hd2').
+  assert (En : n1 = n2) by (apply (deep_unique _ _ _ _ Hd1 Hd2); intros i; apply Hk).
+  (* Phantoms are not lifted. *)
+  assert (Hph : forall q U L v, phant lenv p q U -> ldom q L -> ~ dom p v -> sren labs U ->
+            inVb lenv L (sv U v) = false /\ exists n n' a, p = Some n /\ q = Some n' /\ v = mk_rvar None (n + a)
+              /\ sv U v = mk_rvar None (n' + a)).
+  { intros q U L v Ph Ld Hv Hr; destruct (nondom p v Hv) as [n [a [Ep ->]]].
+    destruct (phant_some _ _ _ n Ph Ep) as [n' [Eq Hq]]; pose proof (Hq a) as Ea.
+    rewrite (bres_ren lenv labs U _ Hr) in Ea; injection Ea as Ea; rewrite Ea.
+    split; [|exists n, n', a; repeat split; assumption].
+    unfold inVb; cbn [v_label v_index]; rewrite Eq in Ld; cbn [ldom] in Ld; apply Nat.ltb_ge; lia. }
+  assert (HB : forall v, dom p v ->
+    (inVb lenv L1 (sv U1 v) = true /\ inVb lenv L2 (sv U2 v) = true /\ feq (R1 (sv U1 v)) (R2 (sv U2 v)))
+    \/ (inVb lenv L1 (sv U1 v) = false /\ inVb lenv L2 (sv U2 v) = false
+        /\ unsh lenv L1 (sv U1 v) = unsh lenv L2 (sv U2 v))).
+  { intros v Hv; pose proof (H v Hv) as E; unfold Unique.latom in E; unfold inVb.
+    destruct (v_index (sv U1 v) <? _) eqn:Ei1, (v_index (sv U2 v) <? _) eqn:Ei2.
+    - left; auto.
+    - exfalso; destruct (R1 (sv U1 v)) as [| |a z k] eqn:ER; cbn [feq] in E; try contradiction.
+      destruct E as [_ [_ Ek]]; destruct (Hst1 _ _ _ _ ER) as [d [Hd Hdk]].
+      assert (d = n2) by (apply (deep_unique _ _ _ _ Hdk Hd2); intros i; apply Ek); lia.
+    - exfalso; destruct (R2 (sv U2 v)) as [| |a z k] eqn:ER; cbn [feq] in E; try contradiction.
+      destruct E as [_ [_ Ek]]; destruct (Hst2 _ _ _ _ ER) as [d [Hd Hdk]].
+      assert (n1 = d) by (apply (deep_unique _ _ _ _ Hd1 Hdk); intros i; apply Ek); lia.
+    - right; cbn [feq] in E; destruct E as [_ [Ez _]]; auto. }
+  assert (Hcnt : forall g i, cntV lenv U1 L1 g i = cntV lenv U2 L2 g i).
+  { intros g i; induction i as [|i IHi]; [reflexivity|]; cbn [cntV]; rewrite IHi.
+    destruct (dom_dec p (mk_rvar g i)) as [Hv|Hv].
+    - destruct (HB (mk_rvar g i) Hv) as [[-> [-> _]]|[-> [-> _]]]; reflexivity.
+    - rewrite (proj1 (Hph _ _ _ _ Ph1 Ld1 Hv Hr1)), (proj1 (Hph _ _ _ _ Ph2 Ld2 Hv Hr2)); reflexivity. }
+  (* A lifted position is reached by an observed input. *)
+  assert (Hreach : forall U L q, sren labs U -> lpos lenv U L -> ldom q L ->
+            (forall y, bound y -> dom q y -> exists x, dom p x /\ bres U x = inl y) ->
+            forall l j, j < lc l L -> exists i, dom p (mk_rvar l i) /\ sv U (mk_rvar l i) = mk_rvar l j).
+  { intros U L q Hr Hp Ld Hi l j Hj; destruct l as [x|].
+    - destruct (proj2 Hp _ j Hj) as [i Ei]; exists i; split; [|exact Ei].
+      destruct p; [left; discriminate|exact I].
+    - assert (Dq : dom q (mk_rvar None j)) by (destruct q as [n'|]; [right; cbn [ldom] in Ld; cbn; lia|exact I]).
+      destruct (Hi (mk_rvar None j) eq_refl Dq) as [[g i] [Hx Ex]]; rewrite (bres_ren lenv labs U _ Hr) in Ex; injection Ex as Ex.
+      assert (Eg : g = None).
+      { assert (Hin : inVb lenv L (sv U (mk_rvar g i)) = true) by (rewrite Ex; unfold inVb; apply Nat.ltb_lt, Hj).
+        rewrite <- (lpos_label U L g i Hp Hin), Ex; reflexivity. }
+      subst g; exists i; split; [exact Hx|exact Ex]. }
+  assert (Hle : forall l j, j < lc l L1 -> j < lc l L2).
+  { intros l j Hj; destruct (Hreach U1 L1 p1 Hr1 Hp1 Ld1 Hi1 l j Hj) as [i [Hv Ei]].
+    destruct (HB (mk_rvar l i) Hv) as [[E1' [E2' _]]|[E1' _]].
+    - rewrite (proj1 Hp1 l i E1') in Ei; injection Ei as <-.
+      pose proof (proj1 Hp2 l i E2') as E; rewrite E in E2'; unfold inVb in E2'; cbn [v_label v_index] in E2'.
+      rewrite Hcnt; apply Nat.ltb_lt, E2'.
+    - rewrite Ei in E1'; unfold inVb in E1'; cbn [v_label v_index] in E1'; apply Nat.ltb_ge in E1'; lia. }
+  assert (Hle' : forall l j, j < lc l L2 -> j < lc l L1).
+  { intros l j Hj; destruct (Hreach U2 L2 p2 Hr2 Hp2 Ld2 Hi2 l j Hj) as [i [Hv Ei]].
+    destruct (HB (mk_rvar l i) Hv) as [[E1' [E2' _]]|[_ [E2' _]]].
+    - rewrite (proj1 Hp2 l i E2') in Ei; injection Ei as <-.
+      pose proof (proj1 Hp1 l i E1') as E; rewrite E in E1'; unfold inVb in E1'; cbn [v_label v_index] in E1'.
+      rewrite Hcnt in E1'; apply Nat.ltb_lt, E1'.
+    - rewrite Ei in E2'; unfold inVb in E2'; cbn [v_label v_index] in E2'; apply Nat.ltb_ge in E2'; lia. }
+  assert (Hlc : forall l, lc l L1 = lc l L2).
+  { intros l; destruct (Nat.lt_trichotomy (lc l L1) (lc l L2)) as [Hlt|[E|Hlt]];
+      [specialize (Hle' _ _ Hlt); lia|exact E|specialize (Hle _ _ Hlt); lia]. }
+  assert (EL : L1 = L2) by (apply (lifts_unique lenv labs Hinj); assumption); subst L2.
+  assert (Hsv : forall v, dom p v -> sv U1 v = sv U2 v).
+  { intros [g i] Hv; destruct (HB _ Hv) as [[E1' [E2' _]]|[E1' [E2' Eu]]].
+    - rewrite (proj1 Hp1 g i E1'), (proj1 Hp2 g i E2'), Hcnt; reflexivity.
+    - unfold inVb, unsh in *; destruct (sv U1 (mk_rvar g i)) as [l1 i1], (sv U2 (mk_rvar g i)) as [l2 i2].
+      cbn [v_label v_index] in *; injection Eu as -> Ei; apply Nat.ltb_ge in E1', E2'; f_equal; lia. }
+  (* The observed bound outputs are the same, so the domains are. *)
+  assert (Hp12 : p1 = p2).
+  { destruct (opt_cases p) as [Ep|[n Ep]];
+      [rewrite (phant_none _ _ _ Ph1 Ep), (phant_none _ _ _ Ph2 Ep); reflexivity|].
+    destruct (phant_some _ _ _ n Ph1 Ep) as [m1 [Eq1 _]]; destruct (phant_some _ _ _ n Ph2 Ep) as [m2 [Eq2 _]].
+    rewrite Eq1, Eq2; f_equal.
+    assert (Hd12 : forall j, j < m1 -> j < m2).
+    { intros j Hj; destruct (Hi1 (mk_rvar None j) eq_refl ltac:(rewrite Eq1; right; exact Hj)) as [x [Hx Ex]].
+      rewrite Sv1 in Ex; injection Ex as Ex; pose proof (Re2 x _ Hx (Sv2 x)) as R2'.
+      rewrite <- (Hsv x Hx), Ex, Eq2 in R2'; destruct R2' as [R2'|R2']; [destruct (R2' eq_refl)|exact R2']. }
+    assert (Hd21 : forall j, j < m2 -> j < m1).
+    { intros j Hj; destruct (Hi2 (mk_rvar None j) eq_refl ltac:(rewrite Eq2; right; exact Hj)) as [x [Hx Ex]].
+      rewrite Sv2 in Ex; injection Ex as Ex; pose proof (Re1 x _ Hx (Sv1 x)) as R1'.
+      rewrite (Hsv x Hx), Ex, Eq1 in R1'; destruct R1' as [R1'|R1']; [destruct (R1' eq_refl)|exact R1']. }
+    destruct (Nat.lt_trichotomy m1 m2) as [Hlt|[E|Hlt]]; [specialize (Hd21 _ Hlt); lia|exact E|specialize (Hd12 _ Hlt); lia]. }
+  subst p2.
+  assert (Hsv' : forall v, sv U1 v = sv U2 v).
+  { intros v; destruct (dom_dec p v) as [Hv|Hv]; [exact (Hsv v Hv)|].
+    destruct (Hph _ _ _ _ Ph1 Ld1 Hv Hr1) as [_ [n [n' [a [Ep [Eq [Ev E1']]]]]]].
+    destruct (Hph _ _ _ _ Ph2 Ld2 Hv Hr2) as [_ [n0 [n0' [a0 [Ep0 [Eq0 [Ev0 E2']]]]]]].
+    rewrite E1', E2'; rewrite Eq in Eq0; injection Eq0 as <-; rewrite Ep in Ep0; injection Ep0 as <-.
+    rewrite Ev in Ev0; injection Ev0 as Ea; f_equal; lia. }
+  assert (EU : U1 = U2) by (apply (ren_unique lenv labs Hinj false); try assumption; intros v _; apply Hsv'); subst U2.
+  split; [reflexivity|split; [reflexivity|split; [reflexivity|split; [reflexivity|]]]].
+  intros [l j]; destruct (Nat.ltb_spec j (lc l L1)) as [Hj|Hj].
+  - destruct (Hreach U1 L1 p1 Hr1 Hp1 Ld1 Hi1 l j Hj) as [i [Hv Ei]].
+    destruct (HB _ Hv) as [[_ [_ E]]|[E _]]; rewrite Ei in E; [exact E|].
+    unfold inVb in E; cbn [v_label v_index] in E; apply Nat.ltb_ge in E; lia.
+  - pose proof (Hk (mk_rvar l (j - lc l L1))) as E; unfold shiftL in E; cbn [v_label v_index] in E.
+    replace (j - lc l L1 + lc l L1) with j in E by lia; exact E.
+Qed.
+
 End Main.
