@@ -974,6 +974,17 @@ Qed.
 
 End Layer2.
 
+Lemma opt_cases {A} (o : option A) : o = None \/ exists a, o = Some a.
+Proof. destruct o; [right; eexists; reflexivity|left; reflexivity]. Qed.
+
+Lemma dom_dec p x : dom p x \/ ~ dom p x.
+Proof.
+  destruct p as [n|]; [|left; exact I]; cbn [dom].
+  destruct (v_label x) eqn:El; [left; left; unfold named; rewrite El; discriminate|].
+  destruct (Nat.lt_ge_cases (v_index x) n) as [H|H]; [left; right; exact H|right].
+  intros [H'|H']; [apply H'; exact El|lia].
+Qed.
+
 Lemma nondom p x : ~ dom p x -> exists n a, p = Some n /\ x = mk_rvar None (n + a).
 Proof.
   destruct p as [n|]; [|intros H; destruct (H I)]; intros H; exists n, (v_index x - n); split; [reflexivity|].
@@ -1084,6 +1095,108 @@ Proof.
   exists y'; split; [exact Ex'|split; [|exact F]].
   destruct (named_or_bound y') as [Hn'|Hb]; [exfalso|exact Hb].
   pose proof (VN x y' Hx Ex' Hn') as E2; rewrite Ex in E2; injection E2 as ->; exact (Hn' Hy).
+Qed.
+
+Hypothesis Hne : r <> [].
+Let Hne' : r' <> [].
+Proof.
+  intros E0; apply Hne; exact (rnil K' K p p2 p1 e Sg' Sg r' r HS' HS Hr (eq_sym Hn) Hd' Hd Hs
+    (base_sym _ _ _ _ Hbase) E' (keq_sym _ _ Hk) E0).
+Qed.
+
+(** Bound variables are numbered the same. *)
+Lemma numbering : forall n x, bres Sg x = inl (mk_rvar None n) -> bres Sg' x = inl (mk_rvar None n).
+Proof.
+  pose proof (bo_phant _ _ _ _ _ _ _ _ _ _ HS) as P1; pose proof (bo_phant _ _ _ _ _ _ _ _ _ _ HS') as P2.
+  assert (Hph : forall x, ~ dom p x -> exists n n1 n2 a, p = Some n /\ p1 = Some n1 /\ p2 = Some n2 /\ x = mk_rvar None (n + a)
+             /\ bres Sg x = inl (mk_rvar None (n1 + a)) /\ bres Sg' x = inl (mk_rvar None (n2 + a))).
+  { intros x Hx; destruct (nondom p x Hx) as [n [a [-> ->]]].
+    destruct (phant_some _ _ _ n P1 eq_refl) as [n1 [-> H1]]; destruct (phant_some _ _ _ n P2 eq_refl) as [n2 [-> H2]].
+    exists n, n1, n2, a; repeat split; [apply H1|apply H2]. }
+  assert (Hreal : forall q x y n0 a, dom q x -> ~ dom q (mk_rvar None (n0 + a)) -> False -> x = y) by (intros; contradiction).
+  apply (class_index (fun x i => bres Sg x = inl (mk_rvar None i)) (fun x i => bres Sg' x = inl (mk_rvar None i))).
+  - intros x i j H1 H2; rewrite H1 in H2; injection H2 as H2; exact H2.
+  - intros x i Hi; destruct (dom_dec p x) as [Hx|Hx].
+    + destruct (var_bound x _ Hx Hi eq_refl) as [[l' i'] [Ex' [Hb' _]]]; unfold bound in Hb'; cbn in Hb'; subst l'.
+      exists i'; exact Ex'.
+    + destruct (Hph x Hx) as [n [n1 [n2 [a [_ [_ [_ [_ [_ E2]]]]]]]]]; exists (n2 + a); exact E2.
+  - intros x i Hi; destruct (dom_dec p x) as [Hx|Hx].
+    + destruct (var_bound' x _ Hx Hi eq_refl) as [[l' i'] [Ex' [Hb' _]]]; unfold bound in Hb'; cbn in Hb'; subst l'.
+      exists i'; exact Ex'.
+    + destruct (Hph x Hx) as [n [n1 [n2 [a [_ [_ [_ [_ [E1 _]]]]]]]]]; exists (n1 + a); exact E1.
+  - intros x x0 i i' j' H1 H2 H1' H2'.
+    destruct (dom_dec p x) as [Hx|Hx], (dom_dec p x0) as [Hx0|Hx0].
+    + destruct (VV x _ Hx H1) as [y1 [E1 F1]]; rewrite H1' in E1; injection E1 as <-.
+      destruct (VV x0 _ Hx0 H2) as [y2 [E2 F2]]; rewrite H2' in E2; injection E2 as <-.
+      pose proof (bo_binj _ _ _ _ _ _ _ _ _ _ HS' (mk_rvar None i') (mk_rvar None j') eq_refl eq_refl
+                    (feq_trans _ _ _ (feq_sym _ _ F1) F2)) as Ei; injection Ei as Ei; exact Ei.
+    + exfalso; destruct (Hph x0 Hx0) as [n [n1 [n2 [a [_ [Ep1 [_ [_ [E1 _]]]]]]]]]; rewrite H2 in E1; injection E1 as ->.
+      pose proof (bo_real _ _ _ _ _ _ _ _ _ _ HS x _ Hx H1) as Hr1; rewrite Ep1 in Hr1; cbn [dom] in Hr1.
+      destruct Hr1 as [Hr1|Hr1]; [apply Hr1; reflexivity|cbn in Hr1; lia].
+    + exfalso; destruct (Hph x Hx) as [n [n1 [n2 [a [_ [Ep1 [_ [_ [E1 _]]]]]]]]]; rewrite H1 in E1; injection E1 as ->.
+      pose proof (bo_real _ _ _ _ _ _ _ _ _ _ HS x0 _ Hx0 H2) as Hr1; rewrite Ep1 in Hr1; cbn [dom] in Hr1.
+      destruct Hr1 as [Hr1|Hr1]; [apply Hr1; reflexivity|cbn in Hr1; lia].
+    + destruct (Hph x Hx) as [n [n1 [n2 [a [Ep [Ep1x [_ [Ex [E1 _]]]]]]]]].
+      destruct (Hph x0 Hx0) as [n' [n1' [n2' [a0 [Ep' [Ep1 [_ [Ex0 [E1' _]]]]]]]]].
+      rewrite Ep in Ep'; injection Ep' as <-.
+      rewrite H1 in E1; rewrite H2 in E1'; injection E1 as E1; injection E1' as E1'.
+      assert (Hn1 : n1 = n1') by congruence.
+      assert (x = x0) as <- by (rewrite Ex, Ex0; f_equal; f_equal; lia).
+      rewrite H1' in H2'; injection H2' as H2'; exact H2'.
+  - intros x x0 i' i j H1' H2' H1 H2.
+    destruct (dom_dec p x) as [Hx|Hx], (dom_dec p x0) as [Hx0|Hx0].
+    + destruct (VV' x _ Hx H1') as [y1 [E1 F1]]; rewrite H1 in E1; injection E1 as <-.
+      destruct (VV' x0 _ Hx0 H2') as [y2 [E2 F2]]; rewrite H2 in E2; injection E2 as <-.
+      pose proof (bo_binj _ _ _ _ _ _ _ _ _ _ HS (mk_rvar None i) (mk_rvar None j) eq_refl eq_refl
+                    (feq_trans _ _ _ (feq_sym _ _ F1) F2)) as Ei; injection Ei as Ei; exact Ei.
+    + exfalso; destruct (Hph x0 Hx0) as [n [n1 [n2 [a [_ [_ [Ep2 [_ [_ E1]]]]]]]]]; rewrite H2' in E1; injection E1 as ->.
+      pose proof (bo_real _ _ _ _ _ _ _ _ _ _ HS' x _ Hx H1') as Hr1; rewrite Ep2 in Hr1; cbn [dom] in Hr1.
+      destruct Hr1 as [Hr1|Hr1]; [apply Hr1; reflexivity|cbn in Hr1; lia].
+    + exfalso; destruct (Hph x Hx) as [n [n1 [n2 [a [_ [_ [Ep2 [_ [_ E1]]]]]]]]]; rewrite H1' in E1; injection E1 as ->.
+      pose proof (bo_real _ _ _ _ _ _ _ _ _ _ HS' x0 _ Hx0 H2') as Hr1; rewrite Ep2 in Hr1; cbn [dom] in Hr1.
+      destruct Hr1 as [Hr1|Hr1]; [apply Hr1; reflexivity|cbn in Hr1; lia].
+    + destruct (Hph x Hx) as [n [n1 [n2 [a [Ep [_ [Ep2x [Ex [_ E1]]]]]]]]].
+      destruct (Hph x0 Hx0) as [n' [n1' [n2' [a0 [Ep' [_ [Ep2 [Ex0 [_ E1']]]]]]]]].
+      rewrite Ep in Ep'; injection Ep' as <-.
+      rewrite H1' in E1; rewrite H2' in E1'; injection E1 as E1; injection E1' as E1'.
+      assert (Hn2 : n2 = n2') by congruence.
+      assert (x = x0) as <- by (rewrite Ex, Ex0; f_equal; f_equal; lia).
+      rewrite H1 in H2; injection H2 as H2; exact H2.
+  - intros i; destruct (dom_dec p1 (mk_rvar None i)) as [Hi|Hi].
+    + destruct (bo_hit _ _ _ _ _ _ _ _ _ _ HS Hne (mk_rvar None i) eq_refl Hi) as [x [_ Ex]]; exists x; exact Ex.
+    + destruct (nondom p1 _ Hi) as [n1 [a [Ep1 Ei]]].
+      destruct p as [n|]; [|rewrite (phant_none _ _ _ P1 eq_refl) in Ep1; discriminate Ep1].
+      destruct (phant_some _ _ _ n P1 eq_refl) as [n1' [Ep1' H1]]; rewrite Ep1 in Ep1'; injection Ep1' as <-.
+      exists (mk_rvar None (n + a)); rewrite H1, Ei; reflexivity.
+  - intros i; destruct (dom_dec p2 (mk_rvar None i)) as [Hi|Hi].
+    + destruct (bo_hit _ _ _ _ _ _ _ _ _ _ HS' Hne' (mk_rvar None i) eq_refl Hi) as [x [_ Ex]]; exists x; exact Ex.
+    + destruct (nondom p2 _ Hi) as [n2 [a [Ep2 Ei]]].
+      destruct p as [n|]; [|rewrite (phant_none _ _ _ P2 eq_refl) in Ep2; discriminate Ep2].
+      destruct (phant_some _ _ _ n P2 eq_refl) as [n2' [Ep2' H2]]; rewrite Ep2 in Ep2'; injection Ep2' as <-.
+      exists (mk_rvar None (n + a)); rewrite H2, Ei; reflexivity.
+  - exact (num_conv _ _ (bo_num _ _ _ _ _ _ _ _ _ _ HS Hne)).
+  - exact (num_conv _ _ (bo_num _ _ _ _ _ _ _ _ _ _ HS' Hne')).
+Qed.
+
+Lemma doms : p1 = p2.
+Proof.
+  pose proof (bo_phant _ _ _ _ _ _ _ _ _ _ HS) as P1; pose proof (bo_phant _ _ _ _ _ _ _ _ _ _ HS') as P2.
+  destruct (opt_cases p) as [Ep|[n Ep]]; [rewrite (phant_none _ _ _ P1 Ep), (phant_none _ _ _ P2 Ep); reflexivity|].
+  destruct (phant_some _ _ _ n P1 Ep) as [n1 [Ep1 H1]]; destruct (phant_some _ _ _ n P2 Ep) as [n2 [Ep2 H2]].
+  pose proof (numbering _ _ (H1 0)) as E2; rewrite H2 in E2; injection E2 as E2; rewrite Ep1, Ep2; f_equal; lia.
+Qed.
+
+Lemma var_same x y : dom p x -> bres Sg x = inl y -> bres Sg' x = inl y.
+Proof.
+  intros Hx Ex; destruct (named_or_bound y) as [Hy|Hy]; [exact (VN x y Hx Ex Hy)|].
+  destruct y as [l i]; unfold bound in Hy; cbn in Hy; subst l; exact (numbering i x Ex).
+Qed.
+
+Lemma rest_eq v : dom p1 v -> feq (flw r K v) (flw r' K' v).
+Proof.
+  intros Hv; destruct (named_or_bound v) as [Hn0|Hb]; [exact (Hk v Hn0)|].
+  destruct (bo_hit _ _ _ _ _ _ _ _ _ _ HS Hne v Hb Hv) as [x [Hx Ex]].
+  pose proof (E x Hx) as F; rewrite !fs_bres, Ex, (var_same x v Hx Ex) in F; exact F.
 Qed.
 
 End Layer3.
