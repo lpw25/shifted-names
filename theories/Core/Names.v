@@ -16,7 +16,7 @@
 
 From Stdlib Require Import List String Arith Bool StrictProp.
 Open Scope bool_scope.
-From ShiftedNames.Core Require Import Label Var Adjustment Indexed Syntax Normalise Layered LEval.
+From ShiftedNames.Core Require Import Label Var Adjustment Indexed Syntax Normalise Layered Canon LEval.
 Import ListNotations.
 
 (** ** Reification *)
@@ -700,6 +700,15 @@ Definition display_nf (F : order) (ntm : nat) (r : option word) : option (list d
   | None => None
   end.
 
+(** The canonical layered word, step by step: each segment is a context
+    form and each atom a tail under its lifts. *)
+Definition ldisplay (F : order) (ntm : nat) (l : lword) : option (list dpiece) :=
+  fold_right (fun x acc =>
+    match acc, display_nf F ntm (Some (match x with LS s => WEnd s | LA L a => WAtom SNil L a (WEnd SNil) end)) with
+    | Some r, Some ps => Some (r ++ ps)
+    | _, _ => None
+    end) (Some []) l.
+
 (** *** Materialising payloads: the terms with a payload adjustment in a
     single segment, and the segment with some of them replaced by term
     atoms. *)
@@ -918,10 +927,10 @@ Ltac names_rewrite_k a kt kn :=
       | (?e, ?env1) =>
           lazymatch collect_facts env1 (@nil (lexp * lexp)) with
           | ((?le, ?te, ?ae, ?pe), ?F) =>
-              let s := eval vm_compute in (lshow F (List.length te) e) in
+              let s := eval vm_compute in (obind (lnorm F (List.length te) e) (canon F (List.length te))) in
               lazymatch s with
-              | ShWord ?w =>
-                  let d := eval vm_compute in (display_nf F (List.length te) (Some w)) in
+              | Some ?w =>
+                  let d := eval vm_compute in (ldisplay F (List.length te) w) in
                   lazymatch d with
                   | Some ?ps =>
                       let te' := restore_terms te a in
@@ -933,8 +942,7 @@ Ltac names_rewrite_k a kt kn :=
                       else (let E := fresh "E" in assert (E : a = b) by names_eq; rewrite E; clear E; kt te')
                   | None => kn
                   end
-              | ShLarge => let te' := restore_terms te a in kt te'
-              | ShNone => kn
+              | None => kn
               end
           end
       end
