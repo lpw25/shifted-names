@@ -96,18 +96,19 @@ Definition fcomp (S U : seg) : option seg :=
     The segments computed below are compared with what they replace by
     composing; for that their entries must have distinct labels, which
     holds when each label is known to be below the ones after it. *)
-Fixpoint sabove (h : lexp) (r : seg) : bool :=
-  match r with
-  | SNil => true
-  | SEnt h' _ _ r' => match lcmp F h h' with Some Lt => sabove h r' | _ => false end
-  end.
-
 Fixpoint tdistb (t : ntgt) : bool :=
   match t with NVar _ _ => true | NBind _ w _ => wdistb w end
 with tldistb (ts : tlist) : bool :=
   match ts with TNil => true | TCons t r => tdistb t && tldistb r end
 with sdistb (s : seg) : bool :=
-  match s with SNil => true | SEnt h ts _ r => sabove h r && tldistb ts && sdistb r end
+  match s with
+  | SNil => true
+  | SEnt h ts _ r =>
+      match r with
+      | SNil => tldistb ts
+      | SEnt g _ _ _ => match lcmp F h g with Some Lt => tldistb ts && sdistb r | _ => false end
+      end
+  end
 with wdistb (w : word) : bool :=
   match w with WEnd s => sdistb s | WAtom s _ _ w' => sdistb s && wdistb w' end.
 
@@ -145,7 +146,7 @@ Definition prune (lim : lim_t) (s s1 : seg) : option (seg * seg) :=
       match mkseg [(LNone, bvars (map c (seq 0 M)), M - List.length D)],
             mkseg [(LNone, bvars (filter (fun j => negb (mem j D)) (seq 0 M)), M)] with
       | Some pi, Some iota =>
-          match scomp F ntm pi s, scomp F ntm s1 iota with Some s', Some s1' => Some (s', s1') | _, _ => None end
+          match fcomp pi s, fcomp s1 iota with Some s', Some s1' => Some (s', s1') | _, _ => None end
       | _, _ => None
       end
   end.
@@ -233,7 +234,7 @@ Definition repure (s : seg) : option seg := mkseg (map (fun '(h, ts, m) => (h, p
 Definition reroute (lim : lim_t) (s s1 : seg) : option seg :=
   match kmap lim s1 with
   | [] => Some s
-  | km => obind (kseg km) (fun kap => obind (scomp F ntm kap s) repure)
+  | km => obind (kseg km) (fun kap => obind (fcomp kap s) repure)
   end.
 
 (** Bound variables below the default region, in the order they are
@@ -251,7 +252,7 @@ Definition renumber (lim : lim_t) (s s1 : seg) : option (seg * seg) :=
   else if negb (Nat.eqb (List.length ord) M) then Some (s, s1)
   else match mkseg [(LNone, bvars (map (fun j => index_of j ord 0) (seq 0 M)), M)], mkseg [(LNone, bvars ord, M)] with
        | Some p, Some q =>
-           match scomp F ntm p s, scomp F ntm s1 q with Some s', Some s1' => Some (s', s1') | _, _ => None end
+           match fcomp p s, fcomp s1 q with Some s', Some s1' => Some (s', s1') | _, _ => None end
        | _, _ => None
        end.
 
@@ -261,7 +262,7 @@ Definition iface (lim : lim_t) (s s1 : seg) : option (seg * seg) :=
 (** The two segments after [iface], when they compose to what the two
     before compose to; otherwise unchanged. *)
 Definition pair_ok (s s1 s' s1' : seg) : bool :=
-  match scomp F ntm s1 s, scomp F ntm s1' s' with Some c1, Some c2 => seg_eqb c1 c2 | _, _ => false end.
+  match fcomp s1 s, fcomp s1' s' with Some c1, Some c2 => seg_eqb c1 c2 | _, _ => false end.
 
 Definition iface_c (s s1 : seg) : seg * seg :=
   match iface nolim s s1 with
@@ -322,12 +323,12 @@ Definition is_pure (t : ntgt) : bool := match t with NBind u (WEnd SNil) None =>
 
 (** [s] as its renaming [sa] followed by its terms on bound variables. *)
 Definition unterm (s : seg) : option (seg * list ntgt) :=
-  match scomp F ntm (shseg LNone (nterms s)) s with
+  match fcomp (shseg LNone (nterms s)) s with
   | Some s1 =>
       let '(es, T) := rents (ents s1) 0 in
       match mkseg es, tfront T SNil with
       | Some sa, Some eT =>
-          match scomp F ntm eT sa with
+          match fcomp eT sa with
           | Some s2 => if seg_eqb s2 s && forallb is_pure T && sdistb sa then Some (sa, T) else None
           | None => None
           end
@@ -479,7 +480,7 @@ Definition swap (s s1 : seg) : option (seg * seg * seg * seg) :=
       match slifts F ntm (List.length T) s1, obind (sset F LNone TNil (List.length R) nu) (tfront T),
             sset F LNone (tl_of R) 0 sg1 with
       | Some f1, Some n, Some rho =>
-          match scomp F ntm s1 s, obind (obind (scomp F ntm f1 sa) (scomp F ntm n)) (scomp F ntm rho) with
+          match fcomp s1 s, obind (obind (fcomp f1 sa) (fcomp n)) (fcomp rho) with
           | Some c1, Some c2 => if seg_eqb c1 c2 && sdistb n && sdistb rho then Some (sa, f1, n, rho) else None
           | _, _ => None
           end
@@ -541,7 +542,7 @@ Fixpoint ccons (fuel : nat) (s : seg) (K : lword) : option lword :=
       match K with
       | LS s1 :: K' =>
           if negb (has_terms s) || (bound_only s1 && no_atoms s) then
-            match scomp F ntm s1 s with
+            match fcomp s1 s with
             | Some SNil => Some K'
             | Some s' => ccons f s' K'
             | None => None
@@ -551,7 +552,7 @@ Fixpoint ccons (fuel : nat) (s : seg) (K : lword) : option lword :=
             | Some (j, sa, Kp) =>
                 match Kp with
                 | LS p1 :: Kp' =>
-                    match scomp F ntm p1 sa with
+                    match fcomp p1 sa with
                     | Some sm =>
                         match rr_up j (LS sm :: Kp') with
                         | LS x :: r => sweep (ccons f) j x r
@@ -578,12 +579,14 @@ Fixpoint ccons (fuel : nat) (s : seg) (K : lword) : option lword :=
       end
   end.
 
-Fixpoint canon (l : lword) : option lword :=
+Fixpoint canon_f (fuel : nat) (l : lword) : option lword :=
   match l with
   | [] => Some []
-  | LS s :: r => obind (canon r) (ccons (4 * List.length l + 100) s)
-  | LA L a :: r => option_map (cons (LA L a)) (canon r)
+  | LS s :: r => obind (canon_f fuel r) (ccons fuel s)
+  | LA L a :: r => option_map (cons (LA L a)) (canon_f fuel r)
   end.
+
+Definition canon (l : lword) : option lword := canon_f (4 * List.length l + 100) l.
 
 End Canon.
 
@@ -612,31 +615,6 @@ Local Notation wdist := (wdist lenv).
 Local Notation lwden := (lwden lenv tenv aenv penv).
 Local Notation lwdist := (lwdist lenv).
 
-Lemma sabove_sound h r : sabove F h r = true -> sget lenv (lden h) r = None.
-Proof.
-  induction r as [|h' ts m r IH] using seg_spine; cbn [sabove sget]; [reflexivity|].
-  destruct (lcmp F h h') as [[| |]|] eqn:E; try discriminate; intros H.
-  pose proof (lcmp_neq lenv F HF _ _ _ E ltac:(discriminate)) as Hne.
-  destruct (label_eqb (lden h') (lden h)) eqn:El; [apply label_eqb_eq in El; congruence|exact (IH H)].
-Qed.
-
-Lemma distb_sound :
-  (forall t, tdistb F t = true -> tdist t) /\ (forall ts, tldistb F ts = true -> tldist ts)
-  /\ (forall s, sdistb F s = true -> sdistd s) /\ (forall w, wdistb F w = true -> wdist w).
-Proof.
-  apply nf_mind.
-  - intros h i _; exact I.
-  - intros u w IH b H; exact (IH H).
-  - intros _; exact I.
-  - intros t IHt r IHr H; cbn [tldistb] in H; apply andb_true_iff in H as [H1 H2]; split; [exact (IHt H1)|exact (IHr H2)].
-  - intros _; exact I.
-  - intros h ts IHts m r IHr H; cbn [sdistb] in H; apply andb_true_iff in H as [H H3]; apply andb_true_iff in H as [H1 H2].
-    exact (conj (sabove_sound h r H1) (conj (IHts H2) (IHr H3))).
-  - intros s IH H; exact (IH H).
-  - intros s IHs L a w IHw H; cbn [wdistb] in H; apply andb_true_iff in H as [H1 H2]; split; [exact (IHs H1)|exact (IHw H2)].
-Qed.
-
-Definition sdistb_sound := proj1 (proj2 (proj2 distb_sound)).
 
 (** *** The merge *)
 
@@ -669,6 +647,31 @@ Proof.
   destruct (IH H) as [Hb Hs]; split; [|exact (conj Hb Hs)].
   split; [exact Hlt|exact (below_trans _ _ _ Hlt Hb)].
 Qed.
+
+Lemma distb_sound :
+  (forall t, tdistb F t = true -> tdist t) /\ (forall ts, tldistb F ts = true -> tldist ts)
+  /\ (forall s, sdistb F s = true -> sdistd s /\ sorted s) /\ (forall w, wdistb F w = true -> wdist w).
+Proof.
+  apply nf_mind.
+  - intros h i _; exact I.
+  - intros u w IH b H; exact (IH H).
+  - intros _; exact I.
+  - intros t IHt r IHr H; cbn [tldistb] in H; apply andb_true_iff in H as [H1 H2]; split; [exact (IHt H1)|exact (IHr H2)].
+  - intros _; split; exact I.
+  - intros h ts IHts m r IHr H; cbn [sdistb] in H.
+    destruct r as [|g tsg mg r'].
+    + split; [exact (conj eq_refl (conj (IHts H) I))|split; exact I].
+    + destruct (lcmp F h g) as [[| |]|] eqn:E; try discriminate.
+      apply andb_true_iff in H as [H1 H2]; destruct (IHr H2) as [Hd [Hb Hs]].
+      pose proof (lcmp_sound lenv F HF _ _ _ E) as Hlt; cbn in Hlt.
+      assert (Hbl : below (lden h) (SEnt g tsg mg r')) by (split; [exact Hlt|exact (below_trans _ _ _ Hlt Hb)]).
+      split; [exact (conj (below_get _ _ Hbl) (conj (IHts H1) Hd))|exact (conj Hbl (conj Hb Hs))].
+  - intros s IH H; exact (proj1 (IH H)).
+  - intros s IHs L a w IHw H; cbn [wdistb] in H; apply andb_true_iff in H as [H1 H2]; split; [exact (proj1 (IHs H1))|exact (IHw H2)].
+Qed.
+
+Lemma sdistb_sound s : sdistb F s = true -> sdistd s.
+Proof. intros H; exact (proj1 (proj1 (proj2 (proj2 distb_sound)) s H)). Qed.
 
 Lemma mkent_spec h ts m r : below (lden h) r ->
   (forall l j, esem l (sget lenv l (mkent h ts m r)) j
@@ -953,11 +956,11 @@ Lemma unterm_sound s sa Ts : sdistd s -> unterm F ntm s = Some (sa, Ts) ->
   sdistd sa /\ forallb (is_pure ntm) Ts = true /\ sden s = rcompose (pins (map tden Ts) ridentity) (sden sa).
 Proof.
   intros Hs; unfold unterm.
-  destruct (scomp F ntm (shseg LNone (nterms s)) s) as [s1|]; [|discriminate].
+  destruct (fcomp F ntm (shseg LNone (nterms s)) s) as [s1|]; [|discriminate].
   destruct (rents (ents s1) 0) as [es T0].
   destruct (mkseg F es) as [sa0|]; [|discriminate].
   destruct (tfront F T0 SNil) as [eT|] eqn:Et; [|discriminate].
-  destruct (scomp F ntm eT sa0) as [s2|] eqn:Ec; [|discriminate].
+  destruct (fcomp F ntm eT sa0) as [s2|] eqn:Ec; [|discriminate].
   destruct (seg_eqb s2 s && forallb (is_pure ntm) T0 && sdistb F sa0) eqn:Eb; [|discriminate].
   intros H; injection H as <- <-.
   apply andb_true_iff in Eb as [Eb H3]; apply andb_true_iff in Eb as [H1 H2].
@@ -967,7 +970,7 @@ Proof.
   { apply Forall_forall; intros t Ht; rewrite forallb_forall in H2.
     exact (proj1 (pure_target ridentity ridentity t (H2 t Ht) (fun _ _ => eq_refl))). }
   destruct (tfront_sound T0 SNil eT I HT Et) as [He De].
-  destruct (scomp_sound lenv tenv aenv penv F HF ntm Hntm _ _ _ He Hsa Ec) as [_ Dc].
+  destruct (fcomp_sound _ _ _ He Hsa Ec) as [_ Dc].
   refine (conj Hsa (conj H2 _)); rewrite Dc, De; reflexivity.
 Qed.
 
@@ -1004,10 +1007,10 @@ Proof.
   destruct (slifts F ntm (List.length Ts) s1) as [f1'|] eqn:Ef; [|discriminate].
   destruct (obind (sset F LNone TNil (List.length R) nu) (tfront F Ts)) as [n'|]; [|discriminate].
   destruct (sset F LNone (tl_of R) 0 (sdrop_none s1)) as [rho'|]; [|discriminate].
-  destruct (scomp F ntm s1 s) as [c1|] eqn:E1; [|discriminate].
-  destruct (scomp F ntm f1' sa') as [t1|] eqn:Et1; [|discriminate]; cbn [obind].
-  destruct (scomp F ntm n' t1) as [t2|] eqn:Et2; [|discriminate]; cbn [obind].
-  destruct (scomp F ntm rho' t2) as [c2|] eqn:Et3; [|discriminate].
+  destruct (fcomp F ntm s1 s) as [c1|] eqn:E1; [|discriminate].
+  destruct (fcomp F ntm f1' sa') as [t1|] eqn:Et1; [|discriminate]; cbn [obind].
+  destruct (fcomp F ntm n' t1) as [t2|] eqn:Et2; [|discriminate]; cbn [obind].
+  destruct (fcomp F ntm rho' t2) as [c2|] eqn:Et3; [|discriminate].
   destruct (seg_eqb c1 c2 && sdistb F n' && sdistb F rho') eqn:Eb; [|discriminate].
   intros H; injection H as <- <- <- <-.
   apply andb_true_iff in Eb as [Eb H3]; apply andb_true_iff in Eb as [H1 H2].
@@ -1015,10 +1018,10 @@ Proof.
   pose proof (sdistb_sound _ H2) as Hn; pose proof (sdistb_sound _ H3) as Hr.
   destruct (unterm_sound s sa' Ts Hs Eu) as [Hsa _].
   destruct (slifts_sound lenv tenv aenv penv F HF ntm Hntm _ s1 f1' Hs1 Ef) as [Hf _].
-  destruct (scomp_sound lenv tenv aenv penv F HF ntm Hntm _ _ _ Hs1 Hs E1) as [_ D1].
-  destruct (scomp_sound lenv tenv aenv penv F HF ntm Hntm _ _ _ Hf Hsa Et1) as [Ht1 Dt1].
-  destruct (scomp_sound lenv tenv aenv penv F HF ntm Hntm _ _ _ Hn Ht1 Et2) as [Ht2 Dt2].
-  destruct (scomp_sound lenv tenv aenv penv F HF ntm Hntm _ _ _ Hr Ht2 Et3) as [_ Dt3].
+  destruct (fcomp_sound _ _ _ Hs1 Hs E1) as [_ D1].
+  destruct (fcomp_sound _ _ _ Hf Hsa Et1) as [Ht1 Dt1].
+  destruct (fcomp_sound _ _ _ Hn Ht1 Et2) as [Ht2 Dt2].
+  destruct (fcomp_sound _ _ _ Hr Ht2 Et3) as [_ Dt3].
   refine (conj Hsa (conj Hf (conj Hn (conj Hr _)))); rewrite <- D1, Dt3, Dt2, Dt1; reflexivity.
 Qed.
 
@@ -1034,11 +1037,11 @@ Proof.
   apply andb_true_iff in Eb as [Eb H3]; apply andb_true_iff in Eb as [H1 H2].
   pose proof (sdistb_sound _ H2) as Ha; pose proof (sdistb_sound _ H3) as Hb.
   unfold pair_ok in H1.
-  destruct (scomp F ntm s1 s) as [c1|] eqn:E1; [|discriminate].
-  destruct (scomp F ntm b a) as [c2|] eqn:E2; [|discriminate].
+  destruct (fcomp F ntm s1 s) as [c1|] eqn:E1; [|discriminate].
+  destruct (fcomp F ntm b a) as [c2|] eqn:E2; [|discriminate].
   apply (proj1 (proj2 (proj2 nf_eqb_eq))) in H1; subst c2.
-  destruct (scomp_sound lenv tenv aenv penv F HF ntm Hntm _ _ _ Hs1 Hs E1) as [_ D1].
-  destruct (scomp_sound lenv tenv aenv penv F HF ntm Hntm _ _ _ Hb Ha E2) as [_ D2].
+  destruct (fcomp_sound _ _ _ Hs1 Hs E1) as [_ D1].
+  destruct (fcomp_sound _ _ _ Hb Ha E2) as [_ D2].
   refine (conj Ha (conj Hb _)); rewrite <- D1, <- D2; reflexivity.
 Qed.
 
@@ -1053,11 +1056,11 @@ Proof.
   destruct (pair_ok F ntm s s1 a s1 && sdistb F a) eqn:Eb; [|auto].
   apply andb_true_iff in Eb as [H1 H2]; pose proof (sdistb_sound _ H2) as Ha.
   unfold pair_ok in H1.
-  destruct (scomp F ntm s1 s) as [c1|] eqn:E1; [|discriminate].
-  destruct (scomp F ntm s1 a) as [c2|] eqn:E2; [|discriminate].
+  destruct (fcomp F ntm s1 s) as [c1|] eqn:E1; [|discriminate].
+  destruct (fcomp F ntm s1 a) as [c2|] eqn:E2; [|discriminate].
   apply (proj1 (proj2 (proj2 nf_eqb_eq))) in H1; subst c2.
-  destruct (scomp_sound lenv tenv aenv penv F HF ntm Hntm _ _ _ Hs1 Hs E1) as [_ D1].
-  destruct (scomp_sound lenv tenv aenv penv F HF ntm Hntm _ _ _ Hs1 Ha E2) as [_ D2].
+  destruct (fcomp_sound _ _ _ Hs1 Hs E1) as [_ D1].
+  destruct (fcomp_sound _ _ _ Hs1 Ha E2) as [_ D2].
   split; [exact Ha|]; rewrite <- D1, <- D2; reflexivity.
 Qed.
 
@@ -1109,8 +1112,8 @@ Proof.
     |exact (cons_seg_sound lenv tenv aenv penv F HF ntm Hntm _ s K' Hs HK)].
   inversion HK as [|? ? Hs1 HK0]; subst; cbn [ccons].
   destruct (negb (has_terms s) || (bound_only s1 && no_atoms s)).
-  { destruct (scomp F ntm s1 s) as [s'|] eqn:E; [|discriminate].
-    destruct (scomp_sound lenv tenv aenv penv F HF ntm Hntm _ _ _ Hs1 Hs E) as [Hd D].
+  { destruct (fcomp F ntm s1 s) as [s'|] eqn:E; [|discriminate].
+    destruct (fcomp_sound _ _ _ Hs1 Hs E) as [Hd D].
     assert (Hgen : lwdist K' /\ lwden K' = rcompose (lwden K0) (sden s') ->
                    lwdist K' /\ lwden K' = rcompose (lwden (LS s1 :: K0)) (sden s)).
     { intros [A B]; split; [exact A|]; rewrite B, D; cbn [Layered.lwden]; rewrite rcompose_assoc; reflexivity. }
@@ -1121,8 +1124,8 @@ Proof.
   { destruct (try_join_sound s s1 K0 j sa Kp Hs HK Ej) as [Hsa [HKp D]].
     destruct Kp as [|[p1|? ?] Kp']; try discriminate.
     inversion HKp as [|? ? Hp1 HKp']; subst.
-    destruct (scomp F ntm p1 sa) as [sm|] eqn:Em; [|discriminate]; intros H.
-    destruct (scomp_sound lenv tenv aenv penv F HF ntm Hntm _ _ _ Hp1 Hsa Em) as [Hsm Dm].
+    destruct (fcomp F ntm p1 sa) as [sm|] eqn:Em; [|discriminate]; intros H.
+    destruct (fcomp_sound _ _ _ Hp1 Hsa Em) as [Hsm Dm].
     assert (Hl : lwdist (LS sm :: Kp')) by (constructor; assumption).
     destruct (rr_up_sound j _ Hl) as [Hu Du].
     destruct (rr_up F ntm j (LS sm :: Kp')) as [|[x|? ?] r]; try discriminate.
@@ -1157,18 +1160,21 @@ Proof.
   exact (Hgen K1 H1 D1 K' (IH s' K1 K' Hs' H1 H)).
 Qed.
 
-Theorem canon_sound l : forall l', lwdist l -> canon F ntm l = Some l' -> lwdist l' /\ lwden l' = lwden l.
+Lemma canon_f_sound fuel l : forall l', lwdist l -> canon_f F ntm fuel l = Some l' -> lwdist l' /\ lwden l' = lwden l.
 Proof.
-  induction l as [|[s|L a] r IH]; intros l' Hl; cbn [canon].
+  induction l as [|[s|L a] r IH]; intros l' Hl; cbn [canon_f].
   - intros H; injection H as <-; auto.
   - inversion Hl as [|? ? Hs Hr]; subst.
-    destruct (canon F ntm r) as [r'|] eqn:E; [|discriminate]; cbn [obind]; intros H.
+    destruct (canon_f F ntm fuel r) as [r'|] eqn:E; [|discriminate]; cbn [obind]; intros H.
     destruct (IH r' Hr eq_refl) as [H1 D1]; destruct (ccons_sound _ s r' l' Hs H1 H) as [A B].
     split; [exact A|]; rewrite B, D1; reflexivity.
   - inversion Hl as [|? ? Hs Hr]; subst.
-    destruct (canon F ntm r) as [r'|] eqn:E; [|discriminate]; cbn [option_map]; intros H; injection H as <-.
+    destruct (canon_f F ntm fuel r) as [r'|] eqn:E; [|discriminate]; cbn [option_map]; intros H; injection H as <-.
     destruct (IH r' Hr eq_refl) as [H1 D1]; split; [constructor; [exact I|exact H1]|].
     cbn [Layered.lwden]; rewrite D1; reflexivity.
 Qed.
+
+Theorem canon_sound l l' : lwdist l -> canon F ntm l = Some l' -> lwdist l' /\ lwden l' = lwden l.
+Proof. apply canon_f_sound. Qed.
 
 End Sound.
