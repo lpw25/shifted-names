@@ -661,3 +661,33 @@ Proof. apply adj_eq; reflexivity. Qed.
 
 End Laws.
 
+(** ** Sharing
+
+    [share r := a in b] is [b] with [r] standing for [a]: the way an
+    adjustment that would repeat a sub-adjustment, typically a payload
+    several terms have, writes it once.  It binds adjustments only, and
+    means the same as [b] with [a] for [r] ([share_eq]). *)
+
+Section Share.
+
+Context {T : Type}.
+
+Definition share {N M K L} (a : adj T K L) (f : adj T K L -> adj T N M) : adj T N M := f a.
+
+Theorem share_eq {N M K L} (a : adj T K L) (f : adj T K L -> adj T N M) : share a f = f a.
+Proof. reflexivity. Qed.
+
+End Share.
+
+(** ** The interface is opaque
+
+    Adjustments are used only through the constructors above and their
+    laws: nothing reduces them, so [cbn] and [simpl] leave them as they
+    are written, and a [subst] is never blocked on one.  [names] (and the
+    library's own proofs, with [Transparent]) look inside. *)
+
+#[global] Opaque identity compose out_bound out_free in_bound in_free pcompose pid cform cform_id at_scope share.
+
+Notation "'share' r ':=' a 'in' b" := (share a (fun r => b))
+  (at level 200, r name, a at level 200, b at level 200, format "'[v' 'share'  r  ':='  a  'in' '/' b ']'")
+  : adj_scope.
