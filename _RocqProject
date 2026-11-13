@@ -27,6 +27,7 @@ theories/Core/LayeredUnique.v
 theories/Core/LayeredOrder.v
 theories/Core/Canon.v
 theories/Core/Keys.v
+theories/Core/Retarget.v
 theories/Core/LNormal.v
 theories/Core/LEval.v
 theories/Core/Names.v
