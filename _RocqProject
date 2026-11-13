@@ -35,6 +35,7 @@ theories/Core/LFree.v
 theories/Core/CanonF.v
 theories/Core/CanonR.v
 theories/Core/CanonB.v
+theories/Core/CanonW.v
 theories/Core/LNormal.v
 theories/Core/LEval.v
 theories/Core/Names.v
