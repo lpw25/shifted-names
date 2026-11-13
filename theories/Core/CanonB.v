@@ -190,11 +190,11 @@ Fixpoint bcore (fuel : nat) (T : list ntgt) (K : lword) {struct fuel} : option l
           match K with
           | LS S1 :: K1 =>
               if has_terms S1 then
+                if existsb is_term (ntgts S1) then layer F labs ntm E K else
                 match pcmp F K (List.length K) (List.length K1) with
                 | Some Eq => option_map (fun J => LS J :: K1) (join T S1)
                 | Some Gt => layer F labs ntm E K
                 | Some Lt =>
-                    if existsb is_term (ntgts S1) then None else
                     match rho_sw S1, mu_sw (List.length T) S1, lift_sw (List.length T) S1 with
                     | Some rho, Some mu, Some Z =>
                         match rcons F ntm rho K1 with
@@ -770,6 +770,75 @@ Proof.
         apply Res; exact (sres_pure1 lenv labs ntm S1 _ HS).
 Qed.
 
+(** *** A first layer that sends a named variable to a term is above its rest *)
+
+Lemma omax_some xs : (forall x, In x xs -> exists k, x = Some k) -> exists n, omax xs = Some n.
+Proof.
+  induction xs as [|x xs IH]; intros H; [exists 0; reflexivity|cbn [omax]].
+  destruct (H x (or_introl eq_refl)) as [k ->]; destruct (IH (fun y Hy => H y (or_intror Hy))) as [n ->]; eauto.
+Qed.
+
+Lemma sp1_tail h ts m s0 : sp1 (SEnt h ts m s0) -> sp1 s0.
+Proof.
+  intros [[Hso Hf] Ht]; cbn [sents] in Hso, Hf; inversion Hso; inversion Hf; subst.
+  split; [split; assumption|rewrite stgts_cons, Forall_app in Ht; exact (proj2 Ht)].
+Qed.
+
+Lemma depth_total W : lw1 W ->
+  (forall h i, In h labs -> exists n, vdepth F W h i = Some n)
+  /\ (forall all c, (forall p, In p c -> In (fst p) labs) -> exists n, hreg F W all c = Some n).
+Proof.
+  induction W as [|[s0|L a] r IH]; intros Hw.
+  - split; intros; eexists; reflexivity.
+  - inversion Hw as [|? ? Hs Hr]; subst; destruct (IH Hr) as [V H]; split.
+    + intros h i Hh; cbn [vdepth]; destruct (seg_tgt_total lenv labs ntm F HF Htot s0 h i Hs Hh) as [t [Et Ht]]; rewrite Et.
+      destruct t as [g j|u w b]; [exact (V g j Ht)|destruct Ht as [-> [-> _]]].
+      destruct (H false [] (fun p Hp => match Hp with end)) as [n ->]; eexists; reflexivity.
+    + intros all c Hc; cbn [hreg]; apply omax_some; intros x [<-|Hx].
+      * apply H; intros p Hp; clear -Hp Hc Hs.
+        induction s0 as [|h ts m s' IHs] using seg_spine; cbn [cbound] in Hp; [exact (Hc p Hp)|].
+        destruct Hp as [<-|Hp]; [|exact (IHs (sp1_tail _ _ _ _ Hs) Hp)].
+        cbn [fst]; apply (sshape_labs lenv labs false _ (proj1 Hs) h (tl_list ts) m); left; reflexivity.
+      * destruct (H false [] (fun p Hp => match Hp with end)) as [nt Ent]; rewrite Ent in Hx.
+        clear H; revert Hx; generalize c; induction s0 as [|h ts m s' IHs] using seg_spine; intros c0 Hx; [destruct Hx|].
+        cbn [ehd] in Hx; apply in_app_or in Hx as [Hx|Hx].
+        -- destruct (isall all h); [|destruct Hx]; apply in_map_iff in Hx as [i [<- Hi]]; apply in_seq in Hi.
+           assert (Hin : In (tnth ts i) (stgts (SEnt h ts m s'))) by (rewrite stgts_cons; apply in_or_app; left; apply tnth_in; lia).
+           pose proof (proj1 (Forall_forall _ _) (proj2 Hs) _ Hin) as Ht.
+           destruct (tnth ts i) as [g j|u w b]; cbn [tdep]; [exact (V g j Ht)|destruct Ht as [-> [-> _]]; cbn [option_map]; eauto].
+        -- apply (IHs ltac:(constructor; [exact (sp1_tail _ _ _ _ Hs)|exact Hr]) (sp1_tail _ _ _ _ Hs) c0 Hx).
+  - inversion Hw as [|? ? HL Hr]; subst; destruct (IH Hr) as [V H]; split.
+    + intros h i Hh; cbn [vdepth].
+      destruct (lcnt F h L) as [c|] eqn:Ec; [|destruct (lcnt_total labs F Htot L h (proj2 HL) Hh Ec)].
+      destruct (i <? c); [exact (V h i Hh)|apply H; intros p Hp; exact (proj1 (proj1 (Forall_forall _ _) (proj2 HL) p Hp))].
+    + intros all c Hc; cbn [hreg]; apply omax_some; intros x [<-|Hx].
+      * apply H; intros p Hp; exact (proj1 (proj1 (Forall_forall _ _) (proj2 HL) p Hp)).
+      * apply in_flat_map in Hx as [p [Hp Hx]]; destruct (isall all (fst p)); [|destruct Hx].
+        apply in_map_iff in Hx as [i [<- _]]; exact (V _ i (proj1 (proj1 (Forall_forall _ _) (proj2 HL) p Hp))).
+Qed.
+
+Lemma named_term_gt S1 K1 : lnf (LS S1 :: K1) -> lw1 (LS S1 :: K1) -> existsb is_term (ntgts S1) = true ->
+  gtP (R (LS S1 :: K1)) (R K1).
+Proof.
+  intros Hl Hw Ht; inversion Hw as [|? ? HS HK1]; subst.
+  apply existsb_exists in Ht as [t [Hin Et]]; unfold ntgts in Hin; apply in_flat_map in Hin as [[[h ts] m] [He Hin]].
+  cbn [fst snd] in Hin; apply In_nth with (d := NVar LNone 0) in Hin as [i [Hi Ei]].
+  pose proof (named_ents_in S1 _ He) as [He' Hh].
+  assert (Ex : sres S1 (mk_rvar (lden h) i) = tres lenv t).
+  { rewrite (sres_S1_ent S1 h ts m i HS He'); unfold etgt; rewrite (proj2 (Nat.ltb_lt _ _) Hi), Ei; reflexivity. }
+  pose proof (proj1 (Forall_forall _ _) (proj2 HS) t (ents_stgts S1 h ts m t He' ltac:(rewrite <- Ei; apply nth_In, Hi))) as Hp.
+  destruct t as [|u w b]; [discriminate Et|destruct Hp as [-> [-> _]]].
+  destruct (proj2 (depth_total K1 HK1) false [] (fun p Hp => match Hp with end)) as [h1 Eh].
+  pose proof (hle_iff lenv labs Hinj F HF K1 h1 (lw1_lgood _ HK1) Eh) as Hle.
+  right; exists (natl K1); split; [exact (deep_R lenv (LS S1 :: K1))|split; [exact (deep_R lenv K1)|left]].
+  exists h1; split; [apply Hle; lia|intros H].
+  assert (Hn : dom false (mk_rvar (lden h) i)) by (right; cbn; intros E; exact (Hh (lden_none lenv h E))).
+  specialize (H _ Hn); rewrite (R_seg lenv), (res_free lenv labs ntm S1 _ _ HS), Ex in H; cbn [tres dle] in H.
+  destruct h1 as [|h1]; [exact H|].
+  assert (H' : hle false h1 (R K1)) by (intros y Hy; apply H; exact Hy).
+  apply Hle in H'; lia.
+Qed.
+
 Theorem bcore_ok fuel : forall T K K' E, Forall tterm T -> T <> [] -> lnf K -> lw1 K -> ET F T = Some E ->
   bcore F labs ntm fuel T K = Some K' -> lnf K' /\ lw1 K' /\ forall v, feq (R K' v) (R (LS E :: K) v).
 Proof.
@@ -784,6 +853,8 @@ Proof.
   { intros K0 K0' H1 H2 H3 Z HZ HZt H4; exact (layer_ok lenv labs Hinj HN ntm F HF Htot Z K0 K0' H1 H2 HZ HZt H3 H4). }
   destruct K as [|[S1|L a] K1]; [exact (New _ _ Hl Hw (hor_noterm _ Hl Hw I) E HE HEt)| |exact (New _ _ Hl Hw (hor_noterm _ Hl Hw I) E HE HEt)].
   destruct (has_terms S1) eqn:Ht; [|exact (New _ _ Hl Hw (hor_noterm _ Hl Hw Ht) E HE HEt)].
+  destruct (existsb is_term (ntgts S1)) eqn:Hnt;
+    [exact (New _ _ Hl Hw (hor_gt S1 K1 Hl Hw Ht (named_term_gt S1 K1 Hl Hw Hnt)) E HE HEt)|].
   assert (Suf1 : suf (LS S1 :: K1) (List.length (LS S1 :: K1)) = LS S1 :: K1) by apply suf_all.
   assert (Suf2 : suf (LS S1 :: K1) (List.length K1) = K1) by (rewrite (suf_cons _ _ _ (le_n _)); apply suf_all).
   destruct (pcmp F (LS S1 :: K1) (List.length (LS S1 :: K1)) (List.length K1)) as [c|] eqn:Ec; [|discriminate].
@@ -797,8 +868,7 @@ Proof.
     destruct (join_ok T S1 K1 J HT Hne HS HSo EJ) as [HJ [HJt HJo]].
     split; [split; [intros ->; destruct HJt as [x [t Ex]]; discriminate Ex|split; [exact Hl1|left; split; assumption]]|].
     split; [constructor; assumption|exact (join_sem T S1 K1 J E HT HS EJ EE Hc HJ)].
-  - destruct (existsb is_term (ntgts S1)) eqn:Hnt; [discriminate|].
-    destruct (rho_sw F S1) as [rho|] eqn:Er; [|discriminate].
+  - destruct (rho_sw F S1) as [rho|] eqn:Er; [|discriminate].
     destruct (mu_sw F (List.length T) S1) as [mu|] eqn:Em; [|discriminate].
     destruct (lift_sw F (List.length T) S1) as [Z|] eqn:Ez; [|discriminate].
     destruct (rcons F ntm rho K1) as [K1'|] eqn:EK1; [|discriminate].
