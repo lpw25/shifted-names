@@ -148,3 +148,228 @@ Proof.
 Qed.
 
 End Char.
+
+(** ** The variables to look at *)
+
+Section Reps.
+
+Variable F : order.
+Variable labs : list lexp.
+
+Definition tkey_eqb (t t' : ntgt) : bool :=
+  match t, t' with
+  | NVar h j, NVar h' j' => lexp_eqb h h' && (j =? j')
+  | NBind u _ _, NBind u' _ _ => u =? u'
+  | _, _ => false
+  end.
+
+Definition desc_eqb (d d' : desc) : bool :=
+  match d, d' with
+  | DV h i, DV h' i' => lexp_eqb h h' && (i =? i')
+  | DT t e, DT t' e' => tkey_eqb t t' && (e =? e')
+  | DS a h j e, DS a' h' j' e' => (a =? a') && lexp_eqb h h' && (j =? j') && (e =? e')
+  | _, _ => false
+  end.
+
+(** The variable a result is about. *)
+Definition dvar (d : desc) : option (lexp * nat) :=
+  match d with
+  | DV h i => Some (h, i)
+  | DT (NVar h j) _ => Some (h, j)
+  | DT _ _ => None
+  | DS _ h j _ => Some (h, j)
+  end.
+
+(** Beyond [w] along [h], [follow1] goes to [h₍ᵢ₋q₊p₎], always in the
+    same way. *)
+Fixpoint gen1 (l : lword) (h : lexp) : option (nat * nat * nat) :=
+  match l with
+  | [] => Some (0, 0, 0)
+  | LS s :: r =>
+      match sfind F h s with
+      | Some (Some (ts, m)) =>
+          if has_terms s then Some (tlen ts, tlen ts, m)
+          else match gen1 r h with Some (w, q, p) => Some (tlen ts + w, tlen ts + q, m + p) | None => None end
+      | Some None => if has_terms s then Some (0, 0, 0) else gen1 r h
+      | None => None
+      end
+  | LA L a :: r => match lcnt F h L with Some c => Some (c, c, 0) | None => None end
+  end.
+
+Definition smalls (W : lword) : list (lexp * nat) :=
+  flat_map (fun h => match gen1 W h with Some (w, _, _) => map (fun i => (h, i)) (seq 0 w) | None => [] end) labs.
+
+(** The variable far along a label that reaches what [x] reaches, if any. *)
+Definition invgen (W : lword) (x : lexp * nat) : list (lexp * nat) :=
+  match follow1 F W (fst x) (snd x) with
+  | Some d =>
+      match dvar d with
+      | Some (g, j) => match gen1 W g with Some (w, q, p) => if p <=? j then [(g, j + q - p)] else [] | None => [] end
+      | None => []
+      end
+  | None => []
+  end.
+
+Definition rdom (W : lword) : list (lexp * nat) := smalls W ++ flat_map (invgen W) (smalls W).
+
+Definition keyed (W : lword) : list ((lexp * nat) * desc) :=
+  flat_map (fun x => match follow1 F W (fst x) (snd x) with Some d => [(x, d)] | None => [] end) (rdom W).
+
+Definition vltb (x y : lexp * nat) : bool :=
+  match lcmp F (fst x) (fst y) with Some Lt => true | Some Eq => snd x <? snd y | _ => false end.
+
+Definition vmin (x : lexp * nat) (l : list (lexp * nat)) : lexp * nat :=
+  fold_left (fun m z => if vltb z m then z else m) l x.
+
+(** The least variable that means the same as [x]. *)
+Definition rep (W : lword) (x : lexp * nat) : lexp * nat :=
+  match follow1 F W (fst x) (snd x) with
+  | Some d => vmin x (map fst (filter (fun e => desc_eqb (snd e) d) (keyed W)))
+  | None => x
+  end.
+
+End Reps.
+
+Section RepSound.
+
+Variable lenv : list label.
+Variable labs : list lexp.
+Hypothesis Hinj : forall h h', In h labs -> In h' labs -> lden lenv h = lden lenv h' -> h = h'.
+Variable ntm : nat.
+Variable F : order.
+Hypothesis HF : facts_ok lenv F.
+Hypothesis Htot : forall a b, In a labs -> In b labs -> lcmp F a b <> None.
+
+Local Notation lden := (lden lenv).
+Local Notation R := (R lenv).
+Local Notation sp1 := (sp1 lenv labs ntm).
+Local Notation tp1 := (tp1 labs ntm).
+Local Notation lw1 := (lw1 lenv labs ntm).
+
+Definition dok (d : desc) : Prop :=
+  match d with DT (NBind _ w b) _ => w = WEnd SNil /\ b = None | _ => True end.
+
+Lemma desc_eqb_spec d d' : dok d -> dok d' -> desc_eqb d d' = true <-> d = d'.
+Proof.
+  intros Hd Hd'; destruct d as [h i|t e|a h j e], d' as [h' i'|t' e'|a' h' j' e']; cbn [desc_eqb];
+    try (split; [discriminate|intros E; discriminate E]).
+  - rewrite andb_true_iff, lexp_eqb_eq, Nat.eqb_eq; split; [intros [-> ->]; reflexivity|intros E; injection E as -> ->; auto].
+  - rewrite andb_true_iff, Nat.eqb_eq.
+    destruct t as [g k|u w b], t' as [g' k'|u' w' b']; cbn [tkey_eqb];
+      try (split; [intros [H _]; discriminate H|intros E; discriminate E]).
+    + rewrite andb_true_iff, lexp_eqb_eq, Nat.eqb_eq; split; [intros [[-> ->] ->]; reflexivity|].
+      intros E; injection E as -> -> ->; auto.
+    + cbn in Hd, Hd'; destruct Hd as [-> ->], Hd' as [-> ->]; rewrite Nat.eqb_eq.
+      split; [intros [-> ->]; reflexivity|intros E; injection E as -> ->; auto].
+  - rewrite !andb_true_iff, lexp_eqb_eq, !Nat.eqb_eq.
+    split; [intros [[[-> ->] ->] ->]; reflexivity|intros E; injection E as -> -> -> ->; auto].
+Qed.
+
+Lemma gen1_spec W : forall h w q p, gen1 F W h = Some (w, q, p) ->
+  q <= w /\ exists f : nat -> desc, (forall j, dvar (f j) = Some (h, j)) /\ forall i, w <= i -> follow1 F W h i = Some (f (i - q + p)).
+Proof.
+  induction W as [|[s|L a] r IH]; intros h w q p; cbn [gen1].
+  - intros E; injection E as <- <- <-; split; [lia|exists (fun j => DV h j); split; [reflexivity|]].
+    intros i _; cbn; do 2 f_equal; lia.
+  - destruct (sfind F h s) as [[[ts m]|]|] eqn:Ef; [| |discriminate].
+    + destruct (has_terms s) eqn:Ht.
+      * intros E; injection E as <- <- <-; split; [lia|exists (fun j => DT (NVar h j) (List.length r)); split; [reflexivity|]].
+        intros i Hi; cbn [follow1]; unfold seg_tgt; rewrite Ef, Ht, (proj2 (Nat.ltb_ge _ _) Hi); reflexivity.
+      * destruct (gen1 F r h) as [[[w0 q0] p0]|] eqn:Eg; [|discriminate]; intros E; injection E as <- <- <-.
+        destruct (IH h w0 q0 p0 Eg) as [Hq [f [Hf Hr]]]; split; [lia|exists f; split; [exact Hf|]].
+        intros i Hi; cbn [follow1]; unfold seg_tgt; rewrite Ef, Ht, (proj2 (Nat.ltb_ge _ _)) by lia.
+        rewrite (Hr (i - tlen ts + m) ltac:(lia)); do 2 f_equal; lia.
+    + destruct (has_terms s) eqn:Ht.
+      * intros E; injection E as <- <- <-; split; [lia|exists (fun j => DT (NVar h j) (List.length r)); split; [reflexivity|]].
+        intros i _; cbn [follow1]; unfold seg_tgt; rewrite Ef, Ht; do 3 f_equal; lia.
+      * intros E; destruct (IH h w q p E) as [Hq [f [Hf Hr]]]; split; [exact Hq|exists f; split; [exact Hf|]].
+        intros i Hi; cbn [follow1]; unfold seg_tgt; rewrite Ef, Ht; exact (Hr i Hi).
+  - destruct (lcnt F h L) as [c|] eqn:Ec; [|discriminate]; intros E; injection E as <- <- <-.
+    split; [lia|exists (fun j => DS a h j (List.length r)); split; [reflexivity|]].
+    intros i Hi; cbn [follow1]; rewrite Ec, (proj2 (Nat.ltb_ge _ _) Hi); do 2 f_equal; lia.
+Qed.
+
+Lemma sfind_total s h : (forall g xs m, In (g, xs, m) (sents s) -> In g labs) -> In h labs -> sfind F h s <> None.
+Proof.
+  intros Hs Hh; induction s as [|g ts m r IH] using seg_spine; cbn [sfind]; [discriminate|].
+  pose proof (Htot h g Hh (Hs g _ m (or_introl eq_refl))) as Hc.
+  destruct (lcmp F h g) as [[]|]; [discriminate| | |destruct (Hc eq_refl)];
+    apply IH; intros g' xs m' Hi; exact (Hs g' xs m' (or_intror Hi)).
+Qed.
+
+Lemma lcnt_total L h : Forall (fun p => In (fst p) labs /\ snd p <> 0) L -> In h labs -> lcnt F h L <> None.
+Proof.
+  intros HL Hh; induction L as [|[g n] L IH]; cbn [lcnt]; [discriminate|]; inversion HL as [|? ? [Hg _] HL']; subst.
+  pose proof (Htot h g Hh Hg) as Hc; specialize (IH HL').
+  destruct (lcmp F h g) as [[]|]; [| | |destruct (Hc eq_refl)]; destruct (lcnt F h L); try discriminate; destruct (IH eq_refl).
+Qed.
+
+Lemma seg_tgt_total s h i : sp1 s -> In h labs -> exists t, seg_tgt F s h i = Some t /\ tp1 t.
+Proof.
+  intros Hs Hh; destruct (seg_tgt F s h i) as [t|] eqn:E.
+  - exists t; split; [reflexivity|]; destruct (seg_tgt_in lenv F HF s h i t E) as [[j ->]|H]; [exact Hh|].
+    exact (proj1 (Forall_forall _ _) (proj2 Hs) t H).
+  - exfalso; unfold seg_tgt in E; destruct (sfind F h s) as [[[ts m]|]|] eqn:Ef; try discriminate.
+    exact (sfind_total s h (sshape_labs lenv labs false s (proj1 Hs)) Hh Ef).
+Qed.
+
+Definition dlab (d : desc) : Prop := match dvar d with Some (g, _) => In g labs | None => True end.
+
+Lemma follow1_total W : lw1 W -> forall h i, In h labs -> exists d, follow1 F W h i = Some d /\ dok d /\ dlab d.
+Proof.
+  induction W as [|[s|L a] r IH]; intros Hw h i Hh; cbn [follow1].
+  - exists (DV h i); split; [reflexivity|split; [exact I|exact Hh]].
+  - inversion Hw as [|? ? Hs Hr]; subst.
+    destruct (seg_tgt_total s h i Hs Hh) as [t [Et Ht]]; rewrite Et.
+    destruct (has_terms s) eqn:Hts.
+    + exists (DT t (List.length r)); split; [reflexivity|].
+      destruct t as [g j|u w b]; [split; [exact I|exact Ht]|split; [destruct Ht as [-> [-> _]]; split; reflexivity|exact I]].
+    + destruct t as [g j|u w b]; [exact (IH Hr g j Ht)|exfalso].
+      destruct (seg_tgt_in lenv F HF s h i _ Et) as [[j E]|Hin]; [discriminate E|].
+      unfold has_terms in Hts; rewrite <- stgts_stargets in Hts.
+      assert (existsb is_term (stgts s) = true) by (apply existsb_exists; exists (NBind u w b); split; [exact Hin|reflexivity]).
+      congruence.
+  - inversion Hw as [|? ? HL Hr]; subst.
+    destruct (lcnt F h L) as [c|] eqn:Ec; [|destruct (lcnt_total L h (proj2 HL) Hh Ec)].
+    destruct (i <? c); [exact (IH Hr h i Hh)|].
+    exists (DS a h (i - c) (List.length r)); split; [reflexivity|split; [exact I|exact Hh]].
+Qed.
+
+Lemma gen1_total W h : lw1 W -> In h labs -> exists w q p, gen1 F W h = Some (w, q, p).
+Proof.
+  intros Hw Hh; induction W as [|[s|L a] r IH]; cbn [gen1]; [eauto|inversion Hw as [|? ? Hs Hr]; subst|].
+  - destruct (sfind F h s) as [[[ts m]|]|] eqn:Ef.
+    + destruct (has_terms s); [eauto|]; destruct (IH Hr) as [w [q [p ->]]]; eauto.
+    + destruct (has_terms s); [eauto|exact (IH Hr)].
+    + destruct (sfind_total s h (sshape_labs lenv labs false s (proj1 Hs)) Hh Ef).
+  - inversion Hw as [|? ? HL Hr]; subst.
+    destruct (lcnt F h L) as [c|] eqn:Ec; [eauto|destruct (lcnt_total L h (proj2 HL) Hh Ec)].
+Qed.
+
+(** Two variables that reach the same, one far along its label, are both
+    among the variables looked at. *)
+Lemma rdom_complete W x y : lw1 W -> In (fst x) labs -> In (fst y) labs -> x <> y ->
+  follow1 F W (fst x) (snd x) = follow1 F W (fst y) (snd y) -> follow1 F W (fst x) (snd x) <> None ->
+  In x (rdom F labs W).
+Proof.
+  intros Hw Hx Hy Hne E Hs; destruct x as [hx ix], y as [hy iy]; cbn [fst snd] in *.
+  destruct (gen1_total W hx Hw Hx) as [w [q [p Eg]]].
+  assert (Hsm : forall h i w0 q0 p0, In h labs -> gen1 F W h = Some (w0, q0, p0) -> i < w0 -> In (h, i) (smalls F labs W)).
+  { intros h i w0 q0 p0 Hh E0 Hi; unfold smalls; apply in_flat_map; exists h; split; [exact Hh|].
+    rewrite E0; apply in_map, in_seq; lia. }
+  unfold rdom; apply in_or_app.
+  destruct (Nat.lt_ge_cases ix w) as [Hi|Hi]; [left; exact (Hsm _ _ _ _ _ Hx Eg Hi)|right].
+  destruct (gen1_spec W hx w q p Eg) as [Hq [f [Hf Hr]]].
+  destruct (gen1_total W hy Hw Hy) as [w' [q' [p' Eg']]].
+  destruct (gen1_spec W hy w' q' p' Eg') as [Hq' [f' [Hf' Hr']]].
+  rewrite (Hr ix Hi) in E.
+  destruct (Nat.lt_ge_cases iy w') as [Hi'|Hi'].
+  - apply in_flat_map; exists (hy, iy); split; [exact (Hsm _ _ _ _ _ Hy Eg' Hi')|].
+    unfold invgen; cbn [fst snd]; rewrite <- E, Hf, Eg, (proj2 (Nat.leb_le _ _)) by lia.
+    left; f_equal; lia.
+  - exfalso; rewrite (Hr' iy Hi') in E; injection E as E.
+    pose proof (Hf (ix - q + p)) as A; rewrite E, Hf' in A; injection A as <- A.
+    rewrite Eg in Eg'; injection Eg' as <- <- <-; apply Hne; f_equal; lia.
+Qed.
+
+End RepSound.
