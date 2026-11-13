@@ -716,4 +716,73 @@ Proof.
         rewrite label_eqb_refl in H; discriminate.
 Qed.
 
+Lemma rv_cases W y : (exists g, In g labs /\ lden g = v_label y /\ rv W y = pv (rep F labs W (g, v_index y)))
+                    \/ (~ llab (v_label y) /\ rv W y = y).
+Proof.
+  unfold rv; destruct (find (fun g => label_eqb (lden g) (v_label y)) labs) as [g|] eqn:E.
+  - apply find_some in E as [E Hg]; apply label_eqb_eq in E; left; exists g; auto.
+  - right; split; [|reflexivity]; intros [g [Hg Eg]].
+    pose proof (find_none _ _ _ E Hg) as H; cbn in H; rewrite Eg, label_eqb_refl in H; discriminate.
+Qed.
+
+Lemma pv_rvar g y : lden g = v_label y -> pv (g, v_index y) = y.
+Proof. intros E; destruct y; unfold pv; cbn in *; rewrite E; reflexivity. Qed.
+
+Section WithW.
+
+Variable W : lword.
+Hypothesis Hl : lnf lenv labs gtP W.
+Hypothesis Hw : lw1 W.
+Hypothesis HN : In LNone labs.
+
+Lemma unm_val y : ~ llab (v_label y) ->
+  R W y = FVar y \/ exists a k, R W y = FStuck a y k.
+Proof.
+  intros Hn; destruct y as [l k]; cbn [v_label] in Hn.
+  assert (Hl0 : l <> None) by (intros ->; apply Hn; exists LNone; split; [exact HN|reflexivity]).
+  assert (Hm : ~ In l (map lden (ments W))).
+  { intros Hin; apply in_map_iff in Hin as [g [Eg Hg]]; apply Hn; exists g; split; [exact (ments_labs W Hw g Hg)|exact Eg]. }
+  rewrite (unmentioned lenv W l k Hl0 Hm); destruct (firstatom W) as [[[L a] d]|]; [right; eauto|left; reflexivity].
+Qed.
+
+Lemma rv_feq y : feq (R W (rv W y)) (R W y).
+Proof.
+  destruct (rv_cases W y) as [[g [Hg [Eg ->]]]|[_ ->]]; [|apply feq_refl].
+  destruct (rep_ok W (g, v_index y) Hl Hw HN Hg) as [_ [Fe _]]; rewrite (pv_rvar g y Eg) in Fe; exact Fe.
+Qed.
+
+Lemma rv_routed y : routed (R W) (rv W y).
+Proof.
+  destruct (rv_cases W y) as [[g [Hg [Eg ->]]]|[Hn ->]]; [exact (proj1 (proj2 (proj2 (rep_ok W (g, v_index y) Hl Hw HN Hg))))|].
+  assert (Hy : named y) by (intros E; apply Hn; rewrite E; exists LNone; split; [exact HN|reflexivity]).
+  split; [|intros Hb; destruct (Hy Hb)].
+  intros _ y' _ Fe; enough (y' = y) as -> by apply vlt_irrefl.
+  destruct (unm_val y Hn) as [Ev|[a [k Ev]]]; rewrite Ev in Fe.
+  - destruct (rv_cases W y') as [[g [Hg [Eg _]]]|[Hn' _]].
+    + pose proof (val_lab W Hw g (v_index y') Hg) as V; change (mk_rvar (lden g) (v_index y')) with (pv (g, v_index y')) in V; rewrite (pv_rvar g y' Eg) in V.
+      revert V; destruct (R W y'); cbn [feq] in Fe; try contradiction; intros V; subst; exact (False_rect _ (Hn V)).
+    + destruct (unm_val y' Hn') as [E'|[a' [k' E']]]; rewrite E' in Fe; cbn [feq] in Fe; [exact Fe|contradiction].
+  - destruct (rv_cases W y') as [[g [Hg [Eg _]]]|[Hn' _]].
+    + pose proof (val_lab W Hw g (v_index y') Hg) as V; change (mk_rvar (lden g) (v_index y')) with (pv (g, v_index y')) in V; rewrite (pv_rvar g y' Eg) in V.
+      revert V; destruct (R W y'); cbn [feq] in Fe; try contradiction; intros V; destruct Fe as [_ [<- _]]; exact (False_rect _ (Hn V)).
+    + destruct (unm_val y' Hn') as [E'|[a' [k' E']]]; rewrite E' in Fe; cbn [feq] in Fe; [contradiction|].
+      destruct Fe as [_ [-> _]]; reflexivity.
+Qed.
+
+Lemma rv_inj y y' : bound (rv W y) -> bound (rv W y') -> feq (R W (rv W y)) (R W (rv W y')) -> rv W y = rv W y'.
+Proof.
+  intros Hb Hb' Fe.
+  assert (Lb : forall z, bound (rv W z) -> exists g, In g labs /\ lden g = v_label z /\ rv W z = pv (rep F labs W (g, v_index z))).
+  { intros z Hz; destruct (rv_cases W z) as [H|[Hn E]]; [exact H|exfalso; rewrite E in Hz; apply Hn].
+    exists LNone; split; [exact HN|exact (eq_sym Hz)]. }
+  destruct (Lb y Hb) as [g [Hg [Eg Ey]]]; destruct (Lb y' Hb') as [g' [Hg' [Eg' Ey']]].
+  rewrite Ey, Ey'; f_equal.
+  destruct (rep_ok W (g, v_index y) Hl Hw HN Hg) as [_ [F1 _]].
+  destruct (rep_ok W (g', v_index y') Hl Hw HN Hg') as [_ [F2 [_ C2]]].
+  apply (C2 (g, v_index y) Hg); rewrite Ey, Ey' in Fe.
+  exact (feq_trans _ _ _ (feq_sym _ _ F1) (feq_trans _ _ _ Fe F2)).
+Qed.
+
+End WithW.
+
 End RepSound.

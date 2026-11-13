@@ -1084,7 +1084,8 @@ Lemma segok_renum S S'' io r r' :
   sp1 S ->
   (forall x y, sres S x = inl y -> routed (R r) y) ->
   (forall y u b k, R r y = FTerm u b k -> gtP (R r) k) ->
-  binj (R r) ->
+  (forall y y', bound y -> bound y' -> (exists x, sres S x = inl y) -> (exists x', sres S x' = inl y') ->
+     feq (R r y) (R r y') -> y = y') ->
   renum1 F S = Some (S'', io) ->
   (forall v, feq (R r' v) (fs io (R r) v)) ->
   (forall G, r' = [LS G] -> keq (R r') FVar -> sterm lenv G) ->
@@ -1115,7 +1116,10 @@ Proof.
   - intros x u n s i Ex; pose proof (sres_pure1 lenv labs ntm S'' x HS'') as P; rewrite Ex in P; destruct P as [P _]; discriminate P.
   - intros _ [l k] Hy; unfold bound in Hy; cbn in Hy; subst l; exact (Hh k).
   - intros [l k] [l' k'] Hy Hy' Ef; unfold bound in Hy, Hy'; cbn in Hy, Hy'; subst l l'.
-    pose proof (Hbi _ _ (Ib k) (Ib k') (feq_trans _ _ _ (feq_sym _ _ (Ev _)) (feq_trans _ _ _ Ef (Ev _)))) as e.
+    assert (Ht : forall j, exists x, sres S x = inl (sv lenv io (mk_rvar None j)))
+      by (intros j; destruct (Hh j) as [x Ex]; exists x; exact (Hc _ _ Ex)).
+    pose proof (Hbi _ _ (Ib k) (Ib k') (Ht k) (Ht k')
+                  (feq_trans _ _ _ (feq_sym _ _ (Ev _)) (feq_trans _ _ _ Ef (Ev _)))) as e.
     rewrite (Ii k k' e); reflexivity.
   - intros _; exact Hs.
 Qed.
@@ -1266,7 +1270,7 @@ Proof.
         assert (Hro : forall x y, sres S' x = inl y -> routed (R (st :: K1r)) y).
         { intros x y e; rewrite (scomp_sres Sg rho S' HSg Hr Hrr ES x) in e; exact (Hroute _ _ e). }
         destruct (fixlast_ok S'' K1' K' HS'' HS''t HlK1' HwK1'
-                    (fun Hlast => segok_renum S' S'' io (st :: K1r) K1' HS' Hro Hord Hbinj ER Sem1 Hlast) EF) as [A [B C]].
+                    (fun Hlast => segok_renum S' S'' io (st :: K1r) K1' HS' Hro Hord (fun y y' Hy Hy' _ _ => Hbinj y y' Hy Hy') ER Sem1 Hlast) EF) as [A [B C]].
         split; [exact A|split; [exact B|intros v]].
         apply (feq_trans _ _ _ (C v)); rewrite (R_seg lenv S'' K1' v).
         apply (feq_trans _ _ _ (fs_cong lenv labs ntm S'' _ _ v HS'' Sem1)).
