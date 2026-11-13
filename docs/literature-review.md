@@ -385,3 +385,45 @@ expressed as "suffix of a grammar symbol". A balanced grammar (depth
 [arXiv 1902.03568](https://arxiv.org/abs/1902.03568)) makes each suffix
 a list of `O(log N)` symbols. That is a log factor per distinct payload
 start, which is within budget.
+
+## Weaker targets: O(n) without `share`, O(n²) with it
+
+Recompression already meets these targets. Proving them is much easier
+than proving Jeż's Theorem 2, because neither needs a comparison with
+the smallest grammar.
+
+- **Without `share`.** The word is explicit, so `N ≤ n`. Each phase
+  shrinks the current word by a constant factor (Lemma 4 and block
+  compression), and creates at most as many symbols as the word has
+  letters. The geometric sum gives O(n) symbols and O(n) time.
+- **With `share`.** Run the phases on the input's grammar. Each phase
+  adds O(1) popped letters per rule, so O(n) per phase, and there are
+  O(log N) = O(n) phases. That gives O(n log N) ⊆ O(n²) symbols, and
+  O(n²) time with naive phases.
+
+The quadratic budget allows dropping all the efficiency machinery:
+radix sorting, the block encoding of Lemma 2 (use a repeat node with a
+binary count), and linear-time maintenance of the grammar.
+
+**Readback.** Inline every symbol used once; emit a `share` only for
+symbols used twice or more. Otherwise a share-free input would come
+back with a `share` per pair. This is still a function of the grammar,
+so it stays canonical.
+
+**No simpler canonical scheme is known.** Plain bisection of the word,
+hash-consed, is canonical and simple. But repeats that are not aligned
+to the split points defeat it, and its ratio is polynomial in `N`,
+hence exponential in `n`. Two other routes are no simpler: sharing
+only suffixes, or LZ77 followed by an AVL grammar. Local consistency
+(the same substring is parsed the same way wherever it occurs) is the
+essential ingredient, and recompression is the simplest known way to
+get it.
+
+**Idempotence.** It comes for free from canonicity: `canon` is a
+function of the meaning, and `canon e` means what `e` means, so
+`canon (canon e) = canon e`. For `names` this also needs:
+
+- its printed output must be reified back with the same meaning: the
+  same atoms, and `share` read as `share`;
+- the tactic must not fail with "no progress" on a goal already in
+  normal form.
