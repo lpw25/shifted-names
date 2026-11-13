@@ -271,3 +271,125 @@ leading shift `↑ᵏ` denotes `r ∘ ↑ᵏ ∘ K`, which is a different node
 unless shifts are carried on edges. Either the bound gets a factor for
 the number of distinct leading shifts, or shifts must be edge labels.
 Not yet settled.
+
+## Prototype (`proto/`)
+
+An executable model of the design. See `proto/README.md`.
+
+### Representation
+
+- **Per-label lists of entries.** An entry is `V l i`, a term
+  `T u b R`, or `S a z R`, stuck at an atom. A list ends in one of:
+  - `nilv l`: the identity, `j ↦ V l j`;
+  - `nils l a R m`: `j ↦ S a (l, j+m) R`;
+  - `nilp`: the bound inputs of a payload with no payload atom. They
+    are not observable, and `nilp` has no outputs.
+- **Nodes.** A node is a list for each label.
+- **Hash-consing.** Everything is hash-consed.
+- **References carry a post-shift.** A reference is `(s, object)`,
+  where `s` gives a count of `↑` per label, applied to outputs. Every
+  object is stored *factored*: its least output index is 0 on each
+  label it outputs. So `C` and `C ∘ ↑` are one object.
+- **Canonical lists.** A cons cell that repeats what its nil would give
+  is absorbed into the nil, so the explicit prefix is as short as
+  possible.
+- **Evaluation.** `ev a K` computes "`a`, then `K`". It is memoised on
+  the core of `K`, using `ev a (K ∘ s) = ev a K ∘ s`.
+
+### Results
+
+- **Soundness and canonicity.** On about 20,000 random expressions
+  (depth 3–4, with `share`, lifts, atoms, payload atoms and the bound
+  label), the graph means what the expression means. Equal meanings
+  give the same graph: the number of distinct graphs always equals the
+  number of distinct meanings.
+- **Idempotence.** On 6,000 random expressions,
+  `graph (print (graph e)) = graph e`, with the same meaning.
+- **Sizes** (graph objects; evaluations):
+
+  | Family | Result |
+  |---|---|
+  | chain of `L` substitutions | linear |
+  | `L` lifted atoms then a substitution | linear |
+  | well-behaved `share`: payload and tail, `⟦x := u[r] \| r⟧` | linear |
+  | well-behaved up to leading shifts: payload and `⟦· \| r⟧` | linear |
+  | the same, composed after a continuation sensitive to shifts | Θ(k²) |
+  | not well behaved: `u[r][c₁], v[r][c₂]` | exponential |
+  | insertions at depth `i` (lifts written in unary) | linear in the graph; evaluations linear in the (quadratic) input |
+
+  The Θ(k²) case is inherent: the meaning has that many distinct
+  sub-continuations. It cannot arise from a share-free history. The
+  graph depends only on the meaning, and a share-free expression of
+  size `n` has an O(n) graph.
+- **Histories.** Start share-free, then repeatedly normalise and apply
+  a random operation: compose either side, lift, outer, use as a
+  payload, or push. Evaluations stay below 11 × the share-free size of
+  the history, and graph size below 8 ×.
+
+### Two things the prototype found
+
+- **The phantom filler matters.** The unobservable bound inputs of a
+  payload without a payload atom must be a filler with no outputs
+  (`nilp`). Filling them with the identity is not invariant under
+  shifts. That made one meaning have two graphs, and made a
+  well-behaved family quadratic.
+- **Printing is free, but the obvious choice is not linear.**
+  Canonicity only needs the printer to be a deterministic function of
+  the graph. Insisting on one context form `⟦ cells | tail ⟧` per node
+  duplicates list cells that the graph shares per label. The printer
+  therefore:
+  - uses `⟦ cells | tail ⟧` only when none of the stripped cells is
+    shared;
+  - otherwise prints label by label (`⟦x: …; y: …⟧`, the new
+    per-label construct);
+  - refers to a shared list through a node whose list it is;
+  - shares every object referenced twice or more.
+
+  Output is then linear. Examples:
+
+      ⟦x := u0⟧ ∘ σ0                    ↦  ⟦x := u0 | id⟧ ∘ σ0
+      ⟦x := u0⟧ ∘ ⟦x := u1⟧ ∘ ⟦x := u0⟧  ↦  share k0 := ⟦x: u0, …id⟧ in
+                                            share k1 := ⟦x: u1[k0], …k0⟧ in
+                                            ⟦x: u0[k1], …k1⟧
+
+## Open points
+
+1. **Order of labels in the output.** Distinct label expressions are
+   assumed to denote distinct labels (as in `BUnique.Hinj`), so the
+   graph keys lists by label expression. The *printed* order of labels
+   must not depend on how reification numbered the label atoms. Two
+   label atoms that the facts do not order need some other order, for
+   example their position in the proof context.
+2. **Compact lists.** Lifts with binary counts need runs in the lists
+   (`Run c k`), or a deep lift costs its count. This is task 7.
+3. **New constructs in the output syntax:**
+   - the per-label form `⟦x: entries, …tail; y: …⟧`;
+   - an entry stuck at an atom, `z via (R ∘ σ)`.
+
+   Both denote adjustments.
+
+## Plan for the mechanisation
+
+The graph is a tree in the specification (Coq data has no sharing) and
+a hash-consed table in the implementation.
+
+1. **`Core/GForm.v`.** The canonical encoding as inductive types:
+   entries, lists with shifted tails, nodes, and references with
+   post-shifts. Its meaning is a `fres` function. Local canonicity is
+   factoring, absorbed nils and `nilp`. **Uniqueness:** two canonical
+   encodings with `feq` meanings are equal. This replaces `BUnique`
+   with a local, structural induction.
+2. **`Core/GEval.v`.** `ev` on trees, and its soundness: its meaning
+   is the meaning of the expression. With uniqueness this gives
+   canonicity, so `names; reflexivity` decides equality.
+3. **`Core/GTable.v`.** The hash-consed table: interning by structural
+   key, and evaluation memoised on (expression, core of the
+   continuation). Refinement: unfolding the table gives the tree of
+   step 2. Time bounds on paper.
+4. **`Core/GPrint.v`.** The printer, from the table to an expression
+   with `share`. It depends only on the unfolded tree. Soundness: the
+   printed expression means the graph.
+5. **Integration.** Integrate with `names`, remove the old modules
+   (`Unique`, `Normal`, `Complete`, `Merge`, `LayeredOrder`, `Canon*`,
+   `Retarget`, `Canonical`, `LFree`, `LEval`, `Layered*`, `BUnique`),
+   and update the docs.
