@@ -465,3 +465,91 @@ Proof.
 Qed.
 
 End Order.
+
+(** ** Numbering bound variables by their results
+
+    The bound variables of a rest are numbered in the order of their
+    results: a term first, then by the index of the variable reached (or
+    the variable an atom is stuck on), then by [rgt].  The numbering
+    depends on the rest only, and a variable carried around lifts keeps
+    its index. *)
+
+Definition rank (f : fres) : nat :=
+  match f with FVar v => S (v_index v) | FStuck _ z _ => S (v_index z) | FTerm _ _ _ => 0 end.
+
+Definition rlt (f g : fres) : Prop := rank f < rank g \/ (rank f = rank g /\ rgt false g f).
+
+Lemma rank_feq f g : feq f g -> rank f = rank g.
+Proof. destruct f as [v|u b k|a z k], g as [v'|u' b' k'|a' z' k']; cbn [feq rank]; try tauto; intros; subst; try reflexivity.
+  destruct H as [_ [-> _]]; reflexivity. Qed.
+
+Lemma rlt_irrefl f g : feq f g -> ~ rlt f g.
+Proof.
+  intros E [H|[_ H]]; [rewrite (rank_feq _ _ E) in H; lia|].
+  exact (proj1 (rgt_props g) f (feq_sym _ _ E) H).
+Qed.
+
+Lemma rlt_feq f f' g g' : feq f f' -> feq g g' -> rlt f g -> rlt f' g'.
+Proof.
+  intros Ef Eg [H|[He H]]; [left; rewrite <- (rank_feq _ _ Ef), <- (rank_feq _ _ Eg); exact H|].
+  right; split; [rewrite <- (rank_feq _ _ Ef), <- (rank_feq _ _ Eg); exact He|].
+  exact (proj1 (proj2 (proj2 (rgt_props g))) false g' f f' Eg Ef H).
+Qed.
+
+Lemma rlt_trans f g h : rlt f g -> rlt g h -> rlt f h.
+Proof.
+  intros [H1|[E1 H1]] [H2|[E2 H2]]; try (left; lia).
+  right; split; [congruence|exact (proj1 (proj2 (proj2 (proj2 (proj2 (rgt_props h))))) false g f H2 H1)].
+Qed.
+
+Section NumOrder.
+
+Variable lenv : list label.
+Local Notation sres := (sres lenv).
+
+Definition num_order (Sg : seg) (k : rvar -> fres) : Prop :=
+  forall i j, i < j -> rlt (k (mk_rvar None i)) (k (mk_rvar None j)).
+
+Lemma num_order_uniq Sg k Sg' k' :
+  (forall x i, sres Sg x = inl (mk_rvar None i) -> exists i', sres Sg' x = inl (mk_rvar None i')) ->
+  (forall x i', sres Sg' x = inl (mk_rvar None i') -> exists i, sres Sg x = inl (mk_rvar None i)) ->
+  (forall x x0 i i' j', sres Sg x = inl (mk_rvar None i) -> sres Sg x0 = inl (mk_rvar None i) ->
+     sres Sg' x = inl (mk_rvar None i') -> sres Sg' x0 = inl (mk_rvar None j') -> i' = j') ->
+  (forall x x0 i' i j, sres Sg' x = inl (mk_rvar None i') -> sres Sg' x0 = inl (mk_rvar None i') ->
+     sres Sg x = inl (mk_rvar None i) -> sres Sg x0 = inl (mk_rvar None j) -> i = j) ->
+  (forall i, exists x, sres Sg x = inl (mk_rvar None i)) -> (forall i, exists x, sres Sg' x = inl (mk_rvar None i)) ->
+  (forall x i i', sres Sg x = inl (mk_rvar None i) -> sres Sg' x = inl (mk_rvar None i') ->
+     feq (k (mk_rvar None i)) (k' (mk_rvar None i'))) ->
+  num_order Sg k -> num_order Sg' k' -> forall n x, sres Sg x = inl (mk_rvar None n) -> sres Sg' x = inl (mk_rvar None n).
+Proof.
+  intros Ha Ha' Hb Hb' Hs Hs' Hv Hn Hn'.
+  set (P := fun i i' => exists x, sres Sg x = inl (mk_rvar None i) /\ sres Sg' x = inl (mk_rvar None i')).
+  assert (Pf : forall i i' j', P i i' -> P i j' -> i' = j')
+    by (intros i i' j' [x [A B]] [x0 [C D]]; exact (Hb x x0 i i' j' A C B D)).
+  assert (Pi : forall i j i', P i i' -> P j i' -> i = j)
+    by (intros i j i' [x [A B]] [x0 [C D]]; exact (Hb' x x0 i' i j B D A C)).
+  assert (Pt : forall i, exists i', P i i')
+    by (intros i; destruct (Hs i) as [x Ex]; destruct (Ha x i Ex) as [i' Ex']; exists i', x; split; assumption).
+  assert (Ps : forall i', exists i, P i i')
+    by (intros i'; destruct (Hs' i') as [x Ex']; destruct (Ha' x i' Ex') as [i Ex]; exists i, x; split; assumption).
+  assert (Pv : forall i i', P i i' -> feq (k (mk_rvar None i)) (k' (mk_rvar None i')))
+    by (intros i i' [x [A B]]; exact (Hv x i i' A B)).
+  assert (Pm : forall i j i' j', i < j -> P i i' -> P j j' -> i' < j').
+  { intros i j i' j' Hij Hi Hj.
+    destruct (Nat.lt_trichotomy i' j') as [H|[<-|H]]; [exact H| |]; exfalso.
+    - pose proof (Pi _ _ _ Hi Hj); lia.
+    - pose proof (rlt_feq _ _ _ _ (Pv _ _ Hi) (Pv _ _ Hj) (Hn i j Hij)) as A.
+      exact (rlt_irrefl _ _ (feq_refl _) (rlt_trans _ _ _ A (Hn' j' i' H))). }
+  assert (Pd : forall i, P i i).
+  { induction i as [i IH] using lt_wf_ind.
+    destruct (Pt i) as [i' Hi]; destruct (Nat.lt_trichotomy i' i) as [H|[->|H]]; [exfalso| exact Hi|exfalso].
+    - pose proof (Pi _ _ _ Hi (IH i' H)); lia.
+    - destruct (Ps i) as [j Hj]; destruct (Nat.lt_trichotomy j i) as [H2|[->|H2]].
+      + pose proof (Pf _ _ _ Hj (IH j H2)); lia.
+      + pose proof (Pf _ _ _ Hi Hj); lia.
+      + pose proof (Pm _ _ _ _ H2 Hi Hj); lia. }
+  intros n x Ex; destruct (Ha x n Ex) as [n' Ex'].
+  rewrite (Pf n n' n (ex_intro _ x (conj Ex Ex')) (Pd n)) in Ex'; exact Ex'.
+Qed.
+
+End NumOrder.
