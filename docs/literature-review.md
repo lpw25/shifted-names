@@ -10,9 +10,8 @@ work do this more simply under our constraints:
 - the algorithm never expands sharing (the tree form is not the base);
 - the output size is linear in the input.
 
-Caveat: arxiv.org is not reachable from this session, so the summaries
-of arXiv papers come from abstracts and earlier knowledge, not from a
-fresh reading.
+Grabmayer–Rochel, Condoluci et al. and McBride were read in full for
+this note; the others from their abstracts and introductions.
 
 ## The lines of work
 
@@ -23,37 +22,62 @@ Grabmayer and Rochel, *Maximal sharing in the λ-calculus with letrec*
 [maxsharing](https://hackage.haskell.org/package/maxsharing-1.0.3);
 follow-up [arXiv 1902.02010](https://arxiv.org/pdf/1902.02010.pdf)).
 
-- **Method.** Translate the term to a first-order term graph (scope is
-  recorded by "abstraction prefixes" on nodes). Collapse the graph by
-  bisimulation, as in DFA minimisation (Hopcroft, O(n log n)). Read the
-  collapsed graph back as a λletrec term.
-- **Concrete canonical terms:** yes. The collapse is unique up to
-  isomorphism, and the readback is a deterministic function of an
-  ordered graph, so equal meanings give the same term. A `letrec` is
-  placed at the lowest scope that covers all its uses.
-- **Expansion:** none. The graph is linear in the input, and the
-  collapse never unfolds.
-- **Point for us:** canonicity is not a predicate on syntax with a
-  uniqueness theorem. It is the image of one function (readback ∘
-  collapse). Where a shared thing is placed is a decision the readback
-  makes, not a condition the normal form must satisfy.
+- **Method.** Translate the term to a higher-order term graph: each
+  vertex carries an *abstraction prefix*, the binders in scope. Then
+  implement it as a first-order term graph by putting *scope
+  delimiter* vertices `S` on the edges where the prefix shrinks; an `S`
+  is an explicit weakening, with a backlink to the binder it closes.
+  Collapse by bisimulation (DFA minimisation, O(n log n)), then read
+  back.
+- **Scope must be minimal.** Maximal sharing and uniqueness both need
+  *eager scope*: every vertex's prefix is as short as possible
+  (Prop. 4.11: eager-scope prefixes on a graph are unique). Otherwise
+  equal subterms in different scopes are not merged. This is
+  co-de Bruijn's discipline (§3) under another name.
+- **Readback.** A DFS spanning tree of the collapsed graph, then local
+  synthesis rules bottom-up along it. They say plainly that the
+  placement of `let`s has freedom (let-floating preserves the graph) and
+  that the readback rules *decide* it. The readback is a function of
+  the graph, but it is sensitive to the sharing of `S` vertices: it can
+  emit `let`s that are mere aliases, which they remove afterwards.
+- **Concrete canonical terms:** yes: `rb ∘ collapse ∘ ⟦·⟧` sends
+  unfolding-equal terms to the same term.
+- **Expansion and size:** nothing is unfolded, but the first-order
+  graph is **O(n²)**, and the bound is tight (Lemma 7.1, Fig. 18):
+  unary scope delimiters repeat a weakening at every edge where it
+  happens. With "S-unsharing" the output is O(n log n); the whole
+  method is O(n² log n).
+- **Point for us:**
+  - Canonicity is not a predicate on syntax with a uniqueness theorem.
+    It is the image of one function (readback ∘ collapse). Where a
+    shared thing is placed is a decision the readback makes, not a
+    condition the normal form must satisfy.
+  - Weakenings as unary nodes cost a factor of n. To stay linear,
+    shifts must be data on edges (a count or a thinning), not nodes.
 
 ### 2. Deciding sharing equality without a normal form
 
 Condoluci, Accattoli and Sacerdoti Coen, *Sharing equality is linear*
 (PPDP 2019, [paper](https://cs.paperswithcode.com/paper/sharing-equality-is-linear)).
 
-- **Method.** λ-terms as DAGs (variables are nodes, binders point to
-  them). Equality of the unfoldings is decided in linear time, in the
-  style of Paterson–Wegman unification: union-find over nodes, plus a
-  check that the merges respect scope.
-- **Concrete canonical terms:** not directly. It decides equality. The
-  equivalence classes it builds give a canonical form once each class
-  has a canonical representative, which is the readback problem of §1.
+- **Method.** λ-graphs: DAGs in locally nameless style, where a bound
+  variable node points back to its binder and every path from the root
+  to a variable passes its binder (*domination*). Sharing equality is
+  bisimilarity plus conditions on free variables. It is decided in
+  linear time, as in Paterson–Wegman unification. The algorithm keeps a
+  canonical element for each class and never has to merge two classes.
+- **Concrete canonical terms:** no. It decides equality. Picking a
+  representative per class is the readback problem of §1.
 - **Expansion:** none, linear.
-- **Point for us:** the hard part, comparing shared structure without
-  unfolding, has a linear algorithm that is local (a node pair at a
-  time). It needs no global positional conditions.
+- **Limit that matters to us.** They state that representations where
+  "every subterm is paired with an environment, representing a delayed
+  substitution" (closures, as in abstract machines with local
+  environments) *cannot be compared directly*. They must first be
+  translated to one global environment, which they leave as future
+  work. Our terms `u⟨payload⟩` are exactly such closures.
+- **Point for us:** comparing shared structure without unfolding has a
+  linear, local algorithm (a node pair at a time) when sharing is
+  global. For delayed substitutions there is no off-the-shelf answer.
 
 ### 3. Hashing modulo α and co-de Bruijn
 
@@ -68,7 +92,12 @@ Condoluci, Accattoli and Sacerdoti Coen, *Sharing equality is linear*
   its own support. A thinning (an order-preserving weakening) sits on
   each edge, and at each node the children's thinnings must cover the
   node's scope. Weakenings are put as near the root as possible, which
-  is the opposite choice from de Bruijn's.
+  is the opposite choice from de Bruijn's. Uniqueness "comes for free":
+  thinnings form a category in which the needed morphisms are unique.
+  A substitution is a *partition* of its source scope into passive
+  variables (thinned through) and active ones (with images). Applying
+  it to a term whose support is all passive is just a thinning, with no
+  traversal.
 - **Concrete canonical terms:** co-de Bruijn, yes. Every term has
   exactly one representation, and the "cover" condition is local to a
   node. Hashing gives a hash, not a term.
@@ -147,7 +176,9 @@ from. It also explains why uniqueness was provable while existence is
 still open: the rules have to be shown jointly satisfiable, and the
 algorithm has to hit exactly them (estimated at 8–15k lines).
 
-Every line of work above separates the three:
+Every line of work above separates the three. Grabmayer–Rochel also
+show what goes wrong otherwise: if scope is not kept minimal, sharing
+is lost; if weakenings are unary nodes, the size becomes quadratic.
 
 - **Nodes are meanings.** Use hash-consing or a collapse over a graph
   whose nodes stand for σ-normal substitutions and closures, with local
@@ -183,7 +214,8 @@ are:
    input, then readback) returns exactly `canon e`. This is a
    simulation proof: the algorithm's node ids stand for subtrees, and
    two ids are equal iff their subtrees are.
-3. **Size:** the graph is linear in the input. The pairs reached when
+3. **Size:** the graph is linear in the input, provided shifts are
+   counts on edges rather than unary nodes (see §1). The pairs reached when
    composing are bounded as for the current line form.
 
 Expansion appears only in the specification and the proofs, never at
@@ -193,6 +225,13 @@ equality, which our functional `fres` is not. The old tree normaliser's
 output is.
 
 ## Open questions
+
+- **Closures.** None of the papers handles sharing through delayed
+  substitutions; Condoluci et al. name it as open. Our `u⟨payload⟩` is
+  a closure whose payload is itself shared. The graph approach covers
+  it only if a payload is a node like any other (a substitution value
+  in minimal scope), so that `u⟨σ⟩` and `u⟨σ'⟩` share iff `σ` and `σ'`
+  are the same node.
 
 - **Sharing modulo renaming.** A shared core used under different shifts
   should be one node. That needs a canonical scope for each core:
