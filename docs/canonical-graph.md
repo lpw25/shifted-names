@@ -194,3 +194,80 @@ The fragment is not enforced by types: tail bindings with a rank-2
 block were considered and rejected. `share` stays as it is. Good
 performance is promised only for well-behaved uses, and `names` only
 produces well-behaved terms.
+
+## The well-behaved fragment, precisely
+
+**Syntax.** The syntax is `aexp`, `texp` and `pexp` of
+`Core/Normalise.v`, plus `share r := a in b` on `aexp` and variables
+`r`. The meanings below are those of `aeden`, `teden` and `peden`:
+
+| Expression | Meaning |
+|---|---|
+| `ACompose a b` | `a ∘ b`: `b` first, then `a` |
+| `AInner h t a` | cons: the pushed term is *not* composed with `a` |
+| `AOuter h a` | `a`, then `↑h` |
+| `ALift h a` | push `h₀`, then `a`, then `↑h` |
+| `TBindE u p` | the term `u[p]` |
+| `TShiftE h t` | `t`, then `↑h` on a variable result |
+| `PComp a p` | `a ∘ p`: `p` first, then `a`. A nested substitution `u[p][a]` is `TBindE u (PComp a p)` |
+| `PShift h p` | `p`, then `↑h` |
+
+**Continuations of occurrences.** A continuation `K` is a list of
+adjustments, applied after the occurrence in order. `occ e K` is the
+multiset of pairs `(r, K')`, one per occurrence of a `share` variable
+`r` in `e`, where `e` itself has continuation `K`:
+
+    occ r K                  = {(r, K)}
+    occ AId K = occ (AAtom n) K = ∅
+    occ (ACompose a b) K     = occ b (a :: K) ∪ occ a K
+    occ (AInner h t a) K     = occT t K ∪ occ a K
+    occ (AOuter h a) K       = occ a (↑h :: K)
+    occ (ALift h a) K        = occ a (↑h :: K)
+    occ (share r := a in b) K = (occ b K without r) ∪ ⋃ {occ a K' | (r, K') ∈ occ b K}
+
+    occT (TVarE h i) K       = ∅
+    occT (TBindE u p) K      = occP p K
+    occT (TShiftE h t) K     = occT t (↑h :: K)
+
+    occP PId K = occP (PAtom n) K = ∅
+    occP (PComp a p) K       = occP p (a :: K) ∪ occ a K
+    occP (PShift h p) K      = occP p (↑h :: K)
+
+An occurrence inside the bound adjustment of an inner `share` is
+counted once for each use of that inner variable, with that use's
+continuation.
+
+**Definition.** `share r := a in b` is *well behaved* when all
+continuations in `{K | (r, K) ∈ occ b []}` are equal, up to a leading
+list of shifts. An expression is well behaved when every `share` in it
+is.
+
+Nested substitutions are covered:
+
+- `⟦x := u[r] | r⟧` (`AInner x (TBindE u (PComp r PId)) r`): both
+  uses have continuation `[]`.
+- `⟦x := u[r][a] | r ∘ a⟧`: both uses have continuation `[a]`.
+- `u[r][a]` next to a bare `r`: the continuations are `[a]` and `[]`.
+  This is not well behaved, and it is exactly the shape of the
+  exponential example.
+
+**Closure.** A whole expression `e` gets the same continuation
+appended to all its occurrences. That holds for composition on either
+side, lift, outer, use as a payload `u[e]` or `u[p][e]`, and shifting.
+`share`s inside `e` compare continuations relative to their own body,
+so they stay well behaved. Copying `e` copies its binders. So
+well-behaved terms are closed under everything a user can do without
+writing `share`.
+
+**Output of `names`.** The graph printed with one `share` per node
+with two or more parents. Inside a `share` body, flat forms nest only
+through payloads and tails, never under composition. So every use has
+continuation `[]`, except for slot shifts in tails, which are leading
+shifts. The output is therefore well behaved.
+
+**Claim to establish.** On a well-behaved input of size `n`, the graph
+has O(n) nodes when all continuations are exactly equal. A use with a
+leading shift `↑ᵏ` denotes `r ∘ ↑ᵏ ∘ K`, which is a different node
+unless shifts are carried on edges. Either the bound gets a factor for
+the number of distinct leading shifts, or shifts must be edge labels.
+Not yet settled.
