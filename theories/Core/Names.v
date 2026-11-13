@@ -16,7 +16,7 @@
 
 From Stdlib Require Import List String Arith Bool StrictProp.
 Open Scope bool_scope.
-From ShiftedNames.Core Require Import Label Var Adjustment Indexed Syntax Normalise Layered Canon LEval.
+From ShiftedNames.Core Require Import Label Var Adjustment Indexed Syntax Normalise Layered Canon Keys Retarget Canonical LEval.
 Import ListNotations.
 
 (** ** Reification *)

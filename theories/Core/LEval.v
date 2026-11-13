@@ -7,7 +7,7 @@
     word multiplied out ([expand]). *)
 
 From Stdlib Require Import Arith List Lia Bool NArith.
-From ShiftedNames.Core Require Import Label Var Adjustment Laws Normalise Unique Normal Complete Layered Canon LNormal.
+From ShiftedNames.Core Require Import Label Var Adjustment Laws Normalise Unique Normal Complete Layered Canon Keys Retarget Canonical LNormal.
 Import ListNotations.
 
 (** Larger normal forms are not shown: as a tree, a chain of
