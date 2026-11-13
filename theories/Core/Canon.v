@@ -443,11 +443,36 @@ Definition swap (s s1 : seg) : option (seg * seg * seg * seg) :=
 
 (** ** The canonical cons *)
 
-Fixpoint recons (cc : seg -> lword -> option lword) (n : nat) (l : lword) : option lword :=
+Definition reroute_c (s s1 : seg) : seg :=
+  match reroute nolim s s1 with
+  | Some s' => if pair_ok s s1 s' s1 && sdistb s' then s' else s
+  | None => s
+  end.
+
+(** Sending variables to their representatives, for the first [n]
+    segments, from the last of them: what a segment's variables go on as
+    decides which of its own inputs have the same target. *)
+Fixpoint rr_up (n : nat) (l : lword) : lword :=
   match n, l with
-  | 0, _ => Some l
-  | S n', LS x :: l' => obind (recons cc n' l') (cc x)
-  | _, _ => None
+  | S n', LS x :: r =>
+      let r' := rr_up n' r in
+      match r' with LS y :: _ => LS (reroute_c x y) :: r' | _ => LS x :: r' end
+  | _, _ => l
+  end.
+
+(** After a join the segments passed have a new bound variable each:
+    the variables between them are put in canonical form from the front,
+    [n] segments deep, and what follows is consed as usual. *)
+Fixpoint sweep (cc : seg -> lword -> option lword) (n : nat) (s : seg) (K : lword) : option lword :=
+  match n, K with
+  | S n', LS s1 :: K' =>
+      let '(s', s1') := iface_c s s1 in
+      match s1' with
+      | SNil => cc s' K'
+      | _ => if has_terms s1' then option_map (cons (LS s')) (sweep cc n' s1' K')
+             else obind (cc s1' K') (cc s')
+      end
+  | _, _ => cc s K
   end.
 
 Definition try_join (s s1 : seg) (K : lword) : option (nat * seg * lword) :=
@@ -474,7 +499,19 @@ Fixpoint ccons (fuel : nat) (s : seg) (K : lword) : option lword :=
             end
           else
             match try_join s s1 K with
-            | Some (j, sa, Kp) => obind (recons (ccons f) j Kp) (ccons f sa)
+            | Some (j, sa, Kp) =>
+                match Kp with
+                | LS p1 :: Kp' =>
+                    match scomp F ntm p1 sa with
+                    | Some sm =>
+                        match rr_up j (LS sm :: Kp') with
+                        | LS x :: r => sweep (ccons f) j x r
+                        | _ => None
+                        end
+                    | None => None
+                    end
+                | _ => None
+                end
             | None =>
                 match try_swap s s1 K K' with
                 | Some (sa, f1, n, rho) =>
@@ -770,15 +807,59 @@ Qed.
 Definition cc_ok (cc : seg -> lword -> option lword) : Prop :=
   forall s K K', sdistd s -> lwdist K -> cc s K = Some K' -> lwdist K' /\ lwden K' = rcompose (lwden K) (sden s).
 
-Lemma recons_sound cc (Hcc : cc_ok cc) n : forall l l', lwdist l -> recons cc n l = Some l' ->
-  lwdist l' /\ lwden l' = lwden l.
+Lemma reroute_c_sound s s1 : sdistd s -> sdistd s1 ->
+  sdistd (reroute_c F ntm s s1) /\ rcompose (sden s1) (sden (reroute_c F ntm s s1)) = rcompose (sden s1) (sden s).
 Proof.
-  induction n as [|n IH]; intros l l' Hl; cbn [recons]; [intros H; injection H as <-; auto|].
-  destruct l as [|[x|L a] l0]; try discriminate.
-  inversion Hl as [|? ? Hx Hl0]; subst.
-  destruct (recons cc n l0) as [l1|] eqn:E; [|discriminate]; cbn [obind]; intros H.
-  destruct (IH l0 l1 Hl0 E) as [H1 D1]; destruct (Hcc x l1 l' Hx H1 H) as [H2 D2].
-  split; [exact H2|]; rewrite D2, D1; reflexivity.
+  intros Hs Hs1; unfold reroute_c.
+  destruct (reroute F ntm nolim s s1) as [a|]; [|auto].
+  destruct (pair_ok F ntm s s1 a s1 && sdistb F a) eqn:Eb; [|auto].
+  apply andb_true_iff in Eb as [H1 H2]; pose proof (sdistb_sound _ H2) as Ha.
+  unfold pair_ok in H1.
+  destruct (scomp F ntm s1 s) as [c1|] eqn:E1; [|discriminate].
+  destruct (scomp F ntm s1 a) as [c2|] eqn:E2; [|discriminate].
+  apply (proj1 (proj2 (proj2 nf_eqb_eq))) in H1; subst c2.
+  destruct (scomp_sound lenv tenv aenv penv F HF ntm Hntm _ _ _ Hs1 Hs E1) as [_ D1].
+  destruct (scomp_sound lenv tenv aenv penv F HF ntm Hntm _ _ _ Hs1 Ha E2) as [_ D2].
+  split; [exact Ha|]; rewrite <- D1, <- D2; reflexivity.
+Qed.
+
+Lemma rr_up_sound n : forall l, lwdist l -> lwdist (rr_up F ntm n l) /\ lwden (rr_up F ntm n l) = lwden l.
+Proof.
+  induction n as [|n IH]; intros l Hl; [destruct l as [|[?|? ?] ?]; auto|].
+  destruct l as [|[x|L a] r]; [auto| |auto].
+  inversion Hl as [|? ? Hx Hr]; subst; cbn [rr_up].
+  destruct (IH r Hr) as [H1 D1].
+  destruct (rr_up F ntm n r) as [|[y|L a] r0] eqn:E.
+  - split; [constructor; assumption|]; cbn [Layered.lwden] in *; rewrite D1; reflexivity.
+  - inversion H1 as [|? ? Hy Hr0]; subst.
+    destruct (reroute_c_sound x y Hx Hy) as [Hx' Dx].
+    split; [constructor; [exact Hx'|exact H1]|].
+    cbn [Layered.lwden] in *; rewrite <- D1, <- !rcompose_assoc, Dx; reflexivity.
+  - split; [constructor; assumption|]; cbn [Layered.lwden] in *; rewrite D1; reflexivity.
+Qed.
+
+Lemma sweep_sound cc (Hcc : cc_ok cc) n : forall s K K', sdistd s -> lwdist K -> sweep F ntm cc n s K = Some K' ->
+  lwdist K' /\ lwden K' = rcompose (lwden K) (sden s).
+Proof.
+  induction n as [|n IH]; intros s K K' Hs HK; [destruct K as [|[?|? ?] ?]; exact (Hcc s _ K' Hs HK)|].
+  destruct K as [|[s1|L a] K0]; [exact (Hcc s _ K' Hs HK)| |exact (Hcc s _ K' Hs HK)].
+  inversion HK as [|? ? Hs1 HK0]; subst; cbn [sweep].
+  destruct (iface_c F ntm s s1) as [s' s1'] eqn:Ei.
+  destruct (iface_c_sound s s1 s' s1' Hs Hs1 Ei) as [Hs' [Hs1' D]].
+  assert (Hgen : forall X, lwdist X -> lwden X = rcompose (lwden K0) (sden s1') ->
+            forall Y, lwdist Y /\ lwden Y = rcompose (lwden X) (sden s') ->
+            lwdist Y /\ lwden Y = rcompose (lwden (LS s1 :: K0)) (sden s)).
+  { intros X HX DX Y [A B]; split; [exact A|]; rewrite B, DX; cbn [Layered.lwden]; rewrite <- !rcompose_assoc, D; reflexivity. }
+  destruct s1' as [|h ts m r].
+  { intros H; refine (Hgen K0 HK0 _ K' (Hcc s' K0 K' Hs' HK0 H)).
+    change (sden SNil) with (@ridentity T); rewrite rcompose_identity_r; reflexivity. }
+  destruct (has_terms (SEnt h ts m r)).
+  - destruct (sweep F ntm cc n (SEnt h ts m r) K0) as [K1|] eqn:E1; [|discriminate]; cbn [option_map]; intros H; injection H as <-.
+    destruct (IH _ K0 K1 Hs1' HK0 E1) as [H1 D1].
+    apply (Hgen K1 H1 D1); split; [constructor; assumption|reflexivity].
+  - destruct (cc (SEnt h ts m r) K0) as [K1|] eqn:E1; [|discriminate]; cbn [obind]; intros H.
+    destruct (Hcc _ K0 K1 Hs1' HK0 E1) as [H1 D1].
+    exact (Hgen K1 H1 D1 K' (Hcc s' K1 K' Hs' H1 H)).
 Qed.
 
 Lemma ccons_sound fuel : cc_ok (ccons F ntm fuel).
@@ -800,9 +881,16 @@ Proof.
     change (sden SNil) with (@ridentity T); rewrite rcompose_identity_r; reflexivity. }
   destruct (try_join F ntm s s1 (LS s1 :: K0)) as [[[j sa] Kp]|] eqn:Ej.
   { destruct (try_join_sound s s1 K0 j sa Kp Hs HK Ej) as [Hsa [HKp D]].
-    destruct (recons (ccons F ntm f) j Kp) as [Kq|] eqn:Er; [|discriminate]; cbn [obind]; intros H.
-    destruct (recons_sound _ IH j Kp Kq HKp Er) as [HKq Dq].
-    destruct (IH sa Kq K' Hsa HKq H) as [A B]; split; [exact A|]; rewrite B, Dq; exact D. }
+    destruct Kp as [|[p1|? ?] Kp']; try discriminate.
+    inversion HKp as [|? ? Hp1 HKp']; subst.
+    destruct (scomp F ntm p1 sa) as [sm|] eqn:Em; [|discriminate]; intros H.
+    destruct (scomp_sound lenv tenv aenv penv F HF ntm Hntm _ _ _ Hp1 Hsa Em) as [Hsm Dm].
+    assert (Hl : lwdist (LS sm :: Kp')) by (constructor; assumption).
+    destruct (rr_up_sound j _ Hl) as [Hu Du].
+    destruct (rr_up F ntm j (LS sm :: Kp')) as [|[x|? ?] r]; try discriminate.
+    inversion Hu as [|? ? Hx Hr]; subst.
+    destruct (sweep_sound _ IH j x r K' Hx Hr H) as [A B]; split; [exact A|].
+    cbn [Layered.lwden] in Du; rewrite B, Du, Dm, rcompose_assoc; exact D. }
   destruct (try_swap F ntm s s1 (LS s1 :: K0) K0) as [[[[sa f1] n] rho]|] eqn:Esw.
   { unfold try_swap in Esw; destruct (named_term s1 || negb (has_terms s1) || above F (LS s1 :: K0) K0); [discriminate|].
     destruct (swap_sound s s1 sa f1 n rho Hs Hs1 Esw) as [Hsa [Hf [Hn [Hr D]]]].
