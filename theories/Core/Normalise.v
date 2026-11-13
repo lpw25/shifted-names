@@ -696,6 +696,18 @@ Definition bnorm (b : option nat) (w : word) : word :=
 
 (** *** Composing with a segment on the left *)
 
+(** The entry of the label of the last variable looked up, with the
+    place reached in its list of targets: a run of variables of one
+    label in increasing order is one pass over that list. *)
+Definition cursor : Type := (lexp * option (nat * nat * list ntgt * nat * list ntgt))%type.
+
+Definition cload (S : seg) (h : lexp) : option cursor :=
+  match sfind h S with
+  | None => None
+  | Some None => Some (h, None)
+  | Some (Some (tsS, mS)) => Some (h, Some (tlen tsS, mS, tl_list tsS, 0, tl_list tsS))
+  end.
+
 Section Comp.
 
 Variable S : seg.
@@ -717,11 +729,37 @@ with tlapp (ts : tlist) : option tlist :=
   | TNil => Some TNil
   | TCons t r => match tapp t, tlapp r with Some t', Some r' => Some (TCons t' r') | _, _ => None end
   end
+with tlappc (c : option cursor) (ts : tlist) {struct ts} : option tlist :=
+  match ts with
+  | TNil => Some TNil
+  | TCons (NVar h i) r =>
+      match (match c with
+             | Some (hc, e) => if lexp_eqb hc h then Some (h, e) else cload S h
+             | None => cload S h
+             end) with
+      | None => None
+      | Some (_, None) =>
+          match tlappc (Some (h, None)) r with Some r' => Some (TCons (NVar h i) r') | None => None end
+      | Some (_, Some (n, mS, full, pos, suf)) =>
+          if i <? n then
+            let suf' := if pos <=? i then skipn (i - pos) suf else skipn i full in
+            match tlappc (Some (h, Some (n, mS, full, i, suf'))) r with
+            | Some r' => Some (TCons (hd (NVar LNone 0) suf') r')
+            | None => None
+            end
+          else match tlappc (Some (h, Some (n, mS, full, pos, suf))) r with
+               | Some r' => Some (TCons (NVar h (i - n + mS)) r')
+               | None => None
+               end
+      end
+  | TCons t r =>
+      match tapp t, tlappc c r with Some t', Some r' => Some (TCons t' r') | _, _ => None end
+  end
 with sgo (U : seg) : option seg :=
   match U with
   | SNil => Some S
   | SEnt h ts m r =>
-      match sgo r, tlapp ts, sfind h S with
+      match sgo r, tlappc None ts, sfind h S with
       | Some R, Some ts', Some e =>
           let '(tsS, mS) := ofe e in
           sset h (tcat ts' (tskip m tsS)) (if tlen tsS <=? m then m - tlen tsS + mS else mS) R
@@ -1385,6 +1423,49 @@ Lemma tlapp_cons S t r :
   = match tapp F ntm S t, tlapp F ntm S r with Some t', Some r' => Some (TCons t' r') | _, _ => None end.
 Proof. reflexivity. Qed.
 
+Lemma hd_skipn_nth (l : list ntgt) i d : hd d (skipn i l) = nth i l d.
+Proof. revert l; induction i as [|i IH]; intros [|x r]; cbn; auto. Qed.
+
+Lemma tnth_nth ts : forall j, tnth ts j = nth j (tl_list ts) (NVar LNone 0).
+Proof. induction ts as [|t r IH] using tlist_spine; intros [|j]; cbn; auto. Qed.
+
+Definition cinv (S : seg) (c : option cursor) : Prop :=
+  match c with
+  | None => True
+  | Some (hc, None) => sfind F hc S = Some None
+  | Some (hc, Some (n, mS, full, pos, suf)) =>
+      exists tsS, sfind F hc S = Some (Some (tsS, mS)) /\ n = tlen tsS /\ full = tl_list tsS /\ suf = skipn pos full
+  end.
+
+Lemma tlappc_eq S ts : forall c, cinv S c -> tlappc F ntm S c ts = tlapp F ntm S ts.
+Proof using.
+  induction ts as [|t r IH] using tlist_spine; intros c Hc; [reflexivity|].
+  rewrite tlapp_cons; destruct t as [h i|u w b].
+  - cbn [tlappc]; rewrite tapp_var.
+    assert (Hl : exists c', (match c with
+                             | Some (hc, e) => if lexp_eqb hc h then Some (h, e) else cload F S h
+                             | None => cload F S h
+                             end) = c' /\ match c' with Some (h', _) => h' = h /\ cinv S c' | None => sfind F h S = None end).
+    { assert (Hload : match cload F S h with Some (h', _) => h' = h /\ cinv S (cload F S h) | None => sfind F h S = None end).
+      { unfold cload; destruct (sfind F h S) as [[[tsS mS]|]|] eqn:E; [|split; [reflexivity|exact E]|reflexivity].
+        split; [reflexivity|]; exists tsS; repeat split; exact E. }
+      destruct c as [[hc e]|]; [|eexists; split; [reflexivity|]; destruct (cload F S h) as [[h' e']|]; exact Hload].
+      destruct (lexp_eqb hc h) eqn:Eh; [|eexists; split; [reflexivity|]; destruct (cload F S h) as [[h' e']|]; exact Hload].
+      apply lexp_eqb_eq in Eh; subst hc; eexists; split; [reflexivity|]; split; [reflexivity|exact Hc]. }
+    destruct Hl as [c' [-> Hc']]; destruct c' as [[h' e]|]; [|rewrite Hc'; reflexivity].
+    destruct Hc' as [-> Hc']; destruct e as [[[[[n mS] full] pos] suf]|]; cbn [cinv] in Hc'.
+    + destruct Hc' as [tsS [Ef [-> [-> ->]]]]; rewrite Ef.
+      destruct (i <? tlen tsS) eqn:Ei.
+      * rewrite IH by (exists tsS; repeat split; [exact Ef|destruct (pos <=? i) eqn:Ep; [apply Nat.leb_le in Ep; rewrite skipn_skipn, Nat.sub_add by exact Ep; reflexivity|reflexivity]]).
+        assert (Eh : hd (NVar LNone 0) (if pos <=? i then skipn (i - pos) (skipn pos (tl_list tsS)) else skipn i (tl_list tsS)) = tnth tsS i).
+        { rewrite tnth_nth, <- hd_skipn_nth; destruct (pos <=? i) eqn:Ep; [|reflexivity].
+          apply Nat.leb_le in Ep; rewrite skipn_skipn, Nat.sub_add by exact Ep; reflexivity. }
+        rewrite Eh; destruct (tlapp F ntm S r); reflexivity.
+      * rewrite IH by (exists tsS; repeat split; exact Ef); destruct (tlapp F ntm S r); reflexivity.
+    + rewrite Hc', IH by exact Hc'; destruct (tlapp F ntm S r); reflexivity.
+  - cbn [tlappc]; rewrite IH by exact Hc; reflexivity.
+Qed.
+
 Lemma sgo_ent S h ts m r :
   sgo F ntm S (SEnt h ts m r)
   = match sgo F ntm S r, tlapp F ntm S ts, sfind F h S with
@@ -1393,7 +1474,7 @@ Lemma sgo_ent S h ts m r :
         sset F h (tcat ts' (tskip m tsS)) (if tlen tsS <=? m then m - tlen tsS + mS else mS) R
     | _, _, _ => None
     end.
-Proof. reflexivity. Qed.
+Proof using. rewrite <- (tlappc_eq S ts None I); reflexivity. Qed.
 
 Lemma wapp_end S U :
   wapp F ntm S (WEnd U) = match sgo F ntm S U with Some U' => Some (WEnd U') | None => None end.

@@ -19,6 +19,7 @@ theories/Core/Laws.v
 theories/Core/Scoped.v
 theories/Core/Indexed.v
 theories/Core/Normalise.v
+theories/Core/Merge.v
 theories/Core/Unique.v
 theories/Core/Normal.v
 theories/Core/Complete.v
