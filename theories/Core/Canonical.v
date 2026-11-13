@@ -143,22 +143,31 @@ Definition settled (t : ntgt) : bool :=
   | _ => false
   end.
 
-(** [s] as its renaming [sa] followed by its terms on bound variables. *)
-Definition unterm (s : seg) : option (seg * list ntgt) :=
-  match fcomp F ntm (shseg LNone (nterms s)) s with
-  | Some s1 =>
-      let '(es, _) := rents (ents s1) 0 in
-      let '(_, T) := rents (ents s) 0 in
-      match mkseg F es, tfront F T SNil with
-      | Some sa, Some eT =>
-          match fcomp F ntm eT sa with
-          | Some s2 => if seg_eqb s2 s && forallb (tdistb F) T && sdistb F sa then Some (sa, T) else None
-          | None => None
-          end
-      | _, _ => None
-      end
-  | None => None
+(** [s] as its renaming [sa] followed by its terms on bound variables:
+    each term becomes a new bound variable, in order from [k], and the
+    other bound variables move up by the number [n] of terms. *)
+Fixpoint uts (n : nat) (ts : list ntgt) (k : nat) : list ntgt * list ntgt :=
+  match ts with
+  | [] => ([], [])
+  | NBind u w b :: r => let '(r', T) := uts n r (S k) in (NVar LNone k :: r', NBind u w b :: T)
+  | NVar LNone i :: r => let '(r', T) := uts n r k in (NVar LNone (i + n) :: r', T)
+  | NVar g i :: r => let '(r', T) := uts n r k in (NVar g i :: r', T)
   end.
+
+Fixpoint uents (n : nat) (es : list (lexp * tlist * nat)) (k : nat) : list (lexp * tlist * nat) * list ntgt :=
+  match es with
+  | [] => ([], [])
+  | (h, ts, m) :: r =>
+      let '(ts', T) := uts n (tl_list ts) k in
+      let '(r', T') := uents n r (k + List.length T) in
+      ((h, tl_of ts', match h with LNone => m + n | _ => m end) :: r', T ++ T')
+  end.
+
+Definition unterm (s : seg) : option (seg * list ntgt) :=
+  let n := nterms s in
+  let es0 := ents s ++ (if existsb (fun e => is_bound (fst (fst e))) (ents s) then [] else [(LNone, TNil, 0)]) in
+  let '(es, T) := uents n es0 0 in
+  option_map (fun sa => (sa, T)) (mkseg F es).
 
 (** The part of a segment for the bound label. *)
 Definition bpart_o (A : seg) : option seg :=
@@ -1353,26 +1362,186 @@ Qed.
 Local Notation fcomp_ok := (fcomp_sound lenv tenv aenv penv F HF ntm Hntm).
 Local Notation sdb := (sdistb_sound lenv F HF).
 
-Lemma unterm_sound s sa Ts : sdistd s -> unterm F ntm s = Some (sa, Ts) ->
+Lemma pins_apply (ts : list (rtarget T)) : forall l j,
+  rapply (pins ts ridentity) (mk_rvar l j)
+  = match l with
+    | None => if j <? List.length ts then rtarget_result (nth j ts (RRename (mk_rvar None 0)))
+              else inl (mk_rvar None (j - List.length ts))
+    | Some _ => inl (mk_rvar l j)
+    end.
+Proof.
+  induction ts as [|t ts IH]; intros l j; cbn [pins fold_right List.length].
+  - rewrite rapply_identity; destruct l; [reflexivity|]; cbn; do 2 f_equal; lia.
+  - fold (pins ts ridentity); rewrite rapply_push_inner; unfold rvar_eqb, unshift_rvar; cbn [v_label v_index].
+    destruct l as [x|].
+    + replace (label_eqb (Some x) None) with false by (symmetry; apply label_eqb_neq; discriminate).
+      replace (label_eqb None (Some x)) with false by (symmetry; apply label_eqb_neq; discriminate).
+      cbn [andb]; exact (IH (Some x) j).
+    + rewrite label_eqb_refl; cbn [andb]; destruct j as [|j]; [reflexivity|].
+      replace (Nat.eqb (S j) 0) with false by reflexivity; replace (0 <? S j) with true by reflexivity.
+      replace (S j - 1) with j by lia; rewrite (IH None j).
+      change (S j <? S (List.length ts)) with (j <? List.length ts); reflexivity.
+Qed.
+
+Section Unterm.
+
+Variable Tall : list ntgt.
+Let P := pins (map tden Tall) (@ridentity T).
+Let n := List.length Tall.
+
+Lemma uts_spec : forall ts k ts' T0, uts n ts k = (ts', T0) ->
+  (exists pre post, Tall = pre ++ T0 ++ post /\ List.length pre = k) ->
+  List.length ts' = List.length ts /\ Forall tdist ts'
+  /\ forall i, i < List.length ts ->
+       cres P (rtarget_result (tden (nth i ts' (NVar LNone 0)))) = rtarget_result (tden (nth i ts (NVar LNone 0))).
+Proof.
+  induction ts as [|t r IH]; intros k ts' T0; cbn [uts].
+  - intros H _; injection H as <- <-; split; [reflexivity|split; [constructor|intros i Hi; cbn in Hi; lia]].
+  - destruct t as [g i0|u w b].
+    + assert (Hv : forall x, (let '(r', T1) := uts n r k in (x :: r', T1)) = (ts', T0) ->
+                cres P (rtarget_result (tden x)) = rtarget_result (tden (NVar g i0)) -> tdist x ->
+                (exists pre post, Tall = pre ++ T0 ++ post /\ List.length pre = k) ->
+                List.length ts' = List.length (NVar g i0 :: r) /\ Forall tdist ts'
+                /\ forall i, i < List.length (NVar g i0 :: r) ->
+                     cres P (rtarget_result (tden (nth i ts' (NVar LNone 0))))
+                     = rtarget_result (tden (nth i (NVar g i0 :: r) (NVar LNone 0)))).
+      { intros x H Hx Dx Hp; destruct (uts n r k) as [r' T1] eqn:Er; injection H as <- <-.
+        destruct (IH k r' T1 Er Hp) as [A [B C]]; split; [cbn [List.length]; rewrite A; reflexivity|].
+        split; [constructor; assumption|]; intros [|i] Hi; [exact Hx|]; cbn [nth]; apply C; cbn in Hi; lia. }
+      destruct g as [|x|x].
+      * intros H; apply (Hv _ H); [|exact I]; cbn [Normalise.tden rtarget_result cres Normalise.lden].
+        unfold P; rewrite pins_apply, length_map; fold n.
+        destruct (Nat.ltb_spec (i0 + n) n) as [Hlt|_]; [lia|]; do 2 f_equal; lia.
+      * intros H; apply (Hv _ H); [|exact I]; cbn [Normalise.tden rtarget_result cres Normalise.lden].
+        unfold P; rewrite pins_apply; reflexivity.
+      * intros H; apply (Hv _ H); [|exact I]; cbn [Normalise.tden rtarget_result cres Normalise.lden].
+        unfold P; rewrite pins_apply; reflexivity.
+    + destruct (uts n r (S k)) as [r' T1] eqn:Er; intros H; injection H as <- <-; intros [pre [post [E Hl]]].
+      assert (Hp : exists pre0 post0, Tall = pre0 ++ T1 ++ post0 /\ List.length pre0 = S k).
+      { exists (pre ++ [NBind u w b]), post; split; [rewrite <- app_assoc; exact E|rewrite length_app; cbn; lia]. }
+      destruct (IH (S k) r' T1 Er Hp) as [A [B C]]; split; [cbn [List.length]; rewrite A; reflexivity|].
+      split; [constructor; [exact I|exact B]|]; intros [|i] Hi; [|cbn [nth]; apply C; cbn in Hi; lia].
+      cbn [nth Normalise.tden rtarget_result cres Normalise.lden].
+      unfold P; rewrite pins_apply, length_map.
+      assert (Hk : k < List.length Tall) by (rewrite E, !length_app; cbn [List.length]; lia).
+      destruct (Nat.ltb_spec k (List.length Tall)) as [_|Hge]; [|lia].
+      rewrite (nth_indep _ _ (tden (NVar LNone 0))) by (rewrite length_map; exact Hk).
+      rewrite (map_nth tden), E, app_nth2 by lia; rewrite Hl, Nat.sub_diag; reflexivity.
+Qed.
+
+Lemma uents_spec : forall es k es' T0, uents n es k = (es', T0) ->
+  (exists pre post, Tall = pre ++ T0 ++ post /\ List.length pre = k) ->
+  Forall (fun e => tldist (snd (fst e))) es'
+  /\ forall l, match efind lenv l es, efind lenv l es' with
+               | None, None => True
+               | Some e, Some e' => forall j, cres P (esem l (Some e') j) = esem l (Some e) j
+               | _, _ => False
+               end.
+Proof.
+  induction es as [|[[h ts] m] r IH]; intros k es' T0; cbn [uents].
+  - intros H _; injection H as <- <-; split; [constructor|intros l; exact I].
+  - destruct (uts n (tl_list ts) k) as [ts' T1] eqn:Et.
+    destruct (uents n r (k + List.length T1)) as [r' T2] eqn:Er; intros H; injection H as <- <-.
+    intros [pre [post [E Hl]]].
+    assert (Hp1 : exists pre0 post0, Tall = pre0 ++ T1 ++ post0 /\ List.length pre0 = k).
+    { exists pre, (T2 ++ post); split; [rewrite E, <- app_assoc; reflexivity|exact Hl]. }
+    destruct (uts_spec _ _ _ _ Et Hp1) as [A [B C]].
+    assert (Hp : exists pre0 post0, Tall = pre0 ++ T2 ++ post0 /\ List.length pre0 = k + List.length T1).
+    { exists (pre ++ T1), post; split; [rewrite E, <- !app_assoc; reflexivity|rewrite length_app; lia]. }
+    destruct (IH _ _ _ Er Hp) as [HF0 Hr]; split; [constructor; [exact (tldist_of lenv _ B)|exact HF0]|].
+    intros l; cbn [efind]; destruct (label_eqb_spec (lden h) l) as [<-|Hne]; [|exact (Hr l)].
+    intros j; rewrite !(esem_lsem lenv tenv aenv penv), tl_list_of; unfold Normalise.lsem; rewrite A.
+    destruct (Nat.ltb_spec j (List.length (tl_list ts))) as [Hj|Hj]; [exact (C j Hj)|].
+    cbn [cres]; unfold P; rewrite pins_apply, length_map; fold n.
+    destruct h as [|x|x]; cbn [Normalise.lden]; [|reflexivity|reflexivity].
+    destruct (Nat.ltb_spec (j - List.length (tl_list ts) + (m + n)) n) as [Hlt|_]; [lia|]; do 2 f_equal; lia.
+Qed.
+
+End Unterm.
+
+Lemma uts_terms n : forall ts k ts' T0, uts n ts k = (ts', T0) -> T0 = filter is_term ts.
+Proof.
+  induction ts as [|t r IH]; intros k ts' T0; cbn [uts filter].
+  - intros H; injection H as <- <-; reflexivity.
+  - destruct t as [g i0|u w b]; cbn [is_term].
+    + assert (Hv : forall x, (let '(r', T1) := uts n r k in (x :: r', T1)) = (ts', T0) -> T0 = filter is_term r).
+      { intros x; destruct (uts n r k) as [r' T1] eqn:Er; intros H; injection H as <- <-; exact (IH _ _ _ Er). }
+      destruct g; exact (Hv _).
+    + destruct (uts n r (S k)) as [r' T1] eqn:Er; intros H; injection H as <- <-; rewrite (IH _ _ _ Er); reflexivity.
+Qed.
+
+Lemma uents_terms n : forall es k es' T0, uents n es k = (es', T0) ->
+  T0 = filter is_term (flat_map (fun e => tl_list (snd (fst e))) es).
+Proof.
+  induction es as [|[[h ts] m] r IH]; intros k es' T0; cbn [uents flat_map fst snd].
+  - intros H; injection H as <- <-; reflexivity.
+  - destruct (uts n (tl_list ts) k) as [ts' T1] eqn:Et.
+    destruct (uents n r (k + List.length T1)) as [r' T2] eqn:Er; intros H; injection H as <- <-.
+    rewrite filter_app, (uts_terms _ _ _ _ _ Et), (IH _ _ _ Er); reflexivity.
+Qed.
+
+Lemma stargets_ents s : stargets s = flat_map (fun e => tl_list (snd (fst e))) (ents s).
+Proof. induction s as [|h ts m r IH] using seg_spine; [reflexivity|]; cbn [stargets ents flat_map fst snd]; rewrite IH; reflexivity. Qed.
+
+Lemma efind_ents l s : efind lenv l (ents s) = sget l s.
+Proof.
+  induction s as [|h ts m r IH] using seg_spine; [reflexivity|]; cbn [ents efind Normalise.sget].
+  destruct (label_eqb (lden h) l); [reflexivity|exact IH].
+Qed.
+
+Lemma efind_in l es e : In e es -> lden (fst (fst e)) = l -> efind lenv l es <> None.
+Proof.
+  induction es as [|[[h ts] m] r IH]; [intros []|]; cbn [efind]; intros [<-|Hin] Hl; cbn [fst] in *.
+  - destruct (label_eqb_spec (lden h) l); [discriminate|contradiction].
+  - destruct (label_eqb (lden h) l); [discriminate|exact (IH Hin Hl)].
+Qed.
+
+Lemma efind_app l a b : efind lenv l (a ++ b) = match efind lenv l a with Some e => Some e | None => efind lenv l b end.
+Proof.
+  induction a as [|[[h ts] m] r IH]; [reflexivity|]; cbn [app efind].
+  destruct (label_eqb (lden h) l); [reflexivity|exact IH].
+Qed.
+
+Lemma unterm_sound s sa Ts : sdistd s -> unterm F s = Some (sa, Ts) ->
   sdistd sa /\ Forall tdist Ts /\ sden s = rcompose (pins (map tden Ts) ridentity) (sden sa).
 Proof.
   intros Hs; unfold unterm.
-  destruct (fcomp F ntm (shseg LNone (nterms s)) s) as [s1|]; [|discriminate].
-  destruct (rents (ents s1) 0) as [es T0']; destruct (rents (ents s) 0) as [es' T0].
-  destruct (mkseg F es) as [sa0|]; [|discriminate].
-  destruct (tfront F T0 SNil) as [eT|] eqn:Et; [|discriminate].
-  destruct (fcomp F ntm eT sa0) as [s2|] eqn:Ec; [|discriminate].
-  destruct (seg_eqb s2 s && forallb (tdistb F) T0 && sdistb F sa0) eqn:Eb; [|discriminate].
-  intros H; injection H as <- <-.
-  apply andb_true_iff in Eb as [Eb H3]; apply andb_true_iff in Eb as [H1 H2].
-  apply (proj1 (proj2 (proj2 nf_eqb_eq))) in H1; subst s2.
-  pose proof (sdb _ H3) as Hsa.
+  set (es0 := ents s ++ (if existsb (fun e => is_bound (fst (fst e))) (ents s) then [] else [(LNone, TNil, 0)])).
+  destruct (uents (nterms s) es0 0) as [es T0] eqn:Eu.
+  destruct (mkseg F es) as [sa0|] eqn:Em; [|discriminate]; cbn [option_map]; intros H; injection H as <- <-.
+  pose proof (uents_terms _ _ _ _ _ Eu) as ET.
+  assert (Est : filter is_term (flat_map (fun e => tl_list (snd (fst e))) es0) = filter is_term (stargets s)).
+  { unfold es0; rewrite flat_map_app, filter_app, <- stargets_ents.
+    destruct (existsb _ (ents s)); cbn [flat_map fst snd tl_list app filter]; rewrite app_nil_r; reflexivity. }
+  assert (Hn : nterms s = List.length T0) by (unfold nterms; rewrite ET, Est; reflexivity).
   assert (HT : Forall tdist T0).
-  { apply Forall_forall; intros x Hx; rewrite forallb_forall in H2.
-    exact (proj1 (distb_sound lenv F HF) x (H2 x Hx)). }
-  destruct (tfront_sound lenv tenv aenv penv F HF ntm Hntm T0 SNil eT I HT Et) as [He De].
-  destruct (fcomp_ok _ _ _ He Hsa Ec) as [_ Dc].
-  refine (conj Hsa (conj HT _)); rewrite Dc, De; reflexivity.
+  { apply Forall_forall; intros x Hx; rewrite ET, Est in Hx; apply filter_In in Hx as [Hx _].
+    exact (proj2 (proj1 (sdistd_iff lenv s) Hs) x Hx). }
+  rewrite Hn in Eu.
+  assert (Hp0 : exists pre post, T0 = pre ++ T0 ++ post /\ List.length pre = 0).
+  { exists [], []; split; [rewrite app_nil_r; reflexivity|reflexivity]. }
+  destruct (uents_spec T0 es0 0 es T0 Eu Hp0) as [HF0 Hrel].
+  destruct (mkseg_spec lenv tenv aenv penv F HF ntm Hntm es sa0 Em HF0) as [Hsa Hsem].
+  refine (conj Hsa (conj HT _)); apply rextensionality; intros [l j].
+  rewrite rapply_compose_cres, !(rapply_sden lenv tenv aenv penv) by (apply sdistd_sdist; assumption).
+  cbn [v_label v_index]; rewrite Hsem; specialize (Hrel l).
+  assert (E0 : forall j0, esem l (efind lenv l es0) j0 = esem l (sget l s) j0).
+  { intros j0; unfold es0; rewrite efind_app, efind_ents.
+    destruct (sget l s) as [e|] eqn:Eg; [reflexivity|].
+    destruct (existsb (fun e => is_bound (fst (fst e))) (ents s)); [reflexivity|]; cbn [efind].
+    destruct (label_eqb_spec (lden LNone) l) as [<-|_]; [|reflexivity].
+    symmetry; apply (esem_none lenv tenv aenv penv ntm Hntm). }
+  assert (Hb : efind lenv None es0 <> None).
+  { unfold es0; rewrite efind_app; destruct (existsb (fun e => is_bound (fst (fst e))) (ents s)) eqn:Ex.
+    - apply existsb_exists in Ex as [[[h ts] m] [Hin He]]; cbn [fst] in He.
+      destruct h; try discriminate He.
+      pose proof (efind_in None (ents s) _ Hin eq_refl) as Hx.
+      destruct (efind lenv None (ents s)); [discriminate|contradiction].
+    - destruct (efind lenv None (ents s)); [discriminate|]; cbn [efind].
+      change (lden LNone) with (@None label); rewrite label_eqb_refl; discriminate. }
+  rewrite <- E0; destruct (efind lenv l es0) as [e|] eqn:Ee0; destruct (efind lenv l es) as [e'|]; try contradiction.
+  - symmetry; exact (Hrel j).
+  - cbn [Normalise.esem cres]; rewrite pins_apply; destruct l; [reflexivity|contradiction].
 Qed.
 
 Lemma thread_sound j Ts K Kp : lwdist K -> Forall tdist Ts -> forallb (settled ntm) Ts = true ->
@@ -1469,7 +1638,7 @@ Proof.
   destruct (named_term s1); [discriminate|].
   destruct (scan F ntm true SNil K 0) as [j'|] eqn:Esc; [|discriminate].
   destruct (match skipn (j' - 1) K with LS sj :: Kj1 => _ | _ => false end); [|discriminate].
-  destruct (unterm F ntm s) as [[sa' Ts]|] eqn:Eu; [|discriminate]; cbn [obind].
+  destruct (unterm F s) as [[sa' Ts]|] eqn:Eu; [|discriminate]; cbn [obind].
   destruct (unterm_sound s sa' Ts Hs Eu) as [Hsa [HT Ds]].
   destruct (forallb (settled ntm) Ts) eqn:Est; [|discriminate].
   assert (Hn : forall v, v_label v <> None -> rapply (lwden K) v = rapply (lwden (skipn j' K)) v).
@@ -1513,7 +1682,7 @@ Lemma swap_sound s s1 sa f1 n rho : sdistd s -> sdistd s1 -> swap F ntm s s1 = S
 Proof.
   intros Hs Hs1; unfold swap.
   destruct (sinv F (sdrop_none s1)) as [[nu R]|]; [|discriminate].
-  destruct (unterm F ntm s) as [[sa' Ts]|] eqn:Eu; [|discriminate].
+  destruct (unterm F s) as [[sa' Ts]|] eqn:Eu; [|discriminate].
   destruct (slifts F ntm (List.length Ts) s1) as [f1'|]; [|discriminate].
   destruct (obind (omapl (tshift F ntm s1) Ts) _) as [n'|]; [|discriminate].
   destruct (sset F LNone (tl_of R) 0 (sdrop_none s1)) as [rho'|]; [|discriminate].
@@ -1581,7 +1750,7 @@ Lemma singles_sound s sa tes : sdistd s -> singles F ntm s = Some (sa, tes) ->
   /\ sden s = chain tes (sden sa).
 Proof.
   intros Hs; unfold singles.
-  destruct (unterm F ntm s) as [[sa0 Ts]|] eqn:Eu; [|discriminate].
+  destruct (unterm F s) as [[sa0 Ts]|] eqn:Eu; [|discriminate].
   destruct (unterm_sound s sa0 Ts Hs Eu) as [Hsa _].
   destruct (omapl _ _) as [tes0|] eqn:Eo; [|discriminate].
   destruct (fold_left _ tes0 (Some sa0)) as [c|] eqn:Ef; [|discriminate].

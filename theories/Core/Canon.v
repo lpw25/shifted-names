@@ -1,8 +1,8 @@
 (** * Tools for the canonical layered word
 
-    Segments as lists of entries; a segment as a renaming followed by its terms on bound
-    variables ([rents], [tfront]); carrying terms along a word by bound
-    variables ([thread]); an inverse of a renaming ([sinv]).
+    Segments as lists of entries; terms on bound variables in front of a
+    segment ([tfront]); carrying terms along a word by bound variables
+    ([thread]); an inverse of a renaming ([sinv]).
 
     [Canonical] builds the canonical word with these. *)
 
@@ -88,24 +88,6 @@ Fixpoint nodup_nat (l : list nat) (seen : list nat) : list nat :=
 
 Fixpoint index_of (x : nat) (l : list nat) (k : nat) : nat :=
   match l with [] => k | y :: r => if Nat.eqb x y then k else index_of x r (S k) end.
-
-(** The terms of a segment replaced by the bound variables [0 ..], the
-    other bound targets moved up. *)
-Fixpoint rterms (ts : tlist) (k : nat) : tlist * list ntgt :=
-  match ts with
-  | TNil => (TNil, [])
-  | TCons (NBind u w b) r => let '(r', T) := rterms r (S k) in (TCons (NVar LNone k) r', NBind u w b :: T)
-  | TCons t r => let '(r', T) := rterms r k in (TCons t r', T)
-  end.
-
-Fixpoint rents (es : list (lexp * tlist * nat)) (k : nat) : list (lexp * tlist * nat) * list ntgt :=
-  match es with
-  | [] => ([], [])
-  | (h, ts, m) :: r =>
-      let '(ts', T) := rterms ts k in
-      let '(r', T') := rents r (k + List.length T) in
-      ((h, ts', m) :: r', T ++ T')
-  end.
 
 Definition nterms (s : seg) : nat := List.length (filter is_term (stargets s)).
 
