@@ -660,11 +660,26 @@ Definition sset (h : lexp) (ts : tlist) (m : nat) (s : seg) : option seg :=
   match sdel h s with
   | None => None
   | Some s' =>
-      match trim h (rev (tl_list ts)) m with
+      match trim h (rev_append (tl_list ts) []) m with
       | ([], 0) => Some s'
-      | (rts, m') => Some (sput h (tl_of (rev rts)) m' s')
+      | (rts, m') => Some (sput h (tl_of (rev_append rts [])) m' s')
       end
   end.
+
+Lemma sset_unfold h ts m s :
+  sset h ts m s
+  = match sdel h s with
+    | None => None
+    | Some s' =>
+        match trim h (rev (tl_list ts)) m with
+        | ([], 0) => Some s'
+        | (rts, m') => Some (sput h (tl_of (rev rts)) m' s')
+        end
+    end.
+Proof.
+  unfold sset; rewrite <- rev_alt; destruct (sdel h s); [|reflexivity].
+  destruct (trim h (rev (tl_list ts)) m) as [[|x r] [|m']]; rewrite <- ?rev_alt; reflexivity.
+Qed.
 
 Fixpoint tcat (a b : tlist) : tlist :=
   match a with TNil => b | TCons t r => TCons t (tcat r b) end.
@@ -1223,7 +1238,7 @@ Lemma sset_sound h ts m s s' :
   /\ forall l j, esem l (sget l s') j
                  = if label_eqb (lden h) l then esem l (Some (ts, m)) j else esem l (sget l s) j.
 Proof.
-  unfold sset; intros Hd; destruct (sdel F h s) as [s0|] eqn:Ed; [|discriminate].
+  rewrite sset_unfold; intros Hd; destruct (sdel F h s) as [s0|] eqn:Ed; [|discriminate].
   pose proof (sdel_sound h s s0 Ed) as Hs0; pose proof (sdel_dist h s s0 Hd Ed) as Hd0.
   assert (Hn : sget (lden h) s0 = None) by (rewrite Hs0, label_eqb_refl; reflexivity).
   destruct (trim h (rev (tl_list ts)) m) as [rts m'] eqn:Et.
@@ -1277,7 +1292,7 @@ Qed.
 Lemma sset_tgts h ts m s s' : sset F h ts m s = Some s' ->
   forall t, In t (stargets s') -> In t (stargets s) \/ In t (tl_list ts).
 Proof.
-  unfold sset; destruct (sdel F h s) as [s0|] eqn:Ed; [|discriminate].
+  rewrite sset_unfold; destruct (sdel F h s) as [s0|] eqn:Ed; [|discriminate].
   destruct (trim h (rev (tl_list ts)) m) as [rts m'] eqn:Et.
   assert (Hput : forall t, In t (stargets (sput F h (tl_of (rev rts)) m' s0)) -> In t (stargets s) \/ In t (tl_list ts)).
   { intros t Ht; destruct (sput_tgts _ _ _ _ _ Ht) as [H|H].

@@ -121,7 +121,7 @@ Lemma sset_shape nm h ts m s s' : sset F h ts m s = Some s' -> sshape nm s ->
   /\ (forall t, In t (stgts s') -> In t (stgts s) \/ In t (tl_list ts))
   /\ (tl_list ts = [] -> m = 0 -> forall e, In e (sents s') -> In e (sents s)).
 Proof.
-  unfold sset; intros E [Hs Ho] Hh Hnm.
+  rewrite sset_unfold; intros E [Hs Ho] Hh Hnm.
   destruct (sdel F h s) as [s0|] eqn:Ed; [|discriminate].
   destruct (sdel_shape _ _ _ Ed) as [Hs0 Hsort0].
   destruct (trim h (rev (tl_list ts)) m) as [rts m'] eqn:Et.
@@ -743,7 +743,7 @@ Qed.
 
 Lemma sset_none_entd k s s' : sset F LNone TNil k s = Some s' -> entd F s' LNone = ([], k).
 Proof.
-  unfold sset; destruct (sdel F LNone s) as [s0|] eqn:Ed; [|discriminate].
+  rewrite sset_unfold; destruct (sdel F LNone s) as [s0|] eqn:Ed; [|discriminate].
   pose proof (sdel_sound lenv F HF _ _ _ Ed None) as H0; cbn [lden] in H0; rewrite label_eqb_refl in H0.
   cbn [tl_list rev trim]; unfold entd; destruct k as [|k]; intros H; injection H as <-; rewrite sfind_none.
   - rewrite H0; reflexivity.

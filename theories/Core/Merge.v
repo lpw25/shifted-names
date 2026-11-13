@@ -16,10 +16,21 @@ Variable F : order.
 Variable ntm : nat.
 
 Definition mkent (h : lexp) (ts : tlist) (m : nat) (r : seg) : seg :=
-  match trim h (rev (tl_list ts)) m with
+  match trim h (rev_append (tl_list ts) []) m with
   | ([], 0) => r
-  | (rts, m') => SEnt h (tl_of (rev rts)) m' r
+  | (rts, m') => SEnt h (tl_of (rev_append rts [])) m' r
   end.
+
+Lemma mkent_unfold h ts m r :
+  mkent h ts m r
+  = match trim h (rev (tl_list ts)) m with
+    | ([], 0) => r
+    | (rts, m') => SEnt h (tl_of (rev rts)) m' r
+    end.
+Proof.
+  unfold mkent; rewrite <- rev_alt.
+  destruct (trim h (rev (tl_list ts)) m) as [[|x l] [|m']]; rewrite <- ?rev_alt; reflexivity.
+Qed.
 
 Definition comb (ts' : tlist) (m : nat) (tsS : tlist) (mS : nat) : tlist * nat :=
   (tcat ts' (tskip m tsS), if tlen tsS <=? m then m - tlen tsS + mS else mS).
@@ -163,7 +174,7 @@ Lemma mkent_spec h ts m r : below (lden h) r ->
   /\ (sorted r -> sorted (mkent h ts m r))
   /\ (sdistd r -> tldist ts -> sdistd (mkent h ts m r)).
 Proof.
-  intros Hb; unfold mkent; destruct (trim h (rev (tl_list ts)) m) as [rts m'] eqn:Et.
+  intros Hb; rewrite mkent_unfold; destruct (trim h (rev (tl_list ts)) m) as [rts m'] eqn:Et.
   assert (Hsem : forall j, esem (lden h) (Some (ts, m)) j = esem (lden h) (Some (tl_of (rev rts), m')) j).
   { intros j; rewrite !(esem_lsem lenv tenv aenv penv), tl_list_of; rewrite <- (rev_involutive (tl_list ts)) at 1.
     apply (trim_sound lenv tenv aenv penv ntm Hntm h _ _ _ _ Et). }

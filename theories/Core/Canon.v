@@ -23,8 +23,21 @@ Fixpoint ents (s : seg) : list (lexp * tlist * nat) :=
 
 Definition bent (s : seg) : tlist * nat := match sfind F LNone s with Some e => ofe e | None => (TNil, 0) end.
 
+(** Labels known to be in increasing order. *)
+Fixpoint lsortb (l : list lexp) : bool :=
+  match l with
+  | g :: r => match r with
+              | h :: _ => match lcmp F g h with Some Lt => lsortb r | _ => false end
+              | [] => true
+              end
+  | [] => true
+  end.
+
+(** Entries in the order of their labels are a segment as they are. *)
 Definition mkseg (es : list (lexp * tlist * nat)) : option seg :=
-  fold_right (fun '(h, ts, m) acc => obind acc (sset F h ts m)) (Some SNil) es.
+  if lsortb (map (fun e => fst (fst e)) es)
+  then Some (fold_right (fun '(h, ts, m) acc => mkent h ts m acc) SNil es)
+  else fold_right (fun '(h, ts, m) acc => obind acc (sset F h ts m)) (Some SNil) es.
 
 Definition vars (l : list (lexp * nat)) : tlist := tl_of (map (fun v => NVar (fst v) (snd v)) l).
 Definition bvars (l : list nat) : tlist := tl_of (map (NVar LNone) l).
