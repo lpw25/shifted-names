@@ -188,7 +188,7 @@ Proof.
     + intros E; destruct (IH S' K' HlK1 HK1 (proj1 HS') (noterms_sren lenv labs ntm S' HS' Ht) E) as [A [B C]].
       split; [exact A|split; [exact B|intros v; exact (feq_trans _ _ _ (C v) (Sem0 _ v))]].
   - inversion Hw as [|? ? HL HK1]; subst; destruct Hl as [HLok HlK1].
-    destruct (wcomp F ntm (WAtom SNil L a (WEnd SNil)) (WEnd rho)) as [[s0|Q L' a' [U|s2 L2 a2 w2]]|] eqn:EW;
+    destruct (wcomp F ntm (WAtom SNil L a (WEnd SNil)) (WEnd rho)) as [[s0|Q L' a' [U|s2 L2 a2 w2|s5 w5]|s4 w4]|] eqn:EW;
       try (intros E; discriminate E).
     destruct (has_terms Q) eqn:HtQ; [intros E; discriminate E|].
     destruct (atom_ok lenv labs ntm F HF rho L a K1 Q L' a' U Hr Hrr HLok HK1 EW HtQ) as [HQs [HQr [HUs [HUr [HL' [Hpos Sem]]]]]].

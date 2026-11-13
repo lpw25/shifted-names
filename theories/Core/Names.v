@@ -484,6 +484,7 @@ Fixpoint witems (w : word) : list gitem :=
           else GSeg s :: GRun L [a] :: GSeg SNil :: GRun L' as' :: rest
       | items => GSeg s :: GRun L [a] :: items
       end
+  | WLay s w => GSeg s :: witems w
   end.
 
 Section Split.
@@ -644,6 +645,7 @@ Fixpoint unpass (fuel : nat) (w : word) : word :=
           | Some w2 => unpass f w2
           | None => WAtom A L a (unpass f w')
           end
+      | WLay A w' => WLay A (unpass f w')
       end
   end.
 

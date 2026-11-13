@@ -111,6 +111,7 @@ with wcode (w : word) : list nat :=
   match w with
   | WEnd s => 0 :: scode s
   | WAtom s L a w' => 1 :: scode s ++ Lcode L ++ a :: wcode w'
+  | WLay s w' => 2 :: scode s ++ wcode w'
   end.
 
 Lemma ccode_inj s : forall s' l l', ccode s ++ l = ccode s' ++ l' -> s = s' /\ l = l'.
@@ -168,13 +169,16 @@ Proof.
     destruct (lcode_inj _ _ _ _ E) as [-> E']; try rewrite <- !app_assoc in E'; cbn [app] in E'.
     destruct (IHts _ _ _ E') as [-> E'']; injection E'' as -> E''.
     destruct (IHr _ _ _ E'') as [-> ->]; split; reflexivity.
-  - intros s IHs [s'|s' L' a' w'] l l' E; cbn in E; [|discriminate E].
+  - intros s IHs [s'|s' L' a' w'|s' w'] l l' E; cbn in E; [|discriminate E|discriminate E].
     injection E as E; destruct (IHs _ _ _ E) as [-> ->]; split; reflexivity.
-  - intros s IHs L a w IHw [s'|s' L' a' w'] l l' E; cbn in E; [discriminate E|].
+  - intros s IHs L a w IHw [s'|s' L' a' w'|s' w'] l l' E; cbn in E; [discriminate E| |discriminate E].
     injection E as E; rewrite <- !app_assoc in E; cbn [app] in E.
     destruct (IHs _ _ _ E) as [-> E']; try rewrite <- !app_assoc in E'; cbn [app] in E'.
     destruct (Lcode_inj _ _ _ _ E') as [-> E'']; injection E'' as -> E''.
     destruct (IHw _ _ _ E'') as [-> ->]; split; reflexivity.
+  - intros s IHs w IHw [s'|s' L' a' w'|s' w'] l l' E; cbn in E; [discriminate E|discriminate E|].
+    injection E as E; rewrite <- !app_assoc in E.
+    destruct (IHs _ _ _ E) as [-> E']; destruct (IHw _ _ _ E') as [-> ->]; split; reflexivity.
 Qed.
 
 Lemma wcode_inj w w' : wcode w = wcode w' -> w = w'.
@@ -230,7 +234,7 @@ Qed.
 Lemma ord_sz_term w u wp b : In (NBind u wp b) (stgts (whead w)) -> ord_sz w wp.
 Proof.
   intros H; left; pose proof (stgts_sz _ _ H) as Hs; cbn [tsz] in Hs.
-  destruct w as [s|s L a w']; cbn [whead wsz] in *; lia.
+  destruct w as [s|s L a w'|s w']; cbn [whead wsz] in *; lia.
 Qed.
 
 (** ** The theorem with this order *)
@@ -266,7 +270,7 @@ Proof.
   intros Hw Hin; exists w, wp; split; [exact Hw|split; [|exact (ord_sz_term w u wp None Hin)]].
   split; [|apply keq_refl].
   destruct Hw as [Hn _]; assert (Hs : snf lenv labs npa (whead w)).
-  { destruct w as [s|s L a w']; cbn [wnf whead] in *; tauto. }
+  { destruct w as [s|s L a w'|s w']; cbn [wnf whead] in *; tauto. }
   exact (proj2 (snf_in lenv labs npa _ Hs _ Hin)).
 Qed.
 

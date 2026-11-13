@@ -294,7 +294,8 @@ with seg : Type :=
 | SEnt (h : lexp) (ts : tlist) (m : nat) (r : seg)
 with word : Type :=
 | WEnd (s : seg)
-| WAtom (s : seg) (L : list (lexp * nat)) (a : nat) (w : word).
+| WAtom (s : seg) (L : list (lexp * nat)) (a : nat) (w : word)
+| WLay (s : seg) (w : word).
 
 Scheme ntgt_mind := Induction for ntgt Sort Prop
 with tlist_mind := Induction for tlist Sort Prop
@@ -308,8 +309,8 @@ Lemma seg_spine (P : seg -> Prop) :
 Proof. intros H0 HS; fix IH 1; intros [|h ts m r]; [exact H0|apply HS, IH]. Qed.
 
 Lemma word_spine (P : word -> Prop) :
-  (forall s, P (WEnd s)) -> (forall s L a w, P w -> P (WAtom s L a w)) -> forall w, P w.
-Proof. intros H0 HS; fix IH 1; intros [s|s L a w]; [apply H0|apply HS, IH]. Qed.
+  (forall s, P (WEnd s)) -> (forall s L a w, P w -> P (WAtom s L a w)) -> (forall s w, P w -> P (WLay s w)) -> forall w, P w.
+Proof. intros H0 HS HL; fix IH 1; intros [s|s L a w|s w]; [apply H0|apply HS, IH|apply HL, IH]. Qed.
 
 Lemma tlist_spine (P : tlist -> Prop) :
   P TNil -> (forall t r, P r -> P (TCons t r)) -> forall ts, P ts.
@@ -382,6 +383,7 @@ with word_eqb (w1 w2 : word) : bool :=
       seg_eqb s s'
       &&& lifts_eqb L L'
       &&& Nat.eqb a a' &&& word_eqb w w'
+  | WLay s w, WLay s' w' => seg_eqb s s' &&& word_eqb w w'
   | _, _ => false
   end.
 
@@ -405,10 +407,12 @@ Proof.
   - intros h ts IHts m r IHr [|h' ts' m' r'] H; cbn in H; [discriminate|].
     apply landb_true_iff in H as [H H4]; apply landb_true_iff in H as [H H3]; apply landb_true_iff in H as [H1 H2].
     apply lexp_eqb_eq in H1; apply Nat.eqb_eq in H3; subst; f_equal; [apply IHts, H2|apply IHr, H4].
-  - intros s IH [s'|] H; cbn in H; [f_equal; apply IH, H|discriminate].
-  - intros s IHs L a w IHw [|s' L' a' w'] H; cbn in H; [discriminate|].
+  - intros s IH [s'| |] H; cbn in H; [f_equal; apply IH, H|discriminate|discriminate].
+  - intros s IHs L a w IHw [|s' L' a' w'|] H; cbn in H; [discriminate| |discriminate].
     apply landb_true_iff in H as [H H4]; apply landb_true_iff in H as [H H3]; apply landb_true_iff in H as [H1 H2].
     apply Nat.eqb_eq in H3; subst; f_equal; [apply IHs, H1|apply lifts_eqb_eq, H2|apply IHw, H4].
+  - intros s IHs w IHw [| |s' w'] H; cbn in H; try discriminate.
+    apply landb_true_iff in H as [H1 H2]; f_equal; [apply IHs, H1|apply IHw, H2].
 Qed.
 
 Local Close Scope lazy_bool_scope.
@@ -460,6 +464,7 @@ with wden (w : word) : radj T :=
   match w with
   | WEnd s => sins s (souts s ridentity)
   | WAtom s L a w => rcompose (sins s (souts s ridentity)) (rcompose (lifts L (aden a)) (wden w))
+  | WLay s w => rcompose (sins s (souts s ridentity)) (wden w)
   end.
 
 Definition sden (s : seg) : radj T := sins s (souts s ridentity).
@@ -468,6 +473,9 @@ Lemma wden_end s : wden (WEnd s) = sden s.
 Proof. reflexivity. Qed.
 
 Lemma wden_atom s L a w : wden (WAtom s L a w) = rcompose (sden s) (rcompose (lifts L (aden a)) (wden w)).
+Proof. reflexivity. Qed.
+
+Lemma wden_lay s w : wden (WLay s w) = rcompose (sden s) (wden w).
 Proof. reflexivity. Qed.
 
 (** *** What a segment does *)
@@ -495,7 +503,7 @@ with tldist (ts : tlist) : Prop :=
 with sdistd (s : seg) : Prop :=
   match s with SNil => True | SEnt h ts _ r => sget (lden h) r = None /\ tldist ts /\ sdistd r end
 with wdist (w : word) : Prop :=
-  match w with WEnd s => sdistd s | WAtom s _ _ w => sdistd s /\ wdist w end.
+  match w with WEnd s => sdistd s | WAtom s _ _ w => sdistd s /\ wdist w | WLay s w => sdistd s /\ wdist w end.
 
 Fixpoint tlen (ts : tlist) : nat := match ts with TNil => 0 | TCons _ r => S (tlen r) end.
 
@@ -704,6 +712,7 @@ Fixpoint pnorm (w : word) : word :=
   match w with
   | WEnd s => WEnd (sdrop_none s)
   | WAtom s L a w => WAtom s L a (pnorm w)
+  | WLay s w => WLay s (pnorm w)
   end.
 
 Definition bnorm (b : option nat) (w : word) : word :=
@@ -785,6 +794,7 @@ with wapp (w : word) : option word :=
   match w with
   | WEnd U => match sgo U with Some U' => Some (WEnd U') | None => None end
   | WAtom U L a w => match sgo U with Some U' => Some (WAtom U' L a w) | None => None end
+  | WLay _ _ => None
   end.
 
 End Comp.
@@ -842,10 +852,10 @@ Definition sfront (h : lexp) (t : ntgt) (s : seg) : option seg :=
 Definition slift (h : lexp) (s : seg) : option seg :=
   match scomp (shseg h 1) s with Some s' => sfront h (NVar h 0) s' | None => None end.
 
-Definition whead (w : word) : seg := match w with WEnd s | WAtom s _ _ _ => s end.
+Definition whead (w : word) : seg := match w with WEnd s | WAtom s _ _ _ | WLay s _ => s end.
 
 Definition wsethead (w : word) (s : seg) : word :=
-  match w with WEnd _ => WEnd s | WAtom _ L a w => WAtom s L a w end.
+  match w with WEnd _ => WEnd s | WAtom _ L a w => WAtom s L a w | WLay _ w => WLay s w end.
 
 (** *** Settling in one pass
 
@@ -1003,6 +1013,7 @@ Fixpoint pnormf (wc : word -> word -> option word) (pn : option nat -> word -> o
       | WEnd s => match pfinal L s with Some s' => settle wc pn A L a (WEnd s') | None => None end
       | _ => match pnormf wc pn w' with Some w'' => settle wc pn A L a w'' | None => None end
       end
+  | WLay _ _ => None
   end.
 
 Definition bnormf (wc : word -> word -> option word) (pn : option nat -> word -> option word)
@@ -1015,6 +1026,7 @@ Fixpoint wcomp_with (wc : word -> word -> option word) (pn : option nat -> word 
   match w1 with
   | WEnd A => wcons A w2
   | WAtom A L a w => match wcomp_with wc pn w w2 with Some w' => settle wc pn A L a w' | None => None end
+  | WLay _ _ => None
   end.
 
 (** Composition, and normalising payload words; [n] bounds the depth of
@@ -1037,6 +1049,7 @@ Fixpoint wlift (h : lexp) (w : word) : option word :=
       | Some s', Some L', Some w' => Some (WAtom s' L' a w')
       | _, _, _ => None
       end
+  | WLay _ _ => None
   end.
 
 (** [push_inner h t (S ∘ X) = push_inner h t S ∘ ⇑ₕX]. *)
@@ -1048,6 +1061,7 @@ Definition wpush (h : lexp) (t : ntgt) (w : word) : option word :=
       | Some s', Some L', Some w' => Some (WAtom s' L' a w')
       | _, _, _ => None
       end
+  | WLay _ _ => None
   end.
 
 Definition wouter (h : lexp) (w : word) : option word := wcons (shseg h 1) w.
@@ -1383,9 +1397,10 @@ Qed.
 
 Lemma named_pnorm w : named_eq (wden w) (wden (pnorm w)).
 Proof.
-  induction w as [s|s L a w IH] using word_spine; cbn [pnorm].
+  induction w as [s|s L a w IH|s w IH] using word_spine; cbn [pnorm].
   - apply named_sdrop_none.
   - intros v Hv; rewrite !wden_atom, !rapply_compose_cres, IH by exact Hv; reflexivity.
+  - intros v Hv; rewrite !wden_lay, !rapply_compose_cres, IH by exact Hv; reflexivity.
 Qed.
 
 Lemma bnorm_sound b w : rpcompose (wden (bnorm b w)) (bden b) = rpcompose (wden w) (bden b).
@@ -1410,8 +1425,8 @@ Qed.
 
 Lemma pnorm_dd w : wdist w -> wdist (pnorm w).
 Proof.
-  induction w as [s|s L a w IH] using word_spine; cbn [pnorm wdist]; [apply sdrop_dd|].
-  intros [Hs Hw]; split; [exact Hs|apply IH, Hw].
+  induction w as [s|s L a w IH|s w IH] using word_spine; cbn [pnorm wdist]; [apply sdrop_dd| |];
+    intros [Hs Hw]; split; [exact Hs|apply IH, Hw|exact Hs|apply IH, Hw].
 Qed.
 
 Lemma bnorm_dd b w : wdist w -> wdist (bnorm b w).
@@ -1500,6 +1515,9 @@ Lemma wapp_atom S U L a w :
   = match sgo F ntm S U with Some U' => Some (WAtom U' L a w) | None => None end.
 Proof. reflexivity. Qed.
 
+Lemma wapp_lay S U w : wapp F ntm S (WLay U w) = None.
+Proof. reflexivity. Qed.
+
 Section CompSound.
 
 Variable S : seg.
@@ -1583,6 +1601,8 @@ Proof.
     rewrite !wden_atom, (rcompose_assoc (sden S)); f_equal.
     apply rextensionality; intros v.
     rewrite rapply_compose_cres, !rapply_sden by (apply sdistd_sdist; assumption); apply Hs.
+  - (* WLay *)
+    intros U _ w _ w' _; rewrite wapp_lay; discriminate.
 Qed.
 
 End CompSound.
@@ -2337,19 +2357,19 @@ Proof.
 Qed.
 
 Definition wrest (w : word) : radj T :=
-  match w with WEnd _ => ridentity | WAtom _ L a w => rcompose (lifts L (aden a)) (wden w) end.
+  match w with WEnd _ => ridentity | WAtom _ L a w => rcompose (lifts L (aden a)) (wden w) | WLay _ w => wden w end.
 
 Lemma wden_head w : wden w = rcompose (sden (whead w)) (wrest w).
-Proof. destruct w; cbn [whead wrest]; [rewrite wden_end, rcompose_identity_r|rewrite wden_atom]; reflexivity. Qed.
+Proof. destruct w; cbn [whead wrest]; [rewrite wden_end, rcompose_identity_r|rewrite wden_atom|rewrite wden_lay]; reflexivity. Qed.
 
 Lemma wden_sethead w U : wden (wsethead w U) = rcompose (sden U) (wrest w).
-Proof. destruct w; cbn [wsethead wrest]; [rewrite wden_end, rcompose_identity_r|rewrite wden_atom]; reflexivity. Qed.
+Proof. destruct w; cbn [wsethead wrest]; [rewrite wden_end, rcompose_identity_r|rewrite wden_atom|rewrite wden_lay]; reflexivity. Qed.
 
 Lemma whead_dd w : wdist w -> sdistd (whead w).
-Proof. destruct w; cbn [wdist whead]; [exact (fun H => H)|intros [H _]; exact H]. Qed.
+Proof. destruct w; cbn [wdist whead]; [exact (fun H => H)|intros [H _]; exact H|intros [H _]; exact H]. Qed.
 
 Lemma wsethead_dd w U : wdist w -> sdistd U -> wdist (wsethead w U).
-Proof. destruct w; cbn [wdist wsethead]; [intros _ H; exact H|intros [_ Hw] H; split; assumption]. Qed.
+Proof. destruct w; cbn [wdist wsethead]; [intros _ H; exact H|intros [_ Hw] H; split; assumption|intros [_ Hw] H; split; assumption]. Qed.
 
 Lemma settle_sound wc (Hwc : wc_ok wc) pn (Hpn : pn_ok pn) A L a w w' :
   sdistd A -> wdist w -> settle F ntm wc pn A L a w = Some w' ->
@@ -2370,9 +2390,9 @@ Proof. intros H v Hv; rewrite !rapply_compose_cres, (H v Hv); reflexivity. Qed.
 Lemma pnormf_sound wc (Hwc : wc_ok wc) pn (Hpn : pn_ok pn) :
   forall w w', wdist w -> pnormf F ntm wc pn w = Some w' -> wdist w' /\ named_eq (wden w) (wden w').
 Proof.
-  induction w as [s|A L a w IH] using word_spine; cbn [pnormf].
+  induction w as [s|A L a w IH|s w IH] using word_spine; cbn [pnormf]; [| |intros w' _ H; discriminate H].
   - intros w' Hd H; injection H as <-; split; [apply sdrop_dd, Hd|]; rewrite !wden_end; apply named_sdrop_none.
-  - intros w0 [HA Hw]; destruct w as [s|A' L' a' w1].
+  - intros w0 [HA Hw]; destruct w as [s|A' L' a' w1|s1 w1]; [| |cbn [pnormf]; discriminate].
     + unfold pfinal; pose proof (sdistd_sdist _ Hw) as Ed.
       destruct (sset F LNone TNil (lcount LNone L) s) as [s'|] eqn:Es; [|discriminate]; intros H.
       destruct (settle_sound _ Hwc _ Hpn A L a (WEnd s') w0 HA (sset_dd LNone TNil _ _ _ Hw I Es) H) as [Hd' Eq].
@@ -2392,7 +2412,8 @@ Lemma wops_sound n : wc_ok (fst (wops F ntm n)) /\ pn_ok (snd (wops F ntm n)).
 Proof.
   induction n as [|n [IHc IHp]]; [split; intros; discriminate|]; cbn [wops].
   destruct (wops F ntm n) as [wc pn] eqn:Ew; cbn [fst snd] in *; split.
-  - intros w1; induction w1 as [A|A L a w1 IH] using word_spine; intros w2 w Hw1 Hw2; cbn [wcomp_with].
+  - intros w1; induction w1 as [A|A L a w1 IH|A w1 IH] using word_spine; intros w2 w Hw1 Hw2; cbn [wcomp_with];
+      [| |discriminate].
     + intros H; exact (wcons_sound _ _ _ Hw1 Hw2 H).
     + destruct Hw1 as [HA Hw1].
       destruct (wcomp_with F ntm wc pn w1 w2) as [w'|] eqn:E; [|discriminate]; intros H.
@@ -2414,7 +2435,7 @@ Proof. apply (proj2 (wops_sound 64)). Qed.
 
 Lemma wlift_sound h w w' : wdist w -> wlift F ntm h w = Some w' -> wdist w' /\ wden w' = rlift (lden h) (wden w).
 Proof.
-  revert w'; induction w as [s|s L a w IH] using word_spine; intros w' Hd; cbn [wlift].
+  revert w'; induction w as [s|s L a w IH|s w IH] using word_spine; intros w' Hd; cbn [wlift]; [| |discriminate].
   - destruct (slift F ntm h s) as [s'|] eqn:E; [|discriminate]; intros H; injection H as <-.
     destruct (slift_sound _ _ _ Hd E) as [Hd' Eq]; split; [exact Hd'|]; rewrite !wden_end; exact Eq.
   - destruct Hd as [Hs Hw].
@@ -2430,7 +2451,7 @@ Qed.
 Lemma wpush_sound h t w w' : tdist t -> wdist w -> wpush F ntm h t w = Some w' ->
   wdist w' /\ wden w' = rpush_inner (lden h) (tden t) (wden w).
 Proof.
-  intros Ht; destruct w as [s|s L a w]; cbn [wpush].
+  intros Ht; destruct w as [s|s L a w|s w]; cbn [wpush]; [| |discriminate].
   - intros Hs; destruct (sfront F h t s) as [s'|] eqn:E; [|discriminate]; intros H; injection H as <-.
     destruct (sfront_sound _ _ _ _ Hs Ht E) as [Hs' Eq]; split; [exact Hs'|]; rewrite !wden_end; exact Eq.
   - intros [Hs Hw].
@@ -2510,6 +2531,7 @@ Fixpoint wtrace (F : order) (w : word) (h : lexp) (i : nat) : option (option ntg
       | Some None => Some None
       | _ => None
       end
+  | WLay _ _ => None
   end.
 
 Definition wtgt (F : order) (w : word) (h : lexp) (i : nat) : option ntgt :=
@@ -2530,7 +2552,7 @@ Qed.
 Lemma wtrace_sound w h i t : wdist w ->
   wtrace F w h i = Some (Some t) -> tdist t /\ rapply (wden w) (mk_rvar (lden h) i) = rtarget_result (tden t).
 Proof.
-  revert t; induction w as [Sg|Sg L a w IH] using word_spine; intros t Hd; cbn [wtrace].
+  revert t; induction w as [Sg|Sg L a w IH|Sg w IH] using word_spine; intros t Hd; cbn [wtrace]; [| |discriminate].
   - rewrite wden_end; destruct (seg_tgt F Sg h i) as [t'|] eqn:E; [|discriminate].
     intros H; injection H as <-; apply seg_tgt_sound; assumption.
   - destruct Hd as [Hs Hw].

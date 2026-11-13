@@ -458,7 +458,7 @@ Lemma tset_rel t A A' : ttail t = Some A -> tdist t ->
 Proof.
   intros Et Hd [u [w [b [-> Hu]]]] HA' E; unfold trel.
   destruct (nth_error tenv u) as [y|] eqn:Ey; [|apply nth_error_None in Ey; lia].
-  destruct w as [N|A0 L a w0]; cbn [ttail] in Et.
+  destruct w as [N|A0 L a w0|A0 w0]; cbn [ttail] in Et; [| |discriminate].
   - destruct b as [n|]; [|discriminate]; injection Et as ->; cbn [tset].
     split; [exact HA'|].
     rewrite !(tden_bind lenv tenv aenv penv _ _ _ y Ey); cbn [rtarget_result cres].
@@ -484,11 +484,11 @@ Proof.
       destruct (settled_tail A) eqn:Es; [|discriminate].
       destruct (tail_map F f nb dl A) as [A'|] eqn:Em; [|discriminate]; cbn [option_map]; intros H; injection H as <-.
       assert (HA : sdistd A).
-      { destruct w as [N|A0 L a w0]; cbn [ttail] in Et; [destruct b; [injection Et as <-; exact Hd|discriminate]|].
+      { destruct w as [N|A0 L a w0|A0 w0]; cbn [ttail] in Et; [destruct b; [injection Et as <-; exact Hd|discriminate]| |discriminate].
         injection Et as <-; exact (proj1 Hd). }
       destruct (tail_map_rel A A' HA Es Em) as [HA' E].
       exact (tset_rel _ A A' Et Hd (ex_intro _ u (ex_intro _ w (ex_intro _ b (conj eq_refl Hu)))) HA' E). }
-    destruct w as [[|h ts m r]|A L a w0]; try exact Hgen.
+    destruct w as [[|h ts m r]|A L a w0|A w0]; try exact Hgen.
     destruct b as [n|]; [exact Hgen|]; cbn [tm_t].
     destruct (Nat.ltb_spec u ntm) as [Hu|Hu]; [|discriminate]; intros H; injection H as <-.
     split; [exact I|]; unfold trel.

@@ -335,8 +335,8 @@ Proof.
     destruct t as [|u w b]; [discriminate Ht|exact I].
   - destruct S1 as [Hd [Ht [s [Es [Hin [Ef [h1 [i1 Et]]]]]]]]; destruct S2 as [Hd' [Ht' [s' [Es' [Hin' [Ef' [h2 [i2 Et']]]]]]]].
     rewrite Ef, Ef'.
-    destruct t as [|u [N|] [n|]]; try exact I; destruct N; try exact I;
-      destruct t' as [|u' [N'|] [n'|]]; try exact I; destruct N'; try exact I.
+    destruct t as [|u [N| |] [n|]]; try exact I; destruct N; try exact I;
+      destruct t' as [|u' [N'| |] [n'|]]; try exact I; destruct N'; try exact I.
     rewrite (suf_suf K e1 d ltac:(lia) He1) in *; rewrite (suf_suf K e2 d' ltac:(lia) He2) in *.
     rewrite (suf_suf K e1 (S d) ltac:(lia) He1) in Es; rewrite (suf_suf K e2 (S d') ltac:(lia) He2) in Es'.
     assert (T1 : tpos K d) by (split; [lia|exists s; split; [exact Es|exact (term_sterm _ _ _ _ _ _ Et)]]).
@@ -712,13 +712,13 @@ Proof.
       rewrite <- Nat.succ_le_mono, <- (G m); split; intros H y Hy; [intros _; apply H, Hy|apply H; [exact Hy|unfold rb; cbn; lia]]. }
     assert (Td : forall t k, tdep (vdepth F r) (option_map S (hreg F r false [])) t = Some k ->
                    forall m, dle m (ft lenv t (R r)) <-> k <= m).
-    { intros [g j|u [[|? ? ? ?]|? ? ? ?] [?|]] k; cbn [tdep]; try discriminate.
+    { intros [g j|u [[|? ? ? ?]|? ? ? ?|? ?] [?|]] k; cbn [tdep]; try discriminate.
       - intros E m; exact (V g j k E m).
       - exact (Tm u k). }
     split.
     + intros h i n; cbn [vdepth]; destruct (seg_tgt F s h i) as [t|] eqn:Et; [|discriminate].
       intros E m; rewrite (R_seg lenv), (seg_tgt_free lenv F HF _ _ _ _ _ Et).
-      destruct t as [g j|u [[|? ? ? ?]|? ? ? ?] [?|]]; try discriminate; [exact (V g j n E m)|exact (Tm u n E m)].
+      destruct t as [g j|u [[|? ? ? ?]|? ? ? ?|? ?] [?|]]; try discriminate; [exact (V g j n E m)|exact (Tm u n E m)].
     + intros all c n Hc; cbn [hreg]; intros E m.
       assert (Hsome := omax_some _ _ E).
       destruct (hreg F r all (cbound c s)) as [n1|] eqn:E1; [|destruct (Hsome None (or_introl eq_refl)); discriminate].

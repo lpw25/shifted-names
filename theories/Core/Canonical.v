@@ -1255,12 +1255,12 @@ Qed.
 
 Lemma ttail_tset t A A' : ttail t = Some A -> ttail (tset t A') = Some A' /\ forall A'', tset (tset t A') A'' = tset t A''.
 Proof.
-  destruct t as [g i|u [N|A0 L a w0] [n|]]; cbn [ttail tset]; try discriminate; intros _; split; reflexivity.
+  destruct t as [g i|u [N|A0 L a w0|A0 w0] [n|]]; cbn [ttail tset]; try discriminate; intros _; split; reflexivity.
 Qed.
 
 Lemma ttail_dist t A : ttail t = Some A -> tdist t -> sdistd A.
 Proof.
-  destruct t as [g i|u [N|A0 L a w0] [n|]]; cbn [ttail]; try discriminate; intros H; injection H as <-; cbn; tauto.
+  destruct t as [g i|u [N|A0 L a w0|A0 w0] [n|]]; cbn [ttail]; try discriminate; intros H; injection H as <-; cbn; tauto.
 Qed.
 
 Lemma settled_cases t : settled ntm t = true ->
@@ -1272,7 +1272,7 @@ Proof.
      exists u0 w0 b0 A, NBind u w b = NBind u0 w0 b0 /\ u0 < ntm /\ ttail (NBind u w b) = Some A /\ settled_tail A = true).
   { intros H; apply andb_true_iff in H as [Hu H]; apply Nat.ltb_lt in Hu.
     destruct (ttail (NBind u w b)) as [A|]; [|discriminate]; exists u, w, b, A; auto. }
-  destruct w as [[|h ts m r]|A L a w0]; try (intros H; right; exact (Hgen H)).
+  destruct w as [[|h ts m r]|A L a w0|A w0]; try (intros H; right; exact (Hgen H)).
   destruct b as [n|]; [intros H; right; exact (Hgen H)|].
   intros H; left; split; [exact H|reflexivity].
 Qed.
@@ -1322,7 +1322,7 @@ Proof.
     + destruct H1 as [A1 [-> [HA1 [Hst1 Hk1]]]].
       destruct (ttail_tset t A A1 Et) as [Et1 Hset].
       assert (Ht1 : tdist (tset t A1)).
-      { destruct t as [g i|u [N|A0 L a w0] [n|]]; cbn [ttail] in Et; try discriminate; cbn; cbn in Ht; tauto. }
+      { destruct t as [g i|u [N|A0 L a w0|A0 w0] [n|]]; cbn [ttail] in Et; try discriminate; cbn; cbn in Ht; tauto. }
       destruct (IH K' (tset t A1) t' HK' Ht1 H) as [D R]; rewrite Et1 in R.
       split; [cbn [skipn pref Layered.lwden]; rewrite D, rcompose_assoc; reflexivity|].
       right; destruct R as [[-> ->]|[A' [-> [HA' [Hst' Hk']]]]].
@@ -2195,8 +2195,8 @@ Proof.
     exact (front_sound _ IH s _ K' Hs HK).
   - inversion HK as [|? ? _ HK0]; subst.
     destruct (has_terms s); [exact (front_sound _ IH s _ K' Hs HK)|].
-    destruct (wcomp F ntm (WAtom SNil L a (WEnd SNil)) (WEnd s)) as [[s0|sq L' a' [U|s2 L2 a2 w2]]|] eqn:E;
-      [intros H; discriminate H| |intros H; discriminate H|intros H; discriminate H].
+    destruct (wcomp F ntm (WAtom SNil L a (WEnd SNil)) (WEnd s)) as [[s0|sq L' a' [U|s2 L2 a2 w2|s5 w5]|s4 w4]|] eqn:E;
+      [intros H; discriminate H| |intros H; discriminate H|intros H; discriminate H|intros H; discriminate H|intros H; discriminate H].
     assert (Hw1 : wdist (WAtom SNil L a (WEnd SNil))) by (split; exact I).
     destruct (wcomp_sound lenv tenv aenv penv F HF ntm Hntm (WAtom SNil L a (WEnd SNil)) (WEnd s) _ Hw1 Hs E)
       as [[Hd' HdU] D].

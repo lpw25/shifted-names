@@ -154,7 +154,7 @@ with tlsz (ts : tlist) : N :=
 with ssz (s : seg) : N :=
   match s with SNil => 0%N | SEnt _ ts _ r => (1 + tlsz ts + ssz r)%N end
 with wsz (w : word) : N :=
-  match w with WEnd s => (1 + ssz s)%N | WAtom s _ _ w' => (1 + ssz s + wsz w')%N end.
+  match w with WEnd s => (1 + ssz s)%N | WAtom s _ _ w' | WLay s w' => (1 + ssz s + wsz w')%N end.
 
 (** Multiplying out, giving up when the tree of a rest of the word has
     more than [c] nodes. *)
@@ -320,7 +320,7 @@ Theorem lapply_bind_sound e h i eb u x :
   rapply (aeden e) (mk_rvar (lden h) i) = inr (x, rpcompose (aeden eb) rpidentity).
 Proof.
   unfold lapply_bind_check, lapply_rest; destruct (lcanon F ntm e) as [l|] eqn:E; [|discriminate].
-  destruct (ltgt F l h i) as [[[|u0 [[|]|] [|]] r]|] eqn:Et; try discriminate.
+  destruct (ltgt F l h i) as [[[|u0 [[|]| |] [|]] r]|] eqn:Et; try discriminate.
   destruct (lrestrict F ntm r) as [r'|] eqn:Er; [|discriminate]; cbn [option_map].
   destruct (lcanon F ntm eb) as [lb|] eqn:Eb; [|discriminate].
   destruct (lword_eqb lb r') eqn:Eq; [|discriminate]; intros H; injection H as <-; intros Hx.
@@ -394,7 +394,7 @@ Lemma tmat_s_sound l t t' :
 Proof.
   intros Hfind; unfold tmat_s; destruct (ntgt_eqb t t') eqn:E; cbn [orb].
   { intros _; left; apply (proj1 nf_eqb_eq) in E; subst; reflexivity. }
-  destruct t' as [|k [[|]|] [b'|]]; try discriminate.
+  destruct t' as [|k [[|]| |] [b'|]]; try discriminate.
   destruct (nfind l k) as [tk|] eqn:Ef; [|discriminate]; intros H; apply andb_true_iff in H as [H1 H2].
   apply (proj1 nf_eqb_eq) in H1; subst tk.
   destruct (Hfind k t Ef) as [u [eb [y [Em [Ey Dt]]]]].
@@ -424,8 +424,8 @@ Qed.
 Theorem lmat_sound e e' :
   lmat_eqb F ntm facts e e' = true -> forall v, mrel g (rapply (aeden e) v) (rapply (aeden e') v).
 Proof.
-  unfold lmat_eqb; destruct (tnorm F ntm e) as [[S1|]|] eqn:E1; try discriminate.
-  destruct (tnorm F ntm e') as [[S2|]|] eqn:E2; try discriminate.
+  unfold lmat_eqb; destruct (tnorm F ntm e) as [[S1| |]|] eqn:E1; try discriminate.
+  destruct (tnorm F ntm e') as [[S2| |]|] eqn:E2; try discriminate.
   destruct (lfacts F ntm facts) as [l|] eqn:E3; [|discriminate]; intros Hm.
   destruct (tnorm_sound e _ E1) as [HD D1]; destruct (tnorm_sound e' _ E2) as [HD' D2].
   rewrite <- D1, <- D2, !wden_end.
@@ -463,6 +463,7 @@ Proof.
     rewrite (proj2 (lexp_eqb_eq h h) eq_refl), IHts, Nat.eqb_refl, IHr; reflexivity.
   - intros s IH; exact IH.
   - intros s IHs L a w IHw; cbn [word_eqb]; fold seg_eqb word_eqb; rewrite IHs, lifts_eqb_refl, Nat.eqb_refl, IHw; reflexivity.
+  - intros s IHs w IHw; cbn [word_eqb]; fold seg_eqb word_eqb; rewrite IHs, IHw; reflexivity.
 Qed.
 
 (** ** The tree is the normal form, and the decision is complete

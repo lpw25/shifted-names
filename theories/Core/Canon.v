@@ -253,7 +253,7 @@ Lemma pure_target (A B : radj T) t : is_pure ntm t = true ->
   (forall v, v_label v <> None -> rapply A v = rapply B v) ->
   tdist t /\ rapply_target A (tden t) = rapply_target B (tden t).
 Proof.
-  destruct t as [|u [[|]|] [|]]; try discriminate; cbn [is_pure]; intros Hu Hn; apply Nat.ltb_lt in Hu.
+  destruct t as [|u [[|]| |] [|]]; try discriminate; cbn [is_pure]; intros Hu Hn; apply Nat.ltb_lt in Hu.
   split; [exact I|].
   destruct (nth_error tenv u) as [y|] eqn:Ey; [|apply nth_error_None in Ey; lia].
   rewrite (tden_bind lenv tenv aenv penv u (WEnd SNil) None y Ey); cbn [rapply_target bden].

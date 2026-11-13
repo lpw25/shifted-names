@@ -125,7 +125,7 @@ Definition tm : Type := (nat * option nat * seg)%type.
 Definition tres (t : ntgt) : rvar + tm :=
   match t with
   | NVar h j => inl (mk_rvar (lden h) j)
-  | NBind u w b => inr (u, b, match w with WEnd s => s | WAtom _ _ _ _ => SNil end)
+  | NBind u w b => inr (u, b, match w with WEnd s => s | _ => SNil end)
   end.
 
 Definition sres (Sg : seg) (v : rvar) : rvar + tm :=

@@ -157,7 +157,7 @@ with tlmax (ts : tlist) : nat :=
 with smax (s : seg) : nat :=
   match s with SNil => 0 | SEnt _ ts _ r => Nat.max (tlmax ts) (smax r) end
 with wmax (w : word) : nat :=
-  match w with WEnd s => smax s | WAtom s _ _ w => Nat.max (smax s) (wmax w) end.
+  match w with WEnd s => smax s | WAtom s _ _ w | WLay s w => Nat.max (smax s) (wmax w) end.
 
 Section Ok.
 
@@ -193,6 +193,7 @@ Proof.
   - intros s IH nm [Hs Hn] Hm; apply IH; [eapply sshape_weak, Hs|exact Hn|exact Hm].
   - intros s IHs L a w IHw nm [Hs [Hn [_ Hr]]] Hm; split; [apply IHs; [exact Hs|exact Hn|lia]|].
     apply (IHw nm); [apply rnf_wnf, Hr|lia].
+  - intros s _ w _ nm [].
 Qed.
 
 End Ok.
@@ -229,7 +230,7 @@ Lemma wtrace_free w : forall h i K,
   (forall t, wtrace F w h i = Some (Some t) -> fw lenv w K (mk_rvar (lden lenv h) i) = ft lenv t K)
   /\ (wtrace F w h i = Some None -> exists a z k, fw lenv w K (mk_rvar (lden lenv h) i) = FStuck a z k).
 Proof.
-  induction w as [Sg|Sg L a w IH] using word_spine; intros h i K; cbn [wtrace fw].
+  induction w as [Sg|Sg L a w IH|Sg w IH] using word_spine; intros h i K; cbn [wtrace fw]; [| |split; discriminate].
   - destruct (seg_tgt F Sg h i) as [t'|] eqn:E; [|split; discriminate].
     split; [intros t H; injection H as <-; apply seg_tgt_free, E|discriminate].
   - set (K' := latom lenv L a (fun y => fs lenv Sg K y)).

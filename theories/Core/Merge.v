@@ -88,7 +88,7 @@ with sdistb (s : seg) : bool :=
       end
   end
 with wdistb (w : word) : bool :=
-  match w with WEnd s => sdistb s | WAtom s _ _ w' => sdistb s && wdistb w' end.
+  match w with WEnd s => sdistb s | WAtom s _ _ w' => sdistb s && wdistb w' | WLay s w' => sdistb s && wdistb w' end.
 
 End MergeS.
 
@@ -162,6 +162,7 @@ Proof.
       split; [exact (conj (below_get _ _ Hbl) (conj (IHts H1) Hd))|exact (conj Hbl (conj Hb Hs))].
   - intros s IH H; exact (proj1 (IH H)).
   - intros s IHs L a w IHw H; cbn [wdistb] in H; apply andb_true_iff in H as [H1 H2]; split; [exact (proj1 (IHs H1))|exact (IHw H2)].
+  - intros s IHs w IHw H; cbn [wdistb] in H; apply andb_true_iff in H as [H1 H2]; split; [exact (proj1 (IHs H1))|exact (IHw H2)].
 Qed.
 
 Lemma sdistb_sound s : sdistb F s = true -> sdistd s.

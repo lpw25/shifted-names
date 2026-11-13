@@ -745,8 +745,8 @@ Proof.
     + intros H; injection H as <-; split; [constructor; assumption|reflexivity].
   - inversion HK as [|? ? _ H0]; subst.
     destruct (has_terms s); [intros H; injection H as <-; split; [constructor; assumption|reflexivity]|].
-    destruct (wcomp F ntm (WAtom SNil L a (WEnd SNil)) (WEnd s)) as [[s0|s' L' a' [U|s2 L2 a2 w2]]|] eqn:E;
-      [intros H; discriminate H| |intros H; discriminate H|intros H; discriminate H].
+    destruct (wcomp F ntm (WAtom SNil L a (WEnd SNil)) (WEnd s)) as [[s0|s' L' a' [U|s2 L2 a2 w2|s5 w5]|s4 w4]|] eqn:E;
+      [intros H; discriminate H| |intros H; discriminate H|intros H; discriminate H|intros H; discriminate H|intros H; discriminate H].
     destruct (cons_seg F ntm s' K0) as [K''|] eqn:E2; [|intros H; discriminate H]; cbn [obind]; intros H; injection H as <-.
     destruct (wcomp_sound lenv tenv aenv penv F HF ntm Hntm (WAtom SNil L a (WEnd SNil)) (WEnd s) _ (conj I I) Hs E)
       as [[Hd' HdU] D].

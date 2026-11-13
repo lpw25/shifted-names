@@ -278,7 +278,7 @@ Qed.
 
 Lemma pnorm_rnf w : rnf true w -> pnorm w = w.
 Proof.
-  induction w as [U|s L a w IH] using word_spine; cbn [Unique.rnf pnorm].
+  induction w as [U|s L a w IH|s w IH] using word_spine; cbn [Unique.rnf pnorm]; [| |intros []].
   - intros [H _]; f_equal; apply sdrop_none_id, H.
   - intros [_ [_ [_ H]]]; f_equal; apply IH, H.
 Qed.
@@ -323,6 +323,7 @@ Proof.
     { apply snf_iff; intros t Ht; destruct (Ht' t Ht) as [Hin|[t0 [Hi Et]]];
         [apply (snf_in _ _ _ _ HSn _ Hin)|apply (IHs t0 Hi (snf_in _ _ _ _ Hn _ Hi) t Et)]. }
     destruct nm; cbn [pnorm Unique.wnf]; [rewrite (pnorm_rnf w Hr)|]; (split; [exact Hs'|split; [exact Hn'|split; [exact Ha|exact Hr]]]).
+  - intros U _ w _ nm [].
 Qed.
 
 End CompNormal.
@@ -477,10 +478,10 @@ Lemma wnf_false nm w : wnf nm w -> wnf false w.
 Proof.
   destruct nm; [|exact (fun H => H)].
   assert (Hr : forall w, rnf true w -> rnf false w).
-  { induction w0 as [U|s0 L a w0 IH] using word_spine; cbn [Unique.rnf].
+  { induction w0 as [U|s0 L a w0 IH|s0 w0 IH] using word_spine; cbn [Unique.rnf]; [| |intros []].
     - intros [H1 H2]; split; [eapply sshape_weak, H1|exact H2].
     - intros [H1 [H2 [[A [B _]] H3]]]; refine (conj H1 (conj H2 (conj (conj A (conj B _)) (IH H3)))); discriminate. }
-  destruct w as [U|s0 L a w]; cbn [Unique.wnf].
+  destruct w as [U|s0 L a w|s0 w]; cbn [Unique.wnf]; [| |intros []].
   - intros [H1 H2]; split; [eapply sshape_weak, H1|exact H2].
   - intros [H1 [H2 [[A [B _]] H3]]]; refine (conj H1 (conj H2 (conj (conj A (conj B _)) (Hr _ H3)))); discriminate.
 Qed.
@@ -493,7 +494,7 @@ Qed.
 
 Lemma rnf_wnf nm w : rnf nm w -> wnf nm w.
 Proof.
-  destruct w as [U|s0 L a w]; cbn [Unique.rnf Unique.wnf].
+  destruct w as [U|s0 L a w|s0 w]; cbn [Unique.rnf Unique.wnf]; [| |intros []].
   - intros [H1 H2]; split; [exact H1|apply sren_snf, H2].
   - intros [H1 [H2 [H3 H4]]]; refine (conj H1 (conj (sren_snf _ H2) (conj H3 H4))).
 Qed.
@@ -679,11 +680,11 @@ Proof.
   intros HA HAn HL Hw; unfold settle.
   destruct (settle1 F ntm wc pn a A L (whead w)) as [[[A' L'] U']|] eqn:E; [|discriminate]; intros H; injection H as <-.
   assert (Hh : sshape false (whead w) /\ snf (whead w)).
-  { destruct w as [s0|s0 L0 a0 w0]; cbn [isend whead] in *.
+  { destruct w as [s0|s0 L0 a0 w0|s0 w0]; cbn [isend whead] in *; [| |cbn [Unique.wnf] in Hw; destruct Hw].
     - destruct Hw as [[Hs Hn] _]; split; assumption.
     - destruct Hw as [Hs [Hn _]]; split; assumption. }
   destruct (settle1_normal _ _ _ _ _ _ _ HA HAn HL (proj1 Hh) (proj2 Hh) E) as [HA' [HA'n [HL' [HU' [HU'r [Hp Hnm]]]]]].
-  destruct w as [s0|s0 L0 a0 w0]; cbn [isend whead wsethead] in *; cbn [Unique.wnf Unique.rnf].
+  destruct w as [s0|s0 L0 a0 w0|s0 w0]; cbn [isend whead wsethead] in *; cbn [Unique.wnf Unique.rnf]; [| |cbn [Unique.wnf] in Hw; destruct Hw].
   - destruct Hw as [_ Hc].
     refine (conj HA' (conj HA'n (conj (conj HL' (conj Hp _)) (conj _ HU'r)))).
     + intros Et _; exact (proj2 (Hnm (Hc Et))).
@@ -698,8 +699,8 @@ Proof. unfold settle; destruct (settle1 _ _ _ _ _ _ _ _) as [[[? ?] ?]|]; [|disc
 
 Lemma pnormf_atom w w' : pnormf F ntm wc pn w = Some w' -> isend w = false -> isend w' = false.
 Proof.
-  destruct w as [s0|A L a w]; [intros _ E; discriminate E|]; cbn [pnormf]; intros H _.
-  destruct w as [s|A' L' a' w1].
+  destruct w as [s0|A L a w|s0 w]; [intros _ E; discriminate E| |cbn [pnormf]; discriminate]; cbn [pnormf]; intros H _.
+  destruct w as [s|A' L' a' w1|s1 w1]; [| |cbn [pnormf] in H; discriminate H].
   - destruct (pfinal F L s); [exact (settle_atom _ _ _ _ _ H)|discriminate].
   - destruct (pnormf F ntm wc pn (WAtom A' L' a' w1)); [exact (settle_atom _ _ _ _ _ H)|discriminate].
 Qed.
@@ -753,12 +754,12 @@ Qed.
 
 Lemma pnormf_normal w : wnf false w -> forall w', pnormf F ntm wc pn w = Some w' -> wnf true w'.
 Proof.
-  induction w as [s|A L a w IH] using word_spine; cbn [pnormf].
+  induction w as [s|A L a w IH|s w IH] using word_spine; cbn [pnormf]; [| |intros []].
   - intros [Hs Hn] w' H; injection H as <-; cbn [Unique.wnf].
     destruct (sdrop_none_shape _ Hs) as [Hs' Ht']; split; [exact Hs'|].
     apply snf_iff; intros t Ht; apply (snf_in _ _ _ _ Hn), Ht', Ht.
   - intros Hw w'; destruct Hw as [HA [HAn [[HL [Hp _]] Hr]]].
-    destruct w as [s|A' L' a' w1].
+    destruct w as [s|A' L' a' w1|s1 w1]; [| |cbn [Unique.rnf] in Hr; destruct Hr].
     + unfold pfinal.
       destruct (sset F LNone TNil (lcount LNone L) s) as [s'|] eqn:Es; [|discriminate]; intros H.
       cbn [Unique.rnf] in Hr; destruct Hr as [Hs Hsr].
@@ -779,7 +780,7 @@ Qed.
 
 Lemma wcomp_with_normal w1 : wnf false w1 -> forall w2 w, wnf false w2 -> wcomp_with F ntm wc pn w1 w2 = Some w -> wnf false w.
 Proof.
-  induction w1 as [A|A L a w1 IH] using word_spine; cbn [wcomp_with].
+  induction w1 as [A|A L a w1 IH|A w1 IH] using word_spine; cbn [wcomp_with]; [| |intros []].
   - intros [HA HAn] w2 w Hw2 H; exact (wcons_normal _ _ _ H HA HAn Hw2).
   - intros [HA [HAn [[HL _] Hr]]] w2 w Hw2.
     destruct (wcomp_with F ntm wc pn w1 w2) as [w'|] eqn:E; [|discriminate]; intros H.
@@ -925,21 +926,21 @@ Qed.
 
 Lemma whead_lift h w w' : wlift F ntm h w = Some w' -> slift F ntm h (whead w) = Some (whead w').
 Proof.
-  destruct w as [s|s L a w]; cbn [wlift whead].
+  destruct w as [s|s L a w|s w]; cbn [wlift whead]; [| |discriminate].
   - destruct (slift F ntm h s); [intros H; injection H as <-; reflexivity|discriminate].
   - destruct (slift F ntm h s), (ladd F h 1 L), (wlift F ntm h w); try discriminate; intros H; injection H as <-; reflexivity.
 Qed.
 
 Lemma whead_shape nm w : rnf nm w -> sshape false (whead w) /\ sren (whead w).
 Proof.
-  destruct w as [U|s L a w]; cbn [Unique.rnf whead].
+  destruct w as [U|s L a w|s w]; cbn [Unique.rnf whead]; [| |intros []].
   - intros [H1 H2]; split; [eapply sshape_weak, H1|exact H2].
   - intros [H1 [H2 _]]; split; assumption.
 Qed.
 
 Lemma rnf_lift h w : In h labs -> rnf false w -> forall w', wlift F ntm h w = Some w' -> rnf false w'.
 Proof.
-  intros Hh; induction w as [U|s L a w IH] using word_spine; cbn [wlift].
+  intros Hh; induction w as [U|s L a w IH|s w IH] using word_spine; cbn [wlift]; [| |intros []].
   - intros [Hs Hr] w'; destruct (slift F ntm h U) as [U'|] eqn:E; [|discriminate]; intros H; injection H as <-.
     exact (slift_ren _ _ _ E Hs Hr Hh).
   - intros [Hs [Hr [[HL [Hp _]] Hw]]] w'.
@@ -957,7 +958,7 @@ Qed.
 
 Lemma wlift_normal h w w' : In h labs -> wnf false w -> wlift F ntm h w = Some w' -> wnf false w'.
 Proof.
-  intros Hh; destruct w as [s|s L a w]; cbn [wlift].
+  intros Hh; destruct w as [s|s L a w|s w]; cbn [wlift]; [| |intros []].
   - intros [Hs Hn]; destruct (slift F ntm h s) as [s'|] eqn:E; [|discriminate]; intros H; injection H as <-.
     exact (slift_normal _ _ _ E Hs Hn Hh).
   - intros [Hs [Hn [[HL [Hp _]] Hw]]].
@@ -975,7 +976,7 @@ Qed.
 
 Lemma wpush_normal h t w w' : In h labs -> tnf t -> wnf false w -> wpush F ntm h t w = Some w' -> wnf false w'.
 Proof.
-  intros Hh Ht; destruct w as [s|s L a w]; cbn [wpush].
+  intros Hh Ht; destruct w as [s|s L a w|s w]; cbn [wpush]; [| |intros []].
   - intros [Hs Hn]; destruct (sfront F h t s) as [s'|] eqn:E; [|discriminate]; intros H; injection H as <-.
     destruct (sfront_spec _ _ _ _ E Hs Hh) as [Hs' Ht']; split; [exact Hs'|].
     apply snf_iff; intros t' Hin; destruct (Ht' t' Hin) as [->|H]; [exact Ht|apply (snf_in _ _ _ _ Hn), H].

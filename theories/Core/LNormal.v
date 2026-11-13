@@ -137,8 +137,8 @@ Proof.
     + intros H; injection H as <-; constructor; [exact Hs|exact HK].
   - inversion HK as [|? ? H1 HK']; subst.
     destruct (has_terms s); [intros H; injection H as <-; constructor; [exact Hs|exact HK]|].
-    destruct (wcomp F ntm (WAtom SNil L a (WEnd SNil)) (WEnd s)) as [[s0|s' L' a' [U|s2 L2 a2 w2]]|] eqn:E;
-      [intros H; discriminate H| |intros H; discriminate H|intros H; discriminate H].
+    destruct (wcomp F ntm (WAtom SNil L a (WEnd SNil)) (WEnd s)) as [[s0|s' L' a' [U|s2 L2 a2 w2|s5 w5]|s4 w4]|] eqn:E;
+      [intros H; discriminate H| |intros H; discriminate H|intros H; discriminate H|intros H; discriminate H|intros H; discriminate H].
     pose proof (wcomp_normal lenv labs npa F HF ntm (WAtom SNil L a (WEnd SNil)) (WEnd s) _ H1 Hs E) as Hw.
     destruct Hw as [A [B [[C _] [D D']]]].
     destruct (cons_seg F ntm s' K) as [K''|] eqn:E2; [|discriminate]; cbn [obind]; intros H; injection H as <-.

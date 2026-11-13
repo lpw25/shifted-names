@@ -46,6 +46,7 @@ Fixpoint fw (w : word) (K : rvar -> fres) (v : rvar) {struct w} : fres :=
   match w with
   | WEnd Sg => fs Sg K v
   | WAtom Sg L a w' => fw w' (latom L a (fun y => fs Sg K y)) v
+  | WLay Sg w' => fw w' (fun y => fs Sg K y) v
   end
 with fs (Sg : seg) (K : rvar -> fres) (v : rvar) {struct Sg} : fres :=
   match Sg with
@@ -154,7 +155,7 @@ with okts (ts : tlist) : Prop :=
 with oks (s : seg) : Prop :=
   match s with SNil => True | SEnt h ts _ r => sget lenv (lden h) r = None /\ okts ts /\ oks r end
 with okw (w : word) : Prop :=
-  match w with WEnd s => oks s | WAtom s _ _ w => oks s /\ okw w end.
+  match w with WEnd s => oks s | WAtom s _ _ w => oks s /\ okw w | WLay s w => oks s /\ okw w end.
 
 Lemma oks_sdist s : oks s -> sdist lenv s.
 Proof. induction s as [|h ts m r IH] using seg_spine; cbn; [tauto|intros [H1 [_ H2]]; split; [exact H1|apply IH, H2]]. Qed.
@@ -210,6 +211,10 @@ Proof.
       * intros y; destruct y as [ly iy]; rewrite rapply_compose_cres, (SH_apply lenv tenv _ (le_n _)); cbn [cres].
         rewrite rapply_compose_cres, rapply_sden by (apply oks_sdist, Hs); apply IHs; assumption.
       * rewrite cres_compose; reflexivity.
+  - intros s IHs w IHw [Hs Hw] K Kr v HK.
+    rewrite wden_lay, !rcompose_assoc.
+    apply IHw; [exact Hw|]; intros x.
+    rewrite rapply_compose_cres, rapply_sden by (apply oks_sdist, Hs); apply IHs; assumption.
 Qed.
 
 Theorem free_to_real w1 w2 : okw w1 -> okw w2 ->
@@ -578,7 +583,10 @@ Definition lpos (U : seg) (L : list (lexp * nat)) : Prop :=
 
 (** *** The normal-form conditions *)
 
-Definition isend (w : word) : bool := match w with WEnd _ => true | WAtom _ _ _ _ => false end.
+Definition isend (w : word) : bool := match w with WEnd _ => true | WAtom _ _ _ _ | WLay _ _ => false end.
+
+(** Words of the tree normal form have no layers. *)
+Fixpoint nolay (w : word) : Prop := match w with WEnd _ => True | WAtom _ _ _ w => nolay w | WLay _ _ => False end.
 
 (** An atom under [L] after the word [w]. *)
 Definition aok (nm : bool) (L : list (lexp * nat)) (w : word) : Prop :=
@@ -589,6 +597,7 @@ Fixpoint rnf (nm : bool) (w : word) : Prop :=
   match w with
   | WEnd U => sshape nm U /\ sren U
   | WAtom s L a w' => sshape false s /\ sren s /\ aok nm L w' /\ rnf nm w'
+  | WLay _ _ => False
   end.
 
 Definition bok (b : option nat) : Prop := match b with Some n => n < npa | None => True end.
@@ -606,6 +615,7 @@ with wnf (nm : bool) (w : word) : Prop :=
   match w with
   | WEnd s => sshape nm s /\ snf s
   | WAtom s L a w' => sshape false s /\ snf s /\ aok nm L w' /\ rnf nm w'
+  | WLay _ _ => False
   end.
 
 Lemma snf_in s : snf s -> forall t, In t (stgts s) -> tnf t.
@@ -621,7 +631,7 @@ Qed.
 Fixpoint tsz (t : ntgt) : nat := match t with NVar _ _ => 1 | NBind _ w _ => S (wsz w) end
 with tlsz (ts : tlist) : nat := match ts with TNil => 0 | TCons t r => tsz t + tlsz r end
 with ssz (s : seg) : nat := match s with SNil => 0 | SEnt _ ts _ r => tlsz ts + ssz r end
-with wsz (w : word) : nat := match w with WEnd s => S (ssz s) | WAtom s _ _ w => S (ssz s + wsz w) end.
+with wsz (w : word) : nat := match w with WEnd s => S (ssz s) | WAtom s _ _ w | WLay s w => S (ssz s + wsz w) end.
 
 Lemma stgts_sz s t : In t (stgts s) -> tsz t <= ssz s.
 Proof.
@@ -633,31 +643,42 @@ Qed.
 
 (** *** Peeling the first atom *)
 
-Fixpoint natoms (w : word) : nat := match w with WEnd _ => 0 | WAtom _ _ _ w => S (natoms w) end.
+Fixpoint natoms (w : word) : nat := match w with WEnd _ => 0 | WAtom _ _ _ w => S (natoms w) | WLay _ w => natoms w end.
 
 (** [W] after [⇑ᴸσ] after [U]. *)
 Fixpoint wsnoc (W : word) (L : list (lexp * nat)) (a : nat) (U : seg) : word :=
   match W with
   | WEnd s => WAtom s L a (WEnd U)
   | WAtom s L' a' W' => WAtom s L' a' (wsnoc W' L a U)
+  | WLay s W' => WLay s (wsnoc W' L a U)
   end.
 
-Lemma word_view w : isend w = false -> exists W L a U, w = wsnoc W L a U.
+Lemma rnf_nolay nm w : rnf nm w -> nolay w.
 Proof.
-  induction w as [s|s L a w IH] using word_spine; [discriminate|]; intros _.
-  destruct w as [U|s' L' a' w'].
+  induction w as [s|s L a w IH|s w IH] using word_spine; cbn [rnf nolay]; [tauto|intros [_ [_ [_ H]]]; exact (IH H)|tauto].
+Qed.
+
+Lemma wnf_nolay nm w : wnf nm w -> nolay w.
+Proof. destruct w as [s|s L a w|s w]; cbn [wnf nolay]; [tauto|intros [_ [_ [_ H]]]; exact (rnf_nolay _ _ H)|tauto]. Qed.
+
+Lemma word_view w : isend w = false -> nolay w -> exists W L a U, w = wsnoc W L a U.
+Proof.
+  induction w as [s|s L a w IH|s w IH] using word_spine; [discriminate| |intros _ []]; intros _ Hn.
+  destruct w as [U|s' L' a' w'|s' w'].
   - exists (WEnd s), L, a, U; reflexivity.
-  - destruct (IH eq_refl) as [W [L1 [a1 [U1 E]]]]; rewrite E; exists (WAtom s L a W), L1, a1, U1; reflexivity.
+  - destruct (IH eq_refl Hn) as [W [L1 [a1 [U1 E]]]]; rewrite E; exists (WAtom s L a W), L1, a1, U1; reflexivity.
+  - destruct Hn.
 Qed.
 
 Lemma fw_snoc W L a U K v : fw (wsnoc W L a U) K v = fs U (latom L a (fun y => fw W K y)) v.
 Proof.
-  revert K; induction W as [s|s L' a' W IH] using word_spine; intros K; [reflexivity|].
-  exact (IH (latom L' a' (fun y => fs s K y))).
+  revert K; induction W as [s|s L' a' W IH|s W IH] using word_spine; intros K; [reflexivity| |].
+  - exact (IH (latom L' a' (fun y => fs s K y))).
+  - exact (IH (fun y => fs s K y)).
 Qed.
 
 Lemma wsz_snoc W L a U : wsz W < wsz (wsnoc W L a U).
-Proof. induction W as [s|s L' a' W IH] using word_spine; cbn [wsnoc wsz]; lia. Qed.
+Proof. induction W as [s|s L' a' W IH|s W IH] using word_spine; cbn [wsnoc wsz]; lia. Qed.
 
 Lemma whead_snoc W L a U : whead (wsnoc W L a U) = whead W.
 Proof. destruct W; reflexivity. Qed.
@@ -665,7 +686,7 @@ Proof. destruct W; reflexivity. Qed.
 Lemma rnf_snoc nm W L a U : rnf nm (wsnoc W L a U) ->
   rnf false W /\ sshape nm U /\ sren U /\ lok L /\ lpos U L /\ (nm = true -> lc lenv None L = 0).
 Proof.
-  induction W as [s|s L' a' W IH] using word_spine; cbn [wsnoc rnf].
+  induction W as [s|s L' a' W IH|s W IH] using word_spine; cbn [wsnoc rnf]; [| |tauto].
   - intros [Hs [Hr [[Hl [Hp Hn]] [HU HrU]]]].
     refine (conj (conj Hs Hr) (conj HU (conj HrU (conj Hl (conj Hp _))))); intros E; apply Hn; [exact E|reflexivity].
   - intros [Hs [Hr [[Hl [Hp _]] Hw]]]; destruct (IH Hw) as [HW Hrest]; split; [|exact Hrest].
@@ -675,7 +696,7 @@ Qed.
 Lemma wnf_snoc nm W L a U : wnf nm (wsnoc W L a U) ->
   wnf false W /\ sshape nm U /\ sren U /\ lok L /\ lpos U L /\ (nm = true -> lc lenv None L = 0).
 Proof.
-  destruct W as [s|s L' a' W]; cbn [wsnoc wnf].
+  destruct W as [s|s L' a' W|s W]; cbn [wsnoc wnf]; [| |tauto].
   - intros [Hs [Hn [[Hl [Hp Hn']] [HU HrU]]]].
     refine (conj (conj Hs Hn) (conj HU (conj HrU (conj Hl (conj Hp _))))); intros E; apply Hn'; [exact E|reflexivity].
   - intros [Hs [Hn [[Hl [Hp _]] Hw]]]; destruct (rnf_snoc _ _ _ _ _ Hw) as [HW Hrest]; split; [|exact Hrest].
@@ -751,10 +772,11 @@ Qed.
 
 Lemma deep_fw w : forall d K, deep d K -> deep (natoms w + d) (fun v => fw w K v).
 Proof.
-  induction w as [s|s L a w IH] using word_spine; intros d K Hd; cbn [natoms].
+  induction w as [s|s L a w IH|s w IH] using word_spine; intros d K Hd; cbn [natoms].
   - apply deep_fs, Hd.
   - replace (S (natoms w) + d) with (natoms w + S d) by lia.
     exact (IH (S d) (latom L a (fun y => fs s K y)) (deep_latom _ _ _ _ (deep_fs _ _ _ Hd))).
+  - exact (IH d (fun y => fs s K y) (deep_fs _ _ _ Hd)).
 Qed.
 
 (** A result stuck in [K] has fewer than [e] atoms left. *)
@@ -782,11 +804,12 @@ Qed.
 
 Lemma nstuck_fw w : forall e K, nstuck e K -> deep e K -> nstuck (natoms w + e) (fun v => fw w K v).
 Proof.
-  induction w as [s|s L a w IH] using word_spine; intros e K Hn Hd; cbn [natoms].
+  induction w as [s|s L a w IH|s w IH] using word_spine; intros e K Hn Hd; cbn [natoms].
   - apply nstuck_fs, Hn.
   - replace (S (natoms w) + e) with (natoms w + S e) by lia.
     exact (IH (S e) (latom L a (fun y => fs s K y))
              (nstuck_latom _ _ _ _ (nstuck_fs _ _ _ Hn) (deep_fs _ _ _ Hd)) (deep_latom _ _ _ _ (deep_fs _ _ _ Hd))).
+  - exact (IH e (fun y => fs s K y) (nstuck_fs _ _ _ Hn) (deep_fs _ _ _ Hd)).
 Qed.
 
 Lemma sv_big U l N : sren U -> exists B, forall i, B <= i -> exists j, N <= j /\ sv U (mk_rvar l i) = mk_rvar l j.
@@ -896,7 +919,7 @@ Theorem nf_unique_n n : forall w1 w2 nm, wsz w1 <= n -> wnf nm w1 -> wnf nm w2 -
 Proof.
   induction n as [|n IH]; intros w1 w2 nm Hsz H1 H2 Heq; [destruct w1; cbn in Hsz; lia|].
   destruct (isend w1) eqn:Ew1, (isend w2) eqn:Ew2.
-  - destruct w1 as [s1|]; [|discriminate]; destruct w2 as [s2|]; [|discriminate].
+  - destruct w1 as [s1| |]; [|discriminate|discriminate]; destruct w2 as [s2| |]; [|discriminate|discriminate].
     destruct H1 as [Hs1 Hn1]; destruct H2 as [Hs2 Hn2]; f_equal.
     refine (seg_unique_nm (fun t => In t (stgts s1) /\ tnf t) tnf _ _ _ nm s1 s2 Hs1 Hs2 _ _ _).
     + intros t t' [Ht Hnt] Hnt' E.
@@ -911,21 +934,21 @@ Proof.
     + apply Forall_forall; intros t Ht; split; [exact Ht|exact (snf_in s1 Hn1 t Ht)].
     + apply Forall_forall; intros t Ht; exact (snf_in s2 Hn2 t Ht).
     + intros l j Hl; pose proof (Heq (mk_rvar l j) Hl) as E; cbn [fw] in E; rewrite !fs_get in E; exact E.
-  - destruct w1 as [s1|]; [|discriminate]; destruct (word_view w2 Ew2) as [W2 [L2 [a2 [U2 ->]]]].
+  - destruct w1 as [s1| |]; [|discriminate|discriminate]; destruct (word_view w2 Ew2 (wnf_nolay _ _ H2)) as [W2 [L2 [a2 [U2 ->]]]].
     destruct (wnf_snoc _ _ _ _ _ H2) as [_ [_ [Hr2 _]]]; exfalso.
     destruct (fs_big s1 FVar lbig 0) as [B1 HB1]; destruct (sv_big U2 lbig (lc lenv lbig L2) Hr2) as [B2 HB2].
     destruct (HB1 (B1 + B2) ltac:(lia)) as [j1 [_ E1]]; destruct (HB2 (B1 + B2) ltac:(lia)) as [j2 [Hj2 E2]].
     pose proof (Heq (mk_rvar lbig (B1 + B2)) (obs_big _ _)) as E.
     rewrite fw_snoc, fs_ren in E by exact Hr2; cbn [fw] in E; rewrite E1, E2 in E.
     unfold latom in E; cbn [v_label v_index] in E; rewrite (proj2 (Nat.ltb_ge _ _) Hj2) in E; exact E.
-  - destruct w2 as [s2|]; [|discriminate]; destruct (word_view w1 Ew1) as [W1 [L1 [a1 [U1 ->]]]].
+  - destruct w2 as [s2| |]; [|discriminate|discriminate]; destruct (word_view w1 Ew1 (wnf_nolay _ _ H1)) as [W1 [L1 [a1 [U1 ->]]]].
     destruct (wnf_snoc _ _ _ _ _ H1) as [_ [_ [Hr1 _]]]; exfalso.
     destruct (fs_big s2 FVar lbig 0) as [B1 HB1]; destruct (sv_big U1 lbig (lc lenv lbig L1) Hr1) as [B2 HB2].
     destruct (HB1 (B1 + B2) ltac:(lia)) as [j1 [_ E1]]; destruct (HB2 (B1 + B2) ltac:(lia)) as [j2 [Hj2 E2]].
     pose proof (Heq (mk_rvar lbig (B1 + B2)) (obs_big _ _)) as E.
     rewrite fw_snoc, fs_ren in E by exact Hr1; cbn [fw] in E; rewrite E1, E2 in E.
     unfold latom in E; cbn [v_label v_index] in E; rewrite (proj2 (Nat.ltb_ge _ _) Hj2) in E; exact E.
-  - destruct (word_view w1 Ew1) as [W1 [L1 [a1 [U1 ->]]]]; destruct (word_view w2 Ew2) as [W2 [L2 [a2 [U2 ->]]]].
+  - destruct (word_view w1 Ew1 (wnf_nolay _ _ H1)) as [W1 [L1 [a1 [U1 ->]]]]; destruct (word_view w2 Ew2 (wnf_nolay _ _ H2)) as [W2 [L2 [a2 [U2 ->]]]].
     destruct (wnf_snoc _ _ _ _ _ H1) as [HW1 [Hs1 [Hr1 [Hl1 [Hp1 Hn1]]]]].
     destruct (wnf_snoc _ _ _ _ _ H2) as [HW2 [Hs2 [Hr2 [Hl2 [Hp2 Hn2]]]]].
     destruct (peel nm W1 L1 a1 U1 W2 L2 a2 U2 Hs1 Hr1 Hl1 Hp1 Hn1 Hs2 Hr2 Hl2 Hp2 Hn2 Heq) as [<- [<- [<- HR]]].
