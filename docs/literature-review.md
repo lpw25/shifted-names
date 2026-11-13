@@ -224,6 +224,57 @@ algorithm. The spec needs the tree form to be finite with decidable
 equality, which our functional `fres` is not. The old tree normaliser's
 output is.
 
+## Correction: the proposal is not linear
+
+1. **The specification.** `maxshare (tree_nf e)` goes through the
+   unshared form, which is exponential in `e`. A specification may be
+   exponential, but its *output* must still be small, and this one's is
+   not.
+
+2. **Flattening loses compositions.** The σ-normal form pushes
+   composition into every closure. A chain of `L` layers, each
+   substituting for a different variable, has `L` different suffix
+   substitutions of size up to `L`. Their maximally shared form is
+   Θ(L²): flattening loses the composition, which is exactly what the
+   line keeps.
+
+3. **Sharing a composition makes it worse.** Take
+   `share x₁ := a ⨾ b in share x₂ := x₁ ⨾ x₁ in … xₖ ⨾ xₖ` with atoms
+   `a` and `b`. Its meaning is the word `(a b)^(2^k)` of stuck atoms.
+   Neither the flattened tree nor the current line can share it: the
+   line lists its atoms one by one. So the current design is not
+   linear on this input either.
+
+### A general obstruction
+
+Restrict to atoms, composition and `share`. Atoms do not interact, so
+an expression means a word over atoms, and expressions are exactly
+straight-line programs (SLPs) for words.
+
+Suppose `canon` runs in polynomial time and always has size at most
+`c · |e|`, with `share` counted once. Then for every word `w`,
+`|canon w| ≤ c · g(w)`, where `g(w)` is the size of the smallest SLP
+for `w`. Running `canon` on the explicit word gives a polynomial-time
+`c`-approximation of the smallest grammar problem.
+
+- That is NP-hard below 8569/8568 (Charikar et al., *The smallest
+  grammar problem*, 2005).
+- For any constant `c`, it is open; the best known ratio is
+  O(log(N/g)).
+
+So "canonical, linear-size, `share` in input and output" is at least as
+hard as a long-open problem. The known canonical encodings of
+compressed words are within log factors, not linear: signature
+encodings (Mehlhorn, Sundar and Uhrig) and recompression (Jeż). These
+two references are from memory and not checked.
+
+The design goal has to change in one of these ways:
+
+- (a) size linear in the input *where `share` binds no composition of
+  atoms*;
+- (b) canonical size O(n log N), with `N` the unfolded length;
+- (c) give up syntactic canonicity for compositions of atoms.
+
 ## Open questions
 
 - **Closures.** None of the papers handles sharing through delayed
