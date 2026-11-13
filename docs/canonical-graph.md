@@ -298,12 +298,13 @@ An executable model of the design. See `proto/README.md`.
 
 ### Results
 
-- **Soundness and canonicity.** On about 20,000 random expressions
-  (depth 3–4, with `share`, lifts, atoms, payload atoms and the bound
-  label), the graph means what the expression means. Equal meanings
-  give the same graph: the number of distinct graphs always equals the
-  number of distinct meanings.
-- **Idempotence.** On 6,000 random expressions,
+- **Soundness and canonicity.** On 32,000 random expressions with the
+  final code (20,000 of depth 4 and 12,000 of depth 3, with `share`,
+  lifts, atoms, payload atoms and the bound label), the graph means
+  what the expression means. Equal meanings give the same graph:
+  across 16,000 distinct meanings, the number of graphs always equals
+  the number of meanings.
+- **Idempotence.** On 7,000 random expressions,
   `graph (print (graph e)) = graph e`, with the same meaning.
 - **Sizes** (graph objects; evaluations):
 
@@ -323,8 +324,10 @@ An executable model of the design. See `proto/README.md`.
   size `n` has an O(n) graph.
 - **Histories.** Start share-free, then repeatedly normalise and apply
   a random operation: compose either side, lift, outer, use as a
-  payload, or push. Evaluations stay below 11 × the share-free size of
-  the history, and graph size below 8 ×.
+  payload, or push. The meaning is checked at every step. Over 6
+  histories of 120 steps, evaluations stay below 2.5 × the share-free
+  size of the history, and graph size below 8 ×. The maxima are
+  reached early, when the history is small.
 
 ### Two things the prototype found
 
