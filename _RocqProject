@@ -31,6 +31,7 @@ theories/Core/Canon.v
 theories/Core/Keys.v
 theories/Core/Retarget.v
 theories/Core/Canonical.v
+theories/Core/LFree.v
 theories/Core/LNormal.v
 theories/Core/LEval.v
 theories/Core/Names.v

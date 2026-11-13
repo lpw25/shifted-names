@@ -221,7 +221,6 @@ Definition routed (k : rvar -> fres) (y : rvar) : Prop :=
 Record segok (Sg : seg) (r : lword) : Prop := {
   so_shape : sshape false Sg;
   so_pure : spure Sg;
-  so_kind : sterm Sg \/ (sren Sg /\ (r = [] \/ exists L a r2, r = LA L a :: r2 /\ lpos Sg L));
   so_order : forall y u b k, R r y = FTerm u b k -> gt (R r) k;
   so_last : forall G, r = [LS G] -> keq (R r) FVar -> sterm G;
   so_route : forall x y, sres Sg x = inl y -> routed (R r) y;
@@ -237,9 +236,18 @@ Record segok (Sg : seg) (r : lword) : Prop := {
 Fixpoint lnf (l : lword) : Prop :=
   match l with
   | [] => True
-  | LS Sg :: r => Sg <> SNil /\ segok Sg r /\ lnf r
+  | LS Sg :: r =>
+      Sg <> SNil /\ lnf r
+      /\ ((sterm Sg /\ segok Sg r)
+          \/ (sshape false Sg /\ sren Sg /\ (r = [] \/ exists L a r2, r = LA L a :: r2 /\ lpos Sg L)))
   | LA L _ :: r => lok L /\ lnf r
   end.
+
+Lemma lnf_cons_pure s r : lnf (LS s :: r) -> spure s /\ lnf r.
+Proof.
+  intros [_ [Hr [[_ HS]|[_ [Hren _]]]]]; split; try exact Hr; [exact (so_pure _ _ HS)|].
+  unfold spure; eapply Forall_impl; [|exact Hren]; intros [h j|u w b]; cbn; tauto.
+Qed.
 
 Fixpoint natl (l : lword) : nat :=
   match l with [] => 0 | LS _ :: r => natl r | LA _ _ :: r => S (natl r) end.
@@ -267,6 +275,12 @@ Proof.
   do 2 f_equal; lia.
 Qed.
 
+Lemma sterm_entry h x u : lden h = Some x -> sterm (entry_seg h u).
+Proof.
+  intros Hx; exists (mk_rvar (Some x) 0), (u, None, SNil); rewrite (sres_entry h u x _ Hx).
+  cbn [v_label v_index]; rewrite label_eqb_refl; reflexivity.
+Qed.
+
 Lemma segok_entry h x u r :
   lden h = Some x -> In h labs ->
   (forall y u' b k, R r y = FTerm u' b k -> gt (R r) k) ->
@@ -279,8 +293,6 @@ Proof.
   - split; [repeat constructor|]; constructor; [|constructor].
     split; [exact Hin|split; [exact I|split; [left; discriminate|discriminate]]].
   - constructor; [exists SNil; split; reflexivity|constructor].
-  - left; exists (mk_rvar (Some x) 0), (u, None, SNil); rewrite (sres_entry h u x _ Hx).
-    cbn [v_label v_index]; rewrite label_eqb_refl; reflexivity.
   - exact Ho.
   - exact Hl.
   - intros v y _; split.
@@ -347,8 +359,7 @@ Lemma no_trivial_tail Sg Sg' r' :
 Proof.
   intros HpS HS' Hr' Hne Hk E.
   destruct r' as [|[Sg2|L a] r3]; [destruct (Hne eq_refl)| |].
-  - destruct Hr' as [_ [HS2 _]].
-    destruct (so_kind _ _ HS2) as [[y2 [[[c b2] s2] E2]]|[Hr2 [->|[L [a [r4 [-> _]]]]]]].
+  - destruct Hr' as [_ [_ [[[y2 [[[c b2] s2] E2]] HS2]|[_ [Hr2 [->|[L [a [r4 [-> _]]]]]]]]]].
     + assert (Ey : R (LS Sg2 :: r3) y2 = FTerm c b2 (fun z => fs s2 (R r3) z)).
       { rewrite (R_cons _ _ (so_pure _ _ HS2)); unfold res; rewrite E2; reflexivity. }
       destruct (named_or_bound y2) as [Hn|Hb].
@@ -609,7 +620,7 @@ Proof. rewrite <- (Nat.add_0_r (natl l)); exact (nstuck_flw l 0 FVar nstuck_FVar
 Lemma tdeep l : lnf l -> forall y u b k, R l y = FTerm u b k -> exists e, e <= natl l /\ deep e k.
 Proof.
   induction l as [|[s|L a] r IH]; intros Hl y u b k E; [discriminate E| |].
-  - destruct Hl as [_ [HS Hr]]; rewrite (R_cons _ _ (so_pure _ _ HS)) in E; unfold res in E.
+  - destruct (lnf_cons_pure _ _ Hl) as [Hp Hr]; rewrite (R_cons _ _ Hp) in E; unfold res in E.
     destruct (sres s y) as [y2|[[u' b'] s']]; [exact (IH Hr y2 u b k E)|].
     injection E as <- <- <-; exists (natl r); split; [apply le_n|exact (deep_fs lenv _ s' _ (deep_R r))].
   - destruct Hl as [_ Hr]; unfold R in E; cbn [flw] in E; unfold Unique.latom in E.
@@ -721,14 +732,14 @@ Proof.
   destruct l as [|[Sg|L a] r]; cbn [lnf].
   - intros _; right; left; exists SNil; split; [reflexivity|].
     split; [split; constructor|split; [constructor|reflexivity]].
-  - intros [Hn [HS Hr]]; destruct (so_kind _ _ HS) as [Ht|[Hren [->|[L [a [r2 [-> Hp]]]]]]].
+  - intros [Hn [Hr [[Ht HS]|[Hsh [Hren [->|[L [a [r2 [-> Hp]]]]]]]]]].
     + left; exists Sg, r; auto.
     + right; left; exists Sg; split; [destruct Sg; [destruct (Hn eq_refl)|reflexivity]|].
-      split; [exact (so_shape _ _ HS)|split; [exact Hren|]].
+      split; [exact Hsh|split; [exact Hren|]].
       intros x; unfold R; cbn [flw]; apply (fs_ren lenv labs), Hren.
     + right; right; exists Sg, L, a, r2; split; [destruct Sg; [destruct (Hn eq_refl)|reflexivity]|].
       destruct Hr as [HL Hr2].
-      split; [exact (so_shape _ _ HS)|split; [exact Hren|split; [exact HL|split; [exact Hp|split; [exact Hr2|]]]]].
+      split; [exact Hsh|split; [exact Hren|split; [exact HL|split; [exact Hp|split; [exact Hr2|]]]]].
       intros x; unfold R; cbn [flw]; rewrite (fs_ren lenv labs) by exact Hren; reflexivity.
   - intros [HL Hr]; right; right; exists SNil, L, a, r; split; [reflexivity|].
     split; [split; constructor|split; [constructor|split; [exact HL|split; [apply lpos_nil|split; [exact Hr|reflexivity]]]]].
