@@ -45,7 +45,7 @@ Definition sa (n : nat) (s : seg) : option seg := sbuild F (sa_es n 0 (ents s) +
 Definition cseg (s : seg) (K : lword) : option lword :=
   match terms s with
   | [] => rcons F ntm s K
-  | T => match sa (List.length T) s, bcore F labs ntm (S (List.length K)) T K with
+  | T => match sa (List.length T) s, bcore F ntm (S (List.length K)) T K with
          | Some s', Some Y => rcons F ntm s' Y
          | _, _ => None
          end
@@ -225,16 +225,16 @@ Proof.
     rewrite (proj2 (Nat.ltb_lt _ _) Hi), Et; apply feq_refl.
 Qed.
 
-Lemma bcore_ET fuel T K Y : bcore F labs ntm fuel T K = Some Y -> exists E, ET F T = Some E.
+Lemma bcore_ET fuel T K Y : bcore F ntm fuel T K = Some Y -> exists E, ET F T = Some E.
 Proof. destruct fuel; cbn [bcore]; [discriminate|]; destruct (ET F T) as [E|]; [eauto|discriminate]. Qed.
 
-Theorem cseg_ok s K K' : lnf K -> lw1 K -> sp1 s -> cseg F labs ntm s K = Some K' ->
+Theorem cseg_ok s K K' : lnf K -> lw1 K -> sp1 s -> cseg F ntm s K = Some K' ->
   lnf K' /\ lw1 K' /\ forall v, feq (R K' v) (R (LS s :: K) v).
 Proof.
   intros Hl Hw HS; unfold cseg; destruct (terms s) as [|t T'] eqn:Et.
   - exact (rcons_ok lenv labs Hinj HN ntm F HF K s K' Hl Hw (proj1 HS) (terms_nil s HS Et)).
   - rewrite <- Et; destruct (sa F (List.length (terms s)) s) as [s'|] eqn:Es; [|discriminate].
-    destruct (bcore F labs ntm (S (List.length K)) (terms s) K) as [Y|] eqn:EY; [|discriminate]; intros EK.
+    destruct (bcore F ntm (S (List.length K)) (terms s) K) as [Y|] eqn:EY; [|discriminate]; intros EK.
     destruct (bcore_ET _ _ _ _ EY) as [E EE].
     assert (Hne : terms s <> []) by (rewrite Et; discriminate).
     destruct (bcore_ok lenv labs Hinj HN ntm F HF Htot _ _ K Y E (terms_tterm s HS) Hne Hl Hw EE EY) as [HlY [HwY SemY]].
@@ -246,18 +246,18 @@ Proof.
     exact (sa_sem s s' E K HS Es EE v).
 Qed.
 
-Theorem canon_ok l : forall K, lw1 l -> canon F labs ntm l = Some K -> lnf K /\ lw1 K /\ forall v, feq (R K v) (R l v).
+Theorem canon_ok l : forall K, lw1 l -> canon F ntm l = Some K -> lnf K /\ lw1 K /\ forall v, feq (R K v) (R l v).
 Proof.
   induction l as [|[s|L a] r IH]; intros K Hw; cbn [canon].
   - intros E; injection E as <-; split; [exact I|split; [constructor|intros v; apply feq_refl]].
   - inversion Hw as [|? ? HS Hr]; subst.
-    destruct (canon F labs ntm r) as [K0|] eqn:E0; [|discriminate]; cbn [obind]; intros E.
+    destruct (canon F ntm r) as [K0|] eqn:E0; [|discriminate]; cbn [obind]; intros E.
     destruct (IH K0 Hr eq_refl) as [Hl0 [Hw0 Sem0]].
     destruct (cseg_ok s K0 K Hl0 Hw0 HS E) as [A [B C]].
     split; [exact A|split; [exact B|intros v]].
     exact (feq_trans _ _ _ (C v) (R_cong lenv labs ntm (LS s) _ _ HS Sem0 v)).
   - inversion Hw as [|? ? HL Hr]; subst.
-    destruct (canon F labs ntm r) as [K0|] eqn:E0; [|discriminate]; cbn [option_map]; intros E; injection E as <-.
+    destruct (canon F ntm r) as [K0|] eqn:E0; [|discriminate]; cbn [option_map]; intros E; injection E as <-.
     destruct (IH K0 Hr eq_refl) as [Hl0 [Hw0 Sem0]].
     split; [split; assumption|split; [constructor; assumption|]].
     exact (R_cong lenv labs ntm (LA L a) _ _ I Sem0).
@@ -266,7 +266,7 @@ Qed.
 (** Words that mean the same have the same canonical word. *)
 Theorem canon_unique l m Kl Km : lw1 l -> lw1 m ->
   (forall aenv penv, lwden lenv (tenvT ntm) aenv penv l = lwden lenv (tenvT ntm) aenv penv m) ->
-  canon F labs ntm l = Some Kl -> canon F labs ntm m = Some Km -> Kl = Km.
+  canon F ntm l = Some Kl -> canon F ntm m = Some Km -> Kl = Km.
 Proof.
   intros Hl Hm Heq El Em.
   destruct (canon_ok l Kl Hl El) as [Al [_ Cl]]; destruct (canon_ok m Km Hm Em) as [Am [_ Cm]].
@@ -276,7 +276,7 @@ Proof.
 Qed.
 
 (** And the canonical word means the same as the word. *)
-Theorem canon_sound aenv penv l K : lw1 l -> canon F labs ntm l = Some K ->
+Theorem canon_sound aenv penv l K : lw1 l -> canon F ntm l = Some K ->
   lwden lenv (tenvT ntm) aenv penv K = lwden lenv (tenvT ntm) aenv penv l.
 Proof.
   intros Hw E; destruct (canon_ok l K Hw E) as [_ [HK Sem]].

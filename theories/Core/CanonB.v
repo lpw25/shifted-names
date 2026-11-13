@@ -19,7 +19,7 @@ Variable labs : list lexp.
 Variable ntm : nat.
 
 Definition layer (Z : seg) (W : lword) : option lword :=
-  match reroute F labs W Z with
+  match reroute F W Z with
   | Some Z' =>
       match W with
       | [] => Some [LS Z']
@@ -56,14 +56,14 @@ Local Notation segok := (segok lenv labs gtP).
 
 Theorem layer_ok Z W K' : lnf W -> lw1 W -> sp1 Z -> sterm lenv Z ->
   (forall y u b k, R W y = FTerm u b k -> gtP (R W) k) ->
-  layer F labs ntm Z W = Some K' -> lnf K' /\ lw1 K' /\ forall v, feq (R K' v) (R (LS Z :: W) v).
+  layer F ntm Z W = Some K' -> lnf K' /\ lw1 K' /\ forall v, feq (R K' v) (R (LS Z :: W) v).
 Proof.
   intros Hl Hw HZ HZt Hor; unfold layer.
-  destruct (reroute F labs W Z) as [Z'|] eqn:ER; [|discriminate].
-  destruct (reroute_ok lenv labs Hinj ntm F HF Htot W Z Z' Hw HZ ER) as [HZ' Hres].
+  destruct (reroute F W Z) as [Z'|] eqn:ER; [|discriminate].
+  destruct (reroute_ok lenv labs Hinj ntm F HF Htot HN W Z Z' Hw HZ ER) as [HZ' Hres].
   assert (Sem0 : forall v, feq (fs Z' (R W) v) (fs Z (R W) v)).
   { intros v; rewrite (res_free lenv labs ntm Z' _ v HZ'), (res_free lenv labs ntm Z _ v HZ), Hres.
-    destruct (sres Z v) as [y|[[u b] s']]; cbn [rvres]; [exact (rv_feq lenv labs Hinj ntm F HF Htot W Hl Hw HN y)|apply feq_refl]. }
+    destruct (sres Z v) as [y|[[u b] s']]; cbn [rvres]; [exact (rv_feq lenv labs Hinj ntm F HF Htot HN W Hl Hw y)|apply feq_refl]. }
   assert (HZ't : sterm lenv Z') by (destruct HZt as [x [t Ex]]; exists x, t; rewrite Hres, Ex; reflexivity).
   assert (Hne : forall X, sterm lenv X -> X <> SNil) by (intros X [x [t E]] ->; discriminate E).
   destruct W as [|st Wr].
@@ -86,13 +86,13 @@ Proof.
     destruct (HK1' K1' E1) as [HlK1' [HwK1' Sem1]].
     assert (Hro : forall x y, sres Z' x = inl y -> routed (R (st :: Wr)) y).
     { intros x y e; rewrite Hres in e; destruct (sres Z x) as [y0|t]; cbn [rvres] in e; [|discriminate].
-      injection e as <-; exact (rv_routed lenv labs Hinj ntm F HF Htot _ Hl Hw HN y0). }
+      injection e as <-; exact (rv_routed lenv labs Hinj ntm F HF Htot HN _ Hl Hw y0). }
     assert (Hbi : forall y y', bound y -> bound y' -> (exists x, sres Z' x = inl y) -> (exists x', sres Z' x' = inl y') ->
                     feq (R (st :: Wr) y) (R (st :: Wr) y') -> y = y').
     { intros y y' Hy Hy' [x e] [x' e']; rewrite Hres in e, e'.
       destruct (sres Z x) as [y0|t]; cbn [rvres] in e; [|discriminate]; injection e as <-.
       destruct (sres Z x') as [y0'|t]; cbn [rvres] in e'; [|discriminate]; injection e' as <-.
-      exact (rv_inj lenv labs Hinj ntm F HF Htot _ Hl Hw HN y0 y0' Hy Hy'). }
+      exact (rv_inj lenv labs Hinj ntm F HF Htot HN _ Hl Hw y0 y0' Hy Hy'). }
     destruct (fixlast_ok lenv labs Hinj ntm F HF S'' K1' K' HS'' HS''t HlK1' HwK1'
                 (fun Hlast => segok_renum lenv labs HN ntm F HF Z' S'' io (st :: Wr) K1' HZ' Hro Hor Hbi EN Sem1 Hlast) EF)
       as [A [B C]].
@@ -190,17 +190,17 @@ Fixpoint bcore (fuel : nat) (T : list ntgt) (K : lword) {struct fuel} : option l
           match K with
           | LS S1 :: K1 =>
               if has_terms S1 then
-                if existsb is_term (ntgts S1) then layer F labs ntm E K else
+                if existsb is_term (ntgts S1) then layer F ntm E K else
                 match pcmp F K (List.length K) (List.length K1) with
                 | Some Eq => option_map (fun J => LS J :: K1) (join T S1)
-                | Some Gt => layer F labs ntm E K
+                | Some Gt => layer F ntm E K
                 | Some Lt =>
                     match rho_sw S1, mu_sw (List.length T) S1, lift_sw (List.length T) S1 with
                     | Some rho, Some mu, Some Z =>
                         match rcons F ntm rho K1 with
                         | Some K1' =>
                             match bcore fuel' T K1' with
-                            | Some Y => match rcons F ntm mu Y with Some W => layer F labs ntm Z W | None => None end
+                            | Some Y => match rcons F ntm mu Y with Some W => layer F ntm Z W | None => None end
                             | None => None
                             end
                         | None => None
@@ -209,8 +209,8 @@ Fixpoint bcore (fuel : nat) (T : list ntgt) (K : lword) {struct fuel} : option l
                     end
                 | None => None
                 end
-              else layer F labs ntm E K
-          | _ => layer F labs ntm E K
+              else layer F ntm E K
+          | _ => layer F ntm E K
           end
       end
   end.
@@ -840,7 +840,7 @@ Proof.
 Qed.
 
 Theorem bcore_ok fuel : forall T K K' E, Forall tterm T -> T <> [] -> lnf K -> lw1 K -> ET F T = Some E ->
-  bcore F labs ntm fuel T K = Some K' -> lnf K' /\ lw1 K' /\ forall v, feq (R K' v) (R (LS E :: K) v).
+  bcore F ntm fuel T K = Some K' -> lnf K' /\ lw1 K' /\ forall v, feq (R K' v) (R (LS E :: K) v).
 Proof.
   induction fuel as [|fuel' IH]; intros T K K' E HT Hne Hl Hw EE; [discriminate|cbn [bcore]; rewrite EE].
   destruct (ET_ok T E HT EE) as [HE HEs].
@@ -849,7 +849,7 @@ Proof.
     inversion HT as [|? ? Ht _]; subst; destruct t as [|u w b]; [destruct Ht|eexists; reflexivity]. }
   assert (New : forall K0 K0', lnf K0 -> lw1 K0 -> (forall y u b k, R K0 y = FTerm u b k -> gtP (R K0) k) ->
                   forall Z, sp1 Z -> sterm lenv Z ->
-                  layer F labs ntm Z K0 = Some K0' -> lnf K0' /\ lw1 K0' /\ forall v, feq (R K0' v) (R (LS Z :: K0) v)).
+                  layer F ntm Z K0 = Some K0' -> lnf K0' /\ lw1 K0' /\ forall v, feq (R K0' v) (R (LS Z :: K0) v)).
   { intros K0 K0' H1 H2 H3 Z HZ HZt H4; exact (layer_ok lenv labs Hinj HN ntm F HF Htot Z K0 K0' H1 H2 HZ HZt H3 H4). }
   destruct K as [|[S1|L a] K1]; [exact (New _ _ Hl Hw (hor_noterm _ Hl Hw I) E HE HEt)| |exact (New _ _ Hl Hw (hor_noterm _ Hl Hw I) E HE HEt)].
   destruct (has_terms S1) eqn:Ht; [|exact (New _ _ Hl Hw (hor_noterm _ Hl Hw Ht) E HE HEt)].
@@ -872,7 +872,7 @@ Proof.
     destruct (mu_sw F (List.length T) S1) as [mu|] eqn:Em; [|discriminate].
     destruct (lift_sw F (List.length T) S1) as [Z|] eqn:Ez; [|discriminate].
     destruct (rcons F ntm rho K1) as [K1'|] eqn:EK1; [|discriminate].
-    destruct (bcore F labs ntm fuel' T K1') as [Y|] eqn:EY; [|discriminate].
+    destruct (bcore F ntm fuel' T K1') as [Y|] eqn:EY; [|discriminate].
     destruct (rcons F ntm mu Y) as [W|] eqn:EW; [|discriminate]; intros EL.
     destruct (rho_ok S1 rho HS Hnt Er) as [Hrs [Hrr _]].
     destruct (rcons_ok lenv labs Hinj HN ntm F HF K1 rho K1' Hl1 HK1 Hrs Hrr EK1) as [Hl1' [Hw1' Sem1]].
