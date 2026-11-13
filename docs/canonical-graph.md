@@ -126,3 +126,44 @@ Both denote adjustments.
    splitting plus recompression, computed from the compressed input.
 3. Whether reading the graph back gives readable syntax, compared
    with the line form.
+
+## Restricting `share` (proposal)
+
+`share` exists so that payloads can be shown as nested substitutions,
+one flat context form per payload, without writing the same payload or
+tail twice. That is a let for the nodes of this graph, and nothing
+more.
+
+**Restriction.** A `share`-bound variable may appear only as a payload
+(`u[r]`) or as a tail (`⟦ … | r ⟧`). It may not appear under `⨾`,
+lift or any other operator on adjustments. Composition is still
+allowed outside `share`s, on whole expressions.
+
+**Why this removes the exponential cases.** Every blow-up so far
+(`share x₂ := x₁ ⨾ x₁`, …) composes `share`-bound adjustments. That
+is what gives the input the power of a grammar. Without it:
+
+- **Restricted input.** An expression in the restricted language with
+  no composition *is* a graph of flat forms. Normalising it is
+  hash-consing plus the local encoding rules: linear, and canonical by
+  construction.
+- **Composition.** `σ ⨾ τ` maps each node `n` of `σ` to `n ⨾ τ`,
+  memoised per node, and reuses `τ`'s nodes. That gives at most
+  `|σ| + |τ|` nodes, after composition chains are associated to the
+  right.
+- **Output.** The output is the graph printed with a `share` for each
+  node that has two or more parents. It is again in the restricted
+  language, so `names` is idempotent and never grows its own output.
+  `share x := o in x ⨾ x` cannot be written.
+
+No recompression, no log factor and no layers are needed.
+
+**Constructs needed:**
+
+- per-label tails (`⟦ x: … | r₁ ; y: … | r₂ ⟧`), because the lists of
+  one node can share suffixes with different nodes. The alternative is
+  to choose one tail, which brings back a tie-break.
+- an entry stuck at an atom: "port `z` of `a ⨾ r`".
+
+**Remaining risk.** A lookup or edit at a large index walks the cells
+before it, which is the deep-index risk above.
