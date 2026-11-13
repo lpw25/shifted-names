@@ -372,4 +372,94 @@ Proof.
     rewrite Eg in Eg'; injection Eg' as <- <- <-; apply Hne; f_equal; lia.
 Qed.
 
+Definition pv (x : lexp * nat) : rvar := mk_rvar (lden (fst x)) (snd x).
+
+Lemma vltb_spec x y : In (fst x) labs -> In (fst y) labs -> vltb F x y = true <-> vlt (pv x) (pv y).
+Proof.
+  intros Hx Hy; unfold vltb, pv; destruct (lcmp F (fst x) (fst y)) as [c|] eqn:E; [|destruct (Htot _ _ Hx Hy E)].
+  pose proof (lcmp_sound lenv F HF _ _ _ E) as Hc; destruct c; cbn in Hc.
+  - rewrite Hc, Nat.ltb_lt; unfold vlt; cbn [v_label v_index]; split; [intros H; right; split; [reflexivity|exact H]|].
+    intros [H|[_ H]]; [destruct (olabel_lt_irrefl _ H)|exact H].
+  - split; [intros _; left; exact Hc|reflexivity].
+  - split; [discriminate|intros H; exfalso; refine (vlt_asym _ _ H _); left; exact Hc].
+Qed.
+
+Lemma vmin_spec l : forall x, (forall z, In z (x :: l) -> In (fst z) labs) ->
+  In (vmin F x l) (x :: l) /\ forall z, In z (x :: l) -> ~ vlt (pv z) (pv (vmin F x l)).
+Proof.
+  induction l as [|z l IH]; intros x Hl; cbn [vmin fold_left].
+  - split; [left; reflexivity|intros z [<-|[]]; apply vlt_irrefl].
+  - set (m := if vltb F z x then z else x).
+    assert (Hm : In m (x :: z :: l)) by (unfold m; destruct (vltb F z x); [right; left|left]; reflexivity).
+    destruct (IH m ltac:(intros z' [<-|H]; apply Hl; [exact Hm|right; right; exact H])) as [Hin Hmin].
+    change (fold_left _ l m) with (vmin F m l).
+    split; [destruct Hin as [<-|H]; [exact Hm|right; right; exact H]|].
+    pose proof (Hmin m (or_introl eq_refl)) as Hmm.
+    assert (Vx : In (fst x) labs) by (apply Hl; left; reflexivity).
+    assert (Vz : In (fst z) labs) by (apply Hl; right; left; reflexivity).
+    intros z' [<-|[<-|H]]; [| |exact (Hmin z' (or_intror H))].
+    + unfold m in Hmm; destruct (vltb F z x) eqn:Ez; [|exact Hmm].
+      apply (vltb_spec z x Vz Vx) in Ez; intros Hv; exact (Hmm (vlt_trans _ _ _ Ez Hv)).
+    + unfold m in Hmm; destruct (vltb F z x) eqn:Ez; [exact Hmm|].
+      assert (Nz : ~ vlt (pv z) (pv x)) by (intros Hv; apply (vltb_spec z x Vz Vx) in Hv; congruence).
+      intros Hv; destruct (vlt_total (pv x) (pv (vmin F m l))) as [H|[H|H]]; [exact (Hmm H)| |].
+      * rewrite <- H in Hv; exact (Nz Hv).
+      * exact (Nz (vlt_trans _ _ _ Hv H)).
+Qed.
+
+Lemma pair_dec (x y : lexp * nat) : x = y \/ x <> y.
+Proof.
+  destruct x as [h i], y as [h' i']; destruct (lexp_eqb h h') eqn:E.
+  - apply lexp_eqb_eq in E; subst; destruct (Nat.eq_dec i i') as [->|N]; [left; reflexivity|right; congruence].
+  - right; intros H; injection H as -> ->; rewrite (proj2 (lexp_eqb_eq h' h') eq_refl) in E; discriminate.
+Qed.
+
+Lemma keyed_in W x d : In (x, d) (keyed F labs W) <-> In x (rdom F labs W) /\ follow1 F W (fst x) (snd x) = Some d.
+Proof.
+  unfold keyed; rewrite in_flat_map; split.
+  - intros [y [Hy Hin]]; destruct (follow1 F W (fst y) (snd y)) as [dy|] eqn:E; [|destruct Hin].
+    destruct Hin as [Hin|[]]; injection Hin as <- <-; split; assumption.
+  - intros [Hx E]; exists x; split; [exact Hx|]; rewrite E; left; reflexivity.
+Qed.
+
+Lemma rdom_labs W : lw1 W -> forall x, In x (rdom F labs W) -> In (fst x) labs.
+Proof.
+  intros Hw x Hx.
+  assert (Hs : forall y, In y (smalls F labs W) -> In (fst y) labs).
+  { intros y Hy; unfold smalls in Hy; apply in_flat_map in Hy as [h [Hh Hy]].
+    destruct (gen1 F W h) as [[[w q] p]|]; [|destruct Hy]; apply in_map_iff in Hy as [i [<- _]]; exact Hh. }
+  unfold rdom in Hx; apply in_app_or in Hx as [Hx|Hx]; [exact (Hs x Hx)|].
+  apply in_flat_map in Hx as [y [Hy Hx]]; unfold invgen in Hx.
+  destruct (follow1_total W Hw (fst y) (snd y) (Hs y Hy)) as [d [Ed [_ Hd]]]; rewrite Ed in Hx.
+  unfold dlab in Hd; destruct (dvar d) as [[g j]|]; [|destruct Hx].
+  destruct (gen1 F W g) as [[[w q] p]|]; [|destruct Hx]; destruct (p <=? j); [|destruct Hx].
+  destruct Hx as [<-|[]]; exact Hd.
+Qed.
+
+Theorem rep_spec W x d : lw1 W -> In (fst x) labs -> follow1 F W (fst x) (snd x) = Some d ->
+  In (fst (rep F labs W x)) labs /\ follow1 F W (fst (rep F labs W x)) (snd (rep F labs W x)) = Some d
+  /\ forall y, In (fst y) labs -> follow1 F W (fst y) (snd y) = Some d -> ~ vlt (pv y) (pv (rep F labs W x)).
+Proof.
+  intros Hw Hx Ex.
+  destruct (follow1_total W Hw (fst x) (snd x) Hx) as [d0 [E0 [Hd _]]]; rewrite Ex in E0; injection E0 as <-.
+  set (L := map fst (filter (fun e => desc_eqb (snd e) d) (keyed F labs W))).
+  assert (HL : forall z, In z L -> In (fst z) labs /\ follow1 F W (fst z) (snd z) = Some d).
+  { intros z Hz; unfold L in Hz; apply in_map_iff in Hz as [[z' dz] [<- Hz]]; apply filter_In in Hz as [Hz Eq].
+    apply keyed_in in Hz as [Hz Ez]; cbn [fst snd] in *.
+    pose proof (rdom_labs W Hw z' Hz) as Hzl; split; [exact Hzl|].
+    destruct (follow1_total W Hw (fst z') (snd z') Hzl) as [dz' [Ez' [Hdz _]]]; rewrite Ez in Ez'; injection Ez' as <-.
+    rewrite (proj1 (desc_eqb_spec dz d Hdz Hd) Eq) in Ez; exact Ez. }
+  assert (Hall : forall z, In z (x :: L) -> In (fst z) labs /\ follow1 F W (fst z) (snd z) = Some d).
+  { intros z [<-|Hz]; [split; assumption|exact (HL z Hz)]. }
+  unfold rep; rewrite Ex; fold L.
+  destruct (vmin_spec L x (fun z Hz => proj1 (Hall z Hz))) as [Hin Hmin].
+  split; [exact (proj1 (Hall _ Hin))|split; [exact (proj2 (Hall _ Hin))|]].
+  intros y Hy Ey; apply Hmin.
+  destruct (pair_dec y x) as [->|Hne]; [left; reflexivity|right].
+  assert (Hyd : In y (rdom F labs W)) by (refine (rdom_complete W y x Hw Hy Hx Hne _ _); [rewrite Ey, Ex; reflexivity|rewrite Ey; discriminate]).
+  unfold L; apply in_map_iff; exists (y, d); split; [reflexivity|apply filter_In; split].
+  - apply keyed_in; split; assumption.
+  - apply (desc_eqb_spec d d Hd Hd); reflexivity.
+Qed.
+
 End RepSound.
