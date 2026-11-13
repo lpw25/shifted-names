@@ -405,7 +405,7 @@ Definition try_join (s s1 : seg) (K : lword) : option (nat * seg * option (seg *
   else match scan SNil K 0 with
        | Some j =>
            if match skipn (j - 1) K with
-              | LS sj :: Kj1 => has_terms sj || above (LS sj :: Kj1) Kj1
+              | LS sj :: Kj1 => if has_terms sj then true else above (LS sj :: Kj1) Kj1
               | _ => false
               end then
            obind (unterm s) (fun '(sa, T) =>
