@@ -250,6 +250,26 @@ Fixpoint lsdown (q : nat) (ls : lsts) (m : list nat) : lsts :=
 
 Definition ddown (d : gdef) (m : list nat) : gdef := match d with DV => DV | DS a r => DS a (rdown r m) end.
 
+(** A cell [e'], then [t'] shifted by [st], with [e'] and [t'] canonical:
+    its least outputs factored out, then absorbed into the nil when it
+    only repeats it. *)
+Definition cell (q : nat) (e' : ent) (st : list nat) (t' : lst) : list nat * lst :=
+  let mn := vec (fun k => oget (omin (if hasE e' k then Some (emin e' k) else None)
+                                     (if hasL q t' k then Some (sget st k) else None))) in
+  let e'' := edown e' mn in
+  let st' := srestr (hasL q t') (ssub st mn) in
+  match t' with
+  | LNilV =>
+      if (0 <? sget st' q) && ent_eqb e'' (EV (mk_rvar (lab q) (sget st' q - 1)))
+      then (sadd (srestr (Nat.eqb q) (ssub st' (ush q))) mn, LNilV)
+      else (mn, LCons e'' st' t')
+  | LNilS a (GR _ n) m0 =>
+      if (0 <? m0) && ent_eqb e'' (ES a (mk_rvar (lab q) (m0 - 1)) (GR st' n))
+      then (sadd st' mn, LNilS a (GR zeros n) (m0 - 1))
+      else (mn, LCons e'' st' t')
+  | _ => (mn, LCons e'' st' t')
+  end.
+
 Fixpoint canE (e : ent) : ent :=
   match e with
   | EV v => EV v
@@ -260,25 +280,7 @@ with canL (q : nat) (L : lst) : list nat * lst :=
   match L with
   | LNilV | LNilP => (zeros, LNilV)
   | LNilS a r m0 => match canR false r with GR sr nr => (sr, LNilS a (GR zeros nr) m0) end
-  | LCons e s t =>
-      let e' := canE e in
-      let '(mt, t') := canL q t in
-      let st := sadd mt s in
-      let mn := vec (fun k => oget (omin (if hasE e' k then Some (emin e' k) else None)
-                                         (if hasL q t' k then Some (sget st k) else None))) in
-      let e'' := edown e' mn in
-      let st' := srestr (hasL q t') (ssub st mn) in
-      match t' with
-      | LNilV =>
-          if (0 <? sget st' q) && ent_eqb e'' (EV (mk_rvar (lab q) (sget st' q - 1)))
-          then (sadd (srestr (Nat.eqb q) (ssub st' (ush q))) mn, LNilV)
-          else (mn, LCons e'' st' t')
-      | LNilS a (GR _ n) m0 =>
-          if (0 <? m0) && ent_eqb e'' (ES a (mk_rvar (lab q) (m0 - 1)) (GR st' n))
-          then (sadd st' mn, LNilS a (GR zeros n) (m0 - 1))
-          else (mn, LCons e'' st' t')
-      | _ => (mn, LCons e'' st' t')
-      end
+  | LCons e s t => let e' := canE e in let '(mt, t') := canL q t in cell q e' (sadd mt s) t'
   end
 with canR (p : bool) (r : gref) : gref :=
   match r with GR s n => let '(m, n') := canN p n in GR (srestr (hasN n') (sadd m s)) n' end
@@ -451,6 +453,116 @@ Proof.
     + cbn [GForm.em GForm.fpost feq]; repeat split; intros y; apply Hm; left; reflexivity.
     + intros k; reflexivity.
     + intros k Hk Hh; cbn [rdown emin]; cbn [GCanon.hasR] in Hh; rewrite sget_srestr, sget_ssub, Hh by exact Hk; reflexivity.
+Qed.
+
+(** Lists from canonicalisation keep a nil's reference unshifted. *)
+Definition nilsz (L : lst) : Prop := match L with LNilS _ (GR s _) _ => s = zeros | _ => True end.
+
+Lemma ent_unique e1 e2 : cent labs e1 -> cent labs e2 -> feq (em e1) (em e2) -> e1 = e2.
+Proof. intros; apply (proj1 (uniq_all labs Hnd (S (esz e1 + esz e2)))); [lia|assumption..]. Qed.
+
+Lemma ent_eqb_refl e : ent_eqb e e = true.
+Proof. apply (proj1 eqb_spec_all); reflexivity. Qed.
+
+Lemma cell_spec q e' st t' : q < length labs -> cent labs e' -> clst labs q t' -> factored labs all_nat (lm q t') -> nilsz t' ->
+  let '(m, L) := cell q e' st t' in
+  clst labs q L /\ factored labs all_nat (lm q L) /\ nilsz L
+  /\ forall j, feq (lm q (LCons e' st t') j) (fpost m (lm q L j)).
+Proof.
+  intros Hq He Ht Hft Hz; unfold cell.
+  set (mn := vec _).
+  assert (Hmn : forall k, k < length labs ->
+            (hasE e' k = true -> sget mn k <= emin e' k) /\ (hasL q t' k = true -> sget mn k <= sget st k)
+            /\ ((hasE e' k = true \/ hasL q t' k = true) ->
+                (hasE e' k = true /\ sget mn k = emin e' k) \/ (hasL q t' k = true /\ sget mn k = sget st k))).
+  { intros k Hk; unfold mn; rewrite sget_vec by exact Hk.
+    destruct (hasE e' k), (hasL q t' k); cbn [omin oget].
+    - split; [lia|split; [lia|]]; intros _.
+      destruct (Nat.min_spec (emin e' k) (sget st k)) as [[_ ->]|[_ ->]]; [left|right]; auto.
+    - split; [lia|split; [discriminate|]]; intros _; left; auto.
+    - split; [discriminate|split; [lia|]]; intros _; right; auto.
+    - split; [discriminate|split; [discriminate|]]; intros [H|H]; discriminate. }
+  destruct (edown_spec e' mn He (fun k Hk Hh => proj1 (Hmn k Hk) Hh)) as (He'' & Hm'' & Hh'' & Hmin'').
+  set (e'' := edown e' mn) in *; set (st' := srestr (hasL q t') (ssub st mn)).
+  (* the factored cell means the cell *)
+  assert (HM : forall j, feq (lm q (LCons e' st t') j) (fpost mn (lm q (LCons e'' st' t') j))).
+  { intros [|j]; cbn [GForm.lm]; [exact Hm''|].
+    eapply feq_trans; [|apply (fpost_sadd labs)].
+    apply (fpost_agree_has all_nat (lm q t')); [exact I|]; intros k Hk Hh.
+    apply (hasL_spec q t' k Hq Ht Hk) in Hh; unfold st'; rewrite sget_sadd', sget_srestr, sget_ssub, Hh by exact Hk.
+    specialize (proj1 (proj2 (Hmn k Hk)) Hh); lia. }
+  assert (Hrt : restricted labs all_nat (lm q t') st').
+  { split; [apply vec_len|]; intros k Hk Hp; unfold st' in Hp; rewrite sget_srestr in Hp by exact Hk.
+    destruct (hasL q t' k) eqn:E; [|lia]; apply (hasL_spec q t' k Hq Ht Hk) in E; exact E. }
+  (* the factored cell is factored *)
+  assert (HF : factored labs all_nat (lm q (LCons e'' st' t'))).
+  { intros k i Hk (j & _ & Ho).
+    assert (Hhas : hasE e' k = true \/ hasL q t' k = true).
+    { destruct j as [|j]; cbn [GForm.lm] in Ho.
+      - left; rewrite <- Hh''; apply (hasE_spec e'' k He'' Hk); exists i; exact Ho.
+      - right; apply (hasL_spec q t' k Hq Ht Hk).
+        apply (Has_post labs Hnd all_nat (lm q t') st' k Hk); exists i, j; split; [exact I|exact Ho]. }
+    destruct (proj2 (proj2 (Hmn k Hk)) Hhas) as [[Hh Hv]|[Hh Hv]].
+    - exists 0; split; [exact I|]; cbn [GForm.lm].
+      assert (E0 : emin e'' k = 0) by (rewrite (Hmin'' k Hk Hh); lia).
+      replace (mk_rvar (lab k) 0) with (mk_rvar (lab k) (emin e'' k)) by (rewrite E0; reflexivity).
+      apply (emin_spec e'' k He'' Hk); rewrite Hh''; exact Hh.
+    - apply (hasL_spec q t' k Hq Ht Hk) in Hh as (i0 & Ho0); apply Hft in Ho0 as (j0 & _ & Ho0); [|exact Hk].
+      exists (S j0); split; [exact I|]; cbn [GForm.lm]; apply (outs_fpost labs).
+      exists (mk_rvar (lab k) 0); split; [exact Ho0|]; rewrite (shv_lab labs Hnd) by exact Hk.
+      unfold st'; rewrite sget_srestr, sget_ssub by exact Hk.
+      destruct (hasL q t' k) eqn:E; [rewrite Hv; f_equal; lia|reflexivity]. }
+  assert (Hplain : clst labs q (LCons e'' st' t') -> clst labs q (LCons e'' st' t') /\ factored labs all_nat (lm q (LCons e'' st' t'))
+                   /\ nilsz (LCons e'' st' t') /\ forall j, feq (lm q (LCons e' st t') j) (fpost mn (lm q (LCons e'' st' t') j)))
+    by (intros Hc; exact (conj Hc (conj HF (conj I HM)))).
+  assert (Est : st' = srestr (hasL q t') (ssub st mn)) by reflexivity.
+  clearbody e'' st'.
+  destruct t' as [| |a [sz n] m0|e0 s0 t0].
+  - (* LNilV *)
+    destruct ((0 <? sget st' q) && ent_eqb e'' (EV (mk_rvar (lab q) (sget st' q - 1)))) eqn:Ec.
+    + apply andb_true_iff in Ec as [Hp Heq]; apply Nat.ltb_lt in Hp.
+      apply (proj1 (eqb_spec_all)) in Heq; rewrite Heq in HM.
+      refine (conj I (conj (nilv_factored labs Hnd q Hq) (conj I _))).
+      intros j; eapply feq_trans; [apply HM|]; destruct j as [|j]; cbn [GForm.lm GForm.em GForm.fpost feq].
+      * rewrite !(shv_lab labs Hnd) by exact Hq; rewrite sget_sadd', sget_srestr, Nat.eqb_refl, sget_ssub, sget_ush, Nat.eqb_refl by exact Hq.
+        f_equal; lia.
+      * rewrite !(shv_lab labs Hnd) by exact Hq; rewrite sget_sadd', sget_srestr, Nat.eqb_refl, sget_ssub, sget_ush, Nat.eqb_refl by exact Hq.
+        f_equal; lia.
+    + apply Hplain; cbn [clst]; refine (conj He'' (conj Ht (conj Hft (conj Hrt _)))).
+      intros [Hp Ha].
+      assert (E : e'' = EV (mk_rvar (lab q) (sget st' q - 1))) by (apply ent_unique; [exact He''|exact I|exact Ha]).
+      subst e''; rewrite ent_eqb_refl, andb_true_r in Ec; apply Nat.ltb_ge in Ec; lia.
+  - (* LNilP *)
+    cbn [clst] in Ht; contradiction.
+  - (* LNilS *)
+    cbn [nilsz] in Hz; subst sz; cbn [clst] in Ht.
+    assert (Hcn : cnode labs false n /\ factored labs (Dom false) (nm n)) by (destruct Ht as (Hc & Hf & _); auto).
+    destruct Hcn as [Hcn Hfn].
+    assert (HES : cent labs (ES a (mk_rvar (lab q) (m0 - 1)) (GR st' n))).
+    { cbn [cent cref]; split; [exact Hcn|split; [exact Hfn|]]; split; [rewrite Est; apply vec_len|].
+      intros k Hk Hp; rewrite Est in Hp; rewrite sget_srestr in Hp by exact Hk.
+      destruct (hasL q (LNilS a (GR zeros n) m0) k) eqn:E; [|lia]; cbn [GCanon.hasL GCanon.hasR] in E.
+      apply (hasN_spec false n k Hcn Hk) in E; exact E. }
+    assert (Hst : forall y, feq (fpost st' (rm (GR zeros n) y)) (rm (GR st' n) y))
+      by (intros y; cbn [GForm.rm]; apply (feq_fpost labs), (fpost_zeros labs)).
+    destruct ((0 <? m0) && ent_eqb e'' (ES a (mk_rvar (lab q) (m0 - 1)) (GR st' n))) eqn:Ec.
+    + apply andb_true_iff in Ec as [Hp Heq]; apply Nat.ltb_lt in Hp.
+      apply (proj1 (eqb_spec_all)) in Heq; rewrite Heq in HM.
+      refine (conj Ht (conj (nils_factored labs q a n (m0 - 1) Hfn) (conj eq_refl _))).
+      intros j; eapply feq_trans; [apply HM|]; destruct j as [|j]; cbn [GForm.lm GForm.em GForm.fpost GForm.rm feq].
+      * split; [reflexivity|split; [f_equal; lia|intros y]].
+        eapply feq_trans; [|apply feq_sym, (fpost_sadd labs)].
+        apply (feq_fpost labs), (feq_fpost labs), feq_sym, (fpost_zeros labs).
+      * split; [reflexivity|split; [f_equal; lia|intros y]].
+        apply feq_sym, (fpost_sadd labs).
+    + apply Hplain; cbn [clst]; refine (conj He'' (conj _ (conj Hft (conj Hrt _)))); [exact Ht|].
+      intros [Hp Ha].
+      assert (E : e'' = ES a (mk_rvar (lab q) (m0 - 1)) (GR st' n)).
+      { apply ent_unique; [exact He''|exact HES|].
+        eapply feq_trans; [exact Ha|]; cbn [GForm.em feq]; repeat split; intros y; apply Hst. }
+      subst e''; rewrite ent_eqb_refl, andb_true_r in Ec; apply Nat.ltb_ge in Ec; lia.
+  - (* LCons *)
+    apply Hplain; cbn [clst]; refine (conj He'' (conj Ht (conj Hft (conj Hrt _)))); cbn [absorb]; intros [].
 Qed.
 
 End Canonise.
