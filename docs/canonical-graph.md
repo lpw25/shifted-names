@@ -399,6 +399,10 @@ a hash-consed table in the implementation.
 
 ## Mechanisation status
 
+**Not yet against the specification.** The theorems below are for one
+interpretation with distinct labels. See `docs/normaliser-spec.md`.
+
+
 Proved in Coq, with no admits or axioms (`Print Assumptions` closed),
 about 2,200 lines:
 
