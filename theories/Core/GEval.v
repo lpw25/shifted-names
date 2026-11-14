@@ -200,4 +200,187 @@ Definition atomR (a : nat) (K : gref) : gref :=
 
 Definition endR : gref := GR zeros (GN DV (all_lsts (length labs) (fun _ => (zeros, LNilV)) 0)).
 
+(** ** Meaning of the raw operations *)
+
+Definition shapeR (r : gref) : Prop := match r with GR _ (GN _ ls) => lsts_len ls = length labs end.
+
+Lemma lookupL_em L : forall k acc j, feq (em (lookupL k acc L j)) (fpost acc (lm k L j)).
+Proof.
+  induction L as [| |a r m|e s t IH]; intros k acc j; cbn [lookupL GForm.lm].
+  - reflexivity.
+  - reflexivity.
+  - cbn [GForm.em GForm.fpost feq]; repeat split; intros y; apply rshift_rm.
+  - destruct j as [|j]; [apply eshift_em|].
+    eapply feq_trans; [apply IH|apply fpost_sadd].
+Qed.
+
+Lemma lsts_get_nth ls : forall k, k < lsts_len ls -> lsts_get k ls = (snth k ls, lnth k ls).
+Proof. induction ls as [|s L r IH]; intros [|k] Hk; cbn in *; try lia; [reflexivity|apply IH; lia]. Qed.
+
+Lemma nm_lab d ls k i : lsts_len ls = length labs -> k < length labs ->
+  nm (GN d ls) (mk_rvar (lab k) i) = fpost (fst (lsts_get k ls)) (lm k (snd (lsts_get k ls)) i).
+Proof.
+  intros Hl Hk; rewrite lsts_get_nth by lia; cbn [GForm.nm fst snd].
+  apply (lsm_lab labs Hnd (dm d) ls 0 k i); lia.
+Qed.
+
+Lemma nm_out d ls v : lsts_len ls = length labs -> ~ In (v_label v) labs -> nm (GN d ls) v = dm d v.
+Proof. intros Hl Hn; cbn [GForm.nm]; apply (lsm_out labs); [lia|exact Hn]. Qed.
+
+Lemma lab_pos v : In (v_label v) labs -> exists k, k < length labs /\ lab k = v_label v /\ posv v = k.
+Proof.
+  intros Hin; unfold posv; destruct (pos labs (v_label v)) as [k|] eqn:E.
+  - destruct (pos_some labs _ _ E) as [Hk Hl]; exists k; auto.
+  - exfalso; unfold GForm.pos in E; apply (pos_from_none _ _ _ E), Hin.
+Qed.
+
+Lemma apply_ref_rm r v : shapeR r -> In (v_label v) labs -> feq (em (apply_ref r v)) (rm r v).
+Proof.
+  destruct r as [s [d ls]]; intros Hs Hin; cbn [shapeR] in Hs.
+  destruct (lab_pos v Hin) as (k & Hk & Hl & Hp); destruct v as [l i]; cbn in Hl; subst l.
+  unfold apply_ref; rewrite Hp; cbn [GForm.rm]; rewrite nm_lab by assumption.
+  destruct (lsts_get k ls) as [s' L]; cbn [fst snd v_index].
+  eapply feq_trans; [apply lookupL_em|apply fpost_sadd].
+Qed.
+
+Lemma lsts_set_get ls : forall k k' x, k' < lsts_len ls ->
+  lsts_get k' (lsts_set k x ls) = if Nat.eqb k' k then x else lsts_get k' ls.
+Proof.
+  induction ls as [|s L r IH]; intros [|k] [|k'] x Hk; cbn in *; try lia; try reflexivity.
+  - destruct x; reflexivity.
+  - apply IH; lia.
+Qed.
+
+Lemma lsts_set_len ls : forall k x, lsts_len (lsts_set k x ls) = lsts_len ls.
+Proof. induction ls as [|s L r IH]; intros [|k] x; cbn; auto. Qed.
+
+Lemma lsts_map_get f ls : forall k0 k, k < lsts_len ls -> lsts_get k (lsts_map f k0 ls) = f (k0 + k) (lsts_get k ls).
+Proof.
+  induction ls as [|s L r IH]; intros k0 [|k] Hk; cbn in *; try lia.
+  - rewrite Nat.add_0_r; destruct (f k0 (s, L)); reflexivity.
+  - rewrite IH by lia; f_equal; lia.
+Qed.
+
+Lemma lsts_map_len f ls : forall k0, lsts_len (lsts_map f k0 ls) = lsts_len ls.
+Proof. induction ls as [|s L r IH]; intros k0; cbn; auto. Qed.
+
+Lemma all_lsts_get n f : forall k0 k, k < n -> lsts_get k (all_lsts n f k0) = f (k0 + k).
+Proof.
+  induction n as [|n IH]; intros k0 [|k] Hk; cbn in *; try lia.
+  - rewrite Nat.add_0_r; destruct (f k0); reflexivity.
+  - rewrite IH by lia; f_equal; lia.
+Qed.
+
+Lemma all_lsts_len n f : forall k0, lsts_len (all_lsts n f k0) = n.
+Proof. induction n as [|n IH]; intros k0; cbn; auto. Qed.
+
+Lemma fpost_zeros f : feq (fpost zeros f) f.
+Proof. apply fpost_id, sget_zeros. Qed.
+
+Lemma shift_lab_same k i : shift_rvar (mk_rvar (lab k) 0) (mk_rvar (lab k) i) = mk_rvar (lab k) (S i).
+Proof. unfold shift_rvar; cbn; rewrite label_eqb_refl; reflexivity. Qed.
+
+Lemma shift_lab_other l k v : v_label v <> l -> shift_rvar (mk_rvar l k) v = v.
+Proof. intros Hne; unfold shift_rvar; cbn; destruct (label_eqb_spec l (v_label v)); [congruence|reflexivity]. Qed.
+
+Lemma unshift_lab_same k i : unshift_rvar (mk_rvar (lab k) 0) (mk_rvar (lab k) (S i)) = mk_rvar (lab k) i.
+Proof. unfold unshift_rvar; cbn; rewrite label_eqb_refl; cbn; f_equal; lia. Qed.
+
+Lemma unshift_lab_other l k v : v_label v <> l -> unshift_rvar (mk_rvar l k) v = v.
+Proof. intros Hne; unfold unshift_rvar; cbn; destruct (label_eqb_spec l (v_label v)); [congruence|reflexivity]. Qed.
+
+Lemma dropL_lm k x i : k < length labs ->
+  feq (fpost (fst (dropL k x)) (lm k (snd (dropL k x)) i)) (fpost (fst x) (lm k (snd x) (S i))).
+Proof.
+  intros Hk; destruct x as [s [| |a r m|e s' t]]; cbn [dropL fst snd GForm.lm].
+  - eapply feq_trans; [apply fpost_sadd|]; cbn [GForm.fpost feq].
+    rewrite (shv_lab labs Hnd) by exact Hk; rewrite sget_ush, Nat.eqb_refl by exact Hk; f_equal; f_equal; lia.
+  - eapply feq_trans; [apply fpost_sadd|]; cbn [GForm.fpost feq].
+    rewrite (shv_lab labs Hnd) by exact Hk; rewrite sget_ush, Nat.eqb_refl by exact Hk; f_equal; f_equal; lia.
+  - cbn [GForm.fpost feq]; repeat split; [f_equal; lia|intros y; apply feq_refl].
+  - apply fpost_sadd.
+Qed.
+
+Lemma preshift_rm k r v : shapeR r -> k < length labs ->
+  feq (rm (preshift k r) v) (rm r (shift_rvar (mk_rvar (lab k) 0) v)).
+Proof.
+  destruct r as [s [d ls]]; intros Hs Hk; cbn [shapeR] in Hs; cbn [preshift GForm.rm].
+  apply feq_fpost.
+  assert (Hs' : lsts_len (lsts_set k (dropL k (lsts_get k ls)) ls) = length labs) by (rewrite lsts_set_len; exact Hs).
+  destruct (in_dec label_eq_dec (v_label v) labs) as [Hin|Hout].
+  - destruct (lab_pos v Hin) as (k' & Hk' & Hl & _); destruct v as [l i]; cbn in Hl; subst l.
+    rewrite nm_lab by assumption; rewrite lsts_set_get by lia.
+    destruct (Nat.eqb_spec k' k) as [->|Hne].
+    + rewrite shift_lab_same, nm_lab by assumption; apply dropL_lm, Hk.
+    + rewrite shift_lab_other; [rewrite nm_lab by assumption; apply feq_refl|].
+      cbn; intros He; apply Hne, (lab_inj labs Hnd); assumption.
+  - rewrite shift_lab_other; [rewrite !nm_out by assumption; apply feq_refl|].
+    intros He; apply Hout; rewrite He; apply nth_In, Hk.
+Qed.
+
+Lemma push_rm h e B v : shapeR B -> h < length labs ->
+  feq (rm (push h e B) v)
+      (if rvar_eqb v (mk_rvar (lab h) 0) then em e else rm B (unshift_rvar (mk_rvar (lab h) 0) v)).
+Proof.
+  destruct B as [sB [d ls]]; intros Hs Hh; cbn [shapeR] in Hs; cbn [push GForm.rm].
+  eapply feq_trans; [apply fpost_zeros|].
+  set (f := fun k x => if Nat.eqb k h then (zeros, LCons e (sadd (fst x) sB) (snd x)) else (sadd (fst x) sB, snd x)).
+  assert (Hl : lsts_len (lsts_map f 0 ls) = length labs) by (rewrite lsts_map_len; exact Hs).
+  destruct (in_dec label_eq_dec (v_label v) labs) as [Hin|Hout].
+  - destruct (lab_pos v Hin) as (k & Hk & Hlk & _); destruct v as [l i]; cbn in Hlk; subst l.
+    rewrite nm_lab by assumption; rewrite lsts_map_get by lia; cbn [Nat.add]; unfold f.
+    destruct (Nat.eqb_spec k h) as [->|Hne].
+    + destruct i as [|i].
+      * replace (rvar_eqb _ _) with true by (unfold rvar_eqb; cbn; rewrite label_eqb_refl; reflexivity).
+        apply fpost_zeros.
+      * replace (rvar_eqb _ _) with false by (unfold rvar_eqb; cbn; rewrite label_eqb_refl; reflexivity).
+        rewrite unshift_lab_same; cbn [GForm.rm]; rewrite nm_lab by assumption.
+        eapply feq_trans; [apply fpost_zeros|]; destruct (lsts_get h ls) as [s L]; cbn [fst snd]; apply fpost_sadd.
+    + assert (Hlab : lab k <> lab h) by (intros He'; apply Hne, (lab_inj labs Hnd); assumption).
+      replace (rvar_eqb _ _) with false
+        by (unfold rvar_eqb; cbn; destruct (label_eqb_spec (lab k) (lab h)); [contradiction|reflexivity]).
+      rewrite unshift_lab_other by (cbn; exact Hlab); cbn [GForm.rm]; rewrite nm_lab by assumption.
+      destruct (lsts_get k ls) as [s L]; cbn [fst snd]; apply fpost_sadd.
+  - replace (rvar_eqb _ _) with false.
+    2:{ unfold rvar_eqb; cbn [v_label v_index]; destruct (label_eqb_spec (v_label v) (lab h)) as [He|]; [|reflexivity].
+        exfalso; apply Hout; rewrite He; apply nth_In, Hh. }
+    rewrite unshift_lab_other by (intros He; apply Hout; rewrite He; apply nth_In, Hh).
+    cbn [GForm.rm]; rewrite !nm_out by assumption; destruct d as [|a r]; cbn [dshift GForm.dm GForm.fpost feq].
+    + symmetry; apply shv_out, Hout.
+    + repeat split; intros y; apply rshift_rm.
+Qed.
+
+Lemma atomR_rm a K v : feq (rm (atomR a K) v) (FStuck a v (rm K)).
+Proof.
+  cbn [atomR GForm.rm]; eapply feq_trans; [apply fpost_zeros|].
+  assert (Hl : lsts_len (all_lsts (length labs) (fun _ => (zeros, LNilS a K 0)) 0) = length labs) by apply all_lsts_len.
+  destruct (in_dec label_eq_dec (v_label v) labs) as [Hin|Hout].
+  - destruct (lab_pos v Hin) as (k & Hk & Hlk & _); destruct v as [l i]; cbn in Hlk; subst l.
+    rewrite nm_lab by assumption; rewrite all_lsts_get by exact Hk; cbn [fst snd GForm.lm].
+    eapply feq_trans; [apply fpost_zeros|]; cbn [feq]; repeat split; [f_equal; lia|intros y; apply feq_refl].
+  - rewrite nm_out by assumption; apply feq_refl.
+Qed.
+
+Lemma endR_rm v : feq (rm endR v) (FVar v).
+Proof.
+  cbn [endR GForm.rm]; eapply feq_trans; [apply fpost_zeros|].
+  assert (Hl : lsts_len (all_lsts (length labs) (fun _ => (zeros, LNilV)) 0) = length labs) by apply all_lsts_len.
+  destruct (in_dec label_eq_dec (v_label v) labs) as [Hin|Hout].
+  - destruct (lab_pos v Hin) as (k & Hk & Hlk & _); destruct v as [l i]; cbn in Hlk; subst l.
+    rewrite nm_lab by assumption; rewrite all_lsts_get by exact Hk; cbn [fst snd GForm.lm]; apply fpost_zeros.
+  - rewrite nm_out by assumption; apply feq_refl.
+Qed.
+
+Lemma shape_preshift k r : shapeR r -> shapeR (preshift k r).
+Proof. destruct r as [s [d ls]]; cbn; rewrite lsts_set_len; auto. Qed.
+
+Lemma shape_push h e B : shapeR B -> shapeR (push h e B).
+Proof. destruct B as [s [d ls]]; cbn; rewrite lsts_map_len; auto. Qed.
+
+Lemma shape_atomR a K : shapeR (atomR a K).
+Proof. apply all_lsts_len. Qed.
+
+Lemma shape_endR : shapeR endR.
+Proof. apply all_lsts_len. Qed.
+
 End Raw.
