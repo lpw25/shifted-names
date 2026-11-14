@@ -114,3 +114,60 @@ stream-and-offset models they could not.
    giving up for lack of an order.
 5. Then the shared form of `docs/design-nf2.md` (branches, `share`,
    runs) on top, as before.
+
+## Status
+
+**Done (`Core/IModel.v`, no admits).**
+
+- Interleaved models.
+- The meaning of expressions in a model, with atoms left free.
+- In a standard interpretation, the meaning is the old free meaning
+  `GEval.fa` (`std_fa_all`).
+- Laws: the identity renaming, cancellation, commutation of weakenings
+  on ordered labels.
+- The two-label example: it agrees in every standard interpretation
+  (`ex_std_agree`) and differs in an interleaved model (`ex_differ`).
+
+## The key lemma, and where it stands
+
+Uniqueness over interleaved models needs, at its core, the following.
+Take sequences of steps — entries `⟦ h := t | – ⟧` and weakenings
+`⟦ \ h ⟧ ⨾ –` — in front of an atom, with each entry's target a
+distinct symbol. Call a sequence *reduced* when no weakening is
+followed by an entry on the same label with only steps on ordered
+labels between.
+
+> **Lemma.** Two reduced sequences that agree in every interleaved
+> model are the same up to swapping adjacent steps on ordered labels.
+
+**Stripping from the right**, the end next to the atom, works for both
+kinds of step:
+
+- *A weakening last:* the atom's results are read through `⟦ \ h ⟧`,
+  which is injective, so the rests agree.
+- *An entry last:* its target is a distinct symbol, so the positions
+  where it shows are known, and the rests agree.
+
+**Stripping from the left** works for an entry. It fails for a
+weakening: `⟦ \ h ⟧` hides what the rest does at `h₀` in every model.
+
+**Which steps can be last is visible in the models, for weakenings.**
+`⟦ \ h ⟧` can be moved to the end exactly when the atom is never
+applied at `h₀`, in any model. The proof steers one variable backwards
+from `h₀` through the sequence, building the model as it goes:
+
+- **Transfers.** At a step on a label `g` not ordered against the
+  variable's current label, the model may make the current variable
+  also `g`'s variable at a large fresh index. From then on only `g`'s
+  steps move it, and it cannot reach `g₀` before the sequence ends.
+- **When it dies.** The variable is lost only at a weakening while at
+  index 0. Reducedness then forces that weakening to be the last step
+  on a label not ordered against `h`.
+
+**Open.** The same for entries: if `⟦ h := t | – ⟧` can be last in one
+sequence, it can be last in the other. With that, the lemma follows by
+stripping from the right. Steering should give it too: route the
+variable that shows `t` through a step that the other sequence has
+after the entry. That is the next thing to prove. After it come
+repeated targets (variables and terms can repeat) and absorption at
+the identity.
