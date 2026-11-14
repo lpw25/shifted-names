@@ -3,6 +3,13 @@
 Working notes towards a canonical form that meets
 `docs/normaliser-spec.md` when label atoms may denote the same label.
 
+**Superseded criterion.** These notes quantify over standard
+interpretations. The spec now uses the wider class of models in which
+a label may start partway along another label's stream. Under those
+models, identities that need a case split on label equality (such as
+`c_x ⨾ c_y = c_y ⨾ c_x`) no longer hold and need not be identified.
+The identities below must be re-checked against the models.
+
 ## The setting
 
 The bound label is always distinct from named labels, so only the

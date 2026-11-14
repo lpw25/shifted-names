@@ -19,28 +19,77 @@ stated, does not count.
 
 ## Meaning and equality
 
-- **Interpretation.** An interpretation gives every atom a value: a
-  label for each label atom, an adjustment for each adjustment atom, and
-  so on. It must be *consistent with the facts*.
+The normaliser is specified against a class of *models* that is wider
+than the standard interpretations. A label atom may start partway along
+another label's variables.
+
+- **Model.** A model `M` chooses:
+  - a set of *streams*, with a strict order on them;
+  - for each label expression `h`, a stream `str h` and an offset
+    `off h : nat`;
+  - a value for each term, adjustment and payload atom, over the
+    model's positions (below).
+- **Restrictions on a model.**
+  - Concrete labels have offset 0. Distinct concrete labels have
+    distinct streams, ordered as the labels are.
+  - The bound label has offset 0 and a stream of its own.
+  - Each fact `x < y` holds as `str x < str y`. In particular, labels
+    ordered by a fact never share a stream.
+  - Nothing else is assumed. Two label atoms may share a stream at any
+    offsets, and a label atom may share a concrete label's stream.
+- **Positions.** A *position* is a pair `(s, n)` of a stream and a
+  number. The variable `(h, i)` denotes the position
+  `(str h, off h + i)`.
+- **Windows.** The *window* of `h` is the set of positions
+  `(str h, n)` with `n ≥ off h`. The position `(str h, off h + i)` has
+  *index* `i` in the window.
+- **Operations.** An operation on label `h` acts on the window of `h`
+  as the standard operation acts on the variables of `h`, by window
+  index. It acts on every position outside the window as the standard
+  operation acts on variables of other labels. In particular, the
+  positions of `str h` below `off h` are treated like variables of
+  another label. For example:
+  - a push of `e` on `h` in front of `a` sends index 0 of the window to
+    `e`, index `i+1` to what `a` gives at index `i`, and every position
+    outside the window to what `a` gives there;
+  - `↑h` sends index `i` of the window to index `i+1`, and leaves every
+    position outside the window alone.
+- **Standard interpretations** are the models where each label has its
+  own stream, equal labels share one, and every offset is 0. Every
+  standard interpretation consistent with the facts is a model.
 - **Equality.** Two expressions are *equal* when they denote the same
-  adjustment under **every** interpretation.
-- **No distinctness assumption.** Two different label atoms may be
-  interpreted as the same label, and a label atom may be interpreted as
-  any concrete label, unless a fact rules it out. Only these
-  distinctions are always known:
-  - distinct concrete labels are different;
-  - the bound label differs from every named label;
-  - labels ordered by a fact are different.
-- **Payloads without a payload atom** observe only named variables
+  map from positions to results in **every** model.
+- **Payloads without a payload atom** observe only named positions
   (`Unique.feq`).
+
+**What this gives up.** Equality in every model implies equality in
+every standard interpretation. The converse fails only for identities
+that need every label at offset 0. For example, with
+
+```
+c_x = ⟦ x as a; x as a | Γ \ x as a | Γ ⟧
+```
+
+`c_x ⨾ c_y` and `c_y ⨾ c_x` are equal in every standard
+interpretation, by a case split on whether `x = y`. They differ in the
+model where `y` starts at `x₁`. The normaliser need not identify such
+terms.
+
+**What it keeps.** Every law about a single label holds, including
+the identity renaming `⟦ x as a | Γ \ x as a | Γ ⟧ = ⟦⟧`. Operations
+on labels ordered by a fact commute. Identities that come from equal
+entries still hold and must be identified; for example
+`P_y(u) D_x P_y(u) = D_x P_y(u) P_y(u)` in the notation of
+`docs/labels.md`.
 
 ## Requirements
 
-1. **Sound.** The output equals the input under every interpretation
+1. **Sound.** The output equals the input in every model. In
+   particular, it equals the input under every standard interpretation
    consistent with the facts.
-2. **Canonical.** Equal inputs give syntactically identical output
-   terms. There is no quotient. Equal means under every interpretation,
-   not under one.
+2. **Canonical.** Inputs equal in every model give syntactically
+   identical output terms. There is no quotient. Equal means in every
+   model, not in one.
 3. **Independent of the interpretation.** The normaliser reads
    only the input term, the facts, and the order of atoms in the proof
    context. It never assumes anything about the values of atoms.
@@ -77,12 +126,14 @@ stated, does not count.
 With `canon` a function of the expression, the facts and the context
 order only:
 
-- `canon_sound : forall I, consistent F I -> den I (output (canon e)) = den I e`
-- `canon_complete : (forall I, consistent F I -> den I e1 = den I e2) -> canon e1 = canon e2`
+- `canon_sound : forall M, model F M -> den M (output (canon e)) = den M e`
+- `canon_complete : (forall M, model F M -> den M e1 = den M e2) -> canon e1 = canon e2`
+- `std_model : forall I, consistent F I -> model F (std I)`, with
+  `den (std I) e` agreeing with the real semantics `aeden` under `I`.
 
-Here `den` is the real semantics (`aeden`). It may be reached through
-a free model only if the free model is shown adequate for that
-quantification over interpretations.
+`std_model` turns `canon_sound` into soundness for the real semantics.
+`den` may be reached through a free model only if the free model is
+shown adequate for that quantification over models.
 
 ## Consequences to keep in mind
 
@@ -91,8 +142,10 @@ quantification over interpretations.
   For example, `↑x ; ⟦y := v | ⟦x := u⟧⟧` means `⟦y := v⟧` when
   `x ≠ y` and `⟦z := u⟧` when `x = y = z`. Per-label structures are
   therefore only valid for labels known to be distinct.
-- Completeness must use interpretations that identify labels. One
+- Completeness must use models in which labels overlap. One
   injective interpretation does not determine equality.
+- Two variables of labels that may share a stream can compare three
+  ways (below, at, above), not two.
 
 ## Status against this specification
 
@@ -100,7 +153,7 @@ quantification over interpretations.
 for a single interpretation with distinct labels (`NoDup labs`).
 
 - **Requirement 2:** not met; equality there is under one
-  interpretation only.
+  interpretation only, not in every model.
 - **Requirement 3:** not met; `canon` takes `lenv`.
 - **What carries over:** the treatment of entries, payloads, factored
   shifts, the phantom filler and sharing. The per-label lists of a
