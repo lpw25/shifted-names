@@ -25,7 +25,8 @@ A **target** is one of:
 
 - a variable `yⱼ`;
 - a term atom with a payload, `u[ρ]`, where `ρ` is again a sequence of
-  steps, in front of the identity or of a payload atom;
+  steps in front of the identity, possibly starting with a payload
+  atom (`PComp a p` is `p` then `a`);
 - a target sent through a weakening, `TShiftE`.
 
 **Each constructor as steps:**
