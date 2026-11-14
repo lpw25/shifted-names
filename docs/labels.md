@@ -8,7 +8,8 @@ interpretations. The spec now uses the wider class of models in which
 a label may start partway along another label's stream. Under those
 models, identities that need a case split on label equality (such as
 `c_x ⨾ c_y = c_y ⨾ c_x`) no longer hold and need not be identified.
-The identities below must be re-checked against the models.
+The identities below are re-checked against the models in "Which of
+these hold in the models of the spec".
 
 ## The setting
 
@@ -53,6 +54,47 @@ Here `x` and `y` are label atoms with no facts relating them.
 6. **Absorption.** `P_h(e) u D_h w = u w` when no letter of `u` may
    share `h`'s label and `e` equals what `u w` gives at `h₀` in every
    interpretation.
+
+### Which of these hold in the models of the spec
+
+In a model, a letter on `h` acts on `h`'s window. Write `a`, `b` for
+the offsets of `x` and `y` on a shared stream, and `F` for what the
+rest of the word gives, as a function of the stream position:
+
+- `P_h(e) F` sends `off h` to `e`, `p > off h` to `F(p−1)`, and
+  `p < off h` to `F(p)`;
+- `D_h F` sends `p ≥ off h` to `F(p+1)`, and `p < off h` to `F(p)`.
+
+Taking `a = 0`, `b = 1` (or the reverse) and the identity base
+`F(p) = p` gives:
+
+| Identity | In every model? | Counterexample |
+|---|---|---|
+| 1. known-distinct labels commute | yes: they never share a stream | |
+| 2. drops commute | only for known-distinct labels | `a = 0`, `b = 1`: `D_x D_y` gives `[2, 3, 4, …]`, `D_y D_x` gives `[1, 3, 4, …]` |
+| 3. cancellation | yes: one window, and `u` acts on other streams | |
+| 4. pushes with equal entries commute | only for known-distinct labels | `a = 0`, `b = 1`: `P_x(e) P_y(e')` gives `[e, 0, e', …]`, `P_y(e') P_x(e)` gives `[e, e', 0, …]`; they agree only if `e' = 0`, and `e' = y₀` is position 1 |
+| 5. push and drop commute in context | no | `b = 0`, `a = 1`: `P_y(u) D_x P_y(u)` gives `[u, u, 1, 2, …]`, `D_x P_y(u) P_y(u)` gives `[u, 0, 1, 2, …]` (it holds when `a ≤ b`) |
+| 6. absorption | yes: one window, and `u` acts on other streams | |
+
+So between labels that may overlap, the identities left are the
+single-window ones (cancellation and absorption) and commutation of
+letters on known-distinct labels. The coincidence identities that made
+the core lemma hard (4 and 5) are gone, and so is 2.
+
+**Conjecture (to prove).** In the models, two words with no
+cancellation or absorption left are equal exactly when they are equal
+as traces, with dependence "the labels are not known distinct".
+
+- **Proof idea.** For a pair `x`, `y` that may overlap, the models
+  with `x`, `y` on one stream at offsets far apart (in either order),
+  equal, and on separate streams together pin down the order of their
+  letters.
+- **What it gives.** The lexicographic normal form of traces is then
+  canonical, and the remaining comparisons are entry equalities in
+  every model, computed recursively.
+
+### Notes for standard interpretations
 
 Some things never commute: a drop and a push on labels that may be
 equal (`D_x P_y(v) P_x(u)` means `⟦y := v⟧` when `x ≠ y` and

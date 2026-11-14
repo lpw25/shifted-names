@@ -77,10 +77,22 @@ terms.
 
 **What it keeps.** Every law about a single label holds, including
 the identity renaming `⟦ x as a | Γ \ x as a | Γ ⟧ = ⟦⟧`. Operations
-on labels ordered by a fact commute. Identities that come from equal
-entries still hold and must be identified; for example
-`P_y(u) D_x P_y(u) = D_x P_y(u) P_y(u)` in the notation of
-`docs/labels.md`.
+on labels ordered by a fact commute. Most identities between labels
+that may overlap fail in some model; `docs/labels.md` lists which
+hold.
+
+**Why this model.** It is the standard semantics of a variant of the
+API in which free variables are abstract *names*:
+
+- names are built with `nm "x"` and `shift`;
+- a context-form entry may be any name, meaning that name in the
+  context that ends at the entry;
+- facts say that two names have different labels, in a given order.
+
+In that API a label atom becomes a name atom, which may stand for any
+`(label, offset)`, exactly as a label atom does in a model here. The
+API itself is unchanged. The model is only how the normaliser's
+equality is defined.
 
 ## Requirements
 
