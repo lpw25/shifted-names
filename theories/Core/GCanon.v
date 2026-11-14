@@ -183,3 +183,121 @@ Proof.
 Qed.
 
 End Has.
+
+(** ** Canonicalisation *)
+
+Section Canonise.
+
+Variable labs : list (option label).
+Hypothesis Hnd : NoDup labs.
+
+Local Notation lab := (GForm.lab labs).
+Local Notation fpost := (GForm.fpost labs).
+Local Notation em := (GForm.em labs).
+Local Notation lm := (GForm.lm labs).
+Local Notation rm := (GForm.rm labs).
+Local Notation nm := (GForm.nm labs).
+Local Notation dm := (GForm.dm labs).
+Local Notation zeros := (GForm.zeros labs).
+Local Notation ush := (GForm.ush labs).
+Local Notation sadd := (GEval.sadd labs).
+Local Notation hasE := (hasE labs).
+Local Notation hasL := (hasL labs).
+Local Notation hasN := (hasN labs).
+
+Definition vec (f : nat -> nat) : list nat := map f (seq 0 (length labs)).
+Definition ssub (s t : list nat) : list nat := vec (fun k => sget s k - sget t k).
+Definition srestr (h : nat -> bool) (s : list nat) : list nat := vec (fun k => if h k then sget s k else 0).
+
+Definition omin (a b : option nat) : option nat :=
+  match a, b with Some x, Some y => Some (Nat.min x y) | Some x, None => Some x | None, b => b end.
+Definition oget (a : option nat) : nat := match a with Some x => x | None => 0 end.
+
+(** The least output index of an entry on label [k] (when it has one). *)
+Definition emin (e : ent) (k : nat) : nat :=
+  match e with EV v => v_index v | ET _ _ (GR s _) | ES _ _ (GR s _) => sget s k end.
+
+Definition rdown (r : gref) (m : list nat) : gref :=
+  match r with GR s n => GR (srestr (hasN n) (ssub s m)) n end.
+
+Definition edown (e : ent) (m : list nat) : ent :=
+  match e with
+  | EV v => EV (match pos labs (v_label v) with
+                | Some k => mk_rvar (v_label v) (v_index v - sget m k)
+                | None => v end)
+  | ET u b r => ET u b (rdown r m)
+  | ES a z r => ES a z (rdown r m)
+  end.
+
+Definition bflag (b : option nat) : bool := match b with None => true | Some _ => false end.
+
+Definition phslot (p : bool) (q : nat) : bool := p && match lab q with None => true | Some _ => false end.
+
+Fixpoint lsmin (q : nat) (ls : lsts) (k : nat) : option nat :=
+  match ls with
+  | LsNil => None
+  | LsCons s L r => omin (if hasL q L k then Some (sget s k) else None) (lsmin (S q) r k)
+  end.
+
+Definition dmin (d : gdef) (k : nat) : option nat :=
+  match d with DV => None | DS _ (GR s n) => if hasN n k then Some (sget s k) else None end.
+
+Fixpoint lsdown (q : nat) (ls : lsts) (m : list nat) : lsts :=
+  match ls with
+  | LsNil => LsNil
+  | LsCons s L r => LsCons (srestr (hasL q L) (ssub s m)) L (lsdown (S q) r m)
+  end.
+
+Definition ddown (d : gdef) (m : list nat) : gdef := match d with DV => DV | DS a r => DS a (rdown r m) end.
+
+Fixpoint canE (e : ent) : ent :=
+  match e with
+  | EV v => EV v
+  | ET u b r => ET u b (canR (bflag b) r)
+  | ES a z r => ES a z (canR false r)
+  end
+with canL (q : nat) (L : lst) : list nat * lst :=
+  match L with
+  | LNilV | LNilP => (zeros, LNilV)
+  | LNilS a r m0 => match canR false r with GR sr nr => (sr, LNilS a (GR zeros nr) m0) end
+  | LCons e s t =>
+      let e' := canE e in
+      let '(mt, t') := canL q t in
+      let st := sadd mt s in
+      let mn := vec (fun k => oget (omin (if hasE e' k then Some (emin e' k) else None)
+                                         (if hasL q t' k then Some (sget st k) else None))) in
+      let e'' := edown e' mn in
+      let st' := srestr (hasL q t') (ssub st mn) in
+      match t' with
+      | LNilV =>
+          if (0 <? sget st' q) && ent_eqb e'' (EV (mk_rvar (lab q) (sget st' q - 1)))
+          then (sadd (srestr (Nat.eqb q) (ssub st' (ush q))) mn, LNilV)
+          else (mn, LCons e'' st' t')
+      | LNilS a (GR _ n) m0 =>
+          if (0 <? m0) && ent_eqb e'' (ES a (mk_rvar (lab q) (m0 - 1)) (GR st' n))
+          then (sadd st' mn, LNilS a (GR zeros n) (m0 - 1))
+          else (mn, LCons e'' st' t')
+      | _ => (mn, LCons e'' st' t')
+      end
+  end
+with canR (p : bool) (r : gref) : gref :=
+  match r with GR s n => let '(m, n') := canN p n in GR (srestr (hasN n') (sadd m s)) n' end
+with canN (p : bool) (n : gnode) : list nat * gnode :=
+  match n with
+  | GN d ls =>
+      let d' := canD d in
+      let ls' := canLs p 0 ls in
+      let m := vec (fun k => oget (omin (dmin d' k) (lsmin 0 ls' k))) in
+      (m, GN (ddown d' m) (lsdown 0 ls' m))
+  end
+with canLs (p : bool) (q : nat) (ls : lsts) : lsts :=
+  match ls with
+  | LsNil => LsNil
+  | LsCons s L r =>
+      if phslot p q then LsCons zeros LNilP (canLs p (S q) r)
+      else let '(m, L') := canL q L in LsCons (sadd m s) L' (canLs p (S q) r)
+  end
+with canD (d : gdef) : gdef :=
+  match d with DV => DV | DS a r => DS a (canR false r) end.
+
+End Canonise.

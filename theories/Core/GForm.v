@@ -641,3 +641,74 @@ Theorem gref_unique p r1 r2 : cref p r1 -> cref p r2 -> (forall v, Dom p v -> fe
 Proof. apply (proj1 (proj2 (proj2 (uniq_all (S (rsz r1 + rsz r2)))))); lia. Qed.
 
 End Canon.
+
+(** ** Decidable equality of encodings *)
+
+Definition lnat_eqb (s t : list nat) : bool := if list_eq_dec Nat.eq_dec s t then true else false.
+Definition onat_eqb (b c : option nat) : bool :=
+  match b, c with None, None => true | Some x, Some y => Nat.eqb x y | _, _ => false end.
+
+Fixpoint ent_eqb (e e' : ent) : bool :=
+  match e, e' with
+  | EV v, EV v' => rvar_eqb v v'
+  | ET u b r, ET u' b' r' => Nat.eqb u u' && onat_eqb b b' && gref_eqb r r'
+  | ES a z r, ES a' z' r' => Nat.eqb a a' && rvar_eqb z z' && gref_eqb r r'
+  | _, _ => false
+  end
+with lst_eqb (L L' : lst) : bool :=
+  match L, L' with
+  | LNilV, LNilV | LNilP, LNilP => true
+  | LNilS a r m, LNilS a' r' m' => Nat.eqb a a' && gref_eqb r r' && Nat.eqb m m'
+  | LCons e s t, LCons e' s' t' => ent_eqb e e' && lnat_eqb s s' && lst_eqb t t'
+  | _, _ => false
+  end
+with gref_eqb (r r' : gref) : bool :=
+  match r, r' with GR s n, GR s' n' => lnat_eqb s s' && gnode_eqb n n' end
+with gnode_eqb (n n' : gnode) : bool :=
+  match n, n' with GN d ls, GN d' ls' => gdef_eqb d d' && lsts_eqb ls ls' end
+with lsts_eqb (ls ls' : lsts) : bool :=
+  match ls, ls' with
+  | LsNil, LsNil => true
+  | LsCons s L r, LsCons s' L' r' => lnat_eqb s s' && lst_eqb L L' && lsts_eqb r r'
+  | _, _ => false
+  end
+with gdef_eqb (d d' : gdef) : bool :=
+  match d, d' with
+  | DV, DV => true
+  | DS a r, DS a' r' => Nat.eqb a a' && gref_eqb r r'
+  | _, _ => false
+  end.
+
+Lemma lnat_eqb_spec s t : lnat_eqb s t = true <-> s = t.
+Proof. unfold lnat_eqb; destruct (list_eq_dec Nat.eq_dec s t); split; congruence. Qed.
+
+Lemma onat_eqb_spec b c : onat_eqb b c = true <-> b = c.
+Proof. destruct b, c; cbn; rewrite ?Nat.eqb_eq; split; congruence. Qed.
+
+Lemma rvar_eqb_iff v v' : rvar_eqb v v' = true <-> v = v'.
+Proof. destruct (rvar_eqb_spec v v'); split; congruence. Qed.
+
+Lemma eqb_spec_all :
+  (forall e e', ent_eqb e e' = true <-> e = e')
+  /\ (forall L L', lst_eqb L L' = true <-> L = L')
+  /\ (forall r r', gref_eqb r r' = true <-> r = r')
+  /\ (forall n n', gnode_eqb n n' = true <-> n = n')
+  /\ (forall ls ls', lsts_eqb ls ls' = true <-> ls = ls')
+  /\ (forall d d', gdef_eqb d d' = true <-> d = d').
+Proof.
+  apply g_ind; intros;
+    match goal with
+    | |- ent_eqb ?x ?y = true <-> _ => destruct y
+    | |- lst_eqb ?x ?y = true <-> _ => destruct y
+    | |- gref_eqb ?x ?y = true <-> _ => destruct y
+    | |- gnode_eqb ?x ?y = true <-> _ => destruct y
+    | |- lsts_eqb ?x ?y = true <-> _ => destruct y
+    | |- gdef_eqb ?x ?y = true <-> _ => destruct y
+    end; cbn [ent_eqb lst_eqb gref_eqb gnode_eqb lsts_eqb gdef_eqb];
+    rewrite ?andb_true_iff, ?Nat.eqb_eq, ?rvar_eqb_iff, ?onat_eqb_spec, ?lnat_eqb_spec;
+    repeat match goal with H : forall _, ?f _ _ = true <-> _ |- context [?f _ _ = true] => rewrite H end;
+    split; intros; try discriminate; repeat match goal with H : _ /\ _ |- _ => destruct H end;
+    subst; try congruence; try (injection H0 as; subst); try (injection H1 as; subst); try (injection H2 as; subst);
+    try (injection H3 as; subst); repeat split; auto.
+Qed.
+
