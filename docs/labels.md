@@ -5,25 +5,67 @@ Working notes towards a canonical form that meets
 Everything is written with the library's context forms. Earlier
 versions of these notes used an ad hoc notation; it is gone.
 
-## The two building blocks
+## What adjustments are built from
 
-The part of a normal form that acts on named variables is built from
-two kinds of step. Here `σ` is the rest of the adjustment: the
-identity, or something stuck at an adjustment atom.
+Every adjustment expression (`aexp` / `texp` / `pexp` of
+`Core/Normalise.v`) is a sequence of *steps* in front of the identity.
+The bound label `·` is one more label, ordered against every named
+one. There are three kinds of step:
 
-- **Weakening first:** `⟦ \ x ⟧ ⨾ σ` sends `xᵢ` to what `σ` gives for
-  `xᵢ₊₁`, and every other variable to what `σ` gives for it.
-- **Substitution in front:** `⟦ x := u | σ ⟧` sends `x₀` to `u`, `xᵢ₊₁`
-  to what `σ` gives for `xᵢ`, and every other variable to what `σ`
-  gives for it. The term `u` is not passed through `σ`.
+- **An input entry in front:** `⟦ x := t | τ ⟧`, or `⟦ x as a | τ ⟧`
+  for a variable. It sends `x₀` to the target `t`, `xᵢ₊₁` to what `τ`
+  gives for `xᵢ`, and every other variable to what `τ` gives for it.
+  `t` is in the output scope of the whole adjustment and is not passed
+  through `τ`.
+- **A weakening in front:** `⟦ \ x ⟧ ⨾ τ`. It sends `xᵢ` to what `τ`
+  gives for `xᵢ₊₁`, and every other variable to what `τ` gives for it.
+- **An adjustment atom in front:** `σ ⨾ τ`.
 
-Several substitutions in front are written as one form, innermost
-first: `⟦ x := u; y := v | σ ⟧ = ⟦ x := u | ⟦ y := v | σ ⟧ ⟧`.
+A **target** is one of:
 
-For one label, every composite of these steps has the form
-`⟦ x := u₁; …; x := uₖ | ⟦ \ x ⟧ ⨾ … ⨾ ⟦ \ x ⟧ ⨾ σ ⟧`: substitutions
-in front, then weakenings. The only rule needed to reach that form is
-`⟦ \ x ⟧ ⨾ ⟦ x := u | σ ⟧ = σ`.
+- a variable `yⱼ`;
+- a term atom with a payload, `u[ρ]`, where `ρ` is again a sequence of
+  steps, in front of the identity or of a payload atom;
+- a target sent through a weakening, `TShiftE`.
+
+**Each constructor as steps:**
+
+| Constructor | As steps |
+|---|---|
+| `⟦⟧` (`AId`) | no steps |
+| `σ` (`AAtom`) | the atom step, then nothing |
+| input entry (`AInner`) | the entry step in front |
+| output entry (`AOuter`), `a ⨾ ⟦ \ x ⟧` | `a`'s steps, then a weakening at the end; `a`'s targets are sent through it |
+| lift `⟦ x \| a ⟧` (`ALift`) | `⟦ x := x₀ \| a ⨾ ⟦ \ x ⟧ ⟧` |
+| `a ⨾ b` (`ACompose`) | `a`'s steps, then `b`'s; `a`'s targets are sent through `b` |
+
+An output weakening after an atom is a weakening in front of what
+follows it. So no separate output-side step is needed.
+
+**Where labels meet besides the order of steps.** Sending the target
+`yⱼ` through `⟦ \ x ⟧`:
+
+- gives `yⱼ₊₁` when `y` is `x`;
+- leaves `yⱼ` alone when `x` and `y` are ordered;
+- otherwise cannot be resolved. The target stays "`yⱼ` sent through
+  what follows" (`TShiftE`, or `apply_var` in the output).
+
+So a target can name a variable at an earlier point of the sequence.
+
+**Rules every model satisfies.**
+
+1. **Cancellation:** `⟦ \ x ⟧ ⨾ ⟦ x := t | τ ⟧ = τ`.
+2. **Absorption:** `⟦ x := t | ⟦ \ x ⟧ ⨾ τ ⟧ = τ` when `τ` sends `x₀`
+   to `t` in every model. The identity renaming
+   `⟦ x as a | Γ \ x as a | Γ ⟧ = ⟦⟧` is an instance.
+3. **Commutation:** entries and weakenings on ordered labels commute.
+   An atom commutes with nothing.
+4. **Targets:** two targets are interchangeable when they are equal in
+   every model, which is the same question one level down.
+
+The single-label laws all follow from these. For example,
+`⟦ x | σ ⟧ ⨾ ⟦ x | τ ⟧ = ⟦ x | σ ⨾ τ ⟧` is cancellation of the middle
+`⟦ \ x ⟧ ⨾ ⟦ x := x₀ | … ⟧`.
 
 ## Two identities that hold only by a case split
 
@@ -121,23 +163,30 @@ variables: `k = (x₀, m₀, x₁, m₁, …)`. Then `W(u)` sends `x₀` to `u`:
 
 ## Algebraic reading
 
-For each label `x`, the steps `⟦ \ x ⟧ ⨾ –` and `⟦ x := u | – ⟧`
-generate a monoid with the one relation
-`⟦ \ x ⟧ ⨾ ⟦ x := u | σ ⟧ = σ`. Take their *graph product* over the
-graph "ordered": the free product, plus commutation of steps on
+Ignore targets for a moment, treating each one as a distinct letter.
+Then the steps form the *graph product*, over the graph "ordered", of:
+
+- for each label `x`, the monoid of its entries and weakenings with
+  the cancellation rule;
+- for each adjustment atom, a free monoid.
+
+The graph product is their free product, plus commutation of steps on
 ordered labels.
 
-- **Conjecture.** With an adjustment atom at the end, two composites
-  of steps are equal in every model of the wider class exactly when
-  they are equal in the graph product. With the identity at the end,
-  absorption is added: `⟦ x := u | ⟦ \ x ⟧ ⨾ τ ⟧ = τ` when `τ` sends
-  `x₀` to `u` in every model.
+- **Conjecture.** Two sequences of steps ending in an atom are equal
+  in every interleaved model exactly when they are equal in this graph
+  product, with targets compared by rule 4. With the identity at the
+  end, absorption is added.
 - **Consequence.** Graph products have a normal form theorem: reduced
   sequences of syllables are unique up to swapping adjacent syllables
   on ordered labels (Green, *Graph products of groups*, 1990; Veloso
   da Costa, *Graph products of monoids*, Semigroup Forum 2001). Their
-  lexicographic normal forms would be the canonical form.
-- **What remains to prove.** Two different elements of the graph
-  product must differ in some model. Models that overlap only one
-  pair of labels at a time do not suffice: in example 2, every such
-  model ignores `u`.
+  lexicographic normal forms would give the canonical form.
+- **What the targets add.** A target that names a variable at an
+  earlier point in the sequence ties two positions of the sequence
+  together. Reordering steps must move such a target's reference point
+  along with them. The normal form theorem has to be checked with this
+  in place. Absorption depends on targets too.
+- **What remains to prove.** Two different elements must differ in
+  some model. Models that overlap only one pair of labels at a time do
+  not suffice: in example 2, every such model ignores `u`.
