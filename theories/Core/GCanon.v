@@ -300,4 +300,157 @@ with canLs (p : bool) (q : nat) (ls : lsts) : lsts :=
 with canD (d : gdef) : gdef :=
   match d with DV => DV | DS a r => DS a (canR false r) end.
 
+(** ** Helpers *)
+
+Lemma vec_len f : length (vec f) = length labs.
+Proof. unfold vec; rewrite length_map, length_seq; reflexivity. Qed.
+
+Lemma sget_vec f k : k < length labs -> sget (vec f) k = f k.
+Proof. apply sget_map_seq. Qed.
+
+Lemma vec_zeros : vec (fun _ => 0) = zeros.
+Proof.
+  unfold vec, GForm.zeros.
+  assert (H : forall n st, map (fun _ : nat => 0) (seq st n) = repeat 0 n)
+    by (induction n as [|n IH]; intros st; [reflexivity|cbn [seq map repeat]; f_equal; apply IH]).
+  apply H.
+Qed.
+
+Lemma shv_agree s s' w :
+  (forall k, k < length labs -> lab k = v_label w -> sget s k = sget s' k) -> GForm.shv labs s w = GForm.shv labs s' w.
+Proof.
+  intros H; destruct w as [l i]; unfold GForm.shv; cbn [v_label v_index].
+  destruct (pos labs l) as [k|] eqn:E; [|reflexivity].
+  destruct (pos_some labs _ _ E) as [Hk Hl]; rewrite (H k Hk Hl); reflexivity.
+Qed.
+
+Lemma fpost_agree s s' f : (forall w, outs f w -> GForm.shv labs s w = GForm.shv labs s' w) -> feq (fpost s f) (fpost s' f).
+Proof.
+  induction f as [v|u b k IH|a z k IH]; intros H; cbn [GForm.fpost feq].
+  - apply H; constructor.
+  - repeat split; intros y Hy; apply IH; intros w Hw; apply H; apply outs_T with y; assumption.
+  - repeat split; intros y; apply IH; intros w Hw; apply H; apply outs_S with y; assumption.
+Qed.
+
+(** Two shifts that agree on the labels a family outputs act the same on it. *)
+Lemma fpost_agree_has {X} (D : X -> Prop) F s s' x : D x ->
+  (forall k, k < length labs -> Has labs D F k -> sget s k = sget s' k) -> feq (fpost s (F x)) (fpost s' (F x)).
+Proof.
+  intros Hx H; apply fpost_agree; intros w Hw; apply shv_agree; intros k Hk Hl.
+  apply H; [exact Hk|]; exists (v_index w); exists x; split; [exact Hx|]; destruct w as [l i]; cbn in Hl; subst l; exact Hw.
+Qed.
+
+Lemma sget_srestr h s k : k < length labs -> sget (srestr h s) k = if h k then sget s k else 0.
+Proof. intros Hk; unfold srestr; rewrite sget_vec by exact Hk; reflexivity. Qed.
+
+Lemma sget_ssub s t k : k < length labs -> sget (ssub s t) k = sget s k - sget t k.
+Proof. intros Hk; unfold ssub; rewrite sget_vec by exact Hk; reflexivity. Qed.
+
+Lemma sget_sadd' s t k : k < length labs -> sget (sadd s t) k = sget s k + sget t k.
+Proof. apply sget_sadd. Qed.
+
+Lemma omin_le a b x : omin a b = Some x -> (forall y, a = Some y -> x <= y) /\ (forall y, b = Some y -> x <= y).
+Proof.
+  destruct a as [a|], b as [b|]; cbn; intros E; try discriminate; injection E as <-;
+    split; intros y E'; try discriminate; injection E' as <-; lia.
+Qed.
+
+Lemma omin_some_l a b y : a = Some y -> exists x, omin a b = Some x.
+Proof. intros ->; destruct b; cbn; eauto. Qed.
+
+Lemma omin_some_r a b y : b = Some y -> exists x, omin a b = Some x.
+Proof. intros ->; destruct a; cbn; eauto. Qed.
+
+Lemma omin_cases a b x : omin a b = Some x -> a = Some x \/ b = Some x.
+Proof.
+  destruct a as [y|], b as [z|]; cbn; intros E; try discriminate; injection E as <-; auto.
+  destruct (Nat.min_spec y z) as [[_ ->]|[_ ->]]; auto.
+Qed.
+
+Lemma hasE_spec e k : cent labs e -> k < length labs -> hasE e k = true <-> exists i, outs (em e) (mk_rvar (lab k) i).
+Proof. intros; apply (proj1 (has_spec_all labs Hnd)); assumption. Qed.
+
+Lemma hasL_spec q L k : q < length labs -> clst labs q L -> k < length labs -> hasL q L k = true <-> Has labs all_nat (lm q L) k.
+Proof. intros; apply (proj1 (proj2 (has_spec_all labs Hnd))); assumption. Qed.
+
+Lemma hasR_spec p r k : cref labs p r -> k < length labs -> GCanon.hasR labs r k = true <-> Has labs (Dom p) (rm r) k.
+Proof. intros; apply (proj1 (proj2 (proj2 (has_spec_all labs Hnd)))); assumption. Qed.
+
+Lemma hasN_spec p n k : cnode labs p n -> k < length labs -> hasN n k = true <-> Has labs (Dom p) (nm n) k.
+Proof. intros; apply (proj1 (proj2 (proj2 (proj2 (has_spec_all labs Hnd))))); assumption. Qed.
+
+(** Taking a shift [m] out of a canonical reference. *)
+Lemma rdown_spec p s n m : cref labs p (GR s n) -> (forall k, k < length labs -> hasN n k = true -> sget m k <= sget s k) ->
+  cref labs p (rdown (GR s n) m) /\ forall v, Dom p v -> feq (rm (GR s n) v) (fpost m (rm (rdown (GR s n) m) v)).
+Proof.
+  intros (Hc & Hf & Hr) Hle; cbn [rdown]; split.
+  - cbn [cref]; split; [exact Hc|split; [exact Hf|]]; split; [apply vec_len|].
+    intros k Hk Hp; rewrite sget_srestr in Hp by exact Hk; destruct (hasN n k) eqn:E; [|lia].
+    apply (hasN_spec p n k Hc Hk) in E as (i & Ho); exists i; exact Ho.
+  - intros v Hv; cbn [GForm.rm]; eapply feq_trans; [|apply (fpost_sadd labs)].
+    apply (fpost_agree_has (Dom p) (nm n)); [exact Hv|]; intros k Hk Hh.
+    apply (hasN_spec p n k Hc Hk) in Hh; rewrite sget_sadd', sget_srestr, sget_ssub, Hh by exact Hk.
+    specialize (Hle k Hk Hh); lia.
+Qed.
+
+Lemma rmin_out p s n k : cref labs p (GR s n) -> k < length labs ->
+  (hasN n k = true -> Out (Dom p) (rm (GR s n)) (mk_rvar (lab k) (sget s k)))
+  /\ (forall i, Out (Dom p) (rm (GR s n)) (mk_rvar (lab k) i) -> sget s k <= i).
+Proof.
+  intros (Hc & Hf & Hr) Hk; split.
+  - intros Hh; apply (hasN_spec p n k Hc Hk) in Hh as (i & Ho); apply Hf in Ho; [|exact Hk].
+    apply (Out_post_lab labs Hnd); [exact Hk|]; rewrite Nat.sub_diag; split; [lia|exact Ho].
+  - intros i Ho; apply (Out_post_lab labs Hnd) in Ho as [Hle _]; [exact Hle|exact Hk].
+Qed.
+
+(** An entry's least output index on a label it outputs is [emin]. *)
+Lemma emin_spec e k : cent labs e -> k < length labs ->
+  (hasE e k = true -> outs (em e) (mk_rvar (lab k) (emin e k)))
+  /\ (forall i, outs (em e) (mk_rvar (lab k) i) -> emin e k <= i).
+Proof.
+  intros Hc Hk; destruct e as [v|u b [s n]|a z [s n]]; cbn [hasE emin GForm.em] in *.
+  - split.
+    + intros E; destruct (label_eqb_spec (v_label v) (lab k)) as [He|]; [|discriminate].
+      destruct v as [l i]; cbn in He |- *; subst l; constructor.
+    + intros i Ho; inversion Ho; subst; cbn; lia.
+  - destruct (rmin_out _ s n k Hc Hk) as [H1 H2]; split.
+    + intros Hh; apply outs_term, H1, Hh.
+    + intros i Ho; apply outs_term in Ho; apply H2, Ho.
+  - destruct (rmin_out false s n k Hc Hk) as [H1 H2]; split.
+    + intros Hh; apply outs_stuck, H1, Hh.
+    + intros i Ho; apply outs_stuck in Ho; apply H2, Ho.
+Qed.
+
+Lemma edown_spec e m : cent labs e -> (forall k, k < length labs -> hasE e k = true -> sget m k <= emin e k) ->
+  cent labs (edown e m) /\ feq (em e) (fpost m (em (edown e m)))
+  /\ (forall k, hasE (edown e m) k = hasE e k)
+  /\ (forall k, k < length labs -> hasE e k = true -> emin (edown e m) k = emin e k - sget m k).
+Proof.
+  intros Hc Hle; destruct e as [v|u b [s n]|a z [s n]]; cbn [edown cent hasE emin] in *.
+  - destruct v as [l i]; cbn [v_label v_index] in *.
+    destruct (pos labs l) as [k|] eqn:E.
+    + destruct (pos_some labs _ _ E) as [Hk Hl].
+      assert (Hm : sget m k <= i) by (apply Hle; [exact Hk|rewrite Hl, label_eqb_refl; reflexivity]).
+      split; [exact I|split; [|split]].
+      * cbn [GForm.em GForm.fpost feq]; unfold GForm.shv; cbn [v_label v_index]; rewrite E; f_equal; lia.
+      * intros k'; reflexivity.
+      * intros k' Hk' Hh; cbn [v_index].
+        destruct (label_eqb_spec l (lab k')) as [He|]; [|discriminate].
+        rewrite He in Hl; apply (lab_inj labs Hnd) in Hl; [subst k'; reflexivity|exact Hk|exact Hk'].
+    + split; [exact I|split; [|split]].
+      * cbn [GForm.em GForm.fpost feq]; unfold GForm.shv; cbn [v_label v_index]; rewrite E; reflexivity.
+      * intros k'; reflexivity.
+      * intros k' Hk' Hh; exfalso; destruct (label_eqb_spec l (lab k')) as [He|]; [|discriminate].
+        unfold GForm.pos in E; apply (pos_from_none _ _ _ E); rewrite He; apply nth_In, Hk'.
+  - destruct (rdown_spec _ s n m Hc Hle) as [Hc' Hm]; split; [exact Hc'|split; [|split]].
+    + cbn [GForm.em GForm.fpost feq]; repeat split; intros y Hy; apply Hm.
+      destruct b; [left; reflexivity|right; exact (Hy eq_refl)].
+    + intros k; reflexivity.
+    + intros k Hk Hh; cbn [rdown emin]; cbn [GCanon.hasR] in Hh; rewrite sget_srestr, sget_ssub, Hh by exact Hk; reflexivity.
+  - destruct (rdown_spec false s n m Hc Hle) as [Hc' Hm]; split; [exact Hc'|split; [|split]].
+    + cbn [GForm.em GForm.fpost feq]; repeat split; intros y; apply Hm; left; reflexivity.
+    + intros k; reflexivity.
+    + intros k Hk Hh; cbn [rdown emin]; cbn [GCanon.hasR] in Hh; rewrite sget_srestr, sget_ssub, Hh by exact Hk; reflexivity.
+Qed.
+
 End Canonise.
