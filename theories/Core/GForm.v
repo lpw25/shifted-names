@@ -20,9 +20,9 @@ Import ListNotations.
     counts, one per position of [labs]. *)
 
 Inductive ent : Type :=
-| EV (k i : nat)                              (* the output variable [labs_k, i] *)
+| EV (v : rvar)                               (* the output variable [v] *)
 | ET (u : nat) (b : option nat) (r : gref)    (* the term [u], payload atom [b], payload [r] *)
-| ES (a : nat) (k i : nat) (r : gref)         (* stuck at atom [a] on input [labs_k, i], then [r] *)
+| ES (a : nat) (z : rvar) (r : gref)          (* stuck at atom [a] on input [z], then [r] *)
 with lst : Type :=
 | LNilV                                       (* [j ↦] the output [labs_k, j] *)
 | LNilP                                       (* not observed: bound inputs of a payload without payload atom *)
@@ -79,9 +79,9 @@ Fixpoint fpost (s : list nat) (f : fres) : fres :=
 
 Fixpoint em (e : ent) : fres :=
   match e with
-  | EV k i => FVar (mk_rvar (lab k) i)
+  | EV v => FVar v
   | ET u b r => FTerm u b (rm r)
-  | ES a k i r => FStuck a (mk_rvar (lab k) i) (rm r)
+  | ES a z r => FStuck a z (rm r)
   end
 with lm (k : nat) (L : lst) (j : nat) : fres :=
   match L with
@@ -359,9 +359,9 @@ Definition absorb (k : nat) (e : ent) (s : list nat) (t : lst) : Prop :=
 
 Fixpoint cent (e : ent) : Prop :=
   match e with
-  | EV k i => k < length labs
+  | EV _ => True
   | ET u b r => cref (match b with None => true | Some _ => false end) r
-  | ES a k i r => k < length labs /\ cref false r
+  | ES a z r => cref false r
   end
 with clst (k : nat) (L : lst) : Prop :=
   match L with
@@ -389,7 +389,7 @@ with cdef (d : gdef) : Prop :=
 (** ** Sizes, for the induction *)
 
 Fixpoint esz (e : ent) : nat :=
-  match e with EV _ _ => 1 | ET _ _ r => S (rsz r) | ES _ _ _ r => S (rsz r) end
+  match e with EV _ => 1 | ET _ _ r => S (rsz r) | ES _ _ r => S (rsz r) end
 with lsz (L : lst) : nat :=
   match L with LNilV | LNilP => 1 | LNilS _ r _ => S (rsz r) | LCons e _ t => S (esz e + lsz t) end
 with rsz (r : gref) : nat := match r with GR _ n => S (nsz n) end
@@ -574,14 +574,13 @@ Proof.
   repeat split.
   - (* entries *)
     intros e1 e2 Hsz H1 H2 He.
-    destruct e1 as [k i|u b r|a k i r], e2 as [k' i'|u' b' r'|a' k' i' r']; cbn [GForm.em feq] in He;
+    destruct e1 as [v|u b r|a z r], e2 as [v'|u' b' r'|a' z' r']; cbn [GForm.em feq] in He;
       try contradiction.
-    + injection He as Hl ->; f_equal; apply lab_inj; assumption.
+    + f_equal; exact He.
     + destruct He as [<- [<- He]]; f_equal.
       apply (IHr (match b with None => true | Some _ => false end) r r'); [cbn in Hsz; lia|exact H1|exact H2|].
       intros y Hy; apply He; intros Hb; subst b; destruct Hy as [Hy|Hy]; [discriminate|exact Hy].
-    + destruct He as [<- [Hz He]]; injection Hz as Hl ->; destruct H1 as [Hk1 H1], H2 as [Hk2 H2].
-      apply lab_inj in Hl; [subst k'|assumption|assumption]; f_equal.
+    + destruct He as [<- [<- He]]; f_equal.
       apply (IHr false r r'); [cbn in Hsz; lia|exact H1|exact H2|intros y _; apply He].
   - (* lists *)
     intros k L1 L2 Hsz Hk H1 H2 Hm.
