@@ -384,3 +384,165 @@ Lemma shape_endR : shapeR endR.
 Proof. apply all_lsts_len. Qed.
 
 End Raw.
+
+(** ** The raw evaluator *)
+
+Section Eval.
+
+Variable lenv : list label.
+Variable labs : list (option label).
+Hypothesis Hnd : NoDup labs.
+
+Local Notation lden := (lden lenv).
+Local Notation lab := (GForm.lab labs).
+Local Notation rm := (GForm.rm labs).
+Local Notation em := (GForm.em labs).
+
+Definition posh (h : lexp) : nat := posv labs (mk_rvar (lden h) 0).
+
+Fixpoint ev (a : aexp) (K : gref) : gref :=
+  match a with
+  | AId => K
+  | AAtom n => atomR labs n K
+  | ACompose a b => ev b (ev a K)
+  | AOuter h a => ev a (preshift labs (posh h) K)
+  | AInner h t a => push labs (posh h) (evt t K) (ev a K)
+  | ALift h a => push labs (posh h) (apply_ref labs K (mk_rvar (lden h) 0)) (ev a (preshift labs (posh h) K))
+  end
+with evt (t : texp) (K : gref) : ent :=
+  match t with
+  | TVarE h i => apply_ref labs K (mk_rvar (lden h) i)
+  | TBindE u p => ET u (fpb p) (evp p K)
+  | TShiftE h t => match tvof lenv t with Some w => apply_ref labs K (sh0 lenv h w) | None => evt t K end
+  end
+with evp (p : pexp) (K : gref) : gref :=
+  match p with
+  | PId | PAtom _ => K
+  | PComp a p => evp p (ev a K)
+  | PShift h p => evp p (preshift labs (posh h) K)
+  end.
+
+(** Expressions whose labels are all in [labs]. *)
+Definition hl (h : lexp) : Prop := In (lden h) labs.
+
+Fixpoint wfa (a : aexp) : Prop :=
+  match a with
+  | AId | AAtom _ => True
+  | ACompose a b => wfa a /\ wfa b
+  | AOuter h a | ALift h a => hl h /\ wfa a
+  | AInner h t a => hl h /\ wft t /\ wfa a
+  end
+with wft (t : texp) : Prop :=
+  match t with
+  | TVarE h _ => hl h
+  | TBindE _ p => wfp p
+  | TShiftE h t => hl h /\ wft t
+  end
+with wfp (p : pexp) : Prop :=
+  match p with
+  | PId | PAtom _ => True
+  | PComp a p => wfa a /\ wfp p
+  | PShift h p => hl h /\ wfp p
+  end.
+
+Lemma posh_lab h : hl h -> posh h < length labs /\ lab (posh h) = lden h.
+Proof.
+  intros Hh; destruct (lab_pos labs (mk_rvar (lden h) 0) Hh) as (k & Hk & Hl & Hp).
+  unfold posh; rewrite Hp; auto.
+Qed.
+
+Lemma tvof_label t w : wft t -> tvof lenv t = Some w -> In (v_label w) labs.
+Proof.
+  revert w; induction t as [h i|u p|h t IH]; intros w Hw E; cbn in E.
+  - injection E as <-; exact Hw.
+  - discriminate.
+  - destruct (tvof lenv t) as [w'|] eqn:E'; [|discriminate]; injection E as <-.
+    destruct Hw as [_ Hw]; unfold sh0, shift_rvar; destruct (_ && _); cbn; apply (IH w' Hw eq_refl).
+Qed.
+
+(** The free meaning respects agreement of continuations. *)
+Lemma fa_feq_all :
+  (forall a K1 K2, (forall v, feq (K1 v) (K2 v)) -> forall v, feq (fa lenv a K1 v) (fa lenv a K2 v))
+  /\ (forall t K1 K2, (forall v, feq (K1 v) (K2 v)) -> feq (ft lenv t K1) (ft lenv t K2))
+  /\ (forall p K1 K2, (forall v, feq (K1 v) (K2 v)) -> forall v, feq (fp lenv p K1 v) (fp lenv p K2 v)).
+Proof.
+  apply exp_mind; intros; cbn [fa ft fp];
+    repeat match goal with |- context [rvar_eqb ?x ?y] => destruct (rvar_eqb x y) end;
+    repeat match goal with |- context [tvof lenv ?t] => destruct (tvof lenv t) end;
+    try solve [auto | cbn [feq]; repeat split; intros; auto].
+  all: try (apply H; intros; apply H0; auto).
+  all: try (apply H0; intros; apply H; auto).
+  all: idtac.
+Qed.
+
+Lemma ev_shape_all :
+  (forall a K, shapeR labs K -> shapeR labs (ev a K))
+  /\ (forall (t : texp) (K : gref), True)
+  /\ (forall p K, shapeR labs K -> shapeR labs (evp p K)).
+Proof.
+  apply exp_mind; intros; cbn [ev evp]; auto using shape_atomR, shape_push, shape_preshift.
+Qed.
+
+Lemma ev_shape a K : shapeR labs K -> shapeR labs (ev a K).
+Proof. apply (proj1 ev_shape_all). Qed.
+
+Lemma evp_shape p K : shapeR labs K -> shapeR labs (evp p K).
+Proof. apply (proj2 (proj2 ev_shape_all)). Qed.
+
+Lemma sh0_label h w : v_label (sh0 lenv h w) = v_label w.
+Proof. unfold sh0, shift_rvar; destruct (_ && _); reflexivity. Qed.
+
+Theorem ev_sound_all :
+  (forall a K, wfa a -> shapeR labs K -> forall v, feq (rm (ev a K) v) (fa lenv a (rm K) v))
+  /\ (forall t K, wft t -> shapeR labs K -> feq (em (evt t K)) (ft lenv t (rm K)))
+  /\ (forall p K, wfp p -> shapeR labs K -> forall v, feq (rm (evp p K) v) (fp lenv p (rm K) v)).
+Proof.
+  destruct fa_feq_all as (Ha & Ht & Hp).
+  apply exp_mind; intros; cbn [ev evt evp fa ft fp wfa wft wfp] in *.
+  - apply feq_refl.
+  - apply (atomR_rm labs Hnd).
+  - (* composition *)
+    destruct H1 as [Hwa Hwb]; eapply feq_trans; [apply H0; [exact Hwb|apply ev_shape, H2]|].
+    apply Ha; intros y; apply H; assumption.
+  - (* outer *)
+    destruct H0 as [Hh Hw]; destruct (posh_lab h Hh) as [Hk Hl].
+    eapply feq_trans; [apply H; [exact Hw|apply shape_preshift, H1]|].
+    apply Ha; intros y; unfold sh0; rewrite <- Hl; apply (preshift_rm labs Hnd), Hk; exact H1.
+  - (* inner *)
+    destruct H1 as (Hh & Hwt & Hw); destruct (posh_lab h Hh) as [Hk Hl].
+    eapply feq_trans; [apply (push_rm labs Hnd); [apply ev_shape, H2|exact Hk]|].
+    rewrite Hl; destruct (rvar_eqb v _); [apply H; assumption|apply H0; assumption].
+  - (* lift *)
+    destruct H0 as [Hh Hw]; destruct (posh_lab h Hh) as [Hk Hl].
+    eapply feq_trans; [apply (push_rm labs Hnd); [apply ev_shape, shape_preshift, H1|exact Hk]|].
+    rewrite Hl; destruct (rvar_eqb_spec v (mk_rvar (lden h) 0)) as [->|_].
+    + apply (apply_ref_rm labs Hnd); [exact H1|exact Hh].
+    + eapply feq_trans; [apply H; [exact Hw|apply shape_preshift, H1]|].
+      apply Ha; intros y; unfold sh0; rewrite <- Hl; apply (preshift_rm labs Hnd), Hk; exact H1.
+  - (* variable *)
+    apply (apply_ref_rm labs Hnd); [exact H0|exact H].
+  - (* term *)
+    cbn [GForm.em feq]; repeat split; intros y _; apply H; assumption.
+  - (* shifted *)
+    destruct H0 as [Hh Hwt]; destruct (tvof lenv t) as [w|] eqn:E.
+    + apply (apply_ref_rm labs Hnd); [exact H1|rewrite sh0_label; apply (tvof_label t w Hwt E)].
+    + apply H; assumption.
+  - apply feq_refl.
+  - apply feq_refl.
+  - (* payload composition *)
+    destruct H1 as [Hwa Hwp]; eapply feq_trans; [apply H0; [exact Hwp|apply ev_shape, H2]|].
+    apply Hp; intros y; apply H; assumption.
+  - (* payload shift *)
+    destruct H0 as [Hh Hw]; destruct (posh_lab h Hh) as [Hk Hl].
+    eapply feq_trans; [apply H; [exact Hw|apply shape_preshift, H1]|].
+    apply Hp; intros y; unfold sh0; rewrite <- Hl; apply (preshift_rm labs Hnd), Hk; exact H1.
+Qed.
+
+Theorem ev_sound a v : wfa a -> feq (rm (ev a (endR labs)) v) (fa lenv a FVar v).
+Proof.
+  intros Hw; eapply feq_trans; [apply (proj1 ev_sound_all); [exact Hw|apply shape_endR]|].
+  apply (proj1 fa_feq_all); intros y; apply (endR_rm labs Hnd).
+Qed.
+
+End Eval.
+
