@@ -171,3 +171,32 @@ variable that shows `t` through a step that the other sequence has
 after the entry. That is the next thing to prove. After it come
 repeated targets (variables and terms can repeat) and absorption at
 the identity.
+
+### Tools found while working on the open case
+
+Each of these is easy to prove from the definitions. None yet closes
+the entry case.
+
+- **Isolation.** Making a label disjoint from every other label is
+  always allowed. In such a model the steps on that label act only on
+  its own variables, so equality in every model passes to every
+  projection onto a set of labels. A smallest counterexample to the
+  lemma therefore agrees on every proper projection, after reduction.
+  Example 2 of `docs/labels.md` shows this happens: the difference
+  appears only when all three labels overlap at once.
+- **An entry shows somewhere.** An entry that can be last shows in
+  some model. Steer backwards from its `h₀`. Reducedness forces the
+  nearest steps on labels not ordered against `h` to be entries on
+  `h`, or steps on another label where the variable can transfer.
+- **Deep variables.** A variable at a large index of every sequence it
+  belongs to never reaches index 0. On it, a weakening is `+1` and an
+  entry is `−1` along the label. With transfers chosen as it moves,
+  such variables follow any path through the steps of labels that are
+  not ordered against each other. They see the image of a sequence in
+  the right-angled Artin group of the independence graph, but nothing
+  at index 0: entries, and the difference between `⟦ h := t | ⟦ \ h ⟧ ⨾ – ⟧`
+  and the identity.
+- **Stripping a weakening from the left** loses exactly what the rest
+  does at `h₀`. Moving `h₀` elsewhere in a modified model changes how
+  every other step on `h` acts, so the loss cannot be undone by a
+  simple change of model.
