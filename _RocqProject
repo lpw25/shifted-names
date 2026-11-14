@@ -28,6 +28,7 @@ theories/Core/LayeredUnique.v
 theories/Core/BUnique.v
 theories/Core/GForm.v
 theories/Core/GEval.v
+theories/Core/GCanon.v
 theories/Core/Order.v
 theories/Core/LayeredOrder.v
 theories/Core/Canon.v
