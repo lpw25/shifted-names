@@ -739,4 +739,107 @@ Qed.
 
 
 
+(** ** Canonicalisation is canonical and keeps the meaning *)
+
+(** Every node of a raw encoding has a list for each label. *)
+Fixpoint dsE (e : ent) : Prop := match e with EV _ => True | ET _ _ r | ES _ _ r => dsR r end
+with dsL (L : lst) : Prop :=
+  match L with LNilV | LNilP => True | LNilS _ r _ => dsR r | LCons e _ t => dsE e /\ dsL t end
+with dsR (r : gref) : Prop := match r with GR _ n => dsN n end
+with dsN (n : gnode) : Prop := match n with GN d ls => dsD d /\ dsLs ls /\ lsts_len ls = length labs end
+with dsLs (ls : lsts) : Prop := match ls with LsNil => True | LsCons _ L r => dsL L /\ dsLs r end
+with dsD (d : gdef) : Prop := match d with DV => True | DS _ r => dsR r end.
+
+Theorem canon_all :
+  (forall e, dsE e -> cent labs (canE e) /\ feq (em e) (em (canE e)))
+  /\ (forall L, forall q, q < length labs -> dsL L ->
+        let '(m, L') := canL q L in
+        clst labs q L' /\ factored labs all_nat (lm q L') /\ nilsz L' /\ forall j, feq (lm q L j) (fpost m (lm q L' j)))
+  /\ (forall r, forall p, dsR r -> cref labs p (canR p r) /\ forall v, Dom p v -> feq (rm r v) (rm (canR p r) v))
+  /\ (forall n, forall p, dsN n ->
+        let '(m, n') := canN p n in
+        cnode labs p n' /\ factored labs (Dom p) (nm n') /\ forall v, Dom p v -> feq (nm n v) (fpost m (nm n' v)))
+  /\ (forall ls, forall p q, dsLs ls -> q + lsts_len ls = length labs ->
+        let ls' := canLs p q ls in
+        lsts_len ls' = lsts_len ls
+        /\ (forall j, j < lsts_len ls ->
+              if phslot p (q + j) then lnth j ls' = LNilP /\ snth j ls' = zeros
+              else clst labs (q + j) (lnth j ls') /\ factored labs all_nat (lm (q + j) (lnth j ls'))
+                   /\ forall i, feq (fpost (snth j ls) (lm (q + j) (lnth j ls) i)) (fpost (snth j ls') (lm (q + j) (lnth j ls') i))))
+  /\ (forall d, dsD d -> cdef labs (canD d) /\ forall v, feq (dm d v) (dm (canD d) v)).
+Proof.
+  apply g_ind; intros; cbn [dsE dsL dsR dsN dsLs dsD canE canL canR canN canLs canD] in *.
+  - (* EV *) split; [exact I|apply feq_refl].
+  - (* ET *)
+    destruct (H (bflag b) H0) as [Hc Hm]; split; [exact Hc|].
+    cbn [GForm.em feq]; repeat split; intros y Hy; apply Hm; destruct b; [left; reflexivity|right; exact (Hy eq_refl)].
+  - (* ES *)
+    destruct (H false H0) as [Hc Hm]; split; [exact Hc|].
+    cbn [GForm.em feq]; repeat split; intros y; apply Hm; left; reflexivity.
+  - (* LNilV *)
+    refine (conj I (conj (nilv_factored labs Hnd q H) (conj I _))); intros j; apply feq_sym, (fpost_zeros labs).
+  - (* LNilP *)
+    refine (conj I (conj (nilv_factored labs Hnd q H) (conj I _))); intros j; apply feq_sym, (fpost_zeros labs).
+  - (* LNilS *)
+    destruct (H false H1) as [Hc Hm]; destruct (canR false r) as [sr nr]; destruct Hc as (Hcn & Hfn & Hrn).
+    refine (conj _ (conj (nils_factored labs q a nr m Hfn) (conj eq_refl _))).
+    + cbn [clst cref]; split; [exact Hcn|split; [exact Hfn|]]; split; [unfold GForm.zeros; apply repeat_length|].
+      intros k _ Hp; rewrite sget_zeros in Hp; lia.
+    + intros j; cbn [GForm.lm GForm.fpost feq]; split; [reflexivity|split; [reflexivity|intros y]].
+      eapply feq_trans; [apply Hm; left; reflexivity|]; cbn [GForm.rm].
+      apply (feq_fpost labs), feq_sym, (fpost_zeros labs).
+  - (* LCons *)
+    destruct H2 as [He Ht]; destruct (H He) as [Hce Hme].
+    specialize (H0 q H1 Ht); destruct (canL q t) as [mt t'] eqn:Et; destruct H0 as (Hct & Hft & Hzt & Hmt).
+    pose proof (cell_spec q (canE e) (sadd mt s) t' H1 Hce Hct Hft Hzt) as Hcell.
+    destruct (cell q (canE e) (sadd mt s) t') as [m L']; destruct Hcell as (Hc & Hf & Hz & Hm).
+    refine (conj Hc (conj Hf (conj Hz _))); intros j; eapply feq_trans; [|apply Hm].
+    destruct j as [|j]; cbn [GForm.lm]; [exact Hme|].
+    eapply feq_trans; [apply (feq_fpost labs), Hmt|apply feq_sym, (fpost_sadd labs)].
+  - (* GR *)
+    specialize (H p H0); destruct (canN p n) as [m n'] eqn:En; destruct H as (Hc & Hf & Hm).
+    split.
+    + cbn [cref]; split; [exact Hc|split; [exact Hf|]]; split; [apply vec_len|].
+      intros k Hk Hp; rewrite sget_srestr in Hp by exact Hk; destruct (hasN n' k) eqn:E; [|lia].
+      apply (hasN_spec p n' k Hc Hk) in E; exact E.
+    + intros v Hv; cbn [GForm.rm]; eapply feq_trans; [apply (feq_fpost labs), Hm, Hv|].
+      eapply feq_trans; [apply feq_sym, (fpost_sadd labs)|].
+      apply (fpost_agree_has (Dom p) (nm n')); [exact Hv|]; intros k Hk Hh.
+      apply (hasN_spec p n' k Hc Hk) in Hh; rewrite sget_srestr, Hh by exact Hk; reflexivity.
+  - (* GN *)
+    destruct H1 as (Hdd & Hdl & Hlen).
+    destruct (H Hdd) as [Hcd Hmd]; pose proof (H0 p 0 Hdl Hlen) as H0'; cbv zeta in H0'; destruct H0' as (Hl' & Hpc).
+    pose proof (node_spec p (canD d) (canLs p 0 ls) Hcd ltac:(lia) ltac:(intros j Hj; specialize (Hpc j ltac:(lia)); cbn [Nat.add] in Hpc;
+                revert Hpc; destruct (phslot p j); [intros X; exact X|intros (? & ? & _); split; assumption])) as (Hc & Hf & Hm).
+    refine (conj Hc (conj Hf _)); intros v Hv; eapply feq_trans; [|apply Hm, Hv].
+    destruct (in_dec label_eq_dec (v_label v) labs) as [Hin|Hout].
+    + destruct (lab_pos labs v Hin) as (q & Hq & Hlq & _); destruct v as [l i]; cbn in Hlq; subst l.
+      rewrite !(nm_lab labs Hnd) by lia; rewrite !lsts_get_nth by lia; cbn [fst snd].
+      specialize (Hpc q ltac:(lia)); cbn [Nat.add] in Hpc; destruct (phslot p q) eqn:Eph.
+      * exfalso; unfold phslot in Eph; destruct p; [|discriminate]; destruct Hv as [Hv|Hv]; [discriminate|].
+        cbn [v_label] in Hv; destruct (lab q); [discriminate|contradiction].
+      * destruct Hpc as (_ & _ & Hpm); apply Hpm.
+    + rewrite !(nm_out labs) by (lia || exact Hout); apply Hmd.
+  - (* LsNil *)
+    split; [reflexivity|intros j Hj; cbn in Hj; lia].
+  - (* LsCons *)
+    unfold ls'; cbn [canLs]; destruct H1 as [HdL Hdr]; cbn [lsts_len] in H2.
+    pose proof (H0 p (S q) Hdr ltac:(lia)) as H0'; cbv zeta in H0'; destruct H0' as (Hl' & Hpc).
+    destruct (phslot p q) eqn:Eph.
+    + cbn [lsts_len]; split; [rewrite Hl'; reflexivity|].
+      intros [|j] Hj; cbn [lnth snth]; [rewrite Nat.add_0_r, Eph; split; reflexivity|].
+      replace (q + S j) with (S q + j) by lia; apply Hpc; cbn in Hj; lia.
+    + specialize (H q ltac:(lia) HdL); destruct (canL q L) as [m L'] eqn:EL; destruct H as (Hc & Hf & _ & Hm).
+      cbn [lsts_len]; split; [rewrite Hl'; reflexivity|].
+      intros [|j] Hj; cbn [lnth snth].
+      * rewrite Nat.add_0_r, Eph; refine (conj Hc (conj Hf _)); intros i.
+        eapply feq_trans; [apply (feq_fpost labs), Hm|apply feq_sym, (fpost_sadd labs)].
+      * replace (q + S j) with (S q + j) by lia; apply Hpc; cbn in Hj; lia.
+  - (* DV *)
+    split; [exact I|intros v; apply feq_refl].
+  - (* DS *)
+    destruct (H false H0) as [Hc Hm]; split; [exact Hc|].
+    intros v; cbn [GForm.dm feq]; repeat split; intros y; apply Hm; left; reflexivity.
+Qed.
+
 End Canonise.
