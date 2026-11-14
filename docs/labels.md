@@ -2,212 +2,142 @@
 
 Working notes towards a canonical form that meets
 `docs/normaliser-spec.md` when label atoms may denote the same label.
+Everything is written with the library's context forms. Earlier
+versions of these notes used an ad hoc notation; it is gone.
 
-**Superseded criterion.** These notes quantify over standard
-interpretations. The spec now uses the wider class of models in which
-a label may start partway along another label's stream. Under those
-models, identities that need a case split on label equality (such as
-`c_x ⨾ c_y = c_y ⨾ c_x`) no longer hold and need not be identified.
-The identities below are re-checked against the models in "Which of
-these hold in the models of the spec".
+## The two building blocks
 
-## The setting
+The part of a normal form that acts on named variables is built from
+two kinds of step. Here `σ` is the rest of the adjustment: the
+identity, or something stuck at an adjustment atom.
 
-The bound label is always distinct from named labels, so only the
-named part of a node is affected. That part is a word over two kinds
-of letter, read left to right, followed by a uniform base (the
-identity, or stuck at an atom):
+- **Weakening first:** `⟦ \ x ⟧ ⨾ σ` sends `xᵢ` to what `σ` gives for
+  `xᵢ₊₁`, and every other variable to what `σ` gives for it.
+- **Substitution in front:** `⟦ x := u | σ ⟧` sends `x₀` to `u`, `xᵢ₊₁`
+  to what `σ` gives for `xᵢ`, and every other variable to what `σ`
+  gives for it. The term `u` is not passed through `σ`.
 
-- `P_h(e)`: push the entry `e` on label `h`;
-- `D_h`: drop an input of label `h`.
+Several substitutions in front are written as one form, innermost
+first: `⟦ x := u; y := v | σ ⟧ = ⟦ x := u | ⟦ y := v | σ ⟧ ⟧`.
 
-**Meaning.** Fix an interpretation `I`. Its classes are the sets of
-label expressions with the same value. For each class `c`, keep the
-letters whose label is in `c`. This *projection* is a one-label word.
-It acts on the stream of results for that class, applied right to
-left: `P(e)` is "cons `e`" and `D` is "tail". The base supplies
-`base_c(i)`. Two words are equal when every class of every consistent
-interpretation gets the same stream.
+For one label, every composite of these steps has the form
+`⟦ x := u₁; …; x := uₖ | ⟦ \ x ⟧ ⨾ … ⨾ ⟦ \ x ⟧ ⨾ σ ⟧`: substitutions
+in front, then weakenings. The only rule needed to reach that form is
+`⟦ \ x ⟧ ⨾ ⟦ x := u | σ ⟧ = σ`.
 
-**One-label words.** The normal form is `P(e₁)…P(e_k) D^m`:
+## Two identities that hold only by a case split
 
-- `D P(e) = ε`;
-- `P(e) D w = w` exactly when `e` is what `w` gives at index 0
-  (absorption, generalised).
+Below, `x`, `y`, `k`, `m` are label atoms and `u`, `v`, `c` are term
+atoms.
 
-## Identities that hold in every interpretation
+**Example 1.**
 
-Here `x` and `y` are label atoms with no facts relating them.
+```
+L = ⟦ \ x ⟧ ⨾ ⟦ \ y ⟧ ⨾ ⟦ x := u; y := v ⟧
+R = ⟦ \ y ⟧ ⨾ ⟦ \ x ⟧ ⨾ ⟦ y := v; x := u ⟧
+```
 
-1. **Known-distinct labels commute.** Operations on labels that are
-   known distinct (facts, concrete labels) commute.
-2. **Drops commute.** `D_h D_g = D_g D_h`.
-3. **Cancellation.** `D_h u P_h(e) = u` when no letter of `u` has a
-   label that may equal `h`.
-4. **Pushes with equal entries commute.** `P_x(e) P_y(e') = P_y(e') P_x(e)`
-   when `e` and `e'` are equal in every interpretation with `x = y`.
-   For example `P_x(x₀) P_y(y₀) = P_y(y₀) P_x(x₀)`.
-5. **A push and a drop can commute, depending on the rest.**
-   `P_y(e) D_x w = D_x P_y(e) w` when `e` equals what `w` gives at
-   index 0 of the merged class in every interpretation with `x = y`.
-   For example `P_y(u) D_x P_y(u) = D_x P_y(u) P_y(u)`.
-6. **Absorption.** `P_h(e) u D_h w = u w` when no letter of `u` may
-   share `h`'s label and `e` equals what `u w` gives at `h₀` in every
-   interpretation.
+- **Standard interpretations.** Both are `⟦⟧`. If `x ≠ y`, each
+  weakening is undone by its substitution. If `x = y`, the two
+  weakenings are undone by the two substitutions.
+- **The offset model.** In the model currently in the spec, `y` may
+  start at `x₁` (`yᵢ = xᵢ₊₁`). Then `L` and `R` both send `x₀` to `v`
+  and leave every other variable alone. In every placement of `x` and
+  `y`, `L = R`, but for different reasons in each case: `y` below `x`,
+  equal, or above.
 
-### Which of these hold in the models of the spec
+**Example 2.** With a fact `x < m`, and `k` related to neither:
 
-In a model, a letter on `h` acts on `h`'s window. Write `a`, `b` for
-the offsets of `x` and `y` on a shared stream, and `F` for what the
-rest of the word gives, as a function of the stream position:
+```
+W(u) = ⟦ \ x ⟧ ⨾ ⟦ \ k ⟧ ⨾ ⟦ m := c; k := v; x := u ⟧
+```
 
-- `P_h(e) F` sends `off h` to `e`, `p > off h` to `F(p−1)`, and
-  `p < off h` to `F(p)`;
-- `D_h F` sends `p ≥ off h` to `F(p+1)`, and `p < off h` to `F(p)`.
+`W(u)` does not depend on `u`, in every standard interpretation and in
+every offset model:
 
-Taking `a = 0`, `b = 1` (or the reverse) and the identity base
-`F(p) = p` gives:
+- **`k` shares `x`'s variables.** Then it cannot share `m`'s, so
+  `⟦ \ k ⟧` is undone by `k := v`, and then `⟦ \ x ⟧` by `x := u`.
+- **Otherwise.** `x`'s variables see only `⟦ \ x ⟧` undone by
+  `x := u`.
 
-| Identity | In every model? | Counterexample |
-|---|---|---|
-| 1. known-distinct labels commute | yes: they never share a stream | |
-| 2. drops commute | only for known-distinct labels | `a = 0`, `b = 1`: `D_x D_y` gives `[2, 3, 4, …]`, `D_y D_x` gives `[1, 3, 4, …]` |
-| 3. cancellation | yes: one window, and `u` acts on other streams | |
-| 4. pushes with equal entries commute | only for known-distinct labels | `a = 0`, `b = 1`: `P_x(e) P_y(e')` gives `[e, 0, e', …]`, `P_y(e') P_x(e)` gives `[e, e', 0, …]`; they agree only if `e' = 0`, and `e' = y₀` is position 1 |
-| 5. push and drop commute in context | no | `b = 0`, `a = 1`: `P_y(u) D_x P_y(u)` gives `[u, u, 1, 2, …]`, `D_x P_y(u) P_y(u)` gives `[u, 0, 1, 2, …]` (it holds when `a ≤ b`) |
-| 6. absorption | yes: one window, and `u` acts on other streams | |
+The argument uses "`k` shares variables with `x` and with `m`, so `x`
+and `m` share variables", which the fact rules out.
 
-So between labels that may overlap, the identities left are the
-single-window ones (cancellation and absorption) and commutation of
-letters on known-distinct labels. The coincidence identities that made
-the core lemma hard (4 and 5) are gone, and so is 2.
-
-**The conjecture fails in the offset models.** The natural conjecture
-was: two words with no cancellation or absorption left are equal in
-every model exactly when they are equal as traces, with dependence
-"the labels are not known distinct". Two counterexamples refute it.
-Each is an identity that holds in every offset model only by a case
-split on how the labels are placed.
-
-1. **Two labels.** `D_x D_y P_x(e) P_y(f) = D_y D_x P_y(f) P_x(e)`
-   in every offset model:
-   - `a < b`: both put `f` at position `b−1` and are the identity
-     elsewhere;
-   - `a = b`: both are the identity;
-   - `a > b`: both put `e` at position `a−1`.
-
-   Both words are reduced, and no commutation relates them.
-2. **Transitivity.** With a fact `x < m` and `k` unrelated to both,
-   `w(e) = D_x D_k P_m(c) P_k(f) P_x(e)` does not depend on `e`:
-   - `k` on `x`'s stream: `m` is elsewhere, so `D_k P_k(f)` cancels,
-     then `D_x P_x(e)`;
-   - `k` on `m`'s stream, or on its own: `x`'s stream sees only
-     `D_x P_x(e)`.
-
-   It relies on "`k` shares a stream with `x` and with `m`" forcing
-   `x` and `m` onto one stream.
-
-### A wider class: interleaved labels
+## A wider class of models: labels as sequences of variables
 
 **Model.** A model chooses:
 
-- a set of positions;
-- for each label, an injective enumeration `ι_h : nat → positions`;
+- a set of variables;
+- for each label `h`, an infinite sequence of distinct variables, which
+  is what `h₀, h₁, …` mean;
 - a strict partial order on labels.
 
 **Restrictions.**
 
-- Facts hold in the order, and concrete labels are ordered as strings.
-- Labels that are ordered have disjoint enumerations.
-- Nothing else is assumed. Unordered labels may share any positions,
-  in any order.
+- The facts hold in the order, and concrete labels are ordered as
+  strings.
+- Labels that are ordered have disjoint sequences.
+- Nothing else is assumed. Labels that are not ordered may share any
+  variables, in any arrangement.
 
-**Operations.** An operation on `h` acts on the positions `ι_h(0),
-ι_h(1), …` as the standard operation acts on `h₀, h₁, …`, and leaves
-every other position alone. The offset models are the special case
-where each `ι_h` is a tail of a stream.
+**Operations.** Each operation reads `h₀, h₁, …` as `h`'s sequence and
+leaves variables outside it alone.
 
-**Checks.**
+- **Standard interpretations** give each label its own sequence, and
+  equal labels the same one.
+- **Offset models** are the case where `y`'s sequence is a tail of
+  `x`'s.
 
-- **Laws kept.** Single-label laws and commutation of ordered labels
-  still hold, for the same reasons as before. Transitivity of facts
-  still gives disjointness, because the order is transitive.
-- **Example 1.** With `ι_x = (A, B, C₃, C₄, …)` and
-  `ι_y = (B, A, C₃, C₄, …)`, the left side sends `A ↦ e` and
-  `B ↦ F(A)`, and the right side sends `A ↦ F(B)` and `B ↦ f`. They
-  differ.
-- **Example 2.** With `ι_k = (X₀, M₀, X₁, M₁, …)` interleaving `x`'s
-  and `m`'s positions, `w(e)` sends `X₀ ↦ e`. So `e` is visible.
+**Laws kept.**
 
-**Algebraic reading.** For each label `h`, let `M_h` be the monoid
-generated by `P_h(e)` and `D_h` with `D_h P_h(e) = 1`. The
-*graph product* of the `M_h`, over the graph "known distinct", is
-their free product with ordered labels commuting.
+- Every law about a single label holds, because each label's
+  operations act on its own sequence exactly as in a standard
+  interpretation.
+- Operations on ordered labels commute, because their sequences are
+  disjoint.
+- Facts are transitive, because the order is.
 
-- **Conjecture:** with an atom as base, equality in every interleaved
-  model is exactly equality in this graph product. With the identity
-  as base, absorption is added.
-- **Normal forms.** Graph products have a normal form theorem: reduced
-  syllable sequences are unique up to commuting independent syllables
-  (Green, *Graph products of groups*, 1990; Veloso da Costa, *Graph
-  products of monoids*, Semigroup Forum 2001). Their lexicographic
-  normal forms would be the canonical form.
-- **What remains to prove** is that the interleaved models are
-  faithful: two different elements of the graph product differ in
-  some model. Projections onto pairs of labels do not suffice
-  (example 2 has the same pair projections for every `e`). The
-  distinguishing model has to overlap several labels at once.
+**Example 1 fails.** Take `x = (A, B, C₂, C₃, …)` and
+`y = (B, A, C₂, C₃, …)`, so `x₀ = y₁ = A` and `x₁ = y₀ = B`.
 
-### Notes for standard interpretations
+- **`L` sends `A` to `u`.**
+  - `⟦ \ x ⟧` takes `A = x₀` to `x₁ = B`.
+  - `⟦ \ y ⟧` takes `B = y₀` to `y₁ = A`.
+  - `x := u` takes `A = x₀` to `u`.
+- **`R` sends `A` to `B`.**
+  - `⟦ \ y ⟧` takes `A = y₁` to `y₂ = C₂`.
+  - `⟦ \ x ⟧` takes `C₂` to `C₃`.
+  - `y := v` passes `C₃ = y₃` on as `y₂ = C₂`.
+  - `x := u` passes `C₂ = x₂` on as `x₁ = B`.
 
-Some things never commute: a drop and a push on labels that may be
-equal (`D_x P_y(v) P_x(u)` means `⟦y := v⟧` when `x ≠ y` and
-`⟦z := u⟧` when `x = y = z`), and pushes whose entries differ when the
-labels coincide.
+**Example 2 fails.** Let `k` alternate between `x`'s and `m`'s
+variables: `k = (x₀, m₀, x₁, m₁, …)`. Then `W(u)` sends `x₀` to `u`:
 
-## The proposed canonical form and its core lemma
+- `⟦ \ x ⟧` takes `x₀` to `x₁`;
+- `⟦ \ k ⟧` takes `x₁ = k₂` to `k₃ = m₁`;
+- `m := c` passes `m₁` on as `m₀`;
+- `k := v` passes `m₀ = k₁` on as `k₀ = x₀`;
+- `x := u` sends `x₀` to `u`.
 
-- **Canonical form.** The shortest equivalent word, and among those
-  the least in a fixed order. Labels are ordered by the facts, then
-  the context order; pushes come before drops.
-- **Computing it.** Apply 3 and 6 to reach a shortest word. Then sort
-  by adjacent swaps that are valid in context (1, 2, 4, 5). Each swap
-  is decided locally, with entries compared under the identification
-  of the two labels: a recursive call with one label atom fewer.
-- **Core lemma.** Two equivalent shortest words are connected by
-  adjacent swaps, each of which keeps the meaning. Without it, the
-  sort can stop at different words for equal meanings.
+## Algebraic reading
 
-## Where the proof stands
+For each label `x`, the steps `⟦ \ x ⟧ ⨾ –` and `⟦ x := u | – ⟧`
+generate a monoid with the one relation
+`⟦ \ x ⟧ ⨾ ⟦ x := u | σ ⟧ = σ`. Take their *graph product* over the
+graph "ordered": the free product, plus commutation of steps on
+ordered labels.
 
-**Generic case: plausible, not proved.** Assume no coincidences
-between values: entries never equal each other or base values in any
-interpretation. Then only identities 1–3 remain, and the claim
-becomes:
-
-> Two equivalent words with no cancellation (3) are equivalent as
-> traces, under the dependence "the labels may be equal".
-
-Lexicographic normal forms of traces then give canonicity.
-
-- **Approach.** The projection lemma for traces reduces this to pairs
-  of labels that may be equal. For each such pair, the interpretation
-  that identifies just that pair and the all-distinct interpretation
-  together should determine the order of that pair's letters.
-- **Difficulty.** In one interpretation a push can be invisible
-  because a drop cancels it, while it is visible in the other. For
-  example, in `D_x P_y(b) P_x(e)` the entry `e` shows only when
-  `x = y`. Recovering the order needs a case analysis that is not yet
-  written.
-
-**Coincidences: open.** Identities 4–6 depend on values being equal,
-and 5 and 6 depend on the rest of the word. With them, equivalence is
-no longer trace equivalence.
-
-- **What is missing.** I have no proof yet that equivalent shortest
-  words are connected by valid adjacent swaps once coincidences
-  occur, and no counterexample.
-- **Fallback.** If the lemma fails, the canonical form has to be
-  defined differently, for example by choosing the first letter from
-  the meaning. That runs into a different problem: when the first
-  letter is a drop, the rest is not determined by the meaning.
+- **Conjecture.** With an adjustment atom at the end, two composites
+  of steps are equal in every model of the wider class exactly when
+  they are equal in the graph product. With the identity at the end,
+  absorption is added: `⟦ x := u | ⟦ \ x ⟧ ⨾ τ ⟧ = τ` when `τ` sends
+  `x₀` to `u` in every model.
+- **Consequence.** Graph products have a normal form theorem: reduced
+  sequences of syllables are unique up to swapping adjacent syllables
+  on ordered labels (Green, *Graph products of groups*, 1990; Veloso
+  da Costa, *Graph products of monoids*, Semigroup Forum 2001). Their
+  lexicographic normal forms would be the canonical form.
+- **What remains to prove.** Two different elements of the graph
+  product must differ in some model. Models that overlap only one
+  pair of labels at a time do not suffice: in example 2, every such
+  model ignores `u`.
