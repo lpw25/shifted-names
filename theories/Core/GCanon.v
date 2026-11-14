@@ -565,4 +565,178 @@ Proof.
     apply Hplain; cbn [clst]; refine (conj He'' (conj Ht (conj Hft (conj Hrt _)))); cbn [absorb]; intros [].
 Qed.
 
+(** ** The node case *)
+
+Lemma lsmin_spec ls : forall q k,
+  (forall x, lsmin q ls k = Some x ->
+     (forall j, j < lsts_len ls -> hasL (q + j) (lnth j ls) k = true -> x <= sget (snth j ls) k)
+     /\ exists j, j < lsts_len ls /\ hasL (q + j) (lnth j ls) k = true /\ sget (snth j ls) k = x)
+  /\ (lsmin q ls k = None -> forall j, j < lsts_len ls -> hasL (q + j) (lnth j ls) k = false).
+Proof.
+  induction ls as [|s L r IH]; intros q k; cbn [lsmin lsts_len].
+  - split; [discriminate|intros _ j Hj; lia].
+  - destruct (IH (S q) k) as [IHs IHn].
+    assert (Hshift : forall j, q + S j = S q + j) by (intros; lia).
+    destruct (hasL q L k) eqn:EL, (lsmin (S q) r k) as [b|] eqn:Eb; cbn [omin].
+    + split; [|discriminate]; intros x E; injection E as <-; destruct (IHs b eq_refl) as [Hb (j0 & Hj0 & Hh0 & Hv0)].
+      split.
+      * intros [|j] Hj Hh; cbn [lnth snth] in *; [lia|]; rewrite Hshift in Hh; specialize (Hb j ltac:(lia) Hh); lia.
+      * destruct (Nat.min_spec (sget s k) b) as [[_ ->]|[_ ->]].
+        -- exists 0; cbn; rewrite Nat.add_0_r; repeat split; [lia|exact EL].
+        -- exists (S j0); cbn [lnth snth]; rewrite Hshift; repeat split; [lia|exact Hh0|exact Hv0].
+    + split; [|discriminate]; intros x E; injection E as <-; split.
+      * intros [|j] Hj Hh; cbn [lnth snth] in *; [lia|]; rewrite Hshift in Hh; rewrite (IHn eq_refl j ltac:(lia)) in Hh; discriminate.
+      * exists 0; cbn; rewrite Nat.add_0_r; repeat split; [lia|exact EL].
+    + split; [|discriminate]; intros x E; injection E as <-; destruct (IHs b eq_refl) as [Hb (j0 & Hj0 & Hh0 & Hv0)]; split.
+      * intros [|j] Hj Hh; cbn [lnth snth] in *; [rewrite Nat.add_0_r in Hh; congruence|]; rewrite Hshift in Hh; apply Hb; [lia|exact Hh].
+      * exists (S j0); cbn [lnth snth]; rewrite Hshift; repeat split; [lia|exact Hh0|exact Hv0].
+    + split; [discriminate|]; intros _ [|j] Hj; cbn [lnth]; [rewrite Nat.add_0_r; exact EL|]; rewrite Hshift; apply IHn; [reflexivity|lia].
+Qed.
+
+
+Lemma lsdown_len ls : forall q m, lsts_len (lsdown q ls m) = lsts_len ls.
+Proof. induction ls as [|s L r IH]; intros q m; cbn; auto. Qed.
+
+Lemma lsdown_lnth ls : forall q m j, lnth j (lsdown q ls m) = lnth j ls.
+Proof. induction ls as [|s L r IH]; intros q m [|j]; cbn; auto. Qed.
+
+Lemma lsdown_snth ls : forall q m j, j < lsts_len ls ->
+  snth j (lsdown q ls m) = srestr (hasL (q + j) (lnth j ls)) (ssub (snth j ls) m).
+Proof.
+  induction ls as [|s L r IH]; intros q m [|j] Hj; cbn in Hj |- *; try lia.
+  - rewrite Nat.add_0_r; reflexivity.
+  - rewrite IH by lia; replace (q + S j) with (S q + j) by lia; reflexivity.
+Qed.
+
+Lemma clsts_intro p ls : forall q, q + lsts_len ls = length labs ->
+  (forall j, j < lsts_len ls ->
+     if phslot p (q + j) then lnth j ls = LNilP /\ snth j ls = zeros
+     else clst labs (q + j) (lnth j ls) /\ factored labs all_nat (lm (q + j) (lnth j ls))
+          /\ restricted labs all_nat (lm (q + j) (lnth j ls)) (snth j ls)) ->
+  clsts labs p q ls.
+Proof.
+  induction ls as [|s L r IH]; intros q Hl H; cbn [clsts]; [exact I|]; cbn [lsts_len] in Hl.
+  split.
+  - specialize (H 0 ltac:(cbn; lia)); rewrite Nat.add_0_r in H; cbn [lnth snth] in H.
+    unfold phslot in H; destruct (p && _); exact H.
+  - apply IH; [lia|]; intros j Hj; specialize (H (S j) ltac:(cbn; lia)); cbn [lnth snth] in H.
+    replace (S q + j) with (q + S j) by lia; exact H.
+Qed.
+
+Lemma dmin_spec d k x : dmin d k = Some x -> exists a s n, d = DS a (GR s n) /\ hasN n k = true /\ x = sget s k.
+Proof.
+  destruct d as [|a [s n]]; cbn; [discriminate|].
+  destruct (hasN n k) eqn:E; [intros H; injection H as <-; eauto 6|discriminate].
+Qed.
+
+Definition precan (p : bool) (ls : lsts) : Prop :=
+  forall j, j < lsts_len ls ->
+    if phslot p j then lnth j ls = LNilP /\ snth j ls = zeros
+    else clst labs j (lnth j ls) /\ factored labs all_nat (lm j (lnth j ls)).
+
+Lemma srestr_false s : srestr (fun _ => false) s = zeros.
+Proof. unfold srestr; apply vec_zeros. Qed.
+
+Lemma node_spec p d' ls' : cdef labs d' -> lsts_len ls' = length labs -> precan p ls' ->
+  let m := vec (fun k => oget (omin (dmin d' k) (lsmin 0 ls' k))) in
+  cnode labs p (GN (ddown d' m) (lsdown 0 ls' m)) /\ factored labs (Dom p) (nm (GN (ddown d' m) (lsdown 0 ls' m)))
+  /\ forall v, Dom p v -> feq (nm (GN d' ls') v) (fpost m (nm (GN (ddown d' m) (lsdown 0 ls' m)) v)).
+Proof.
+  intros Hd Hl Hpc m.
+  (* the least shift is below every component, and attained by one *)
+  assert (Hmd : forall k y, k < length labs -> dmin d' k = Some y -> sget m k <= y).
+  { intros k y Hk E; unfold m; rewrite sget_vec by exact Hk; rewrite E.
+    destruct (lsmin 0 ls' k); cbn; lia. }
+  assert (Hml : forall k j, k < length labs -> j < length labs -> hasL j (lnth j ls') k = true -> sget m k <= sget (snth j ls') k).
+  { intros k j Hk Hj Hh; unfold m; rewrite sget_vec by exact Hk.
+    destruct (lsmin 0 ls' k) as [x|] eqn:E.
+    - destruct (proj1 (lsmin_spec ls' 0 k) x E) as [Hb _]; specialize (Hb j ltac:(lia) Hh).
+      destruct (dmin d' k); cbn [omin oget]; lia.
+    - pose proof (proj2 (lsmin_spec ls' 0 k) E j ltac:(lia)) as Hf; cbn [Nat.add] in Hf; congruence. }
+  assert (Hatt : forall k, k < length labs ->
+            (exists j, j < length labs /\ hasL j (lnth j ls') k = true /\ sget (snth j ls') k = sget m k)
+            \/ (exists a s n, d' = DS a (GR s n) /\ hasN n k = true /\ sget s k = sget m k)
+            \/ (dmin d' k = None /\ lsmin 0 ls' k = None)).
+  { intros k Hk; unfold m; rewrite sget_vec by exact Hk.
+    destruct (omin (dmin d' k) (lsmin 0 ls' k)) as [x|] eqn:E.
+    - apply omin_cases in E as [E|E]; cbn [oget].
+      + right; left; destruct (dmin_spec d' k x E) as (a & s & n & -> & Hh & ->); eauto 6.
+      + left; destruct (proj1 (lsmin_spec ls' 0 k) x E) as [_ (j & Hj & Hh & Hv)]; exists j; repeat split; auto; lia.
+    - right; right; destruct (dmin d' k), (lsmin 0 ls' k); cbn in E; try discriminate; auto. }
+  set (d'' := ddown d' m); set (ls'' := lsdown 0 ls' m).
+  assert (Hl'' : lsts_len ls'' = length labs) by (unfold ls''; rewrite lsdown_len; exact Hl).
+  assert (Hlnth : forall j, lnth j ls'' = lnth j ls') by (intros; apply lsdown_lnth).
+  assert (Hsnth : forall j, j < length labs -> snth j ls'' = srestr (hasL j (lnth j ls')) (ssub (snth j ls') m))
+    by (intros; unfold ls''; rewrite lsdown_snth by lia; reflexivity).
+  (* the default *)
+  assert (Hd'' : cdef labs d'' /\ forall v, ~ In (v_label v) labs -> feq (dm d' v) (fpost m (dm d'' v))).
+  { unfold d''; destruct d' as [|a [s n]]; cbn [ddown cdef GForm.dm] in *.
+    - split; [exact I|]; intros v Hv; cbn [GForm.fpost feq]; symmetry; apply (shv_out labs), Hv.
+    - assert (Hle : forall k, k < length labs -> hasN n k = true -> sget m k <= sget s k).
+      { intros k Hk Hh; apply Hmd; [exact Hk|]; cbn [dmin]; rewrite Hh; reflexivity. }
+      destruct (rdown_spec false s n m Hd Hle) as [Hc' Hm']; split; [exact Hc'|].
+      intros v _; cbn [GForm.fpost feq]; repeat split; intros y; apply Hm'; left; reflexivity. }
+  destruct Hd'' as [Hcd Hmd''].
+  (* the lists *)
+  assert (Hcl : clsts labs p 0 ls'').
+  { apply clsts_intro; [exact Hl''|]; intros j Hj; rewrite Hl'' in Hj; cbn [Nat.add]; specialize (Hpc j ltac:(lia)).
+    rewrite Hlnth, Hsnth by exact Hj; destruct (phslot p j).
+    - destruct Hpc as [-> _]; split; [reflexivity|]; cbn [GCanon.hasL]; apply srestr_false.
+    - destruct Hpc as [Hc Hf]; split; [exact Hc|split; [exact Hf|]]; split; [apply vec_len|].
+      intros k Hk Hp; rewrite sget_srestr in Hp by exact Hk; destruct (hasL j (lnth j ls') k) eqn:E; [|lia].
+      apply (hasL_spec j _ k Hj Hc Hk) in E; exact E. }
+  (* a component reaching label k gives the node an output at index 0 *)
+  assert (Hzero : forall k, k < length labs -> (dmin d' k <> None \/ lsmin 0 ls' k <> None) ->
+            Out (Dom p) (nm (GN d'' ls'')) (mk_rvar (lab k) 0)).
+  { intros k Hk Hsome; destruct (Hatt k Hk) as [(j & Hj & Hh & Hv)|[(a & s & n & Ed & Hh & Hv)|[E1 E2]]].
+    - pose proof (Hpc j ltac:(lia)) as Hpj; destruct (phslot p j) eqn:Eph.
+      + destruct Hpj as [EL _]; rewrite EL in Hh; discriminate.
+      + destruct Hpj as [Hc Hf]; pose proof Hh as Hh'.
+        apply (hasL_spec j _ k Hj Hc Hk) in Hh' as (i0 & Ho0); apply Hf in Ho0 as (i1 & _ & Ho1); [|exact Hk].
+        exists (mk_rvar (lab j) i1); split.
+        * unfold phslot in Eph; destruct p; [right; cbn in Eph; destruct (lab j); [discriminate|discriminate]|left; reflexivity].
+        * rewrite (nm_lab labs Hnd) by assumption; rewrite lsts_get_nth by lia; cbn [fst snd].
+          rewrite Hlnth, Hsnth by exact Hj; apply (outs_fpost labs); exists (mk_rvar (lab k) 0); split; [exact Ho1|].
+          rewrite (shv_lab labs Hnd) by exact Hk; rewrite sget_srestr, Hh, sget_ssub by exact Hk; f_equal; lia.
+    - subst d'; unfold d''; cbn [ddown rdown].
+      destruct Hd as (Hcn & Hfn & _); apply (hasN_spec false n k Hcn Hk) in Hh as Hh'.
+      destruct Hh' as (i0 & Ho0); apply Hfn in Ho0; [|exact Hk].
+      destruct (fresh_label labs) as [fs Hfs]; exists (mk_rvar (Some fs) 0); split; [right; discriminate|].
+      rewrite (nm_out labs) by (exact Hl'' || exact Hfs); cbn [GForm.dm]; apply outs_stuck.
+      cbn [GForm.rm]; apply (Out_post_lab labs Hnd); [exact Hk|]; rewrite sget_srestr, Hh, sget_ssub by exact Hk.
+      replace (0 - (sget s k - sget m k)) with 0 by lia; split; [lia|exact Ho0].
+    - destruct Hsome; contradiction. }
+  split; [cbn [cnode]; split; [exact Hcd|split; [exact Hcl|exact Hl'']]|split].
+  - (* factored *)
+    intros k i Hk Ho.
+    assert (Hh : Has labs (Dom p) (nm (GN d'' ls'')) k) by (exists i; exact Ho).
+    apply (Has_node labs Hnd p d'' ls'' k Hl'' Hk) in Hh as [(q & Hq & Hv & Hh)|Hh]; apply Hzero; [exact Hk| |exact Hk|].
+    + right; rewrite Hlnth in Hh; pose proof (Hpc q ltac:(lia)) as Hpq; destruct (phslot p q) eqn:Eph.
+      * exfalso; unfold phslot in Eph; destruct p; [|discriminate]; destruct (lab q) eqn:El; [discriminate|].
+        destruct Hv as [Hv|Hv]; [discriminate|contradiction].
+      * destruct Hpq as [Hc Hf]; apply (hasL_spec q _ k Hq Hc Hk) in Hh.
+        intros E; pose proof (proj2 (lsmin_spec ls' 0 k) E q ltac:(lia)) as Hf'; cbn [Nat.add] in Hf'; congruence.
+    + left; unfold d'' in Hh; destruct d' as [|a [s n]]; cbn [ddown rdown] in Hh; [contradiction|].
+      destruct Hd as (Hcn & _ & _); cbn [GForm.rm] in Hh.
+      apply (Has_post labs Hnd (Dom false) (nm n) _ k Hk) in Hh.
+      apply (hasN_spec false n k Hcn Hk) in Hh; cbn [dmin]; rewrite Hh; discriminate.
+  - (* meaning *)
+    intros v Hv.
+    destruct (in_dec label_eq_dec (v_label v) labs) as [Hin|Hout].
+    + destruct (lab_pos labs v Hin) as (q & Hq & Hlq & _); destruct v as [l i]; cbn in Hlq; subst l.
+      rewrite !(nm_lab labs Hnd) by assumption; rewrite !lsts_get_nth by lia; cbn [fst snd].
+      rewrite Hlnth, Hsnth by exact Hq.
+      pose proof (Hpc q ltac:(lia)) as Hpq; destruct (phslot p q) eqn:Eph.
+      * exfalso; unfold phslot in Eph; destruct p; [|discriminate]; destruct Hv as [Hv|Hv]; [discriminate|].
+        cbn [v_label] in Hv; destruct (lab q); [discriminate|contradiction].
+      * destruct Hpq as [Hc Hf].
+        eapply feq_trans; [|apply (fpost_sadd labs)].
+        apply (fpost_agree_has all_nat (lm q (lnth q ls'))); [exact I|]; intros k Hk Hh.
+        apply (hasL_spec q _ k Hq Hc Hk) in Hh; rewrite sget_sadd', sget_srestr, Hh, sget_ssub by exact Hk.
+        specialize (Hml k q Hk Hq Hh); lia.
+    + rewrite !(nm_out labs) by assumption; apply Hmd'', Hout.
+Qed.
+
+
+
 End Canonise.
