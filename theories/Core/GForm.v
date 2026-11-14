@@ -34,7 +34,7 @@ with gnode : Type :=
 | GN (d : gdef) (ls : lsts)                   (* one list per position, a default for other labels *)
 with lsts : Type :=
 | LsNil
-| LsCons (L : lst) (rest : lsts)
+| LsCons (s : list nat) (L : lst) (rest : lsts)   (* a list with its outputs shifted by [s] *)
 with gdef : Type :=
 | DV                                          (* other labels: the identity *)
 | DS (a : nat) (r : gref).                    (* other labels: stuck at [a], then [r] *)
@@ -96,7 +96,7 @@ with nm (n : gnode) (v : rvar) : fres :=
 with lsm (dflt : rvar -> fres) (k : nat) (ls : lsts) (v : rvar) : fres :=
   match ls with
   | LsNil => dflt v
-  | LsCons L rest => if label_eqb (lab k) (v_label v) then lm k L (v_index v) else lsm dflt (S k) rest v
+  | LsCons s L rest => if label_eqb (lab k) (v_label v) then fpost s (lm k L (v_index v)) else lsm dflt (S k) rest v
   end
 with dm (d : gdef) (v : rvar) : fres :=
   match d with
@@ -321,19 +321,31 @@ Local Notation dm := (dm labs).
 Local Notation factored := (factored labs).
 Local Notation restricted := (restricted labs).
 
+Definition zeros : list nat := repeat 0 (length labs).
+
+Lemma sget_zeros k : sget zeros k = 0.
+Proof. unfold sget, zeros; revert k; induction (length labs) as [|n IH]; intros [|k]; cbn; auto. Qed.
+
 (** The inputs observed by a reference: all, or (a payload without
     payload atom) the named ones. *)
 Definition Dom (p : bool) (v : rvar) : Prop := p = false \/ v_label v <> None.
 
 Definition all_nat (j : nat) : Prop := True.
 
-Fixpoint lsts_len (ls : lsts) : nat := match ls with LsNil => 0 | LsCons _ r => S (lsts_len r) end.
+Fixpoint lsts_len (ls : lsts) : nat := match ls with LsNil => 0 | LsCons _ _ r => S (lsts_len r) end.
 
 Fixpoint lnth (j : nat) (ls : lsts) : lst :=
   match ls, j with
   | LsNil, _ => LNilV
-  | LsCons L _, 0 => L
-  | LsCons _ r, S j => lnth j r
+  | LsCons _ L _, 0 => L
+  | LsCons _ _ r, S j => lnth j r
+  end.
+
+Fixpoint snth (j : nat) (ls : lsts) : list nat :=
+  match ls, j with
+  | LsNil, _ => []
+  | LsCons s _ _, 0 => s
+  | LsCons _ _ r, S j => snth j r
   end.
 
 (** A cell that only repeats what its nil gives is not allowed: it would
@@ -366,8 +378,9 @@ with cnode (p : bool) (n : gnode) : Prop :=
 with clsts (p : bool) (k : nat) (ls : lsts) : Prop :=
   match ls with
   | LsNil => True
-  | LsCons L rest =>
-      (if p && match lab k with None => true | Some _ => false end then L = LNilP else clst k L)
+  | LsCons s L rest =>
+      (if p && match lab k with None => true | Some _ => false end then L = LNilP /\ s = zeros
+       else clst k L /\ factored all_nat (lm k L) /\ restricted all_nat (lm k L) s)
       /\ clsts p (S k) rest
   end
 with cdef (d : gdef) : Prop :=
@@ -381,7 +394,7 @@ with lsz (L : lst) : nat :=
   match L with LNilV | LNilP => 1 | LNilS _ r _ => S (rsz r) | LCons e _ t => S (esz e + lsz t) end
 with rsz (r : gref) : nat := match r with GR _ n => S (nsz n) end
 with nsz (n : gnode) : nat := match n with GN d ls => S (dsz d + lssz ls) end
-with lssz (ls : lsts) : nat := match ls with LsNil => 1 | LsCons L r => S (lsz L + lssz r) end
+with lssz (ls : lsts) : nat := match ls with LsNil => 1 | LsCons _ L r => S (lsz L + lssz r) end
 with dsz (d : gdef) : nat := match d with DV => 1 | DS _ r => S (rsz r) end.
 
 (** ** Lemmas *)
@@ -407,9 +420,9 @@ Proof.
 Qed.
 
 Lemma lsm_lab dflt ls : forall k j i, k + lsts_len ls = length labs -> j < lsts_len ls ->
-  lsm dflt k ls (mk_rvar (lab (k + j)) i) = lm (k + j) (lnth j ls) i.
+  lsm dflt k ls (mk_rvar (lab (k + j)) i) = fpost (snth j ls) (lm (k + j) (lnth j ls) i).
 Proof.
-  induction ls as [|L rest IH]; intros k j i Hl Hj; cbn in Hj; [lia|]; cbn [lsm lnth v_label v_index].
+  induction ls as [|s L rest IH]; intros k j i Hl Hj; cbn in Hj; [lia|]; cbn [lsm lnth snth v_label v_index].
   destruct j as [|j].
   - rewrite Nat.add_0_r, label_eqb_refl; reflexivity.
   - destruct (label_eqb_spec (lab k) (lab (k + S j))) as [He|_].
@@ -419,16 +432,11 @@ Qed.
 
 Lemma lsm_out dflt ls : forall k v, k + lsts_len ls = length labs -> ~ In (v_label v) labs -> lsm dflt k ls v = dflt v.
 Proof.
-  induction ls as [|L rest IH]; intros k v Hl Hn; [reflexivity|]; cbn [lsm].
+  induction ls as [|s L rest IH]; intros k v Hl Hn; [reflexivity|]; cbn [lsm].
   destruct (label_eqb_spec (lab k) (v_label v)) as [He|_].
   - exfalso; apply Hn; rewrite <- He; apply nth_In; cbn in Hl; lia.
   - apply IH; [cbn in Hl; lia|exact Hn].
 Qed.
-
-Definition zeros : list nat := repeat 0 (length labs).
-
-Lemma sget_zeros k : sget zeros k = 0.
-Proof. unfold sget, zeros; revert k; induction (length labs) as [|n IH]; intros [|k]; cbn; auto. Qed.
 
 Lemma fpost_id s f : (forall k, sget s k = 0) -> feq (fpost s f) f.
 Proof.
@@ -521,7 +529,8 @@ Definition U (n : nat) : Prop :=
   /\ (forall p k ls1 ls2, lssz ls1 + lssz ls2 < n -> clsts p k ls1 -> clsts p k ls2 ->
         k + lsts_len ls1 = length labs -> k + lsts_len ls2 = length labs ->
         (forall j i, j < lsts_len ls1 -> Dom p (mk_rvar (lab (k + j)) i) ->
-           feq (lm (k + j) (lnth j ls1) i) (lm (k + j) (lnth j ls2) i)) -> ls1 = ls2)
+           feq (fpost (snth j ls1) (lm (k + j) (lnth j ls1) i)) (fpost (snth j ls2) (lm (k + j) (lnth j ls2) i))) ->
+        ls1 = ls2)
   /\ (forall d1 d2, dsz d1 + dsz d2 < n -> cdef d1 -> cdef d2 ->
         (forall v, ~ In (v_label v) labs -> v_label v <> None -> feq (dm d1 v) (dm d2 v)) -> d1 = d2).
 
@@ -605,14 +614,20 @@ Proof.
     intros j i Hj Hdom; specialize (He _ Hdom); rewrite !lsm_lab in He by (cbn; lia); exact He.
   - (* the lists of a node *)
     intros p k ls1 ls2 Hsz H1 H2 Hl1 Hl2 He.
-    destruct ls1 as [|L1 r1], ls2 as [|L2 r2]; cbn [lsts_len] in Hl1, Hl2; [reflexivity|lia|lia|].
+    destruct ls1 as [|s1 L1 r1], ls2 as [|s2 L2 r2]; cbn [lsts_len] in Hl1, Hl2; [reflexivity|lia|lia|].
     destruct H1 as [HL1 Hr1], H2 as [HL2 Hr2].
     assert (Hk : k < length labs) by lia.
-    f_equal.
-    + destruct (p && match lab k with None => true | Some _ => false end) eqn:Ep; [congruence|].
-      apply (IHl k L1 L2); [cbn in Hsz; lia|exact Hk|exact HL1|exact HL2|].
-      intros i; specialize (He 0 i); rewrite Nat.add_0_r in He; apply He; [cbn; lia|].
-      destruct p; [right; cbn in Ep; destruct (lab k); discriminate|left; reflexivity].
+    assert (Hhd : s1 = s2 /\ L1 = L2).
+    { destruct (p && match lab k with None => true | Some _ => false end) eqn:Ep.
+      - destruct HL1 as [-> ->], HL2 as [-> ->]; split; reflexivity.
+      - destruct HL1 as (Hc1 & Hf1 & Hs1), HL2 as (Hc2 & Hf2 & Hs2).
+        assert (Hm : forall i, all_nat i -> feq (fpost s1 (lm k L1 i)) (fpost s2 (lm k L2 i))).
+        { intros i _; specialize (He 0 i); rewrite Nat.add_0_r in He; apply He; [cbn; lia|].
+          destruct p; [right; cbn in Ep; destruct (lab k); discriminate|left; reflexivity]. }
+        destruct (factor_unique labs Hnd all_nat (lm k L1) (lm k L2) s1 s2 Hf1 Hf2 Hs1 Hs2 Hm) as [<- HL].
+        split; [reflexivity|]; apply (IHl k L1 L2); [cbn in Hsz; lia|exact Hk|exact Hc1|exact Hc2|].
+        intros i; apply HL; exact I. }
+    destruct Hhd as [<- <-]; f_equal.
     + apply (IHs p (S k) r1 r2); [cbn in Hsz; lia|exact Hr1|exact Hr2|lia|lia|].
       intros j i Hj Hdom; replace (S k + j) with (k + S j) in Hdom |- * by lia.
       apply (He (S j) i); [cbn; lia|exact Hdom].
