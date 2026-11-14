@@ -20,79 +20,62 @@ stated, does not count.
 ## Meaning and equality
 
 The normaliser is specified against a class of *models* that is wider
-than the standard interpretations. A label atom may start partway along
-another label's variables.
+than the standard interpretations. A label denotes a sequence of
+distinct variables. Labels not known to be distinct may share
+variables, in any arrangement.
 
 - **Model.** A model `M` chooses:
-  - a set of *streams*, with a strict order on them;
-  - for each label expression `h`, a stream `str h` and an offset
-    `off h : nat`;
+  - a set of *variables*;
+  - for each label expression `h`, an infinite sequence of distinct
+    variables, which is what `h₀, h₁, …` denote;
+  - a strict partial order on label expressions;
   - a value for each term, adjustment and payload atom, over the
-    model's positions (below).
+    model's variables.
 - **Restrictions on a model.**
-  - Concrete labels have offset 0. Distinct concrete labels have
-    distinct streams, ordered as the labels are.
-  - The bound label has offset 0 and a stream of its own.
-  - Each fact `x < y` holds as `str x < str y`. In particular, labels
-    ordered by a fact never share a stream.
-  - Nothing else is assumed. Two label atoms may share a stream at any
-    offsets, and a label atom may share a concrete label's stream.
-- **Positions.** A *position* is a pair `(s, n)` of a stream and a
-  number. The variable `(h, i)` denotes the position
-  `(str h, off h + i)`.
-- **Windows.** The *window* of `h` is the set of positions
-  `(str h, n)` with `n ≥ off h`. The position `(str h, off h + i)` has
-  *index* `i` in the window.
-- **Operations.** An operation on label `h` acts on the window of `h`
-  as the standard operation acts on the variables of `h`, by window
-  index. It acts on every position outside the window as the standard
-  operation acts on variables of other labels. In particular, the
-  positions of `str h` below `off h` are treated like variables of
-  another label. For example:
-  - a push of `e` on `h` in front of `a` sends index 0 of the window to
-    `e`, index `i+1` to what `a` gives at index `i`, and every position
-    outside the window to what `a` gives there;
-  - `↑h` sends index `i` of the window to index `i+1`, and leaves every
-    position outside the window alone.
+  - Each fact `x < y` holds in the order, and concrete labels are
+    ordered as strings.
+  - The bound label is ordered against every named label.
+  - Labels that are ordered have disjoint sequences.
+  - Nothing else is assumed. Labels that are not ordered may share any
+    variables, in any arrangement.
+- **Operations.** An operation on label `h` reads `h₀, h₁, …` as `h`'s
+  sequence. It acts on that sequence as the standard operation acts on
+  the variables of `h`, and on every other variable as the standard
+  operation acts on variables of other labels. For example:
+  - `⟦ h := t | a ⟧` sends `h₀` to `t`, `hᵢ₊₁` to what `a` gives for
+    `hᵢ`, and every other variable to what `a` gives for it;
+  - `⟦ \ h ⟧` sends `hᵢ` to `hᵢ₊₁` and leaves every other variable
+    alone.
 - **Standard interpretations** are the models where each label has its
-  own stream, equal labels share one, and every offset is 0. Every
-  standard interpretation consistent with the facts is a model.
+  own sequence and equal labels share one. Every standard
+  interpretation consistent with the facts is a model.
 - **Equality.** Two expressions are *equal* when they denote the same
-  map from positions to results in **every** model.
-- **Payloads without a payload atom** observe only named positions
+  map from variables to results in **every** model.
+- **Payloads without a payload atom** observe only named variables
   (`Unique.feq`).
 
 **What this gives up.** Equality in every model implies equality in
-every standard interpretation. The converse fails only for identities
-that need every label at offset 0. For example, with
+every standard interpretation. The converse fails for identities that
+hold only by a case split on how labels relate. Examples:
 
-```
-c_x = ⟦ x as a; x as a | Γ \ x as a | Γ ⟧
-```
+- **Two labels.** `⟦ \ x ⟧ ⨾ ⟦ \ y ⟧ ⨾ ⟦ x := u; y := v ⟧` and
+  `⟦ \ y ⟧ ⨾ ⟦ \ x ⟧ ⨾ ⟦ y := v; x := u ⟧` are both `⟦⟧` in every
+  standard interpretation. They differ when `x = (A, B, …)` and
+  `y = (B, A, …)`.
+- **Transitivity.** With a fact `x < m`,
+  `⟦ \ x ⟧ ⨾ ⟦ \ k ⟧ ⨾ ⟦ m := c; k := v; x := u ⟧` does not depend
+  on `u` in any standard interpretation. It does when `k` alternates
+  between `x`'s and `m`'s variables.
 
-`c_x ⨾ c_y` and `c_y ⨾ c_x` are equal in every standard
-interpretation, by a case split on whether `x = y`. They differ in the
-model where `y` starts at `x₁`. The normaliser need not identify such
-terms.
+The normaliser need not identify such terms. `docs/labels.md` has the
+details.
 
-**What it keeps.** Every law about a single label holds, including
-the identity renaming `⟦ x as a | Γ \ x as a | Γ ⟧ = ⟦⟧`. Operations
-on labels ordered by a fact commute. Most identities between labels
-that may overlap fail in some model; `docs/labels.md` lists which
-hold.
+**What it keeps.**
 
-**Why this model.** It is the standard semantics of a variant of the
-API in which free variables are abstract *names*:
-
-- names are built with `nm "x"` and `shift`;
-- a context-form entry may be any name, meaning that name in the
-  context that ends at the entry;
-- facts say that two names have different labels, in a given order.
-
-In that API a label atom becomes a name atom, which may stand for any
-`(label, offset)`, exactly as a label atom does in a model here. The
-API itself is unchanged. The model is only how the normaliser's
-equality is defined.
+- Every law about a single label holds, including the identity
+  renaming `⟦ x as a | Γ \ x as a | Γ ⟧ = ⟦⟧`.
+- Operations on ordered labels commute.
+- Facts are transitive.
 
 ## Requirements
 
@@ -151,13 +134,13 @@ shown adequate for that quantification over models.
 
 - Operations on labels that are not known to be distinct must keep
   their relative order, inputs dropped as well as entries pushed.
-  For example, `↑x ; ⟦y := v | ⟦x := u⟧⟧` means `⟦y := v⟧` when
-  `x ≠ y` and `⟦z := u⟧` when `x = y = z`. Per-label structures are
+  For example, `⟦ \ x ⟧ ⨾ ⟦ y := v; x := u ⟧` means `⟦ y := v ⟧`
+  when `x ≠ y`, and `⟦ x := u ⟧` when `x = y`. Per-label structures are
   therefore only valid for labels known to be distinct.
 - Completeness must use models in which labels overlap. One
   injective interpretation does not determine equality.
-- Two variables of labels that may share a stream can compare three
-  ways (below, at, above), not two.
+- Two variables of labels that are not ordered may be equal in one
+  model and different in another, whatever their indices.
 
 ## Status against this specification
 
