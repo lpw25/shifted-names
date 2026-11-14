@@ -843,3 +843,109 @@ Proof.
 Qed.
 
 End Canonise.
+
+(** ** Canonical forms of expressions *)
+
+Section Final.
+
+Variable lenv : list label.
+Variable labs : list (option label).
+Hypothesis Hnd : NoDup labs.
+
+Local Notation dsE := (dsE labs).
+Local Notation dsL := (dsL labs).
+Local Notation dsR := (dsR labs).
+Local Notation dsLs := (dsLs labs).
+Local Notation rm := (GForm.rm labs).
+
+Lemma ds_eshift e t : dsE e -> dsE (eshift labs e t).
+Proof. destruct e as [v|u b [s n]|a z [s n]]; cbn; auto. Qed.
+
+Lemma ds_lookupL L : forall k acc j, dsL L -> dsE (lookupL labs k acc L j).
+Proof.
+  induction L as [| |a [s n] m|e s t IH]; intros k acc j H; cbn [lookupL GCanon.dsL] in *; cbn; auto.
+  destruct H as [He Ht]; destruct j; [apply ds_eshift, He|apply IH, Ht].
+Qed.
+
+Lemma ds_lsts_get ls : forall k, dsLs ls -> dsL (snd (lsts_get k ls)).
+Proof. induction ls as [|s L r IH]; intros [|k] H; cbn in *; try exact I; [exact (proj1 H)|apply IH, H]. Qed.
+
+Lemma ds_apply_ref r v : dsR r -> dsE (apply_ref labs r v).
+Proof.
+  destruct r as [s [d ls]]; cbn [GCanon.dsR GCanon.dsN]; intros (_ & Hl & _); unfold apply_ref.
+  pose proof (ds_lsts_get ls (posv labs v) Hl) as H; destruct (lsts_get (posv labs v) ls) as [s' L]; apply ds_lookupL, H.
+Qed.
+
+Lemma ds_lsts_set ls : forall k x, dsLs ls -> dsL (snd x) -> dsLs (lsts_set k x ls).
+Proof. induction ls as [|s L r IH]; intros [|k] x H Hx; cbn in *; auto; destruct H; split; auto. Qed.
+
+Lemma ds_dropL k x : dsL (snd x) -> dsL (snd (dropL labs k x)).
+Proof. destruct x as [s [| |a r m|e s' t]]; cbn; auto; intros [_ H]; exact H. Qed.
+
+Lemma ds_preshift k r : dsR r -> dsR (preshift labs k r).
+Proof.
+  destruct r as [s [d ls]]; cbn [preshift GCanon.dsR GCanon.dsN]; intros (Hd & Hl & Hlen).
+  split; [exact Hd|split; [apply ds_lsts_set; [exact Hl|apply ds_dropL, ds_lsts_get, Hl]|rewrite lsts_set_len; exact Hlen]].
+Qed.
+
+Lemma ds_lsts_map f ls : forall k0, (forall k x, dsL (snd x) -> dsL (snd (f k x))) -> dsLs ls -> dsLs (lsts_map f k0 ls).
+Proof.
+  induction ls as [|s L r IH]; intros k0 Hf H; cbn in *; [exact I|]; destruct H as [HL Hr].
+  split; [apply (Hf k0 (s, L)), HL|apply IH; assumption].
+Qed.
+
+Lemma ds_push h e B : dsE e -> dsR B -> dsR (push labs h e B).
+Proof.
+  destruct B as [sB [d ls]]; cbn [push GCanon.dsR GCanon.dsN]; intros He (Hd & Hl & Hlen).
+  split; [destruct d as [|a [s n]]; cbn in *; auto|split; [|rewrite lsts_map_len; exact Hlen]].
+  apply ds_lsts_map; [|exact Hl]; intros k x Hx; destruct (Nat.eqb k h); cbn; [split; assumption|exact Hx].
+Qed.
+
+Lemma ds_all_lsts n f : forall k0, (forall k, dsL (snd (f k))) -> dsLs (all_lsts n f k0).
+Proof. induction n as [|n IH]; intros k0 H; cbn; [exact I|split; [apply H|apply IH, H]]. Qed.
+
+Lemma ds_atomR a K : dsR K -> dsR (atomR labs a K).
+Proof.
+  intros HK; cbn [atomR GCanon.dsR GCanon.dsN GCanon.dsD]; split; [exact HK|split; [|apply all_lsts_len]].
+  apply ds_all_lsts; intros k; exact HK.
+Qed.
+
+Lemma ds_endR : dsR (endR labs).
+Proof.
+  cbn [endR GCanon.dsR GCanon.dsN GCanon.dsD]; split; [exact I|split; [|apply all_lsts_len]].
+  apply ds_all_lsts; intros k; exact I.
+Qed.
+
+Lemma ds_ev_all :
+  (forall a K, dsR K -> dsR (ev lenv labs a K))
+  /\ (forall t K, dsR K -> dsE (evt lenv labs t K))
+  /\ (forall p K, dsR K -> dsR (evp lenv labs p K)).
+Proof.
+  apply exp_mind; intros; simpl; auto using ds_atomR, ds_push, ds_preshift, ds_apply_ref.
+  all: try (split; [assumption|split; [apply ds_all_lsts; intros; assumption|apply all_lsts_len]]).
+  all: try match goal with |- context [tvof lenv ?t] => destruct (tvof lenv t); auto using ds_apply_ref end.
+Qed.
+
+(** The canonical form of an expression. *)
+Definition canon (a : aexp) : gref := canR labs false (ev lenv labs a (endR labs)).
+
+Theorem canon_spec a : wfa lenv labs a -> cref labs false (canon a) /\ forall v, feq (rm (canon a) v) (fa lenv a FVar v).
+Proof.
+  intros Hw; unfold canon.
+  destruct (proj1 (proj2 (proj2 (canon_all labs Hnd))) (ev lenv labs a (endR labs)) false
+              (proj1 ds_ev_all a _ ds_endR)) as [Hc Hm].
+  split; [exact Hc|]; intros v; eapply feq_trans; [apply feq_sym, Hm; left; reflexivity|].
+  apply (ev_sound lenv labs Hnd a v Hw).
+Qed.
+
+(** Canonicity: expressions with the same free meaning have the same canonical form. *)
+Theorem canon_complete a1 a2 : wfa lenv labs a1 -> wfa lenv labs a2 ->
+  (forall v, feq (fa lenv a1 FVar v) (fa lenv a2 FVar v)) -> canon a1 = canon a2.
+Proof.
+  intros H1 H2 He; destruct (canon_spec a1 H1) as [Hc1 Hm1], (canon_spec a2 H2) as [Hc2 Hm2].
+  apply (gref_unique labs Hnd false); [exact Hc1|exact Hc2|]; intros v _.
+  eapply feq_trans; [apply Hm1|]; eapply feq_trans; [apply He|apply feq_sym, Hm2].
+Qed.
+
+End Final.
+

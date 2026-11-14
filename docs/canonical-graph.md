@@ -396,3 +396,51 @@ a hash-consed table in the implementation.
    (`Unique`, `Normal`, `Complete`, `Merge`, `LayeredOrder`, `Canon*`,
    `Retarget`, `Canonical`, `LFree`, `LEval`, `Layered*`, `BUnique`),
    and update the docs.
+
+## Mechanisation status
+
+Proved in Coq, with no admits or axioms (`Print Assumptions` closed),
+about 2,200 lines:
+
+- **`Core/GForm.v`.** The canonical encoding:
+  - entries, per-label lists with a shift on every tail, nodes whose
+    lists each carry a shift, and references with a post-shift;
+  - its meaning in the free model (`fres`);
+  - local canonicity conditions: factored shifts, no cell absorbable
+    into its nil, and `LNilP` for the unobservable bound inputs of
+    payloads without a payload atom;
+  - **`gref_unique`**: canonical encodings with the same meaning are
+    equal;
+  - decidable equality.
+- **`Core/GEval.v`.** The free meaning `fa` of expressions
+  (`aexp`/`texp`/`pexp`), a raw evaluator, and **`ev_sound`**: the raw
+  evaluation means `fa`.
+- **`Core/GCanon.v`.** Canonicalisation:
+  - syntactic output labels that agree with the free model;
+  - the cell and node cases, factoring shifts and absorbing cells;
+  - **`canon_all`**: the result is canonical and means the same;
+  - **`canon_complete`**: expressions with the same free meaning have
+    the same canonical form.
+
+What the proof changed in the design:
+
+- **Each list of a node carries its own shift.** One node can shift
+  an output label differently in different lists.
+- **Entries store the variable itself, not a label position.**
+- **Canonicalisation is a separate function on raw encodings.** It is
+  not built into the evaluator's constructors. The existence proof is
+  `cell_spec` and `node_spec`, not one condition per tie-break.
+
+Still to do:
+
+1. Store label expressions (`lexp`) instead of their denotations, so
+   that the canonical form is the same term for every interpretation
+   of label atoms. Distinct label expressions are assumed to denote
+   distinct labels.
+2. Link `fa` to the real semantics (`aeden`), as `Unique.adequacy`
+   does for words, so that `canon` decides equality of adjustments.
+3. `share` in the reified expressions, and the efficient implementation
+   (hash-consed table, evaluation memoised per continuation), refining
+   the tree specification.
+4. The printer, integration with `names`, and removing the old
+   modules.
