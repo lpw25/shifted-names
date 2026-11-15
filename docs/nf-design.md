@@ -343,3 +343,228 @@ others by composing it with weakenings or similar.
   - Hash-consed trees make the differences between versions cheap to
     find where they share subtrees. Finding the best base among all
     nodes is still a search.
+
+## Detailed design
+
+A first full version of the design above, so that it can be checked
+piece by piece.
+
+### 1. What a normal form is
+
+A normal form is a **sorted, reduced word of steps**.
+
+**Steps.**
+
+- `E_h(v)`: an input entry on label `h` with value `v`.
+- `W_h`: a weakening on `h`.
+- `A(σ)`: an adjustment atom.
+
+Runs of equal consecutive steps are kept as one step with a count, as
+in `docs/design-nf2.md`. A lift around an atom is
+`E_x(x₀) · A(σ) · W_x`, where the value `x₀` is the variable `W_x`
+creates.
+
+**Meaning.** In a model, an input variable passes the steps from left
+to right.
+
+- `E_h(v)` gives `v` if the variable is `h₀`. Otherwise the variable
+  continues, unshifted along `h`.
+- `W_h` shifts the variable along `h`.
+- `A(σ)` is stuck, with the rest of the word as its continuation.
+
+**Values are absolute.** They live in the scope at the end of the
+word. A value is one of:
+
+- a variable `(g, i)` of that scope;
+- a term `u⟨P⟩`, optionally with a payload atom, where `P` is a normal
+  form;
+- a stuck lookup `y⟨X⟩`, where `X` is a normal form and `y` a variable
+  of its input. In practice `X` is a suffix of a word.
+
+**Reduced** means all of the following.
+
+- **No cancellation:** no `W_h` is followed by an `E_h` with only steps
+  on labels known distinct from `h` between them.
+- **No absorption:** no `E_h(v)` is followed by a `W_h`, with only steps
+  on labels known distinct from `h` between them, when `v` is what the
+  rest of the word gives `h₀` after that `W_h`.
+- **Lookups are pushed down:** every lookup is pushed as far as it goes,
+  so equal values are equal syntax.
+- **No unobservable payload steps:** a payload with no payload atom
+  observes only named variables, so it has no steps on the bound label
+  before its first atom.
+
+**Sorted** means two things.
+
+- No two adjacent steps on labels known distinct from each other are in
+  the wrong order. That covers entries and weakenings alike, ordered by
+  the facts.
+- Steps on the same label never swap, and atoms swap with nothing.
+
+Uniqueness of the sorted representative is proved above ("Sorting gives
+a unique representative").
+
+**Printing.** Context forms are only how a word is printed: a maximal
+block of entries followed by a maximal block of weakenings is one
+context form.
+
+### 2. Storage
+
+Each word is a balanced binary tree with its steps at the leaves, in
+order. Nodes are hash-consed: equal content and equal children give one
+node.
+
+**What the tree needs.**
+
+- Its shape must be a function of the word alone. Then equal words are
+  one node, and hash-consing gives canonicity.
+- Split, concatenate, insert and delete must each create `O(log n)`
+  new nodes.
+
+**Choice for now: a Cartesian tree.**
+
+- *Shape:* the priority of a step is a structural hash of its content,
+  including the hashes of the words it refers to. This needs no
+  identifiers that depend on how the word was built. The Cartesian tree
+  of a sequence of priorities is unique, with ties broken leftmost.
+- *Expected cost:* depth is `O(log n)` while the hashes behave randomly.
+- *Weakness:* a long periodic stretch (`a b a b …`) has repeated
+  priorities and degrades to a path. Runs remove only the trivial case,
+  where equal steps are adjacent.
+- *Deterministic alternative:* locally consistent parsing (Mehlhorn,
+  Sundar and Uhrig) handles periodicity, with worst-case
+  `O(log n · log* n)` per edit. It is the fallback if mechanised bounds
+  must be worst case.
+
+**Node fields:** left child, step, right child, size, hash and summary.
+
+### 3. Summaries
+
+Searches need to know, for a subtree, whether an operation on a
+variable of label `h` passes all of it. Passing means two things. Every
+step is on a label known distinct from `h`, or on `h` itself. And the
+variable's index along `h` never reaches 0 at an `E_h` or a `W_h`
+inside the subtree.
+
+**Summary of a subtree.**
+
+- Whether it contains an atom step.
+- Its labels, split in two:
+  - a bitset of label atoms, indexed by their context position;
+  - a set of concrete labels, as a hash-consed trie.
+- For each label in it: the number of `E` and `W` steps, and the lowest
+  index along that label reached inside the subtree, measured relative
+  to the index on entry.
+
+**The query.** Combine the subtree's label sets with precomputed sets
+of labels not known distinct from `h`. Use the per-label counts for
+`h`.
+
+**Cost.** A summary is a map over the labels present. With few labels
+(the usual case) it is constant. In general, merging summaries along a
+path costs up to `O(log n · ℓ)` per edit, for `ℓ` distinct labels. This
+is open item 2 below.
+
+### 4. Operations
+
+`n` is the size of the word acted on.
+
+**Lookup `(g, i)` in `w`.** Descend using the summaries to the first
+step where the variable stops:
+
+- an `E_g` reached at index 0 gives its value;
+- a step on a label not known distinct from `g`, or an atom, leaves a
+  stuck lookup. Its node is the suffix of `w` from that step, split off
+  in `O(log n)`.
+
+This is an eliminator: no new data except the suffix.
+
+**Removal where an operation stops.** `O(log n)`. Proved to need no
+reordering.
+
+**Insertion with a move.** `O(log n)`. Also proved to need no further
+reordering.
+
+**Composing an input context `c` with a normal form `N`.** Right to
+left, `c` is small and `N` may be large and shared.
+
+1. **Values.** Each value of `c` gets `N` pushed into it.
+   - A variable becomes a lookup in `N`.
+   - A term `u⟨P⟩` becomes `u⟨P ⨾ N⟩`, memoised on the pair of nodes.
+2. **Weakenings.** `c`'s weakenings move into `N`, innermost first.
+   Each one searches for the first step on its label, or on a label not
+   known distinct from it.
+   - If that step is an `E` on its label at index 0, both are removed
+     (cancellation).
+   - Otherwise it is blocked. It stays, inserted in sorted position
+     among the steps before the blocking one: it moves right past
+     comparable smaller steps.
+3. **Entries.** `c`'s entries are inserted, last first. Each moves right
+   past comparable smaller steps. At each insertion point, check for
+   absorption: one search and one lookup.
+4. **Result.** The tree that results. `N`'s own steps are never
+   copied: only paths change.
+
+*Cost:* `O(|c| · log n)` tree operations, plus the memoised payload
+compositions.
+
+**Composing two normal forms `M ⨾ N`.** This arises inside payloads.
+
+- *What it does:* every value of `M` changes, so `M`'s steps are
+  rebuilt. Costs are `O(|M| · log |N|)`.
+- *Memoisation:* it is memoised on the pair of nodes. Within the
+  well-behaved fragment each pair occurs once.
+
+**An atom.** `σ ⨾ N` is the step `A(σ)` concatenated in front of `N`.
+
+### 5. Printing
+
+**Named words.** A word is named if it is used twice or more, as a
+payload or as the target of a lookup, or if it serves as a base (below).
+
+**Bases.** A word `w` is printed as `p ⨾ B`, where `B` is named and `p`
+is a short context of entries, weakenings and lifts. Otherwise `w` is
+printed in full.
+
+Examples:
+
+- `N_k` is `⟦ x_k := u_k⟨N_{k+1}⟩ | N_{k+1} ⟧`;
+- the `k`-th payload of the deletion example is `⟦ \ x_k ⟧ ⨾ n`.
+
+**The choice of base must be a function of the graph.** Proposal: the
+named `B` that minimises `|p|`, with ties broken by size and then hash.
+An index over the named words' subtrees can make the search fast, but
+it must find the exact minimum to stay canonical. This is open item 4
+below.
+
+### 6. What is established and what is open
+
+**Established (on paper):**
+
+- sorted words are unique representatives;
+- the edits operations make are local, with no cascades;
+- tree shape is canonical, given deterministic structural hashing;
+- composition with an input context costs `O(|c| log n)` tree
+  operations and never copies `N`.
+
+The quadratic examples become linear:
+
+- the chain of substitutions: each step adds one entry to a shared
+  tree;
+- the deletion example: each `⟦ \ x_k ⟧ ⨾ n` is one removal from `n`'s
+  tree.
+
+**Open:**
+
+1. **Uniqueness of the normal form.** Two sorted, reduced words that
+   agree in every interleaved model are equal. This is the
+   blocked-match lemma in its general form. It is still the central
+   risk, and the data structure does not touch it.
+2. **The cost of summaries with many labels.**
+3. **Periodic words with Cartesian trees.** Either show they cannot
+   arise in normal forms beyond runs, or switch to locally consistent
+   parsing.
+4. **Choosing bases for printing.** Canonically and fast.
+5. **Printing lookups readably.** `y⟨X⟩` where `X` is a suffix of a word
+   being printed should print as a reference into that word, not as a
+   separate copy.
