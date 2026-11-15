@@ -31,6 +31,7 @@ theories/Core/GEval.v
 theories/Core/GCanon.v
 theories/Core/IModel.v
 theories/Core/ILayered.v
+theories/Core/IFinite.v
 theories/Core/Order.v
 theories/Core/LayeredOrder.v
 theories/Core/Canon.v
