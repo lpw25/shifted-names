@@ -282,3 +282,49 @@ is then a plain condition: after cancelling, a weakening of one form
 still precedes a dependent entry of the next. The cost is that
 segments stop being per-label lists, and much of the existing segment
 code is per-label.
+
+## Decision: renaming segments as context forms with sequences
+
+Renaming segments are context forms whose input and output contexts
+are sequences, so `⟦ x \ y ⟧` is one segment. A chain of them is
+*blocked* when, after cancelling, some weakening of one form still
+precedes a dependent entry of the next.
+
+**Tools in Coq.**
+
+- `Core/IFinite.v` builds a model from a finite list of
+  identifications of variables.
+- `dmodel` is the disjoint model.
+- `fmodel_consistent`: such a model is consistent with the facts when
+  identified variables have labels the facts leave unordered.
+
+## The chain lemma: where each approach stops
+
+For a chain `C₁ ⨾ … ⨾ Cₙ`, the meaning in each model is a map on
+variables.
+
+- **From the front.** `P = Rest ∘ C₁`. If `C₁ = C₁'`, then `Rest` and
+  `Rest'` agree on the image of `C₁`. That is every variable except
+  `C₁`'s untargeted outputs. With reachability, an induction carrying
+  the domain then goes through. What is missing is how to show
+  `C₁ = C₁'`. Its targets are variables of the next frame, readable
+  only through `Rest`, which is not yet known. The old proof broke this
+  cycle with term payloads, which a renaming chain does not have.
+- **From the back.** `P = Cₙ ∘ P'`. `Cₙ`'s untargeted outputs are
+  exactly the final variables never reached. But `Cₙ` can merge
+  several inputs into one output, so `P'` is known only up to that
+  merge. Routes fix the targets of `P'`, not where its pass-through
+  variables land.
+- **The disjoint model** gives the whole chain as one standard segment
+  `Σ`, per label. The chain is `Σ` cut into forms and ordered across
+  unordered labels. Models that overlap one pair of labels see each
+  pair's order. They miss orders that show only when three or more
+  labels overlap, as in example 2 of `docs/labels.md`.
+
+The next concrete steps:
+
+1. Prove uniqueness for a single form in Coq, using `dmodel` and models
+   that share one variable between two labels. Within one form there
+   is no cancellation, so pair models suffice there.
+2. Prove reachability for chains.
+3. Settle how to determine `C₁`.
