@@ -200,3 +200,71 @@ the entry case.
   does at `h₀`. Moving `h₀` elsewhere in a modified model changes how
   every other step on `h` acts, so the loss cannot be undone by a
   simple change of model.
+
+## Where the difficulty is, in the layered structure
+
+`Core/ILayered.v` gives layered words their meaning in a model.
+`std_mflw` shows it agrees with `LayeredUnique.flw` in standard
+interpretations.
+
+Going through the old proof with that meaning shows the difficulty is
+confined to one place.
+
+- **After a term, everything is observable.** A term's payload is the
+  rest of the word, compared on every named variable (`meq`). That
+  includes variables no input reaches. So from the first term on, the
+  rest is known as a function, as in `first_layer`, and the induction
+  goes through as before.
+- **After an atom, everything is observable.** A stuck result carries
+  its continuation, compared on every variable.
+- **The renaming prefix is not.** This is the renaming segments before
+  the first term or atom. Weakenings there leave variables that no
+  input reaches. Without interleaving the old conditions allow no such
+  prefix: a renaming is merged into the next segment. With unordered
+  labels it is forced: `⟦ \ x ⟧ ⨾ ⟦ y := u ⟧`.
+
+**Facts about a blocked prefix.** Say `U` is blocked by the next
+segment `S`: every label of `U` is unordered with some label of `S`,
+since `S`'s labels are pairwise ordered.
+
+- `U` and `S` share no label.
+- `U` has no bound label, so no bound outputs.
+
+**Reachability (to prove).** In a normal-form word, every input slot of
+every segment of the prefix, and of the segment or atom after it, is
+reached from some input in some model. Steer backwards from the slot.
+
+- **Where it would die.** It would die only at a hole: a weakened,
+  untargeted output of an earlier segment `Uₐ` on the slot's label
+  `h`.
+- **Why it survives.** `Uₐ` is blocked by `Uₐ₊₁`, so `Uₐ₊₁` has a
+  label `g` unordered with `h`. And `Uₐ₊₁` is not the slot's segment,
+  since two consecutive blocked segments share no label. Make the
+  current variable also `g`'s at a deep index there. Backwards through
+  `Uₐ₊₁` it becomes a deep, fresh variable of `g`, and it never reaches
+  index 0 again.
+
+**What the prefix leaves to prove.**
+
+- **Before an atom or at the end.** The prefix's map on variables is
+  observed directly: an atom reports its exact input variable, and at
+  the end the result is a variable.
+- **Before a term segment.** The map is known once the term segment
+  and its rest are known. They are fully observable from the term on,
+  and their slots are reachable.
+
+So the new core is:
+
+> **Prefix lemma.** Two blocked chains of renaming segments, routed
+> canonically, with the same map on variables in every model, are the
+> same chain.
+
+It has every feature of the real problem:
+
+- targets are variables, so inputs merge;
+- weakenings leave holes;
+- the order of blocked segments shows only in models where their
+  labels overlap.
+
+It has nothing else: no terms, no atoms, no bound variables. That is
+what to prove next.
