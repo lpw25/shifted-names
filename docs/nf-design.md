@@ -257,3 +257,89 @@ identity renaming, valid in every model.
 - **Readable output.** The printer has to show contexts with payloads
   on outputs, `share` for nodes used twice, and lifts where the
   pattern `⟦ x \ x | Γ[σ] ⟧` occurs.
+
+## Later discussion
+
+### A single structure for all of a context's entries
+
+- **The data.** A context's input entries are its canonical (sorted)
+  word. They are stored in an order-preserving balanced tree, so
+  entries on labels not known to be distinct can live in the same
+  structure.
+- **Runs.** Maximal runs of entries whose labels are pairwise known
+  distinct may be grouped, each run stored sorted.
+- **Summaries.** Each node records enough about the labels below it to
+  find, in `O(log n)`, where an operation on `x` stops: the first
+  entry on a label not known distinct from `x`.
+- **Targets are absolute**, so the entries an operation passes are not
+  changed. An edit is local.
+
+### Edits never cascade
+
+The worry was that removing or inserting an entry leaves two
+comparable entries adjacent and out of order, and that fixing them
+causes further moves. The edits that operations make never need more
+than one move. The proofs use only one fact: "known distinct" means
+"comparable in a transitive order".
+
+**Removal where an operation stops.** An operation on `x` passes a
+prefix `A`, all of whose entries are comparable with `x`, and removes
+the entry `e` on `x` that follows. Write `w = A e B`; the claim is that
+`A B` is sorted.
+
+- `A` and `B` are sorted, so only the junction between the last entry
+  `a` of `A` and the first entry `b` of `B` needs checking.
+- `a` is comparable with `x` and sits next to `e`, so `a < x`.
+- Suppose `a > b`. Then `b < a < x`, so `b` is comparable with `x` and
+  `b < x`.
+- But `b` sits right after `e`, so sortedness of `w` forbids `b < x`.
+  So `a > b` is impossible, and `A B` is sorted.
+
+**Removal by absorption.** Absorption removes an entry `e` on `x` that
+is followed only by entries comparable with `x`. This is the mirror
+case: `b > x`. If `a < x`, then `a < b`. If `a` is incomparable with
+`x`, then `a > b` would give `a > x`.
+
+**Insertion.** A new entry `f` is put at the front and moves right past
+entries comparable with it and smaller. It stops at an entry
+incomparable with it or larger.
+
+- Its new neighbours are in order by construction.
+- Taking it out of the front leaves no new adjacency.
+- Merging a composed context's own entries in this way, one at a time,
+  costs `O(log n)` each. That is proportional to the size of the input
+  that was added.
+
+**Matching outputs.** Matching against a lift and a weakening, such as
+`⟦ h | ⟦ \ h ⟧ ⟧`, is a sequence of removals where an operation stops
+and insertions at the front. Each step is one of the cases above.
+
+**The case that does cascade does not arise.** Take `w = a e b b₂`
+with `e` incomparable with its neighbours, and `b < b₂ < a`. Removing
+`e` makes `b` and then `b₂` move past `a`. In general a whole run moves
+past another. But no operation removes an entry that is incomparable
+with both its neighbours: removals happen only where an operation stops
+and by absorption.
+
+### Printing shared versions: name the large one
+
+The suggestion: give a name to one large adjustment, and get the
+others by composing it with weakenings or similar.
+
+- **Every version made by an operation has this form**, because the
+  version *is* the operation composed with the original:
+  - `⟦ \ x ⟧ ⨾ N` is `N` with its first `x`-entry removed;
+  - `⟦ h | ⟦ \ h ⟧ ⟧ ⨾ N` removes the second `h`-entry;
+  - `⟦ f | N ⟧` adds `f`. This is equal to `N` with `f` inserted,
+    because `f` only moves past entries it commutes with.
+- **Removals only happen where operations stop**, so a prefix of
+  weakenings and lifts can always reach them.
+- **Printed size.** The original is printed once, and each version is
+  a prefix whose size is the number of changes.
+- **Open: which large adjustment to name.** The choice must be a
+  function of the canonical graph, not of the history.
+  - A natural choice: for each node, the base that gives the smallest
+    prefix among named nodes, with ties broken by a fixed order.
+  - Hash-consed trees make the differences between versions cheap to
+    find where they share subtrees. Finding the best base among all
+    nodes is still a search.
