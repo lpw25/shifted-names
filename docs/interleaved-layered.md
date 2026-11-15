@@ -223,26 +223,31 @@ confined to one place.
   prefix: a renaming is merged into the next segment. With unordered
   labels it is forced: `⟦ \ x ⟧ ⨾ ⟦ y := u ⟧`.
 
-**Facts about a blocked prefix.** Say `U` is blocked by the next
-segment `S`: every label of `U` is unordered with some label of `S`,
-since `S`'s labels are pairwise ordered.
+**Blocking is not a per-label condition.** I first defined `U` as
+blocked by `S` when every label of `U` is unordered with some label of
+`S`. That is wrong. Entries are linked through their targets, so the
+`·`-part of `⟦ x \ · ⟧` cannot move into `⟦ · \ y ⟧` without its
+`x`-part. `⟦ x \ y ⟧` is the chain `⟦ x \ · ⟧ ⨾ ⟦ · \ y ⟧` even though
+`·` is ordered against everything. So:
 
-- `U` and `S` share no label.
-- `U` has no bound label, so no bound outputs.
+- *blocked* has to mean that the canonical form of `U ⨾ S` is not one
+  pairwise-ordered segment;
+- a blocked prefix can contain bound variables, and then needs the
+  bound-variable conditions (use, numbering) as well.
 
 **Reachability (to prove).** In a normal-form word, every input slot of
 every segment of the prefix, and of the segment or atom after it, is
 reached from some input in some model. Steer backwards from the slot.
 
 - **Where it would die.** It would die only at a hole: a weakened,
-  untargeted output of an earlier segment `Uₐ` on the slot's label
-  `h`.
-- **Why it survives.** `Uₐ` is blocked by `Uₐ₊₁`, so `Uₐ₊₁` has a
-  label `g` unordered with `h`. And `Uₐ₊₁` is not the slot's segment,
-  since two consecutive blocked segments share no label. Make the
-  current variable also `g`'s at a deep index there. Backwards through
-  `Uₐ₊₁` it becomes a deep, fresh variable of `g`, and it never reaches
-  index 0 again.
+  untargeted output of an earlier segment on the slot's label `h`.
+- **Why it should survive.** Something between that segment and the
+  slot must stop the two from being merged. That something is a step
+  on a label unordered with `h`, where the variable can transfer to a
+  deep fresh index.
+
+Making "something must stop the merge" precise depends on how blocking
+is defined. That has to come first.
 
 **What the prefix leaves to prove.**
 
@@ -266,5 +271,14 @@ It has every feature of the real problem:
 - the order of blocked segments shows only in models where their
   labels overlap.
 
-It has nothing else: no terms, no atoms, no bound variables. That is
-what to prove next.
+It has no terms and no atoms. With pairwise-ordered segments it does
+have bound variables, used only to carry a variable between segments
+whose labels are not ordered.
+
+**A representation question this raises.** For renaming chains,
+segments that are context forms with input and output *sequences*
+(`⟦ x \ y ⟧` is one segment) would avoid that bound plumbing. Blocking
+is then a plain condition: after cancelling, a weakening of one form
+still precedes a dependent entry of the next. The cost is that
+segments stop being per-label lists, and much of the existing segment
+code is per-label.
