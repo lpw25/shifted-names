@@ -479,7 +479,7 @@ so `a ⨾ b` is `ACompose b a`.)
 For a fragment `Δ` with `k` entries, let `pos(x)` be the position of
 `x`'s entry, and define:
 
-- `Ren(Δ)`: each entry `x := t` becomes `x := ·_pos(x)`, weakenings
+- `Ren(Δ)`: each entry `x := t` becomes `x as ·_pos(x)`, weakenings
   are kept, and the tail is `⟦ \ · ⟧ᵏ`. It moves `Δ`'s inputs onto
   bound positions and shifts the bound label up by `k`.
 - `T(Δ) = ⟦ · := t₀ ; … ; · := t_{k−1} ⟧`: the targets, in position
@@ -608,19 +608,19 @@ None of them is close while part 1 is open.
 proves that, for label atoms `a`, `b` the facts leave unordered,
 
 ```
-f1 = ⟦ \ a ⟧ ⨾ ⟦ b := ·₀ ⟧ ⨾ ⟦ \ b ⟧
-f2 = f1 ⨾ ⟦ a := ·₁ ⟧ ⨾ ⟦ \ a ⟧
+f1 = ⟦ \ a ⟧ ⨾ ⟦ b as ·₀ ⟧ ⨾ ⟦ \ b ⟧
+f2 = f1 ⨾ ⟦ a as ·₁ ⟧ ⨾ ⟦ \ a ⟧
 ```
 
 are equal in every consistent model (`f1_f2`), while `hn_eq` says they
 differ (`hn_f1_f2`). Why they are equal:
 
 - after `⟦ \ a ⟧` no variable is at `a₀`;
-- `⟦ b := ·₀ ⟧ ⨾ ⟦ \ b ⟧` sends every variable it does not consume back
+- `⟦ b as ·₀ ⟧ ⨾ ⟦ \ b ⟧` sends every variable it does not consume back
   where it was, so it cannot put one at `a₀`;
 - the target `·₀` passes every step unchanged.
 
-So nothing reaches the entry `⟦ a := ·₁ ⟧`, and together with the
+So nothing reaches the entry `⟦ a as ·₁ ⟧`, and together with the
 weakening after it, it does nothing.
 
 **The missing rule is about unreachable entries.** Call an entry *dead*
@@ -631,13 +631,13 @@ nothing looked up through it.
 - A dead entry anywhere else still shifts its label, but its target is
   irrelevant, so it needs a canonical target.
 - Whether an entry is dead depends on what lies between it and the
-  weakening that emptied index 0. `⟦ b := ·₀ ⟧ ⨾ ⟦ \ b ⟧` can never
+  weakening that emptied index 0. `⟦ b as ·₀ ⟧ ⨾ ⟦ \ b ⟧` can never
   refill it. `⟦ \ b ⟧` alone can, in a model where `b` overlaps `a` at
   an offset.
 
 **It is not local.** A weakening pushed onto the front of a word can
 make an entry deep inside dead. Then the entry and its weakening go,
-and that can enable a cancellation, as in `⟦ \ b ⟧ ⨾ ⟦ b := … ⟧`
+and that can enable a cancellation, as with `⟦ \ b ⟧` followed by an entry on `b`
 becoming adjacent.
 
 **Search.** The search (scratch `kl.py`, `kl2.py`, `kl3.py`) enumerated
