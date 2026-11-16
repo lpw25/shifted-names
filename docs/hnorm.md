@@ -612,8 +612,9 @@ f1 = ⟦ \ a ⟧ ⨾ Eb ⨾ ⟦ \ b ⟧
 f2 = f1 ⨾ Ea ⨾ ⟦ \ a ⟧
 ```
 
-where `Eb` is the input entry sending `b₀` to the bound variable `·₀`
-(`AInner b (TVarE · 0) AId`), and `Ea` the one sending `a₀` to `·₁`.
+where `Eb = ⟦ b as v; · as v \ · as v ⟧` sends `b₀` to the existing
+bound variable `·₀` (`AInner b (TVarE · 0) AId`), and `Ea` sends `a₀`
+to `·₁` (`AInner a (TVarE · 1) AId`).
 
 are equal in every consistent model (`f1_f2`), while `hn_eq` says they
 differ (`hn_f1_f2`). Why they are equal:
