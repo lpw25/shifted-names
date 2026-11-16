@@ -110,6 +110,103 @@ There is one adjustment form, `⟦ Δ | τ ⟧`. Its properties:
 In the context-form syntax, this means letting a context's entry list
 be named with `share` and spliced into other entry lists.
 
+### 4. Adjustments only: a frame of targets per tail (fails)
+
+Requirement: every shared definition is an adjustment (no fragments).
+
+**The idea.** All the words with the same tail `X` (a *group*) share one
+frame of targets. The distinct targets of the group's runs get
+positions `0 … N−1` on the bound label, and a run `Δ` in front of `X`
+prints as
+
+```
+Sh_N ⨾ R(Δ) ⨾ ⟦ ·ᴺ | X ⟧ ⨾ T_X
+```
+
+The four pieces:
+
+- `Sh_N = ⟦ \ · ⟧ᴺ` moves the real bound variables past the frame.
+- `R(Δ)` sends each label to its target's position. Its pieces commute,
+  because their targets are bound variables the other pieces leave
+  alone, so it is a tree of compositions following the trie.
+- `⟦ ·ᴺ | X ⟧` is the tail lifted `N` times, so it leaves the frame
+  alone.
+- `T_X = ⟦ · := u₀; …; · := u_{N−1} ⟧` puts the targets in. It comes
+  last, so the targets pass through nothing, and targets that can see
+  the bound label are no problem.
+
+**It is correct.** Checked with `hn_eq` (scratch test `GF.v`): a run of
+three entries is printed this way and compared with the plain form.
+
+| Case | Result |
+|---|---|
+| a target whose payload contains an atom, and a bound-variable target | true |
+| tails: the identity, an atom, an atom then an entry whose target is `·₁`, a weakening of `·` then an atom | true for each |
+| controls: wrong positions, or the tail not lifted | false |
+
+**Its size looks fine.** Per group it costs `N` for `T_X`, `N` for the
+lifted tail, and one definition per trie node for `R`.
+
+**It is cyclic.** A frame shared by a group holds the targets of *all*
+the group's runs, and those targets' payloads are often other words of
+the same group. In a chain of substitutions, the word `W_k` is in the
+same group (tail `⟦⟧`) as `W_{k+1}`, whose new target `u_{k+1}[W_k]` has
+`W_k` as its payload. So `W_k`'s printed form refers to `T_X`, which
+refers to `W_k`. Inlining the printed form did not terminate.
+
+**Acyclic frames do not fix it.** A word may only use a frame whose
+targets do not depend on it. So the frames have to be nested, one per
+point in the dependency order. Nested frames run into one of two
+problems:
+
+- If they grow at the bottom, positions are stable, but the frames are
+  lists sharing prefixes, which lists cannot do. Each frame costs its
+  length, so the total is quadratic.
+- If they grow at the top, they share suffixes, but every position
+  moves when a target is added. Moving a piece's positions by `d` is
+  either `d` lifts, or a shift that also moves the real bound variables
+  passing through.
+
+### Why adjustments alone do not suffice
+
+Every construct that lets a target skip what comes after it acts on one
+target or one variable at a time:
+
+- an input entry `⟦ x := t | τ ⟧` lets one target skip `τ`;
+- a lift `⟦ x | τ ⟧` lets one variable skip `τ`.
+
+Composition sends targets through what follows. In a tree of pieces
+that carry targets, at each node one side's targets must skip the other
+side's substitutions. That costs the size of the other side, unless the
+targets cannot see what they pass through.
+
+In a persistent trie, a new version creates a node at each level of
+its path. When such a node's skipped side is the new one, it pays that
+size again, which is `Θ(n)` per insertion in the worst case.
+
+**What is enough: a counted lift `⟦ ·ᵏ | σ ⟧`** (σ under `k` binders,
+`k` a number). It is an adjustment, not a fragment. With it, everything
+is constant size per trie node, using the bound label as the
+interface:
+
+```
+⟦ Δ | X ⟧    = Ren(Δ) ⨾ ⟦ ·^|Δ| | X ⟧ ⨾ T(Δ)
+T(A ; B)     = ⟦ ·^|A| | T(B) ⟧ ⨾ T(A)
+Ren(A ; B)   = Ren(B) ⨾ Ren(A)
+```
+
+- **It is acyclic.** `T(node)` holds only the node's own targets, and a
+  target's payload cannot contain the target's own entry.
+- **It is correct.** Checked for `k = 1` and `k = 2`, where `⟦ ·ᵏ | σ ⟧`
+  is written as nested lifts: `BL.v` and `BL2.v`.
+
+**Reading it back still needs care.** Normalised step by step,
+`T(node)` becomes a stack of `|node|` entries on the bound label, and
+building those for every version is quadratic. The reader has to pair
+`Ren(node)` with `T(node)` and resolve them node by node, without
+building the stack. That is a technique in the normaliser, not syntax,
+but it means the normaliser has to know this shape.
+
 ## The trie normaliser (`Core/TNorm.v`)
 
 ### The form
