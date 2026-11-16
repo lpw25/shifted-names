@@ -464,6 +464,109 @@ still cost one step per run. The Cartier–Foata form (levels of
 pairwise-commuting steps, each level a trie) is the candidate
 generalisation, not yet checked.
 
+### Correction: bound labels are enough as the interface
+
+The new constructors above are not needed. The bound label `·` is known
+distinct from every named label, so it can carry the interface between
+pieces. (Below, `a ⨾ b` runs `a` first. `ACompose a b` runs `b` first,
+so `a ⨾ b` is `ACompose b a`.)
+
+For a fragment `Δ` with `k` entries, let `pos(x)` be the position of
+`x`'s entry, and define:
+
+- `Ren(Δ)`: each entry `x := t` becomes `x := ·_pos(x)`, weakenings
+  are kept, and the tail is `⟦ \ · ⟧ᵏ`. It moves `Δ`'s inputs onto
+  bound positions and shifts the bound label up by `k`.
+- `T(Δ) = ⟦ · := t₀ ; … ; · := t_{k−1} ⟧`: the targets, in position
+  order, on the bound label.
+
+Then, when the tail `τ` does not touch the bound label,
+
+```
+⟦ Δ | τ ⟧ = Ren(Δ) ⨾ τ ⨾ T(Δ)
+```
+
+Both pieces concatenate by plain composition, with positions local to
+each piece:
+
+```
+Ren(A ; B) = Ren(B) ⨾ Ren(A)        T(A ; B) = T(A) ⨾ T(B)
+```
+
+`Ren(B) ⨾ Ren(A)` puts `A`'s positions first. `T(A)`'s entries are
+sent through nothing, and `T(B)`'s named targets pass through `T(A)`
+unchanged. So a trie node prints as **two shared adjustments of
+constant size**, `Ren(node)` and `T(node)`, built from its children's.
+Checked with `hn_eq` on two entries (scratch test `BL.v`):
+
+| Check | Result |
+|---|---|
+| `⟦ x := u; y := v \| τ ⟧ = Ren ⨾ τ ⨾ T`, for `τ` = `⟦⟧`, a substitution on `z`, a weakening on `z` | true |
+| the same with the composition reversed | false |
+| `Ren(x ; y) = Ren(y) ⨾ Ren(x)` | true |
+| `T(x ; y) = T(x) ⨾ T(y)` | true |
+| `τ` an atom, a lift of an atom, or a substitution whose target is `·₀` | false |
+| the last two, with `τ` lifted over `·` twice | true |
+
+**When the tail does touch the bound label** (atoms, or targets that
+mention `·`), it has to be lifted over `·` `k` times. The lifts nest,
+so `lift^{k+1} τ = ⟦ · | lift^k τ ⟧`. All the words that share a tail
+then share one chain of lifts, as long as the longest run in front of
+that tail.
+
+**Reading it back is the open part.** The normaliser sees `T(root)` as
+a stack of `n` entries on `·`, and `Ren(root)` as `n` lookups into it.
+Done step by step, that is a lookup of depth up to `n` for each entry,
+so quadratic again. It needs either a stack on `·` with indexed
+lookup, or recognition of the pattern `Ren(Δ) ⨾ τ ⨾ T(Δ)` so that it
+rebuilds `Δ` directly. A dedicated fragment constructor would make
+this trivial, which is the trade-off against needing no new
+constructors.
+
+## Edits from a base
+
+**Contexts make deep edits shallow.** Within a run of steps on
+known-distinct labels:
+
+- inserting an entry anywhere is a push at the front, `⟦ x := t | W ⟧`,
+  because it commutes into place;
+- deleting the entry on `x` is a weakening at the front,
+  `⟦ \ x ⟧ ⨾ W`, because it commutes to the entry and cancels.
+
+The sorted list cannot use either fact, which is why it has to copy.
+
+**On the worst-case chain this is linear with existing constructors.**
+Each payload word `W_k` is the root `W_n` with the entries `k+1 … n`
+deleted. So `W_k = D_k ⨾ W_n` with `D_k = ⟦ \ x_{k+1} ⟧ ⨾ D_{k+1}`, a
+chain of weakenings sharing suffixes, `O(n)` in all.
+
+**The hard part is canonicity, not size.** The printed form must be a
+function of the meaning, because `reflexivity` compares printed terms.
+So "which word is each word an edit of" must be chosen canonically,
+not taken from the history of the normalisation.
+
+- *One base for everything* (a median) is not enough. On the chain,
+  edits from any single base add up to `Θ(n²)`. The edits have to
+  share with each other.
+- *Each word as an edit of another needed word* is a spanning tree in
+  edit space. A minimum spanning tree with canonical tie-breaking is
+  a function of the set of needed words, and on the chain it is the
+  chain itself. Done naively it costs a comparison per pair of needed
+  words. Optimal sharing (Steiner points that are not needed words)
+  is NP-hard in general.
+- Edits reach only into the first run. Below a barrier the word has to
+  be rebuilt up to the barrier, so the units are runs, with suffix
+  sharing between them as now.
+
+**How this relates to the trie.** A persistent canonical trie *is* a
+representation by edits: two words one edit apart share all but
+`O(log n)` nodes. Its canonicity is free, because its shape is a
+function of its content, but an edit costs `O(log n)` instead of
+`O(1)`. Explicit edit scripts cost `O(1)` an edit, but need a
+canonical choice of base. A combination is possible: tries internally
+to decide equality, and edit scripts, chosen from the tries, for
+printing.
+
 ## How far a uniqueness proof is
 
 Every approach needs the same three parts:
