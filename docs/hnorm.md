@@ -100,7 +100,9 @@ uses `share`.
 ## Results
 
 The same families as in `docs/normal-forms.md`. Time is for normalising
-both sides and comparing, with `vm_compute`, in seconds. "Size" is the
+both sides and comparing, with `vm_compute`, in seconds. The "new"
+rows are after the fix to `stop` described under "Why the second pass
+was cubic". "Size" is the
 number of cells reachable from the result (cells built in total, in
 brackets, where it differs).
 
@@ -115,31 +117,31 @@ Columns:
 
 | Family | Normaliser | 16 | 64 | 256 | 1024 |
 |---|---|---|---|---|---|
-| chain of substitutions, left- vs right-nested | new | — | 0.015 | 0.12 | 1.6 |
+| chain of substitutions, left- vs right-nested | new | — | 0.004 | 0.019 | 0.20 |
 | | layered | — | 0.007 | 0.031 | 0.28 |
 | | tree | 0.096 | > 120 | — | — |
-| the same chain, labels sorted against the order of addition | new | — | 0.035 | 0.73 | 27.8 |
+| the same chain, labels sorted against the order of addition | new | — | 0.021 | 0.61 | 26.5 |
 | | layered | — | 0.007 | 0.027 | 0.27 |
 | | tree | 0.094 | > 120 | — | — |
-| substitutions for one name | new | — | 0.004 | 0.017 | 0.13 |
+| substitutions for one name | new | — | 0.006 | 0.016 | 0.13 |
 | | layered | — | 0.009 | 0.026 | 0.23 |
 | | tree | 0.064 | > 120 | — | — |
-| an atom after each substitution | new | — | 0.003 | 0.013 | 0.12 |
+| an atom after each substitution | new | — | 0.004 | 0.013 | 0.14 |
 | | layered | — | 0.006 | 0.017 | 0.15 |
 | | tree | 1.1 | > 120 | — | — |
-| weakenings of distinct names | new | — | 0.014 | 0.13 | 1.4 |
+| weakenings of distinct names | new | — | 0.003 | 0.012 | 0.096 |
 | | layered | — | 0.012 | 0.094 | 1.3 |
 | | tree | 0.003 | 0.011 | 0.13 | — |
-| one substitution under nested lifts | new | — | 0.058 | 0.77 | 15.2 |
+| one substitution under nested lifts | new | — | 0.044 | 0.65 | 14.4 |
 | | layered | — | 0.11 | 2.2 | 90.7 |
 | | tree | 0.023 | 0.12 | 2.2 | — |
-| one simultaneous substitution | new | — | 0.009 | 0.11 | 1.5 |
+| one simultaneous substitution | new | — | 0.003 | 0.012 | 0.15 |
 | | layered | — | 0.007 | 0.015 | 0.12 |
 | | tree | 0.005 | 0.006 | 0.063 | — |
-| a term whose payload is the chain, then the chain | new | — | 0.016 | 0.19 | 2.4 |
+| a term whose payload is the chain, then the chain | new | — | 0.004 | 0.026 | 0.30 |
 | | layered | — | 0.063 | 0.77 | 10.9 |
 | | tree | 0.19 | > 120 | — | — |
-| a chain under nested lifts, then a substitution for each | new | — | 0.022 | 0.23 | 3.1 |
+| a chain under nested lifts, then a substitution for each | new | — | 0.007 | 0.029 | 0.37 |
 | | layered | — | 0.099 | 1.9 | 68.8 |
 | | tree | 0.10 | > 120 | — | — |
 
@@ -163,19 +165,21 @@ built in total, where that differs):
 - **Every comparison was decided correctly.** The new normaliser
   answered `true` on every pair, as the other two do.
 - **The new normaliser is quadratic, as predicted.**
-  - *Worst case:* only the chain with labels sorted against the order
-    of addition reaches the worst-case output size: `n(n+1)/2` cells.
-    Its time at 1024 is 28 s.
+  - *Worst case:* only the chains whose labels are not added in sorted
+    order go beyond linear output. Sorted against the order of
+    addition: `n(n+1)/2` cells, 26.5 s at 1024. In a random order:
+    about `n²/4` cells, 14.4 s.
   - *Nested lifts:* the reachable output stays linear, but `Θ(n²)`
-    cells are built and dropped along the way. That is because each new
-    step is inserted after all the earlier ones.
+    cells are built and dropped along the way, 14.4 s at 1024. That is
+    because each new step is inserted after all the earlier ones.
 - **Against the layered form**, the new normaliser is:
-  - *faster* where the layered form is cubic: nested lifts, terms whose
-    payload is a chain, and substitutions under lifts. At 1024 steps
-    that is 6 to 22 times faster;
-  - *slower* where the layered form is linear: chains and wide
-    substitutions, by 6 to 13 times at 1024;
-  - *about 100 times slower* on the worst-case chain.
+  - *as fast or faster* on every family with linear output. At 1024 it
+    is 0.1 to 0.4 s, against 0.12 to 1.3 s for the layered form where
+    that form is linear, and 11 to 69 s where it is cubic (payload
+    chains, substitutions under lifts);
+  - *slower* where it builds quadratically many cells: about 100 times
+    on the worst-case chain, 3 times on the random-order chain, and
+    6 times faster on nested lifts (14 s against 91 s).
 - **The tree form is exponential** on chains (either order), substitutions
   for one name, atoms between substitutions, payload chains and
   substitutions under lifts. It gives
@@ -200,30 +204,30 @@ timed on the result of normalising.
   was equal to the original expression.
 
 Time in seconds, with the first normalisation's time at 1024 for
-comparison. "> 600" means the whole file, both normalisations
-included, was stopped after 600 s.
+comparison. The two quadratic chains at 1024 were timed inside one
+evaluation with the first pass, by subtraction (see below).
 
 | Family | Normaliser | 64 | 256 | 1024 | first time, 1024 |
 |---|---|---|---|---|---|
-| chain, either nesting | new | 0.004 | 0.054 | 0.73 | 1.6 |
+| chain, either nesting | new | 0.000 | 0.012 | 0.043 | 0.20 |
 | | layered | 0.006 | 0.028 | 0.23 | 0.28 |
-| chain sorted against the order of addition | new | 0.15 | 5.5 | > 600 | 27.8 |
+| chain sorted against the order of addition | new | 0.015 | 0.42 | 17.5 | 26.5 |
 | | layered | 0.005 | 0.029 | 0.22 | 0.27 |
-| chain in a random label order | new | 0.062 | 3.4 | > 600 | 13.9 |
+| chain in a random label order | new | 0.007 | 0.16 | 3.6 | 14.4 |
 | | layered | 0.002 | 0.084 | 0.16 | 5.4 |
-| substitutions for one name | new | 0.000 | 0.003 | 0.050 | 0.13 |
+| substitutions for one name | new | 0.000 | 0.005 | 0.040 | 0.13 |
 | | layered | 0.004 | 0.026 | 0.22 | 0.23 |
-| an atom after each substitution | new | 0.000 | 0.002 | 0.009 | 0.12 |
+| an atom after each substitution | new | 0.000 | 0.002 | 0.009 | 0.14 |
 | | layered | 0.004 | 0.022 | 0.16 | 0.15 |
-| weakenings of distinct names | new | 0.003 | 0.044 | 0.71 | 1.4 |
+| weakenings of distinct names | new | 0.000 | 0.002 | 0.007 | 0.096 |
 | | layered | 0.016 | 0.21 | 3.1 | 1.3 |
-| nested lifts | new | 0.004 | 0.049 | 0.76 | 15.2 |
+| nested lifts | new | 0.000 | 0.003 | 0.032 | 14.4 |
 | | layered | 0.46 | 11.4 | 369 | 90.7 |
-| simultaneous substitution | new | 0.004 | 0.056 | 0.67 | 1.5 |
+| simultaneous substitution | new | 0.000 | 0.001 | 0.006 | 0.15 |
 | | layered | 0.000 | 0.006 | 0.070 | 0.12 |
-| payload is the chain | new | 0.004 | 0.052 | 0.74 | 2.4 |
+| payload is the chain | new | 0.000 | 0.005 | 0.046 | 0.30 |
 | | layered | 0.005 | 0.034 | 0.22 | 10.9 |
-| chain under nested lifts | new | 0.009 | 0.10 | 1.3 | 3.1 |
+| chain under nested lifts | new | 0.001 | 0.007 | 0.052 | 0.37 |
 | | layered | 0.006 | 0.031 | 0.22 | 68.8 |
 
 The chain in a random label order, first normalisation (sizes as in
@@ -231,24 +235,23 @@ the size table):
 
 | Normaliser | 64 | 256 | 1024 |
 |---|---|---|---|
-| new | 0.042 | 0.65 | 13.9 |
+| new | 0.041 | 0.59 | 14.4 |
 | new, cells reachable | 1069 | 17014 | 260393 |
 | layered | 0.029 | 0.34 | 5.4 |
 
 **Reading the results.**
 
-- **Re-normalising is cheap for the new normaliser, except in the bad
-  case.** Wherever the output is linear, the second pass takes 0.01 to
-  1.3 s at 1024. That is less than the first pass, and for nested lifts
-  it is 20 times less, because the discarded intermediates are not
-  rebuilt.
-- **The bad case gets worse.** The second pass on the worst-case chain
-  is cubic: 5.5 s at 256, against 0.73 s the first time. At 1024 it did
-  not finish.
-- **A random label order is nearly as bad.** Its output is about `n²/4`
-  cells (260393 at 1024, against 524800 for the worst order). That is
-  what the inversion count predicts, so the bad case is the typical
-  case for chains (next section).
+- **Re-normalising is cheap for the new normaliser.** Wherever the
+  output is linear, the second pass takes 0.006 to 0.05 s at 1024. That
+  is 3 to 20 times less than the first pass, and for nested lifts 450
+  times less, because the discarded intermediates are not rebuilt.
+- **The bad case is `n² log n` on the second pass too:** 17.5 s at 1024
+  for the worst order, 3.6 s for a random order. Before the fix below
+  it was cubic (5.5 s at 256, and it did not finish at 1024).
+- **A random label order is nearly as bad as the worst.** Its output is
+  about `n²/4` cells (260393 at 1024, against 524800 for the worst
+  order). That is what the inversion count predicts, so the bad case
+  is the typical case for chains (see "Where the bad case comes from").
 - **The layered form's second pass is cheap on chains, but worse where
   it was already cubic.** It is cheap on chains and payloads, because
   its readback has one context per segment. On nested lifts it is
