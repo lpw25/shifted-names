@@ -259,6 +259,50 @@ the size table):
   0.07). The layered form pays a full composition for each payload
   that is a composition.
 
+### Why the second pass was cubic, and the fix
+
+On re-normalisation every step is already in sorted position, so the
+insertion walk (`sorted_at`) is 0 for every cell. Counting the other
+walks over the cells of the worst-case chain:
+
+| n | cells | `stop` walk | insertion walk | payload scans in `clean` |
+|---|---|---|---|---|
+| 64 | 2080 | 43680 | 0 | 43680 |
+| 128 | 8256 | 349504 | 0 | 349504 |
+| 256 | 32896 | 2796160 | 0 | 2796160 |
+
+Both are `n³/6`. Neither comes from the form; both were implementation
+waste:
+
+- **`stop` walked to the end of the stretch of known-distinct steps**,
+  looking for a step on the same label to cancel with. It now stops at
+  the first label that sorts after `h`. That is safe in a sorted word
+  (see the algorithm), and it makes the walk equal to the insertion
+  walk.
+- **`clean` re-scanned a payload at every cell holding the term.** In
+  the worst-case chain, `n²/2` cells hold `n` terms. The cleaned
+  payload is now memoised by the payload's id.
+
+After the fix, every cell costs one bucket scan in the hash-cons table
+(about `1.5 n²` in total) and finite-map operations of depth `log n`.
+So both passes are `Θ(n² log n)` on the worst-case chain, one
+`log n` above its output size.
+
+| Worst-case chain | 64 | 256 | 1024 |
+|---|---|---|---|
+| second pass, before | 0.15 | 5.5 | > 600 |
+| second pass, after | 0.015 | 0.42 | 17.5 |
+| first pass, after | 0.021 | 0.61 | 26.5 |
+
+At 1024 the second pass was timed inside the same evaluation as the
+first, by subtracting (47.4 s − 29.9 s). Saving a 525k-cell normal form
+as a Coq definition costs more than either pass, and that is what had
+timed out.
+
+The fix to `stop` also helps the first pass wherever there is a long
+stretch of known-distinct labels. The chain in addition order went
+from 1.6 s to 0.20 s at 1024.
+
 ## Where the bad case comes from
 
 **One form causes it.** Pushing a step costs the number of steps it walks
