@@ -114,6 +114,7 @@ Columns:
 | | tree | 0.096 | > 120 | — | — |
 | the same chain, labels sorted against the order of addition | new | — | 0.035 | 0.73 | 27.8 |
 | | layered | — | 0.007 | 0.027 | 0.27 |
+| | tree | 0.094 | > 120 | — | — |
 | substitutions for one name | new | — | 0.004 | 0.017 | 0.13 |
 | | layered | — | 0.009 | 0.026 | 0.23 |
 | | tree | 0.064 | > 120 | — | — |
@@ -169,8 +170,9 @@ built in total, where that differs):
   - *slower* where the layered form is linear: chains and wide
     substitutions, by 6 to 13 times at 1024;
   - *about 100 times slower* on the worst-case chain.
-- **The tree form is exponential** on chains, atoms between
-  substitutions, payload chains and substitutions under lifts. It gives
+- **The tree form is exponential** on chains (either order), substitutions
+  for one name, atoms between substitutions, payload chains and
+  substitutions under lifts. It gives
   up before 64 steps on each. Where it has no terms to duplicate
   (weakenings, lifts, wide substitutions) it is about as fast as the
   others.
