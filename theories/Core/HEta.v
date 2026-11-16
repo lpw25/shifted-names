@@ -90,24 +90,6 @@ Definition dead (pre : list step) (h : lexp) : bool := unreach h (segment pre []
 
 (** ** One pass on a list of steps *)
 
-Fixpoint redex (pre : list step) (w : list step) : option (list step) :=
-  match w with
-  | [] => None
-  | s :: r =>
-      let hit := match s, r with
-                 | SW h, SE g _ :: r' => if lexp_eqb g h then Some (rev pre ++ r') else None
-                 | SE h _, SW g :: r' => if lexp_eqb g h && dead (rev pre) h then Some (rev pre ++ r') else None
-                 | _, _ => None
-                 end in
-      match hit with Some l => Some l | None => redex (s :: pre) r end
-  end.
-
-Fixpoint reduce_all (fuel : nat) (w : list step) : list step :=
-  match fuel with
-  | 0 => w
-  | S f => match redex [] w with Some w' => reduce_all f w' | None => w end
-  end.
-
 Fixpoint canon_dead (pre w : list step) : list step :=
   match w with
   | [] => []
@@ -115,14 +97,35 @@ Fixpoint canon_dead (pre w : list step) : list step :=
   | s :: r => s :: canon_dead (s :: pre) r
   end.
 
-(** Named inputs only: the bound-label steps before the first atom go. *)
-Fixpoint drop_bound (w : list step) : list step :=
+(** ** Which inputs matter
+
+    [All]: every input; [Named]: named inputs (a term's payload without
+    a payload atom); [One h]: one variable of [h] (a stuck lookup).
+    Before the first atom, a step on a label that every label the
+    inputs could be on is ordered against can never be reached: it
+    goes.  A label becomes possible once a step on it comes while the
+    walk may be on a label not ordered against it. *)
+
+Inductive mode : Type := All | Named | One (h : lexp).
+
+Definition mode_eqb (a b : mode) : bool :=
+  match a, b with All, All | Named, Named => true | One h, One g => lexp_eqb h g | _, _ => false end.
+
+Definition reachable_from (R : list lexp) (named : bool) (l : lexp) : bool :=
+  (if named then negb (lexp_eqb l LNone) else false)
+  || existsb (fun r => lexp_eqb r l || negb (kd F r l)) R.
+
+Fixpoint restrict (R : list lexp) (named : bool) (w : list step) : list step :=
   match w with
   | [] => []
   | SA a :: r => SA a :: r
-  | SE LNone _ :: r | SW LNone :: r => drop_bound r
-  | s :: r => s :: drop_bound r
+  | s :: r =>
+      let l := match s with SE h _ | SW h => h | SA _ => LNone end in
+      if reachable_from R named l then s :: restrict (l :: R) named r else restrict R named r
   end.
+
+Definition restrict_mode (m : mode) (w : list step) : list step :=
+  match m with All => w | Named => restrict [] true w | One h => restrict [h] false w end.
 
 (** ** Over the table *)
 
@@ -133,50 +136,112 @@ Fixpoint steps_of (fuel : nat) (i : positive) (Z : st) : list step :=
            match PositiveMap.find i (cells Z) with Some (s, t) => s :: steps_of f t Z | None => [] end
   end.
 
-Definition mkey (i : positive) (named : bool) : positive := if named then xI i else xO i.
+Definition mfind (i : positive) (m : mode) (M : PositiveMap.t (list (mode * positive))) : option positive :=
+  match PositiveMap.find i M with
+  | Some l => option_map snd (find (fun '(m', _) => mode_eqb m m') l)
+  | None => None
+  end.
 
-Fixpoint eta (fuel : nat) (named : bool) (i : positive) (M : PositiveMap.t positive) (Z : st)
-  : positive * PositiveMap.t positive * st :=
+Definition madd (i : positive) (m : mode) (r : positive) (M : PositiveMap.t (list (mode * positive))) :=
+  PositiveMap.add i ((m, r) :: match PositiveMap.find i M with Some l => l | None => [] end) M.
+
+Definition vmode (b : option nat) : mode := match b with None => Named | Some _ => All end.
+
+Fixpoint eta (fuel : nat) (m : mode) (i : positive) (M : PositiveMap.t (list (mode * positive))) (Z : st)
+  : positive * PositiveMap.t (list (mode * positive)) * st :=
   match fuel with
   | 0 => (i, M, Z)
   | S f =>
       if Pos.eqb i 1 then (1%positive, M, Z) else
-      match PositiveMap.find (mkey i named) M with
+      match mfind i m M with
       | Some r => (r, M, Z)
       | None =>
           let l := steps_of (Pos.to_nat (next Z)) i Z in
-          (* values first *)
-          let '(l1, M1, S1) := fold_right (fun s '(acc, M, Z) =>
-               match s with
-               | SE h (VTerm u b p) =>
-                   let '(p', M', Z') := eta f (match b with None => true | Some _ => false end) p M Z in
-                   (SE h (VTerm u b p') :: acc, M', Z')
-               | SE h (VLook g j x) =>
-                   let '(x', M', Z') := eta f false x M Z in (SE h (VLook g j x') :: acc, M', Z')
-               | s => (s :: acc, M, Z)
-               end) ([], M, Z) l in
-          let l2 := if named then drop_bound l1 else l1 in
-          let l3 := canon_dead [] (reduce_all (List.length l2) l2) in
-          let '(w, S2) := rebuild l3 [] S1 in
+          let '(l1, M1, Z1) := fold_right (fun s '(acc, M, Z) =>
+               let '(s', M', Z') := estep f s M Z in (s' :: acc, M', Z')) ([], M, Z) l in
+          let l2 := restrict_mode m l1 in
+          let '(l3, M2, Z2) := reduce_all f (List.length l2) l2 M1 Z1 in
+          let l4 := canon_dead [] l3 in
+          let '(w, Z3) := rebuild l4 [] Z2 in
           let r := wid w in
-          (r, PositiveMap.add (mkey i named) r M1, S2)
+          (r, madd i m r M2, Z3)
+      end
+  end
+with estep (fuel : nat) (s : step) (M : PositiveMap.t (list (mode * positive))) (Z : st)
+  : step * PositiveMap.t (list (mode * positive)) * st :=
+  match fuel with
+  | 0 => (s, M, Z)
+  | S f =>
+      match s with
+      | SE h v => let '(v', M', Z') := eval f v M Z in (SE h v', M', Z')
+      | _ => (s, M, Z)
+      end
+  end
+with eval (fuel : nat) (v : val) (M : PositiveMap.t (list (mode * positive))) (Z : st)
+  : val * PositiveMap.t (list (mode * positive)) * st :=
+  match fuel with
+  | 0 => (v, M, Z)
+  | S f =>
+      match v with
+      | VTerm u b p => let '(p', M', Z') := eta f (vmode b) p M Z in (VTerm u b p', M', Z')
+      | VLook g j x => let '(x', M', Z') := eta f (One g) x M Z in (VLook g j x', M', Z')
+      | VVar _ _ => (v, M, Z)
+      end
+  end
+(** Remove redexes to a fixpoint: a weakening and an entry on its label
+    (cancellation); an entry and a weakening on its label, when the
+    entry is dead or its target is what the rest gives [h₀]. *)
+with reduce_all (fuel : nat) (n : nat) (w : list step) (M : PositiveMap.t (list (mode * positive))) (Z : st)
+  : list step * PositiveMap.t (list (mode * positive)) * st :=
+  match fuel with
+  | 0 => (w, M, Z)
+  | S f =>
+      match n with
+      | 0 => (w, M, Z)
+      | S n' =>
+          let '(o, M1, Z1) := redex f [] w M Z in
+          match o with Some w' => reduce_all f n' w' M1 Z1 | None => (w, M1, Z1) end
+      end
+  end
+with redex (fuel : nat) (pre w : list step) (M : PositiveMap.t (list (mode * positive))) (Z : st)
+  : option (list step) * PositiveMap.t (list (mode * positive)) * st :=
+  match fuel with
+  | 0 => (None, M, Z)
+  | S f =>
+      match w with
+      | [] => (None, M, Z)
+      | s :: r =>
+          let '(hit, M1, Z1) :=
+            match s, r with
+            | SW h, SE g _ :: r' => (if lexp_eqb g h then Some (rev pre ++ r') else None, M, Z)
+            | SE h v, SW g :: r' =>
+                if lexp_eqb g h then
+                  if dead (rev pre) h then (Some (rev pre ++ r'), M, Z)
+                  else
+                    let '(rw, Z1) := rebuild r' [] Z in
+                    let '(v0, M1, Z2) := eval f (lookup F h 0 rw) M Z1 in
+                    (if val_eqb v v0 then Some (rev pre ++ r') else None, M1, Z2)
+                else (None, M, Z)
+            | _, _ => (None, M, Z)
+            end in
+          match hit with Some l => (Some l, M1, Z1) | None => redex f (s :: pre) r M1 Z1 end
       end
   end.
 
 (** Both sides through [HNorm], then the pass, in one table. *)
 Definition he_eq (e1 e2 : aexp) : bool :=
-  let '(w1, S1) := norm F e1 [] st0 in
-  let '(w2, S2) := norm F e2 [] S1 in
-  let fu := 2 * Pos.to_nat (next S2) in
-  let '(r1, M, S3) := eta fu false (wid w1) (PositiveMap.empty _) S2 in
-  let '(r2, _, _) := eta fu false (wid w2) M S3 in
+  let '(w1, Z1) := norm F e1 [] st0 in
+  let '(w2, Z2) := norm F e2 [] Z1 in
+  let fu := 2 * Pos.to_nat (next Z2) + 100 in
+  let '(r1, M, Z3) := eta fu All (wid w1) (PositiveMap.empty _) Z2 in
+  let '(r2, _, _) := eta fu All (wid w2) M Z3 in
   Pos.eqb r1 r2.
 
 (** The normal-form ids of a list of expressions, in one table. *)
 Definition he_ids (es : list aexp) : list positive :=
   let '(ws, Z) := fold_left (fun '(acc, Z) e => let '(w, Z') := norm F e [] Z in (wid w :: acc, Z')) es ([], st0) in
-  let fu := 2 * Pos.to_nat (next Z) in
-  let '(rs, _, _) := fold_left (fun '(acc, M, Z) w => let '(r, M', Z') := eta fu false w M Z in (r :: acc, M', Z'))
+  let fu := 2 * Pos.to_nat (next Z) + 100 in
+  let '(rs, _, _) := fold_left (fun '(acc, M, Z) w => let '(r, M', Z') := eta fu All w M Z in (r :: acc, M', Z'))
                         (rev ws) ([], PositiveMap.empty _, Z) in
   rev rs.
 
