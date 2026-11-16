@@ -215,3 +215,107 @@ comparison:
 | | layered | 0.005 | 0.034 | 0.22 | 10.9 |
 | chain under nested lifts | new | 0.009 | 0.13 | 1.3 | 3.1 |
 | | layered | 0.006 | 0.031 | 0.22 | 68.8 |
+
+## Where the bad case comes from
+
+**One form causes it.** Pushing a step costs the number of steps it walks
+past, and those are the steps on known-distinct labels that sort before
+it. Summed over a normalisation, that is the number of *inversions*
+between the order steps are added in and the sorted order. This is
+exactly insertion sort.
+
+- *Time* is quadratic whenever there are many inversions.
+- *Output size* is quadratic only when the intermediate words stay
+  reachable as well. That happens when terms are normalised on top of
+  the current word (a chain of substitutions with payloads) or when a
+  lookup gets stuck in it.
+- Nested lifts have the inversions without the reachable intermediates.
+  So they are quadratic in time but linear in size.
+- Re-normalising the worst case is cubic: each of the `n²/2` reachable
+  cells is pushed again, and each push walks up to `n` steps.
+
+**It is the typical case, not a rare one.** A random order of labels
+has about `n²/4` inversions, like insertion sort on random input. The
+order users introduce labels in has nothing to do with the facts
+order, so random-looking orders are what to expect. (The chain in a
+random label order is benchmarked below.)
+
+## What can be done about it
+
+**A pre-pass does not help with size.** In this representation the
+normal form of the worst-case chain *is* `n²/2` cells. The form is a
+function of the meaning, so no order of work avoids building it. A
+pre-pass that batches consecutive pushes which commute, and merges them
+in, would fix time only where the intermediates are thrown away
+(nested lifts).
+
+**The sort direction is a free choice.** The proof that sorted words
+are unique needs a transitive order whose comparability is "known
+distinct". The reverse of the facts order is one too. Choosing the
+direction that matches how labels are usually created would fix
+one-directional patterns, but not random ones.
+
+**An arbitrary order such as a hash is *not* allowed.** With
+`d < a < b`, where `d` and `b` are not comparable, the words `b d a` and
+`a b d` are both sorted and equal. Sorting needs the facts order (or
+its reverse).
+
+**The better fix is to change the representation, not the pivot.**
+
+- Suppose the facts order is total on the labels in a stretch of word
+  between barriers (atoms, and pairs of labels not known distinct). In
+  a sorted word, adjacent steps on different labels are in increasing
+  order, so all the steps on one label are together.
+- The stretch is then exactly a **finite map from labels to the stack
+  of steps on that label**. A push only touches its own label's stack:
+  cancellation and absorption happen at the top of it.
+- Any canonical map structure works, because the sort order is needed
+  only for printing. A hash-consed binary trie keyed by the label's
+  interned id has a shape that depends only on the map. Its depth is
+  the length of the key, a worst-case bound rather than an expected
+  one. This is the canonical trie of Appel and Leroy, "Efficient
+  extensional binary tries", used in CompCert's `PTree`.
+- The objections to hashed Cartesian trees in `docs/nf-design.md` §2
+  were periodic words and bounds that are only expected. They do not
+  apply. The keys are distinct labels, not positions in a sequence,
+  and the bound is deterministic.
+- On the worst-case chain, each push is one map insertion that copies
+  one path. Time and size become `O(n log n)`.
+
+**What this does not cover.** Stretches where the facts order is only
+partial. A step on `h` can walk past steps on `a₁ … aₙ` that are all
+below `h` but not comparable with each other. Their order is fixed,
+so they are not a map. The Cartier–Foata normal form (levels of
+pairwise-commuting steps, each level a map) is the natural
+generalisation. Whether cancellation stays local in it is not yet
+checked.
+
+## How far a uniqueness proof is
+
+Every approach needs the same three parts:
+
+1. **The core lemma:** two different reduced sorted words differ in
+   some consistent finite interleaved model. This is the blocked-match
+   lemma of `docs/nf-design.md`, and the same lemma was left open for
+   the layered form over interleaved models. The hard cases are steps
+   kept apart by a label not known distinct (blocked matches) and
+   stuck lookups. For these, the model has to make the unknown label
+   overlap just enough to tell the words apart. `IFinite.v` gives the
+   model constructions, but the lemma is not yet stated precisely in
+   Coq.
+2. **The algorithm produces reduced sorted words, and is sound.** This
+   follows the pattern of the existing soundness proofs. The paper
+   argument that edits never cascade does most of the preservation
+   work.
+3. **The storage is faithful.** Equal ids mean equal unshared words.
+
+For the hash-consed list form, part 3 is a routine invariant of the
+table, and the form is a plain word. That makes it the easiest
+candidate for a first complete proof: prove part 1 for unshared words
+and lift it through the table.
+
+The map version adds trie canonicity, which is known and already
+mechanised (CompCert). The locally-consistent-parsing version adds a
+large verification effort for part 3.
+
+None of them is close while part 1 is open.
