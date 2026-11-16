@@ -49,14 +49,20 @@ the word `K`.
   the value's payload.
 
 **Pushing a step on `h`.** The step walks down the word past steps on
-labels known distinct from `h`, to the first step on `h`, on a label
-not known distinct from `h`, or an atom.
+labels that sort before `h`. It stops at the first step on `h`, on a
+label not known distinct from `h`, on a label that sorts after `h`, or
+at an atom.
 
+- **Stopping at a label after `h` is safe.** In a sorted word, no step
+  on `h` can come after such a step while every step in between is on
+  a label known distinct from `h`. This is the argument that sorted
+  words are unique.
 - A weakening that reaches an entry on `h` cancels with it.
 - An entry that reaches a weakening on `h` is absorbed when its value
   is what the rest gives `h₀`.
-- Otherwise the step is inserted in sorted position: past the steps on
-  labels known distinct from `h` that sort before it.
+- Otherwise the step goes where it stopped. That is its sorted
+  position, so the walk costs exactly the number of steps it is
+  inserted after.
 
 The cells in front of the edit are rebuilt, and the rest is shared.
 
@@ -326,6 +332,88 @@ so they are not a map. The Cartier–Foata normal form (levels of
 pairwise-commuting steps, each level a map) is the natural
 generalisation. Whether cancellation stays local in it is not yet
 checked.
+
+## The trie as a term
+
+**Why the current constructors cannot share a trie node.** A word
+prints as steps in front of the identity: `⟦ x := t | τ ⟧`,
+`⟦ \ x ⟧ ⨾ τ` and `σ ⨾ τ`. The only thing `share` can name is a whole
+adjustment, which is a step sequence *together with its tail*. So
+`share` can only share suffixes, and the hash-consed linked list is
+exactly what it can print. A trie node is a set of steps *without* the
+tail: the left subtree, one label's stack and the right subtree. It
+sits in front of different things in different words.
+
+**An encoding with what exists costs too much.**
+`⟦ x := t | τ ⟧` is `τ` lifted over `x`, then `⟦ x := t ⟧`. A trie node
+could therefore print as one child lifted over every label of the
+other child. That is `O(n log n)` lift constructors over the whole
+trie, none of them shareable. Nested lifts are also the slowest thing
+for both normalisers to read back.
+
+**The constructors that would help: shareable step sequences.** A new
+sort `Δ` of *context fragments*, the steps of a context without its
+tail:
+
+```
+Δ ::= ∅                (no steps)
+    | x := t           (an input entry)
+    | \ x              (a weakening)
+    | Δ₁ ; Δ₂          (Δ₁'s steps, then Δ₂'s)
+    | a shared fragment
+```
+
+There is one new adjustment form, `⟦ Δ | τ ⟧`: `Δ`'s steps in front of
+`τ`. Notes on this sort:
+
+- **`;` is plain concatenation of steps.** It needs no side condition.
+  Steps on one label keep their order, so it means the same for any
+  labels. The normaliser only ever joins fragments on known-distinct
+  labels, but the API does not need to know that.
+- **It is first order.** A target in an entry is in the output scope of
+  the whole adjustment and is not passed through the tail. So a
+  fragment means the same whatever it is put in front of: a list of
+  steps, not a function of the tail.
+- **The existing context forms are special cases.** `⟦ x := u; y := v | τ ⟧`
+  already has an entry list. What is new is naming a fragment once and
+  splicing it into several entry lists.
+
+**Printing a normal form.**
+
+- A word is a list of *runs*. Each run is a stretch of steps on
+  mutually ordered labels, and the runs are separated by barriers:
+  atoms, and steps on labels not known distinct. The list prints as
+  now, `⟦ Δ_run | barrier ⨾ ⟦ Δ_run' | … ⟧ ⟧`, with `share` on
+  suffixes.
+- Each trie node prints as a shared fragment
+  `Δ_node = Δ_left ; Δ_stack ; Δ_right`, where `Δ_stack` holds the
+  steps on the node's label.
+- Payloads name whole words, and stuck lookups `y⟨N⟩` name suffixes
+  starting at a barrier. Both are shareable adjustments already.
+
+**Reading it back.** Fragments can be memoised by identity like
+adjustments, so a printed trie is rebuilt node by node. Re-normalising
+printed output stays linear in its size.
+
+**Canonical across tactic calls.** `names; reflexivity` compares the
+printed terms, so the trie's shape must not depend on a table's
+history: interned ids will not do. The key has to be a fixed
+injective encoding of the label expression, such as its constructor
+and string bits. A path-compressed binary trie (Patricia tree) on that
+encoding has a shape that depends only on the set of keys. Its depth
+is at most the key length and at most the number of keys. Key order
+is unrelated to the facts order, which is fine because steps on
+known-distinct labels commute.
+
+- *Caveat:* abstract labels are keyed by their atom index from
+  reification. The shape then depends on that indexing, as it does for
+  any reflexive tactic. Both sides of one goal share an indexing.
+
+**Partial orders.** Where the facts order only partly orders the labels
+of a stretch, runs are shorter, and steps that walk past several runs
+still cost one step per run. The Cartier–Foata form (levels of
+pairwise-commuting steps, each level a trie) is the candidate
+generalisation, not yet checked.
 
 ## How far a uniqueness proof is
 

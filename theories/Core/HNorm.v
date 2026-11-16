@@ -104,16 +104,21 @@ Fixpoint lookup (h : lexp) (i : nat) (w : word) : val :=
       end
   end.
 
-(** Where a step on [h] stops: the steps it passes (labels known
-    distinct from [h]) and the rest, starting at the stopping step. *)
+(** Where a step on [h] stops: the steps it passes and the rest,
+    starting at the stopping step.  It passes steps on labels that sort
+    before [h].  It stops at a step on [h], on a label not known
+    distinct from [h], at an atom, or at a step on a label that sorts
+    after [h]: in a sorted word no step on [h] can follow that one
+    while every step in between is known distinct from [h] (the
+    argument that sorted words are unique).  So the steps passed are
+    exactly the ones a new step on [h] is inserted after. *)
 Fixpoint stop (h : lexp) (w : word) : list step * word :=
   match w with
   | [] => ([], [])
   | (s, _) :: w' =>
       match s with
       | SE g _ | SW g =>
-          if lexp_eqb g h then ([], w)
-          else if kd g h then let '(p, r) := stop h w' in (s :: p, r) else ([], w)
+          if before g h then let '(p, r) := stop h w' in (s :: p, r) else ([], w)
       | SA _ => ([], w)
       end
   end.
@@ -138,10 +143,13 @@ Definition insert (s : step) (h : lexp) (w : word) (S : st) : word * st :=
 
 (** A weakening on [h] in front of [w]: it cancels against the first
     entry on [h] it reaches, or stays, in sorted position. *)
+Definition place (s : step) (p : list step) (r : word) (S : st) : word * st :=
+  let '(r', S1) := hcons s r S in rebuild p r' S1.
+
 Definition pushW (h : lexp) (w : word) (S : st) : word * st :=
   match stop h w with
-  | (p, (SE g _, _) :: r) => if lexp_eqb g h then rebuild p r S else insert (SW h) h w S
-  | _ => insert (SW h) h w S
+  | (p, (SE g _, _) :: r) as pr => if lexp_eqb g h then rebuild p r S else place (SW h) p (snd pr) S
+  | (p, r) => place (SW h) p r S
   end.
 
 (** An entry on [h] in front of [w]: it is absorbed by a weakening on
@@ -149,9 +157,9 @@ Definition pushW (h : lexp) (w : word) (S : st) : word * st :=
     otherwise it is inserted in sorted position. *)
 Definition pushE (h : lexp) (v : val) (w : word) (S : st) : word * st :=
   match stop h w with
-  | (p, (SW g, _) :: r) =>
-      if lexp_eqb g h && val_eqb v (lookup h 0 r) then rebuild p r S else insert (SE h v) h w S
-  | _ => insert (SE h v) h w S
+  | (p, (SW g, _) :: r) as pr =>
+      if lexp_eqb g h && val_eqb v (lookup h 0 r) then rebuild p r S else place (SE h v) p (snd pr) S
+  | (p, r) => place (SE h v) p r S
   end.
 
 (** A payload with no payload atom only sees named variables: bound-label
@@ -276,7 +284,7 @@ Variable src : PositiveMap.t (step * positive).
 Fixpoint renorm (fuel : nat) (i : positive) (M : PositiveMap.t word) (T : st) {struct fuel}
   : word * PositiveMap.t word * st :=
   if Pos.eqb i 1 then ([], M, T) else
-  match PositiveMap.find i M with
+  match PositiveMap.find (xO i) M with
   | Some w => (w, M, T)
   | None =>
       match fuel with
@@ -293,9 +301,16 @@ Fixpoint renorm (fuel : nat) (i : positive) (M : PositiveMap.t word) (T : st) {s
                       match v with
                       | VVar _ _ => (v, M1, S1)
                       | VTerm u b p =>
-                          let '(wp, M2, S2) := renorm f p M1 S1 in
-                          let '(wp', S3) := clean b wp S2 in
-                          (VTerm u b (wid wp'), M2, S3)
+                          (* the cleaned payload is memoised under the
+                             cell's own key with the low bit set, so each
+                             payload is scanned once *)
+                          match b, PositiveMap.find (xI p) M1 with
+                          | None, Some wc => (VTerm u b (wid wc), M1, S1)
+                          | _, _ =>
+                              let '(wp, M2, S2) := renorm f p M1 S1 in
+                              let '(wp', S3) := clean b wp S2 in
+                              (VTerm u b (wid wp'), PositiveMap.add (xI p) wp' M2, S3)
+                          end
                       | VLook g j x =>
                           let '(wx, M2, S2) := renorm f x M1 S1 in
                           (lookup F g j wx, M2, S2)
@@ -304,7 +319,7 @@ Fixpoint renorm (fuel : nat) (i : positive) (M : PositiveMap.t word) (T : st) {s
                 | SW h => let '(w, S2) := pushW F h wt S1 in (w, M1, S2)
                 | SA a => let '(w, S2) := hcons (SA a) wt S1 in (w, M1, S2)
                 end in
-              (w, PositiveMap.add i w M2, S2)
+              (w, PositiveMap.add (xO i) w M2, S2)
           end
       end
   end.
