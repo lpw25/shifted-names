@@ -487,7 +487,7 @@ to the first step where the variable stops:
 - an `E_g` reached at index 0 gives its value;
 - a step on a label not known distinct from `g`, or an atom, leaves a
   stuck lookup. Its node is the suffix of `w` from that step, split off
-  in `O(log n)`.
+  in `O(d)` tree operations.
 
 This is an eliminator: no new data except the suffix.
 
