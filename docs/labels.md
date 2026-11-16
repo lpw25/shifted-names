@@ -37,7 +37,7 @@ A **target** is one of:
 | `σ` (`AAtom`) | the atom step, then nothing |
 | input entry (`AInner`) | the entry step in front |
 | output entry (`AOuter`), `a ⨾ ⟦ \ x ⟧` | `a`'s steps, then a weakening at the end; `a`'s targets are sent through it |
-| lift `⟦ x \| a ⟧` (`ALift`) | `⟦ x as x₀ \| a ⨾ ⟦ \ x ⟧ ⟧` |
+| lift `⟦ x \| a ⟧` (`ALift`) | the entry sending `x₀` to `x₀`, in front of `a ⨾ ⟦ \ x ⟧` |
 | `a ⨾ b` (`ACompose`) | `a`'s steps, then `b`'s; `a`'s targets are sent through `b` |
 
 An output weakening after an atom is a weakening in front of what
@@ -66,7 +66,7 @@ So a target can name a variable at an earlier point of the sequence.
 
 The single-label laws all follow from these. For example,
 `⟦ x | σ ⟧ ⨾ ⟦ x | τ ⟧ = ⟦ x | σ ⨾ τ ⟧` is cancellation of the middle
-`⟦ \ x ⟧ ⨾ ⟦ x as x₀ | … ⟧`.
+`⟦ \ x ⟧` followed by the entry sending `x₀` to `x₀`.
 
 ## Two identities that hold only by a case split
 

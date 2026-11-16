@@ -3,13 +3,15 @@
     A counterexample to canonicity of [HNorm] over interleaved models.
     With label atoms [a] and [b] that the facts leave unordered,
 
-      f1 = ⟦ \ a ⟧ ⨾ ⟦ b as ·₀ ⟧ ⨾ ⟦ \ b ⟧
-      f2 = f1 ⨾ ⟦ a as ·₁ ⟧ ⨾ ⟦ \ a ⟧
+      f1 = ⟦ \ a ⟧ ⨾ Eb ⨾ ⟦ \ b ⟧
+      f2 = f1 ⨾ Ea ⨾ ⟦ \ a ⟧
 
+    where [Eb] sends [b₀] to the bound variable [·₀]
+    ([AInner b (TVarE · 0) AId]) and [Ea] sends [a₀] to [·₁],
     agree in every consistent model ([f1_f2]): after [⟦ \ a ⟧] no
-    variable is at [a₀], [⟦ b as ·₀ ⟧ ⨾ ⟦ \ b ⟧] sends every variable it
+    variable is at [a₀], [Eb ⨾ ⟦ \ b ⟧] sends every variable it
     does not consume back where it was, and the target [·₀] passes every
-    step unchanged.  So the entry [⟦ a as ·₁ ⟧] is never reached, and
+    step unchanged.  So the entry [Ea] is never reached, and
     with the weakening after it it does nothing.  [HNorm] keeps it
     ([hn_f1_f2]). *)
 
