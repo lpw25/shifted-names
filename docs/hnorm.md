@@ -464,11 +464,14 @@ still cost one step per run. The Cartier–Foata form (levels of
 pairwise-commuting steps, each level a trie) is the candidate
 generalisation, not yet checked.
 
-### Correction: bound labels are enough as the interface
+### Bound labels as the interface
 
-The new constructors above are not needed. The bound label `·` is known
-distinct from every named label, so it can carry the interface between
-pieces. (Below, `a ⨾ b` runs `a` first. `ACompose a b` runs `b` first,
+**Later finding:** this works only for targets that cannot see the
+bound label, and the new constructor above is needed after all. See
+`docs/tnorm.md`, "Printing a trie".
+
+The bound label `·` is known distinct from every named label, so it
+can carry the interface between pieces. (Below, `a ⨾ b` runs `a` first. `ACompose a b` runs `b` first,
 so `a ⨾ b` is `ACompose b a`.)
 
 For a fragment `Δ` with `k` entries, let `pos(x)` be the position of
