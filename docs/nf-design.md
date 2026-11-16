@@ -421,20 +421,32 @@ node.
 - Split, concatenate, insert and delete must each create `O(log n)`
   new nodes.
 
-**Choice for now: a Cartesian tree.**
+**Not a Cartesian tree on hashed priorities.** That was my first
+choice, and it fails the requirement.
 
-- *Shape:* the priority of a step is a structural hash of its content,
-  including the hashes of the words it refers to. This needs no
-  identifiers that depend on how the word was built. The Cartesian tree
-  of a sequence of priorities is unique, with ties broken leftmost.
-- *Expected cost:* depth is `O(log n)` while the hashes behave randomly.
-- *Weakness:* a long periodic stretch (`a b a b …`) has repeated
-  priorities and degrades to a path. Runs remove only the trivial case,
-  where equal steps are adjacent.
-- *Deterministic alternative:* locally consistent parsing (Mehlhorn,
-  Sundar and Uhrig) handles periodicity, with worst-case
-  `O(log n · log* n)` per edit. It is the fallback if mechanised bounds
-  must be worst case.
+- **It degrades on periodic words.** A periodic stretch such as
+  `x := v; y := w; x := v; y := w; …`, with `x` and `y` not known
+  distinct, repeats its priorities. The tree then degrades to a path of
+  depth `Θ(n)`. Normal forms can contain such stretches: a user can
+  write one, and runs only remove the case where equal steps are
+  adjacent.
+- **Its bounds are only expected.** Even without periodicity, its
+  depth is logarithmic only in expectation over the hash. That cannot
+  be mechanised as a size bound.
+
+**What is needed** is a sequence structure with a canonical shape and
+worst-case logarithmic depth. That is what *locally consistent
+parsing* provides: deterministic coin tossing as in Mehlhorn, Sundar
+and Uhrig, or recompression, with repetitions compressed at every
+level.
+
+- *Shape:* it is a function of the word.
+- *Cost:* split and concatenation create polylogarithmically many
+  nodes, in the worst case.
+- *Price:* it is considerably more complex to implement and verify.
+
+Until it is chosen, every cost below is in terms of the tree's depth,
+written `d`. That is `O(log n)` only with such a structure.
 
 **Node fields:** left child, step, right child, size, hash and summary.
 
@@ -462,15 +474,15 @@ of labels not known distinct from `h`. Use the per-label counts for
 
 **Cost.** A summary is a map over the labels present. With few labels
 (the usual case) it is constant. In general, merging summaries along a
-path costs up to `O(log n · ℓ)` per edit, for `ℓ` distinct labels. This
+path costs up to `O(d · ℓ)` per edit, for `ℓ` distinct labels. This
 is open item 2 below.
 
 ### 4. Operations
 
 `n` is the size of the word acted on.
 
-**Lookup `(g, i)` in `w`.** Descend using the summaries to the first
-step where the variable stops:
+**Lookup `(g, i)` in `w`.** Descend using the summaries, in `O(d)`,
+to the first step where the variable stops:
 
 - an `E_g` reached at index 0 gives its value;
 - a step on a label not known distinct from `g`, or an atom, leaves a
@@ -479,10 +491,10 @@ step where the variable stops:
 
 This is an eliminator: no new data except the suffix.
 
-**Removal where an operation stops.** `O(log n)`. Proved to need no
+**Removal where an operation stops.** `O(d)`. Proved to need no
 reordering.
 
-**Insertion with a move.** `O(log n)`. Also proved to need no further
+**Insertion with a move.** `O(d)`. Also proved to need no further
 reordering.
 
 **Composing an input context `c` with a normal form `N`.** Right to
@@ -505,13 +517,15 @@ left, `c` is small and `N` may be large and shared.
 4. **Result.** The tree that results. `N`'s own steps are never
    copied: only paths change.
 
-*Cost:* `O(|c| · log n)` tree operations, plus the memoised payload
-compositions.
+*Cost:* `O(|c| · d · s)`, where `s` is the cost of merging summaries
+(item 2), plus the memoised payload compositions. With a tree of
+logarithmic depth and few labels, that is `O(|c| log n)`. With a tree
+that degrades, it is quadratic.
 
 **Composing two normal forms `M ⨾ N`.** This arises inside payloads.
 
 - *What it does:* every value of `M` changes, so `M`'s steps are
-  rebuilt. Costs are `O(|M| · log |N|)`.
+  rebuilt. Costs are `O(|M| · d · s)`.
 - *Memoisation:* it is memoised on the pair of nodes. Within the
   well-behaved fragment each pair occurs once.
 
@@ -543,9 +557,12 @@ below.
 
 - sorted words are unique representatives;
 - the edits operations make are local, with no cascades;
-- tree shape is canonical, given deterministic structural hashing;
-- composition with an input context costs `O(|c| log n)` tree
-  operations and never copies `N`.
+- tree shape is canonical, given a sequence structure whose shape is a
+  function of the word;
+- composition with an input context changes only `O(|c|)` paths of
+  `N`'s tree and never copies it. Its cost is `O(|c| · d · s)`, which
+  is `O(|c| log n)` only with a structure of logarithmic depth (item
+  3).
 
 The quadratic examples become linear:
 
@@ -561,9 +578,11 @@ The quadratic examples become linear:
    blocked-match lemma in its general form. It is still the central
    risk, and the data structure does not touch it.
 2. **The cost of summaries with many labels.**
-3. **Periodic words with Cartesian trees.** Either show they cannot
-   arise in normal forms beyond runs, or switch to locally consistent
-   parsing.
+3. **A canonical sequence structure of logarithmic depth.** Hashed
+   Cartesian trees do not qualify: periodic words make them linear,
+   and their bounds are only expected. Locally consistent parsing
+   does qualify, but costs a lot to verify. Without such a structure
+   the composition bound is quadratic.
 4. **Choosing bases for printing.** Canonically and fast.
 5. **Printing lookups readably.** `y⟨X⟩` where `X` is a suffix of a word
    being printed should print as a reference into that word, not as a
