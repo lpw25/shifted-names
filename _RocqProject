@@ -33,6 +33,7 @@ theories/Core/IModel.v
 theories/Core/ILayered.v
 theories/Core/IFinite.v
 theories/Core/HNorm.v
+theories/Core/TNorm.v
 theories/Core/Order.v
 theories/Core/LayeredOrder.v
 theories/Core/Canon.v
