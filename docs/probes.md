@@ -74,24 +74,73 @@ classes in every configuration tried, with repeated targets:
 | three | `a < c, b < c` | up to 4 | two | 2,111 |
 | three | `a < b < c` | up to 4 | two | 955 |
 
+These words are too short for the next problem.
+
+## Conflicts depend on context
+
+Whether two probes may swap is not a property of the pair. It depends
+on which earlier probes already catch their common inputs.
+
+**Example** (`Core/HEtaGap.v`, distinct targets). Write `En h n` for
+the entry sending `h₀` to `·ₙ`, and `W h` for `⟦ \ h ⟧`.
+
+```
+r1 = W b ⨾ W b ⨾ En a 5 ⨾ W a ⨾ En b 2 ⨾ En b 3 ⨾ En a 0 ⨾ W a ⨾ W b ⨾ En a 7 ⨾ W a
+r2 = W b ⨾ W b ⨾ En a 5 ⨾ W a ⨾ En b 2 ⨾ En a 7 ⨾ W a ⨾ En b 3 ⨾ En a 0 ⨾ W a ⨾ W b
+```
+
+The live probes are the same three in both words:
+
+| Probe | Label | Position | Point | Target |
+|---|---|---|---|---|
+| `k` | `a` | `bb` | `a₀·b⁻²` | 5 |
+| `i` | `a` | `1` | `a₀` | 0 |
+| `j` | `a` | `b` | `a₀·b⁻¹` | 7 |
+
+- In `r1` they come in the order `k, i, j`; in `r2`, `k, j, i`.
+- `i` and `j` meet exactly when `a₀` is not on `b`. Without `k`, the
+  two orders differ.
+- But whenever `a₀` is not on `b`, `k`'s point is `a₀` too, and `k`
+  comes first in both.
+
+So `r1` and `r2` are equal in every model (`r1_r2`). Yet `i` and `j`
+conflict as a pair, so a pairwise trace normal form keeps them apart,
+and so do `HNorm` and the eta pass (`he_r1_r2`). The same file proves
+the simplest equal-target swap (`t1_t2`, `he_t1_t2`).
+
+**What a canonical order needs.**
+
+- The meaning of a probe list `L` is: for each model and each original
+  input `y`, the target of the first probe that `y` realises.
+- `p` may come next after an already-placed prefix `O` exactly when no
+  model and input `y` has all of:
+  - `y` realises `p`;
+  - `y` realises nothing in `O`;
+  - `y`'s first probe in `L` has a target other than `p`'s.
+- With this test, the lexicographically least valid order is canonical
+  by definition, and greedy choice finds it.
+- If the current order is kept as a word, "`y`'s first probe in `L` is
+  `q`" means that `y`'s walk along the word stays at non-negative
+  indices up to `q`. The test is then, for each earlier `q` with a
+  different target: is there a model with `y` caught by `q` whose point
+  is also `p`'s point?
+
+**This is a satisfiability question over models.**
+
+- It is liveness (`docs/eta.md`) plus one identification of points.
+- The exact solver (scratch `csolve.py`) decides it by search over
+  partitions of label positions. No characterisation like the one for
+  liveness is known, and its cost is unknown.
+- The canonical probe set raises the same question: a probe live in
+  one word may be replaced, in an equal word, by a different probe that
+  catches the same inputs with the same target.
+
 ## When can two probes meet?
 
-**Only fresh catches matter.** An input whose walk to probe `p` dips
-below index 0 is caught on the way, by a probe that is always earlier
-in the list. That probe is a backward step on every path to `p`'s
-position, a wall of the Cayley complex. So two probes conflict exactly
-when some input reaches both without ever going negative.
+Without context: probes `(g, X)` and `(h, Y)` meet in a model when
+`g₀·X⁻¹ = h₀·Y⁻¹` and that variable has a non-negative index.
 
-**This reduces to one walk.** Probes `(g, X)` and `(h, Y)` can meet
-exactly when the walk from `g₀` along `X⁻¹·Y` (the letters as written,
-not reduced) can stay at non-negative indices and end at `h₀`.
-Liveness is the special case without a target.
-
-**An exact solver exists** (scratch `csolve.py`): it builds the model
-lazily as a partition of label positions. It shows that sampling misses
-real coincidences (26 of 3,160 pairs in two labels).
-
-**No simple rule is enough.** Two cheap sound tests suffice in every
+**No simple rule decides it.** Two cheap sound tests suffice in every
 search above:
 
 - the same position on ordered labels;
@@ -108,36 +157,17 @@ B = ⟦\a⟧⟦\a⟧ E_b(0) E_a(1) ⟦\a⟧⟦\b⟧⟦\b⟧ E_a(0) ⟦\a⟧
 Here `E_g(v)` is an entry on `g` with target `v`.
 
 - Probe `r` is at `aab` with target 0, and probe `p` at `aab⁻¹` with
-  target 1. They can meet only in models where `a₀` is not on `b`, and
-  there the meeting point is `a₋₂`, a negative index.
+  target 1. Their points are equal only when `a₀` is not on `b`, and
+  then both are `a₋₂`, a negative index.
 - The cheap tests do not see this, so they keep `A` and `B` apart.
-- The difference only matters because `r`'s target equals that of the
-  probe `(b, aa)`, so the two can swap.
-
-**A candidate decision procedure.**
-
-- Any model where the walk reaches `h₀` makes `g₀·c = h₀`, for
-  `c = X⁻¹Y` reduced.
-- Take the most general model with that one identification, and check
-  that the walk survives in it.
-- In the model with no identification this gives exactly the liveness
-  characterisation: the only variable at index 0 that the walk can
-  meet is `g₀`. With the identification, `g₀` is fixed by
-  `C_g ∪ c·C_h·c⁻¹`, so deciding survival needs membership in the
-  subgroup that generates, and a consistency check.
-
-Not yet worked out, implemented or proved.
 
 ## What this means for the plan
 
-- **The hash-consed normal form plus eta is not canonical** once
-  targets repeat.
-- **A canonical form must order probes by exact conflict.** That needs
-  the decision procedure above. Its cost, and whether the normaliser
-  stays quadratic, are open.
-- **The uniqueness proof** would go through the probe semantics:
-  - E-unitarity;
-  - liveness, the characterisation in `docs/eta.md`;
-  - the meeting criterion;
-  - constructing models in which given probes are realised apart or
-    together.
+- **`HNorm` plus eta is not canonical** (`Core/HEtaGap.v`), with
+  repeated targets and without.
+- **A canonical form needs an order decided in context:** each step of
+  the greedy order asks whether some model makes an input caught by one
+  probe meet another probe's point.
+- **Open:** a characterisation of that question, and its cost; whether
+  the canonical probe set is determined the same way; and printing a
+  reordered probe list as a word without adding live probes.

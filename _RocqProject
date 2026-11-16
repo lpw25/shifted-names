@@ -36,6 +36,7 @@ theories/Core/HNorm.v
 theories/Core/TNorm.v
 theories/Core/HNormGap.v
 theories/Core/HEta.v
+theories/Core/HEtaGap.v
 theories/Core/Order.v
 theories/Core/LayeredOrder.v
 theories/Core/Canon.v
