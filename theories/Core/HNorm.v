@@ -271,6 +271,8 @@ Section Renorm.
 
 Variable F : order.
 
+Variable src : PositiveMap.t (step * positive).
+
 Fixpoint renorm (fuel : nat) (i : positive) (M : PositiveMap.t word) (T : st) {struct fuel}
   : word * PositiveMap.t word * st :=
   if Pos.eqb i 1 then ([], M, T) else
@@ -280,7 +282,7 @@ Fixpoint renorm (fuel : nat) (i : positive) (M : PositiveMap.t word) (T : st) {s
       match fuel with
       | 0 => ([], M, T)
       | S f =>
-          match PositiveMap.find i (cells T) with
+          match PositiveMap.find i src with
           | None => ([], M, T)
           | Some (s, t) =>
               let '(wt, M1, S1) := renorm f t M T in
@@ -310,16 +312,53 @@ Fixpoint renorm (fuel : nat) (i : positive) (M : PositiveMap.t word) (T : st) {s
 (** Normalise both sides, then normalise both results again.  The
     second component says whether normalising again gave back the same
     words (idempotence). *)
-Definition norm_both (e1 e2 : aexp) : word * word * st :=
+End Renorm.
+
+(** The cells reachable from some roots: what a printed normal form
+    holds, without the rest of the table. *)
+Fixpoint prune (fuel : nat) (T : st) (todo : list positive) (acc : PositiveMap.t (step * positive)) : PositiveMap.t (step * positive) :=
+  match fuel with
+  | 0 => acc
+  | S fuel' =>
+      match todo with
+      | [] => acc
+      | i :: todo' =>
+          if Pos.eqb i 1 then prune fuel' T todo' acc
+          else match PositiveMap.find i acc with
+               | Some _ => prune fuel' T todo' acc
+               | None =>
+                   match PositiveMap.find i (cells T) with
+                   | Some (s, t) => prune fuel' T (t :: step_refs s ++ todo') (PositiveMap.add i (s, t) acc)
+                   | None => prune fuel' T todo' acc
+                   end
+               end
+      end
+  end.
+
+(** Normalise both sides, keeping only the reachable cells. *)
+Definition norm_both (F : order) (e1 e2 : aexp) : word * word * PositiveMap.t (step * positive) * positive :=
   let '(w1, S1) := norm F e1 [] st0 in
   let '(w2, S2) := norm F e2 [] S1 in
-  (w1, w2, S2).
+  (w1, w2, prune (2 * Pos.to_nat (next S2)) S2 [wid w1; wid w2] (PositiveMap.empty _), next S2).
 
-Definition renorm_both (r : word * word * st) : bool * bool :=
-  let '(w1, w2, T) := r in
-  let fuel := Pos.to_nat (next T) in
-  let '(v1, M1, S1) := renorm fuel (wid w1) (PositiveMap.empty _) T in
-  let '(v2, _, _) := renorm fuel (wid w2) M1 S1 in
-  (Pos.eqb (wid v1) (wid v2), Pos.eqb (wid v1) (wid w1) && Pos.eqb (wid v2) (wid w2)).
+(** Normalise the two results again, on a fresh table.  The first
+    component says whether they are still equal; the second whether
+    each came back as the same word (compared on the fresh table, by
+    renormalising once more and checking the ids are stable). *)
+Definition renorm_both (F : order) (r : word * word * PositiveMap.t (step * positive) * positive) : bool * bool :=
+  let '(w1, w2, C, nx) := r in
+  let fuel := Pos.to_nat nx in
+  let '(v1, M1, S1) := renorm F C fuel (wid w1) (PositiveMap.empty _) st0 in
+  let '(v2, _, S2) := renorm F C fuel (wid w2) M1 S1 in
+  let C2 := cells S2 in
+  let '(u1, N1, S3) := renorm F C2 fuel (wid v1) (PositiveMap.empty _) S2 in
+  let '(u2, _, _) := renorm F C2 fuel (wid v2) N1 S3 in
+  (Pos.eqb (wid v1) (wid v2), Pos.eqb (wid u1) (wid v1) && Pos.eqb (wid u2) (wid v2)).
 
-End Renorm.
+(** Only the first pass, for timing. *)
+Definition renorm_eq (F : order) (r : word * word * PositiveMap.t (step * positive) * positive) : bool :=
+  let '(w1, w2, C, nx) := r in
+  let fuel := Pos.to_nat nx in
+  let '(v1, M1, S1) := renorm F C fuel (wid w1) (PositiveMap.empty _) st0 in
+  let '(v2, _, _) := renorm F C fuel (wid w2) M1 S1 in
+  Pos.eqb (wid v1) (wid v2).
