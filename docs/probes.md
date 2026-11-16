@@ -9,7 +9,7 @@ completely.
 
 **The group.** Let `A` be the right-angled Artin group on the labels:
 
-- a weakening `⟦ \ g ⟧` is the letter `g`;
+- a weakening `⟦ \ g as _ ⟧` is the letter `g`;
 - an entry on `g` is `g⁻¹`;
 - two labels commute exactly when the facts order them.
 
@@ -52,10 +52,16 @@ that neither consumes to the same place.
 
 **Two new identities, besides beta and eta:**
 
-1. **Probes with equal targets commute.** Example:
-   `E_a(v) ⨾ ⟦ \ a ⟧ ⨾ E_b(v) ⨾ ⟦ \ b ⟧ = E_b(v) ⨾ ⟦ \ b ⟧ ⨾ E_a(v) ⨾ ⟦ \ a ⟧`
-   for unordered `a`, `b`, because each `E_g(v) ⨾ ⟦ \ g ⟧` is an
-   idempotent. Repeated targets do arise: two contractions into the
+1. **Probes with equal targets commute.** Example, for unordered `a`,
+   `b`:
+
+   ```
+   ⟦ a as v; · as v \ · as v ⟧ ⨾ ⟦ \ a as _ ⟧ ⨾ ⟦ b as v; · as v \ · as v ⟧ ⨾ ⟦ \ b as _ ⟧
+     = ⟦ b as v; · as v \ · as v ⟧ ⨾ ⟦ \ b as _ ⟧ ⨾ ⟦ a as v; · as v \ · as v ⟧ ⨾ ⟦ \ a as _ ⟧
+   ```
+
+   Each `⟦ g as v; · as v \ · as v ⟧ ⨾ ⟦ \ g as _ ⟧` sends `g` to `·` and every
+   other variable to itself. Repeated targets do arise: two contractions into the
    same variable, or the same term in two entries. The hash-consed
    normal form misses this. The search found 39 such pairs in two
    labels up to 6 steps.
@@ -81,27 +87,61 @@ These words are too short for the next problem.
 Whether two probes may swap is not a property of the pair. It depends
 on which earlier probes already catch their common inputs.
 
-**Example** (`Core/HEtaGap.v`, distinct targets). Write `En h n` for
-the entry sending `h₀` to `·ₙ`, and `W h` for `⟦ \ h ⟧`.
+**Example** (`Core/HEtaGap.v`, distinct targets). In the notation of
+`Core/Indexed.v`, `⟦ h as v; · as v \ · as v ⟧` sends `h` to `·`,
+`⟦ h as v; ·; · as v \ ·; · as v ⟧` sends it to `· ¹`, and
+`⟦ h as v; ·; ·; · as v \ ·; ·; · as v ⟧` sends it to `· ²`.
 
 ```
-r1 = W b ⨾ W b ⨾ En a 5 ⨾ W a ⨾ En b 2 ⨾ En b 3 ⨾ En a 0 ⨾ W a ⨾ W b ⨾ En a 7 ⨾ W a
-r2 = W b ⨾ W b ⨾ En a 5 ⨾ W a ⨾ En b 2 ⨾ En a 7 ⨾ W a ⨾ En b 3 ⨾ En a 0 ⨾ W a ⨾ W b
+r1 =
+    ⟦ \ b as _ ⟧
+  ⨾ ⟦ \ b as _ ⟧
+  ⨾ ⟦ a as v; ·; ·; · as v \ ·; ·; · as v ⟧
+  ⨾ ⟦ \ a as _ ⟧
+  ⨾ ⟦ b as v; · as v \ · as v ⟧
+  ⨾ ⟦ b as v; · as v \ · as v ⟧
+  ⨾ ⟦ a as v; · as v \ · as v ⟧
+  ⨾ ⟦ \ a as _ ⟧
+  ⨾ ⟦ \ b as _ ⟧
+  ⨾ ⟦ a as v; ·; · as v \ ·; · as v ⟧
+  ⨾ ⟦ \ a as _ ⟧
+
+r2 =
+    ⟦ \ b as _ ⟧
+  ⨾ ⟦ \ b as _ ⟧
+  ⨾ ⟦ a as v; ·; ·; · as v \ ·; ·; · as v ⟧
+  ⨾ ⟦ \ a as _ ⟧
+  ⨾ ⟦ b as v; · as v \ · as v ⟧
+  ⨾ ⟦ a as v; ·; · as v \ ·; · as v ⟧
+  ⨾ ⟦ \ a as _ ⟧
+  ⨾ ⟦ b as v; · as v \ · as v ⟧
+  ⨾ ⟦ a as v; · as v \ · as v ⟧
+  ⨾ ⟦ \ a as _ ⟧
+  ⨾ ⟦ \ b as _ ⟧
 ```
 
-The live probes are the same three in both words:
+On an input `v`, `r1` gives:
+
+- `· ²` if `⟦ \ b as _ ⟧ ⨾ ⟦ \ b as _ ⟧` takes `v` to `a`;
+- else `·` if `v` is `a`;
+- else `· ¹` if `⟦ \ b as _ ⟧` takes `v` to `a`;
+- else what `⟦ \ b as _ ⟧` gives for `v`.
+
+The two entries on `b` in the middle only move the input back along
+`b`: no input reaches `b` there. `r2` makes the middle two tests in the
+other order. As probes:
 
 | Probe | Label | Position | Point | Target |
 |---|---|---|---|---|
-| `k` | `a` | `bb` | `a₀·b⁻²` | 5 |
-| `i` | `a` | `1` | `a₀` | 0 |
-| `j` | `a` | `b` | `a₀·b⁻¹` | 7 |
+| `k` | `a` | `bb` | `a₀·b⁻²` | `· ²` |
+| `i` | `a` | `1` | `a₀` | `·` |
+| `j` | `a` | `b` | `a₀·b⁻¹` | `· ¹` |
 
 - In `r1` they come in the order `k, i, j`; in `r2`, `k, j, i`.
-- `i` and `j` meet exactly when `a₀` is not on `b`. Without `k`, the
-  two orders differ.
-- But whenever `a₀` is not on `b`, `k`'s point is `a₀` too, and `k`
-  comes first in both.
+- `i` and `j` meet exactly when `a` is not on `b`, that is, when
+  `⟦ \ b as _ ⟧` fixes `a`. Without `k`, the two orders differ.
+- But then `⟦ \ b as _ ⟧ ⨾ ⟦ \ b as _ ⟧` fixes `a` too, so `k`'s point is `a`,
+  and `k` comes first in both.
 
 So `r1` and `r2` are equal in every model (`r1_r2`). Yet `i` and `j`
 conflict as a pair, so a pairwise trace normal form keeps them apart,
@@ -150,14 +190,33 @@ But they are not complete. Here are two words, equal in all 3,009 test
 models, with the same probes in different orders:
 
 ```
-A = ⟦\a⟧⟦\a⟧⟦\b⟧ E_a(0) ⟦\a⟧ E_b(9) E_b(0) E_a(1) ⟦\a⟧⟦\b⟧⟦\b⟧
-B = ⟦\a⟧⟦\a⟧ E_b(0) E_a(1) ⟦\a⟧⟦\b⟧⟦\b⟧ E_a(0) ⟦\a⟧
+A =
+    ⟦ \ a as _ ⟧
+  ⨾ ⟦ \ a as _ ⟧
+  ⨾ ⟦ \ b as _ ⟧
+  ⨾ ⟦ a as v; · as v \ · as v ⟧
+  ⨾ ⟦ \ a as _ ⟧
+  ⨾ ⟦ b as v; · as v \ · as v ⟧
+  ⨾ ⟦ b as v; · as v \ · as v ⟧
+  ⨾ ⟦ a as v; ·; · as v \ ·; · as v ⟧
+  ⨾ ⟦ \ a as _ ⟧
+  ⨾ ⟦ \ b as _ ⟧
+  ⨾ ⟦ \ b as _ ⟧
+
+B =
+    ⟦ \ a as _ ⟧
+  ⨾ ⟦ \ a as _ ⟧
+  ⨾ ⟦ b as v; · as v \ · as v ⟧
+  ⨾ ⟦ a as v; ·; · as v \ ·; · as v ⟧
+  ⨾ ⟦ \ a as _ ⟧
+  ⨾ ⟦ \ b as _ ⟧
+  ⨾ ⟦ \ b as _ ⟧
+  ⨾ ⟦ a as v; · as v \ · as v ⟧
+  ⨾ ⟦ \ a as _ ⟧
 ```
 
-Here `E_g(v)` is an entry on `g` with target `v`.
-
-- Probe `r` is at `aab` with target 0, and probe `p` at `aab⁻¹` with
-  target 1. Their points are equal only when `a₀` is not on `b`, and
+- Probe `r` is the entry on `a` at `aab`, sending `a` to `·`; probe
+  `p` is the entry on `a` at `aab⁻¹`, sending `a` to `· ¹`. Their points are equal only when `a₀` is not on `b`, and
   then both are `a₋₂`, a negative index.
 - The cheap tests do not see this, so they keep `A` and `B` apart.
 

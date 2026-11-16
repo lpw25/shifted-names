@@ -2,25 +2,32 @@
 
     Two counterexamples to canonicity of [HNorm] followed by the eta pass
     of [HEta], over interleaved models, with label atoms [a] and [b] that
-    the facts leave unordered.  Below, [En h n] is the entry sending
-    [h₀] to the bound variable [·ₙ] ([AInner h (TVarE · n) AId]), which
-    no step on a named label moves, and [W h] is [⟦ \ h ⟧].
+    the facts leave unordered.  In the notation of [Indexed]:
 
-    - **Equal targets** ([t1_t2]).  [En a 0 ⨾ W a] and [En b 0 ⨾ W b]
-      each send [a₀] (resp. [b₀]) to [·₀] and every other variable to
-      itself, so they commute.
-    - **Distinct targets** ([r1_r2]).  [r1] and [r2] differ only in the
-      order of the entries [En a 0] and [En a 7]: in [r1] the input [v]
-      reaches them as [v] and [⟦ \ b ⟧ v], in [r2] as [⟦ \ b ⟧ v] and
-      [v].  The order matters only when both are [a₀], i.e. when [v] is
-      [a₀] and [⟦ \ b ⟧] fixes it.  But then [⟦ \ b ⟧ ⟦ \ b ⟧ v] is
-      [a₀] too, and the first entry, [En a 5], already took it.  The
-      entries [En b 2] and [En b 3] only move the input back along [b];
-      no input is ever at [b₀] there.
+    - [W h] is [⟦ \ h as _ ⟧];
+    - [En h 0] is [⟦ h as v; · as v \ · as v ⟧], sending [h] to [·];
+    - [En h 1] is [⟦ h as v; ·; · as v \ ·; · as v ⟧], sending [h] to [· ¹];
+    - [En h 2] is [⟦ h as v; ·; ·; · as v \ ·; ·; · as v ⟧], sending [h]
+      to [· ²].
+
+    No step on [a] or [b] moves a bound variable.
+
+    - **Equal targets** ([t1_t2]).
+      [⟦ a as v; · as v \ · as v ⟧ ⨾ ⟦ \ a as _ ⟧] sends [a] to [·] and
+      every other variable to itself, and likewise for [b], so the two
+      commute.
+    - **Distinct targets** ([r1_r2]).  On an input [v], [r1] gives [· ²]
+      if [⟦ \ b as _ ⟧ ⨾ ⟦ \ b as _ ⟧] takes [v] to [a]; else [·] if [v]
+      is [a]; else [· ¹] if [⟦ \ b as _ ⟧] takes [v] to [a]; else what
+      [⟦ \ b as _ ⟧] gives for [v].  [r2] makes the middle two tests in
+      the other order.  Both can succeed only when [v] is [a] and
+      [⟦ \ b as _ ⟧] fixes it, and then the first test succeeds too.  The
+      steps [⟦ b as v; · as v \ · as v ⟧] in the middle only move the
+      input back along [b]: no input reaches [b] there.
 
     Both pairs get different normal forms ([he_t1_t2], [he_r1_r2]).
-    [docs/probes.md] explains why: whether two entries may swap depends
-    on which earlier entries already catch their common inputs. *)
+    [docs/probes.md] explains why: whether two tests may swap depends on
+    which earlier tests already succeed on their common inputs. *)
 
 From Stdlib Require Import String List.
 From ShiftedNames.Core Require Import Normalise IModel HNorm HEta HNormGap.
@@ -36,9 +43,9 @@ Definition t1 : aexp := gseqs [En ga 0; W ga; En gb 0; W gb].
 Definition t2 : aexp := gseqs [En gb 0; W gb; En ga 0; W ga].
 
 Definition r1 : aexp :=
-  gseqs [W gb; W gb; En ga 5; W ga; En gb 2; En gb 3; En ga 0; W ga; W gb; En ga 7; W ga].
+  gseqs [W gb; W gb; En ga 2; W ga; En gb 0; En gb 0; En ga 0; W ga; W gb; En ga 1; W ga].
 Definition r2 : aexp :=
-  gseqs [W gb; W gb; En ga 5; W ga; En gb 2; En ga 7; W ga; En gb 3; En ga 0; W ga; W gb].
+  gseqs [W gb; W gb; En ga 2; W ga; En gb 0; En ga 1; W ga; En gb 0; En ga 0; W ga; W gb].
 
 Section Bound.
 Variables (F : order) (M : imodel).
