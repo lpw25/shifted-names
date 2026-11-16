@@ -601,3 +601,54 @@ mechanised (CompCert). The locally-consistent-parsing version adds a
 large verification effort for part 3.
 
 None of them is close while part 1 is open.
+
+## Not canonical: unreachable entries
+
+**`HNorm` is not canonical over interleaved models.** `Core/HNormGap.v`
+proves that, for label atoms `a`, `b` the facts leave unordered,
+
+```
+f1 = ⟦ \ a ⟧ ⨾ ⟦ b := ·₀ ⟧ ⨾ ⟦ \ b ⟧
+f2 = f1 ⨾ ⟦ a := ·₁ ⟧ ⨾ ⟦ \ a ⟧
+```
+
+are equal in every consistent model (`f1_f2`), while `hn_eq` says they
+differ (`hn_f1_f2`). Why they are equal:
+
+- after `⟦ \ a ⟧` no variable is at `a₀`;
+- `⟦ b := ·₀ ⟧ ⨾ ⟦ \ b ⟧` sends every variable it does not consume back
+  where it was, so it cannot put one at `a₀`;
+- the target `·₀` passes every step unchanged.
+
+So nothing reaches the entry `⟦ a := ·₁ ⟧`, and together with the
+weakening after it, it does nothing.
+
+**The missing rule is about unreachable entries.** Call an entry *dead*
+when, in every model, no variable reaches its index 0: no input, and
+nothing looked up through it.
+
+- A dead entry followed by a weakening on its label cancels with it.
+- A dead entry anywhere else still shifts its label, but its target is
+  irrelevant, so it needs a canonical target.
+- Whether an entry is dead depends on what lies between it and the
+  weakening that emptied index 0. `⟦ b := ·₀ ⟧ ⨾ ⟦ \ b ⟧` can never
+  refill it. `⟦ \ b ⟧` alone can, in a model where `b` overlaps `a` at
+  an offset.
+
+**It is not local.** A weakening pushed onto the front of a word can
+make an entry deep inside dead. Then the entry and its weakening go,
+and that can enable a cancellation, as in `⟦ \ b ⟧ ⨾ ⟦ b := … ⟧`
+becoming adjacent.
+
+**Search.** The search (scratch `kl.py`, `kl2.py`, `kl3.py`) enumerated
+the sorted, reduced words, with distinct variables as targets, and
+compared them in 200 random and all pairwise-offset interleaved models.
+It is not a proof, and it covers only:
+
+- two unordered labels, words of up to 6 steps;
+- three unordered labels, words of up to 4 steps.
+
+Once dead entries are handled (pairs removed, cancellations repeated,
+dead targets made canonical), no other pair of different words agreed
+in every model. Repeated targets, terms, atoms and facts were not
+covered.
