@@ -173,13 +173,15 @@ built in total, where that differs):
     cells are built and dropped along the way, 14.4 s at 1024. That is
     because each new step is inserted after all the earlier ones.
 - **Against the layered form**, the new normaliser is:
-  - *as fast or faster* on every family with linear output. At 1024 it
-    is 0.1 to 0.4 s, against 0.12 to 1.3 s for the layered form where
-    that form is linear, and 11 to 69 s where it is cubic (payload
-    chains, substitutions under lifts);
-  - *slower* where it builds quadratically many cells: about 100 times
-    on the worst-case chain, 3 times on the random-order chain, and
-    6 times faster on nested lifts (14 s against 91 s).
+  - *about as fast or faster* on every family with linear output: 0.1
+    to 0.4 s at 1024. The layered form takes 0.12 to 1.3 s where it is
+    linear (it is slightly faster only on the simultaneous
+    substitution: 0.12 s against 0.15 s), and 11 to 69 s where it is
+    cubic (payload chains, substitutions under lifts);
+  - *6 times faster* on nested lifts (14 s against 91 s), even though
+    it builds quadratically many cells there;
+  - *slower* on chains whose labels are not added in sorted order:
+    about 100 times on the worst order, 3 times on a random order.
 - **The tree form is exponential** on chains (either order), substitutions
   for one name, atoms between substitutions, payload chains and
   substitutions under lifts. It gives
