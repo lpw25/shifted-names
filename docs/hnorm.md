@@ -178,3 +178,40 @@ built in total, where that differs):
   others.
 - **The new form covers more.** It handles labels the facts do not
   order, where the layered form gives up (`lcmp` returns `None`).
+
+## Re-normalising the output
+
+Tactics are often run on their own output, so each normaliser was also
+timed on the result of normalising.
+
+- **new:** `HNorm.renorm` rebuilds each cell reachable from the two
+  normal forms once, with the same pushes as normalisation, on a fresh
+  table. In every run it gave back the same normal form.
+- **layered:** the canonical layered words are read back as
+  expressions (each segment as one context, payloads as compositions)
+  and given to `LEval.nf_eq_t`. In every run the readback was equal to
+  the original expression.
+
+Time in seconds, with the first normalisation's time at 1024 for
+comparison:
+
+| Family | Normaliser | 64 | 256 | 1024 | first time, 1024 |
+|---|---|---|---|---|---|
+| chain, either nesting | new | 0.004 | 0.052 | 0.77 | 1.6 |
+| | layered | 0.006 | 0.028 | 0.23 | 0.28 |
+| chain sorted against the order of addition | new | 0.10 | 5.6 | > 300 | 27.8 |
+| | layered | 0.005 | 0.029 | 0.22 | 0.27 |
+| substitutions for one name | new | 0.001 | 0.005 | 0.052 | 0.13 |
+| | layered | 0.004 | 0.026 | 0.22 | 0.23 |
+| an atom after each substitution | new | 0.000 | 0.004 | 0.039 | 0.12 |
+| | layered | 0.004 | 0.022 | 0.16 | 0.15 |
+| weakenings of distinct names | new | 0.004 | 0.044 | 0.86 | 1.4 |
+| | layered | 0.016 | 0.21 | 3.1 | 1.3 |
+| nested lifts | new | 0.004 | 0.050 | LIFTS_NEW | 15.2 |
+| | layered | 0.37 | 11.0 | LIFTS_LAY | 90.7 |
+| simultaneous substitution | new | 0.004 | 0.052 | 1.1 | 1.5 |
+| | layered | 0.052 | 1.6 | 72 | 0.12 |
+| payload is the chain | new | 0.005 | 0.051 | 0.78 | 2.4 |
+| | layered | 0.005 | 0.034 | 0.22 | 10.9 |
+| chain under nested lifts | new | 0.009 | 0.13 | 1.3 | 3.1 |
+| | layered | 0.006 | 0.031 | 0.22 | 68.8 |
