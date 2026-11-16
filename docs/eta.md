@@ -132,6 +132,46 @@ agree in all the sampled models, and no removal ever broke the sorting:
 | `a, b, c` | none | up to 5 | 6,670 | 0 |
 | `a, b, c` | `a < c` | up to 5 | 3,884 | 0 |
 
+## Search over the normaliser's real outputs
+
+`Core/HEta.v` implements the pass after `HNorm`, with the inputs that
+matter per use:
+
+- **all inputs** for whole results;
+- **named inputs** for term payloads without a payload atom;
+- **one variable** for stuck lookups. Before the first atom, a step on
+  a label the walk can never be on goes. The walk can reach a label
+  once a step on it comes while the walk may be on a label not ordered
+  against it.
+
+Absorption is checked again after the pass, against the eta-normal
+lookup.
+
+**The harness** (scratch `es/`):
+
+- random expressions over label atoms `a, b, c` and the bound label,
+  with terms, payloads, atoms and lifts;
+- their meanings in about 30 finite interleaved models built from
+  identification lists (`IFinite.v`), compared on 20 variables each and
+  hashed;
+- expressions with equal meanings in all of them must get the same
+  normal form, and the other way round.
+
+**The first runs** (3000 expressions in all) found two expressions,
+`⟦ \ · ⟧` and a lift over `b` of a lift over `a`, that agree in every
+model but got different normal forms. A lift's stuck lookup kept a step
+on the bound label in its word, which the looked-up named variable can
+never reach. The one-variable mode above fixes it, and with it the
+stuck-lookup example.
+
+**After the fix:**
+
+| Facts | Expressions | Classes | Missed identities | Unsound |
+|---|---|---|---|---|
+| none | 1500 | 797 | 0 | 0 |
+| `a < c` | 1500 | 991 | 0 | 0 |
+| `a < c, b < c` | 1500 | 1005 | 0 | 0 |
+
 ## Still to do
 
 1. **Real values and atoms.** Repeated targets, terms (whose payloads
