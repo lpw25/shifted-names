@@ -256,3 +256,70 @@ Fixpoint reach (fuel : nat) (T : st) (todo : list positive) (seen : PositiveMap.
 Definition hsize (F : order) (e : aexp) : N * N :=
   let '(w, T) := norm F e [] st0 in
   (reach (2 * Pos.to_nat (next T)) T [wid w] (PositiveMap.empty _) 0, N.pos (next T)).
+
+(** ** Normalising a normal form again
+
+    What the tactic does on its own output.  A word is printed with one
+    [share] per cell: a step in front of a reference to the word after
+    it, and term payloads and stuck lookups referring to their words.
+    Normalising that expression meets each reference once (the
+    continuation is always the empty word, since values are absolute),
+    so it amounts to rebuilding each reachable cell once, pushing its
+    step onto the rebuilt word after it. *)
+
+Section Renorm.
+
+Variable F : order.
+
+Fixpoint renorm (fuel : nat) (i : positive) (M : PositiveMap.t word) (T : st) {struct fuel}
+  : word * PositiveMap.t word * st :=
+  if Pos.eqb i 1 then ([], M, T) else
+  match PositiveMap.find i M with
+  | Some w => (w, M, T)
+  | None =>
+      match fuel with
+      | 0 => ([], M, T)
+      | S f =>
+          match PositiveMap.find i (cells T) with
+          | None => ([], M, T)
+          | Some (s, t) =>
+              let '(wt, M1, S1) := renorm f t M T in
+              let '(w, M2, S2) :=
+                match s with
+                | SE h v =>
+                    let '(v', M2, S2) :=
+                      match v with
+                      | VVar _ _ => (v, M1, S1)
+                      | VTerm u b p =>
+                          let '(wp, M2, S2) := renorm f p M1 S1 in
+                          let '(wp', S3) := clean b wp S2 in
+                          (VTerm u b (wid wp'), M2, S3)
+                      | VLook g j x =>
+                          let '(wx, M2, S2) := renorm f x M1 S1 in
+                          (lookup F g j wx, M2, S2)
+                      end in
+                    let '(w, S3) := pushE F h v' wt S2 in (w, M2, S3)
+                | SW h => let '(w, S2) := pushW F h wt S1 in (w, M1, S2)
+                | SA a => let '(w, S2) := hcons (SA a) wt S1 in (w, M1, S2)
+                end in
+              (w, PositiveMap.add i w M2, S2)
+          end
+      end
+  end.
+
+(** Normalise both sides, then normalise both results again.  The
+    second component says whether normalising again gave back the same
+    words (idempotence). *)
+Definition norm_both (e1 e2 : aexp) : word * word * st :=
+  let '(w1, S1) := norm F e1 [] st0 in
+  let '(w2, S2) := norm F e2 [] S1 in
+  (w1, w2, S2).
+
+Definition renorm_both (r : word * word * st) : bool * bool :=
+  let '(w1, w2, T) := r in
+  let fuel := Pos.to_nat (next T) in
+  let '(v1, M1, S1) := renorm fuel (wid w1) (PositiveMap.empty _) T in
+  let '(v2, _, _) := renorm fuel (wid w2) M1 S1 in
+  (Pos.eqb (wid v1) (wid v2), Pos.eqb (wid v1) (wid w1) && Pos.eqb (wid v2) (wid w2)).
+
+End Renorm.
