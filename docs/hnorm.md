@@ -168,7 +168,7 @@ built in total, where that differs):
   - *Worst case:* only the chains whose labels are not added in sorted
     order go beyond linear output. Sorted against the order of
     addition: `n(n+1)/2` cells, 26.5 s at 1024. In a random order:
-    about `n²/4` cells, 14.4 s.
+    about `n²/4` cells, 8.4 s.
   - *Nested lifts:* the reachable output stays linear, but `Θ(n²)`
     cells are built and dropped along the way, 14.4 s at 1024. That is
     because each new step is inserted after all the earlier ones.
@@ -181,7 +181,7 @@ built in total, where that differs):
   - *6 times faster* on nested lifts (14 s against 91 s), even though
     it builds quadratically many cells there;
   - *slower* on chains whose labels are not added in sorted order:
-    about 100 times on the worst order, 3 times on a random order.
+    about 100 times on the worst order, 17 times on a random order (8.4 s against 0.50 s).
 - **The tree form is exponential** on chains (either order), substitutions
   for one name, atoms between substitutions, payload chains and
   substitutions under lifts. It gives
@@ -215,8 +215,8 @@ evaluation with the first pass, by subtraction (see below).
 | | layered | 0.006 | 0.028 | 0.23 | 0.28 |
 | chain sorted against the order of addition | new | 0.015 | 0.42 | 17.5 | 26.5 |
 | | layered | 0.005 | 0.029 | 0.22 | 0.27 |
-| chain in a random label order | new | 0.007 | 0.16 | 3.6 | 14.4 |
-| | layered | 0.002 | 0.084 | 0.16 | 5.4 |
+| chain in a random label order | new | 0.007 | 0.14 | 3.6 | 8.4 |
+| | layered | 0.002 | 0.020 | 0.17 | 0.50 |
 | substitutions for one name | new | 0.000 | 0.005 | 0.040 | 0.13 |
 | | layered | 0.004 | 0.026 | 0.22 | 0.23 |
 | an atom after each substitution | new | 0.000 | 0.002 | 0.009 | 0.14 |
@@ -232,14 +232,16 @@ evaluation with the first pass, by subtraction (see below).
 | chain under nested lifts | new | 0.001 | 0.007 | 0.052 | 0.37 |
 | | layered | 0.006 | 0.031 | 0.22 | 68.8 |
 
-The chain in a random label order, first normalisation (sizes as in
-the size table):
+The chain in a random label order, first normalisation. (An earlier
+version of this table included about 5 s at 1024 for building the
+input, whose permutation was written as unary numerals. It is now
+written in binary.)
 
 | Normaliser | 64 | 256 | 1024 |
 |---|---|---|---|
-| new | 0.041 | 0.59 | 14.4 |
+| new | 0.022 | 0.31 | 8.4 |
 | new, cells reachable | 1069 | 17014 | 260393 |
-| layered | 0.029 | 0.34 | 5.4 |
+| layered | 0.018 | 0.087 | 0.50 |
 
 **Reading the results.**
 

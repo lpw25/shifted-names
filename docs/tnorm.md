@@ -170,4 +170,90 @@ printed syntax, memoising each reference with its continuation.
 
 ## Results
 
-RESULTS
+Same families as `docs/hnorm.md`, normalising both sides and comparing,
+with `vm_compute`. Times are in seconds.
+
+Columns:
+
+- **trie:** `TNorm`;
+- **list:** `HNorm` after the fix to `stop`;
+- **layered:** `LEval.nf_eq_t`.
+
+"Second pass" is normalising the printed output again:
+
+- trie: `tn_reread`, on a fresh table;
+- list: `renorm`;
+- layered: its readback.
+
+Output size, one side:
+
+- trie: printed definitions;
+- list: reachable cells.
+
+Every comparison was decided correctly. For the trie, every printed
+output read back to the same ids on the normaliser's own table
+(`tn_idem`), and to equal ids for both sides on a fresh table
+(`tn_reread`).
+
+At 1024:
+
+| Family | first, trie | first, list | first, layered | second, trie | second, list | second, layered | size, trie | size, list |
+|---|---|---|---|---|---|---|---|---|
+| chain of substitutions | 0.60 | 0.20 | 0.28 | 1.67 | 0.043 | 0.23 | 7917 | 1024 |
+| chain, labels sorted against the order of addition | **0.66** | 26.5 | 0.27 | **1.21** | 17.5 | 0.22 | **6962** | 524800 |
+| chain, random label order | **1.03** | 8.4 | 0.50 | **1.96** | 3.6 | 0.17 | **11467** | 260393 |
+| substitutions for one name | 0.52 | 0.13 | 0.23 | 0.62 | 0.040 | 0.22 | 2048 | 1024 |
+| an atom after each substitution | 0.74 | 0.14 | 0.15 | 0.39 | 0.009 | 0.16 | 3072 | 2048 |
+| weakenings of distinct names | 0.50 | 0.096 | 1.3 | 0.68 | 0.007 | 3.1 | 2048 | 1024 |
+| one substitution under nested lifts | 1.05 | 14.4 | 90.7 | 0.47 | 0.032 | 369 | 2051 | 1027 |
+| one simultaneous substitution | 0.63 | 0.15 | 0.12 | 0.50 | 0.006 | 0.070 | 2048 | 1024 |
+| a term whose payload is the chain | 0.98 | 0.30 | 10.9 | 1.21 | 0.046 | 0.22 | 7920 | 1025 |
+| a chain under nested lifts | 1.83 | 0.37 | 68.8 | 1.33 | 0.052 | 0.22 | 7928 | 1525 |
+
+Scaling of the trie normaliser, first pass:
+
+| Family | 64 | 256 | 1024 |
+|---|---|---|---|
+| chain of substitutions | 0.025 | 0.12 | 0.60 |
+| chain, worst order | 0.025 | 0.13 | 0.66 |
+| chain, random order | 0.041 | 0.16 | 1.03 |
+| a chain under nested lifts | 0.094 | 0.44 | 1.83 |
+| printed definitions, chain, random order | 446 | 2308 | 11467 |
+
+**Reading the results.**
+
+- **The quadratic case is gone.** On the worst-order chain the trie
+  normaliser is 40 times faster than the list (0.66 s against 26.5 s),
+  and its output is 75 times smaller (6962 definitions against 524800
+  cells). On a random order it is 8 times faster and 23 times smaller.
+  Both passes now grow like `n log n` on every family.
+- **No family is slow.** The first pass is 0.5 to 1.8 s at 1024 on
+  every family, and so is the second. The layered form's cubic cases
+  (nested lifts, payload chains, chains under lifts) take 1 to 2 s
+  instead of 11 to 91 s, and 0.5 to 1.3 s instead of up to 369 s for
+  the second pass.
+- **The price is a constant factor.** Where the list is linear, the trie
+  is 3 to 5 times slower on the first pass and prints 1.5 to 8 times
+  more definitions.
+  - *Time:* the trie is not path-compressed. Each push rebuilds a path
+    of about 20 nodes (the key length for two-letter labels), where
+    the list rebuilds about one cell.
+  - *Size:* on chains, each payload word is a different trie, so each
+    step adds a path's worth of binary nodes. That is the `log n` in
+    `n log n`, about 8 definitions per step at 1024.
+- **The second pass is slower than the list's.** Reading a fragment
+  rebuilds, for each printed node, the path from the root of the trie
+  down to it. The list's second pass on a linear output is nearly free,
+  because every cell goes straight to the front.
+
+**What would improve it, in order of expected gain:**
+
+1. **A path-compressed trie (Patricia).** Each push would build
+   `O(log n)` nodes instead of 20, and the printed form would not
+   change.
+2. **Reading fragments at their depth.** If a printed trie node carried
+   its bit position, the reader could rebuild it in `O(1)`, without the
+   path from the root.
+3. **Label atoms with facts.** These could use Cartier–Foata levels (as
+   noted in `docs/hnorm.md`). They are barriers for now, which makes
+   this normaliser incomplete there.
