@@ -200,12 +200,44 @@ Ren(A ; B)   = Ren(B) ⨾ Ren(A)
 - **It is correct.** Checked for `k = 1` and `k = 2`, where `⟦ ·ᵏ | σ ⟧`
   is written as nested lifts: `BL.v` and `BL2.v`.
 
-**Reading it back still needs care.** Normalised step by step,
-`T(node)` becomes a stack of `|node|` entries on the bound label, and
-building those for every version is quadratic. The reader has to pair
-`Ren(node)` with `T(node)` and resolve them node by node, without
-building the stack. That is a technique in the normaliser, not syntax,
-but it means the normaliser has to know this shape.
+**This does not meet the bound: reading it back is the problem.**
+Normalised step by step, `T(node)` becomes a stack of `|node|` entries
+on the bound label, and building those for every version is quadratic.
+Recognising this shape in the reader does not help in general. The
+same structure can be written in many other ways, by users or by other
+tactics, and every variant the reader misses is quadratic. So the
+bound cannot come from recognising a printing scheme.
+
+The underlying mistake is that the output is not in the well-behaved
+fragment of the spec (requirement 8: the output must itself be well
+behaved). A trie printed as shared pieces uses a piece under many
+different continuations: a node's left child is followed by different
+right children in different versions. That holds for fragments, for
+bound-label pieces with or without a counted lift, and for weakening
+trees. The normaliser has no reason to read such sharing in
+`O(n log n)`.
+
+**What the spec allows.** Sharing where every use of a shared
+adjustment has the same continuation (up to leading shifts). A
+normaliser that memoises each shared adjustment with its continuation
+reads that in time linear in its size, with no knowledge of how it was
+produced. With that sharing, a printed normal form is a DAG of
+sequences of front edits, each ending in a shared word:
+
+- an entry `⟦ x := t | W ⟧`;
+- a deletion `⟦ \ x ⟧ ⨾ W`;
+- an atom `σ ⨾ W`.
+
+So the trie can only be internal. Printing has to express each needed
+word as a short edit of another needed word, or of a shared suffix:
+the "edits from a base" approach of section 2.
+
+**Small output is possible in principle.** The normaliser's own history
+is such a structure: each word it builds is one edit of an earlier
+one. That gives `O(n)` edits in total, for an input of size `n` in the
+well-behaved fragment. What is missing is a **canonical** choice of the
+structure (which word is an edit of which), computed in `O(n log n)`
+and with `O(n log n)` total size.
 
 ## The trie normaliser (`Core/TNorm.v`)
 
