@@ -98,4 +98,81 @@ both sides and comparing, with `vm_compute`, in seconds. "Size" is the
 number of cells reachable from the result (cells built in total, in
 brackets, where it differs).
 
-(Filled in below.)
+Columns:
+
+- **new:** `HNorm.hn_eq`;
+- **layered:** the current decision, `LEval.nf_eq_t`;
+- **tree:** the tree normal form, `LEval.tnorm`, the form of the original
+  implementation.
+
+"—" means not run, and "> 120" means stopped after 120 s.
+
+| Family | Normaliser | 16 | 64 | 256 | 1024 |
+|---|---|---|---|---|---|
+| chain of substitutions, left- vs right-nested | new | — | 0.015 | 0.12 | 1.6 |
+| | layered | — | 0.007 | 0.031 | 0.28 |
+| | tree | 0.096 | > 120 | — | — |
+| the same chain, labels sorted against the order of addition | new | — | 0.035 | 0.73 | 27.8 |
+| | layered | — | 0.007 | 0.027 | 0.27 |
+| substitutions for one name | new | — | 0.004 | 0.017 | 0.13 |
+| | layered | — | 0.009 | 0.026 | 0.23 |
+| | tree | 0.064 | > 120 | — | — |
+| an atom after each substitution | new | — | 0.003 | 0.013 | 0.12 |
+| | layered | — | 0.006 | 0.017 | 0.15 |
+| | tree | 1.1 | > 120 | — | — |
+| weakenings of distinct names | new | — | 0.014 | 0.13 | 1.4 |
+| | layered | — | 0.012 | 0.094 | 1.3 |
+| | tree | 0.003 | 0.011 | 0.13 | — |
+| one substitution under nested lifts | new | — | 0.058 | 0.77 | 15.2 |
+| | layered | — | 0.11 | 2.2 | 90.7 |
+| | tree | 0.023 | 0.12 | 2.2 | — |
+| one simultaneous substitution | new | — | 0.009 | 0.11 | 1.5 |
+| | layered | — | 0.007 | 0.015 | 0.12 |
+| | tree | 0.005 | 0.006 | 0.063 | — |
+| a term whose payload is the chain, then the chain | new | — | 0.016 | 0.19 | 2.4 |
+| | layered | — | 0.063 | 0.77 | 10.9 |
+| | tree | 0.19 | > 120 | — | — |
+| a chain under nested lifts, then a substitution for each | new | — | 0.022 | 0.23 | 3.1 |
+| | layered | — | 0.099 | 1.9 | 68.8 |
+| | tree | 0.10 | > 120 | — | — |
+
+Size of the new normal form, in cells reachable from the result (and
+built in total, where that differs):
+
+| Family | 64 | 256 | 1024 |
+|---|---|---|---|
+| chain, either nesting | 64 | 256 | 1024 |
+| chain sorted against the order of addition | 2080 | 32896 | 524800 |
+| substitutions for one name | 64 | 256 | 1024 |
+| an atom after each substitution | 128 | 512 | 2048 |
+| weakenings of distinct names | 64 | 256 | 1024 |
+| nested lifts | 65 (4163) | 257 (65795) | 1027 (912577) |
+| simultaneous substitution | 64 | 256 | 1024 |
+| payload is the chain | 65 | 257 | 1025 |
+| chain under nested lifts | 128 | 512 | 1525 (2051) |
+
+**Reading the results.**
+
+- **Every comparison was decided correctly.** The new normaliser
+  answered `true` on every pair, as the other two do.
+- **The new normaliser is quadratic, as predicted.**
+  - *Worst case:* only the chain with labels sorted against the order
+    of addition reaches the worst-case output size: `n(n+1)/2` cells.
+    Its time at 1024 is 28 s.
+  - *Nested lifts:* the reachable output stays linear, but `Θ(n²)`
+    cells are built and dropped along the way. That is because each new
+    step is inserted after all the earlier ones.
+- **Against the layered form**, the new normaliser is:
+  - *faster* where the layered form is cubic: nested lifts, terms whose
+    payload is a chain, and substitutions under lifts. At 1024 steps
+    that is 6 to 22 times faster;
+  - *slower* where the layered form is linear: chains and wide
+    substitutions, by 6 to 13 times at 1024;
+  - *about 100 times slower* on the worst-case chain.
+- **The tree form is exponential** on chains, atoms between
+  substitutions, payload chains and substitutions under lifts. It gives
+  up before 64 steps on each. Where it has no terms to duplicate
+  (weakenings, lifts, wide substitutions) it is about as fast as the
+  others.
+- **The new form covers more.** It handles labels the facts do not
+  order, where the layered form gives up (`lcmp` returns `None`).
