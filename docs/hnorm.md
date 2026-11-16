@@ -184,37 +184,74 @@ built in total, where that differs):
 Tactics are often run on their own output, so each normaliser was also
 timed on the result of normalising.
 
-- **new:** `HNorm.renorm` rebuilds each cell reachable from the two
-  normal forms once, with the same pushes as normalisation, on a fresh
-  table. In every run it gave back the same normal form.
+- **new:** `HNorm.renorm` takes the cells reachable from the two normal
+  forms and rebuilds each one once, on a fresh table, with the same
+  pushes as normalisation. In every run that finished, a third pass gave
+  back the same normal form (it is idempotent).
 - **layered:** the canonical layered words are read back as
-  expressions (each segment as one context, payloads as compositions)
-  and given to `LEval.nf_eq_t`. In every run the readback was equal to
-  the original expression.
+  expressions, each segment as one context and non-empty payloads as
+  compositions, and given to `LEval.nf_eq_t`. In every run the readback
+  was equal to the original expression.
 
 Time in seconds, with the first normalisation's time at 1024 for
-comparison:
+comparison. "> 600" means the whole file, both normalisations
+included, was stopped after 600 s.
 
 | Family | Normaliser | 64 | 256 | 1024 | first time, 1024 |
 |---|---|---|---|---|---|
-| chain, either nesting | new | 0.004 | 0.052 | 0.77 | 1.6 |
+| chain, either nesting | new | 0.004 | 0.054 | 0.73 | 1.6 |
 | | layered | 0.006 | 0.028 | 0.23 | 0.28 |
-| chain sorted against the order of addition | new | 0.10 | 5.6 | > 300 | 27.8 |
+| chain sorted against the order of addition | new | 0.15 | 5.5 | > 600 | 27.8 |
 | | layered | 0.005 | 0.029 | 0.22 | 0.27 |
-| substitutions for one name | new | 0.001 | 0.005 | 0.052 | 0.13 |
+| chain in a random label order | new | 0.062 | 3.4 | > 600 | 13.9 |
+| | layered | 0.002 | 0.084 | 0.16 | 5.4 |
+| substitutions for one name | new | 0.000 | 0.003 | 0.050 | 0.13 |
 | | layered | 0.004 | 0.026 | 0.22 | 0.23 |
-| an atom after each substitution | new | 0.000 | 0.004 | 0.039 | 0.12 |
+| an atom after each substitution | new | 0.000 | 0.002 | 0.009 | 0.12 |
 | | layered | 0.004 | 0.022 | 0.16 | 0.15 |
-| weakenings of distinct names | new | 0.004 | 0.044 | 0.86 | 1.4 |
+| weakenings of distinct names | new | 0.003 | 0.044 | 0.71 | 1.4 |
 | | layered | 0.016 | 0.21 | 3.1 | 1.3 |
-| nested lifts | new | 0.004 | 0.050 | LIFTS_NEW | 15.2 |
-| | layered | 0.37 | 11.0 | LIFTS_LAY | 90.7 |
-| simultaneous substitution | new | 0.004 | 0.052 | 1.1 | 1.5 |
-| | layered | 0.052 | 1.6 | 72 | 0.12 |
-| payload is the chain | new | 0.005 | 0.051 | 0.78 | 2.4 |
+| nested lifts | new | 0.004 | 0.049 | 0.76 | 15.2 |
+| | layered | 0.46 | 11.4 | 369 | 90.7 |
+| simultaneous substitution | new | 0.004 | 0.056 | 0.67 | 1.5 |
+| | layered | 0.000 | 0.006 | 0.070 | 0.12 |
+| payload is the chain | new | 0.004 | 0.052 | 0.74 | 2.4 |
 | | layered | 0.005 | 0.034 | 0.22 | 10.9 |
-| chain under nested lifts | new | 0.009 | 0.13 | 1.3 | 3.1 |
+| chain under nested lifts | new | 0.009 | 0.10 | 1.3 | 3.1 |
 | | layered | 0.006 | 0.031 | 0.22 | 68.8 |
+
+The chain in a random label order, first normalisation (sizes as in
+the size table):
+
+| Normaliser | 64 | 256 | 1024 |
+|---|---|---|---|
+| new | 0.042 | 0.65 | 13.9 |
+| new, cells reachable | 1069 | 17014 | 260393 |
+| layered | 0.029 | 0.34 | 5.4 |
+
+**Reading the results.**
+
+- **Re-normalising is cheap for the new normaliser, except in the bad
+  case.** Wherever the output is linear, the second pass takes 0.01 to
+  1.3 s at 1024. That is less than the first pass, and for nested lifts
+  it is 20 times less, because the discarded intermediates are not
+  rebuilt.
+- **The bad case gets worse.** The second pass on the worst-case chain
+  is cubic: 5.5 s at 256, against 0.73 s the first time. At 1024 it did
+  not finish.
+- **A random label order is nearly as bad.** Its output is about `n²/4`
+  cells (260393 at 1024, against 524800 for the worst order). That is
+  what the inversion count predicts, so the bad case is the typical
+  case for chains (next section).
+- **The layered form's second pass is cheap on chains, but worse where
+  it was already cubic.** It is cheap on chains and payloads, because
+  its readback has one context per segment. On nested lifts it is
+  4 times slower again, 369 s at 1024.
+- **An explicit composition in a payload is expensive for the layered
+  form.** A first readback wrote empty payloads as `AId ⨾ ·`. That made
+  the simultaneous substitution 600 times slower (72 s at 1024, against
+  0.07). The layered form pays a full composition for each payload
+  that is a composition.
 
 ## Where the bad case comes from
 
@@ -237,8 +274,8 @@ exactly insertion sort.
 **It is the typical case, not a rare one.** A random order of labels
 has about `n²/4` inversions, like insertion sort on random input. The
 order users introduce labels in has nothing to do with the facts
-order, so random-looking orders are what to expect. (The chain in a
-random label order is benchmarked below.)
+order, so random-looking orders are what to expect. The chain in a
+random label order bears this out: about `n²/4` cells (above).
 
 ## What can be done about it
 
