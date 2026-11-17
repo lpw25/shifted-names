@@ -13,12 +13,16 @@
       cancels (beta, when a removal made them adjacent); repeated to a
       fixpoint;
     - the dead entries left get the canonical target [·₀];
+    - the steps are pushed back through [HNorm], since a removal can
+      leave steps on ordered labels out of order, and all of this is
+      repeated until nothing changes;
     - a term's payload without a payload atom matters on named inputs
       only: its bound-label steps before the first atom go ([clean]);
     - payload and lookup words are made normal first.
 
-    Lookup words are treated as whole results here, which is not exact
-    ([docs/eta.md]: only what the looked-up variable reaches matters).
+    A stuck lookup's word is kept whole: in zero-set models
+    ([docs/zero-sets.md]) steps on labels ordered against the looked-up
+    label can move it.
 
     For measuring and testing only: nothing is proved. *)
 
@@ -124,8 +128,11 @@ Fixpoint restrict (R : list lexp) (named : bool) (w : list step) : list step :=
       if reachable_from R named l then s :: restrict (l :: R) named r else restrict R named r
   end.
 
+(** In zero-set models ([docs/zero-sets.md]) steps on labels ordered
+    against [h] can move a variable of [h], so a stuck lookup's word
+    keeps them: [One h] restricts nothing. *)
 Definition restrict_mode (m : mode) (w : list step) : list step :=
-  match m with All => w | Named => restrict [] true w | One h => restrict [h] false w end.
+  match m with All | One _ => w | Named => restrict [] true w end.
 
 (** ** Over the table *)
 
@@ -147,6 +154,19 @@ Definition madd (i : positive) (m : mode) (r : positive) (M : PositiveMap.t (lis
 
 Definition vmode (b : option nat) : mode := match b with None => Named | Some _ => All end.
 
+(** Push steps back through [HNorm]: removing a pair can leave steps on
+    ordered labels out of order ([docs/normal-form.md]). *)
+Definition repush (l : list step) (Z : st) : word * st :=
+  fold_right (fun s '(w, Z) =>
+    match s with SE h v => pushE F h v w Z | SW h => pushW F h w Z | SA a => hcons (SA a) w Z end) ([], Z) l.
+
+Fixpoint steps_eqb (a b : list step) : bool :=
+  match a, b with
+  | [], [] => true
+  | s :: a', t :: b' => step_eqb s t && steps_eqb a' b'
+  | _, _ => false
+  end.
+
 Fixpoint eta (fuel : nat) (m : mode) (i : positive) (M : PositiveMap.t (list (mode * positive))) (Z : st)
   : positive * PositiveMap.t (list (mode * positive)) * st :=
   match fuel with
@@ -160,11 +180,26 @@ Fixpoint eta (fuel : nat) (m : mode) (i : positive) (M : PositiveMap.t (list (mo
           let '(l1, M1, Z1) := fold_right (fun s '(acc, M, Z) =>
                let '(s', M', Z') := estep f s M Z in (s' :: acc, M', Z')) ([], M, Z) l in
           let l2 := restrict_mode m l1 in
-          let '(l3, M2, Z2) := reduce_all f (List.length l2) l2 M1 Z1 in
-          let l4 := canon_dead [] l3 in
-          let '(w, Z3) := rebuild l4 [] Z2 in
+          let '(l5, M2, Z2) := settle f (List.length l2) l2 M1 Z1 in
+          let '(w, Z3) := rebuild l5 [] Z2 in
           let r := wid w in
           (r, madd i m r M2, Z3)
+      end
+  end
+(** Remove pairs, give dead entries the canonical target, push back
+    through [HNorm], until nothing changes. *)
+with settle (fuel : nat) (n : nat) (l : list step) (M : PositiveMap.t (list (mode * positive))) (Z : st)
+  : list step * PositiveMap.t (list (mode * positive)) * st :=
+  match fuel with
+  | 0 => (l, M, Z)
+  | S f =>
+      let '(l3, M1, Z1) := reduce_all f (List.length l) l M Z in
+      let l4 := canon_dead [] l3 in
+      let '(w, Z2) := repush l4 Z1 in
+      let l5 := steps_of (Pos.to_nat (next Z2)) (wid w) Z2 in
+      match n with
+      | 0 => (l5, M1, Z2)
+      | S n' => if steps_eqb l5 l then (l5, M1, Z2) else settle f n' l5 M1 Z2
       end
   end
 with estep (fuel : nat) (s : step) (M : PositiveMap.t (list (mode * positive))) (Z : st)
