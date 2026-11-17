@@ -160,9 +160,105 @@ Step 1, two trace-equivalent sorted words are identical. ∎
 
 ## Repeated targets
 
-The proof uses distinct targets in Step 4. With repeated targets, two
-tests with the same target may swap even when their walls do not cross,
-and the image in `Ã` changes. The normaliser then has to choose one
-order of tests, and produce the word for it. That is the remaining
-part, together with values that are terms or stuck lookups, and
-segments joined by atoms.
+With repeated targets the meaning fixes less than the key. Two live
+tests may swap when:
+
+- **their walls cross**: they never both fire; or
+- **they have the same target**: whichever fires first gives the same
+  result.
+
+The meaning still fixes three things. By the separation models:
+
+- the end position;
+- the live tests with their targets;
+- the order of every pair with different targets whose walls do not
+  cross.
+
+Conversely, two orders that agree on those pairs give the same result on
+every input: the first test to fire in each order, if their targets
+differ, is a pair that fires together, so its walls do not cross and
+both orders agree on it.
+
+**Which orders a word can have.** A word can put its tests in any order
+in which no test comes before a test it is behind. Test `u` is *behind*
+`t` when `u`'s wall is on the far side of `t`'s wall from the start; any
+path to `u` then crosses `t`'s wall first.
+
+### The canonical order
+
+Among the orders the word allows, take the least, for a fixed order on
+tests (label, then wall, then target), subject to:
+
+- the order of the word on pairs with different targets whose walls do
+  not cross;
+- a test before every test behind it.
+
+Pairs whose walls cross are left free. This depends only on the meaning.
+
+### Printing a word for it
+
+Let `P(t)` be the point of `t`'s wall closest to the start. It is the
+position with every trailing step on a label ordered against `t`'s label
+removed. Print:
+
+```
+geodesic to P(t₁) ⨾ E g₁(v₁) ⨾ W g₁ ⨾ geodesic to P(t₂) ⨾ … ⨾ geodesic to the end
+```
+
+Here each geodesic is a reduced word, its entries get the canonical
+target, and each test is an entry followed by a weakening. Then
+normalise. By the theorem above, the result depends only on the
+meaning.
+
+**Why the printed word has exactly these live tests.** Take a wall `H`
+crossed by the geodesic from `P(tᵢ)` to `P(tᵢ₊₁)`. It separates the
+start from exactly one of the two points.
+
+- **`H` separates the start from `P(tᵢ₊₁)`.** Then it separates the
+  start from all of `tᵢ₊₁`'s wall, because the closest point is a gate.
+  The original word reached that wall, so it crossed `H`, away from the
+  start:
+  - if that first crossing was an entry, `H` is a live test with
+    `tᵢ₊₁` behind it. So it was printed earlier, and this crossing is
+    dead;
+  - if it was a weakening, this crossing is a weakening too.
+- **`H` separates the start from `P(tᵢ)`.** Then this crossing goes back
+  towards the start, the other way from the earlier crossing that got
+  there. So it is either a weakening or a dead entry.
+
+The geodesic to the end is the same: every wall it crosses away from the
+start was crossed by the original word. Finally, the entry printed for
+`tᵢ` is the first crossing of its wall. An earlier crossing would put an
+earlier point behind `tᵢ`, against the order.
+
+**Checked** (scratch `mc/reptgt.py`). For all words below, the printed
+normal forms are equal exactly when the meanings (as above) are:
+
+| Labels | Facts | Steps | Targets | Words | Meanings |
+|---|---|---|---|---|---|
+| `a, b` | none | up to 7 | one | 9,231 | 8,938 |
+| `a, b` | none | up to 6 | two | 29,823 | 29,169 |
+| `a, b, c` | none | up to 5 | one | 6,547 | 6,508 |
+| `a, b, c` | `a < c` | up to 5 | two | 27,768 | 27,548 |
+| `a, b, c` | `a < c` | up to 6 | one | 17,689 | 17,464 |
+| `a, b, c` | `a < c, b < c` | up to 5 | two | 11,270 | 11,178 |
+| `a, b, c` | `a < b < c` | up to 6 | two | 9,740 | 9,740 |
+| `g, h, m` | `g < h` | up to 6 | one | 17,689 | 17,464 |
+
+The first count agrees with the number of distinct meanings that the
+earlier search over models found for those words.
+
+**Cost.** Deciding crossing and behind for a pair is linear in the
+positions, so this is cubic in the worst case. It only needs to run when
+two live tests have the same target.
+
+## Still open
+
+- **Values that are terms, stuck lookups or variables.** The theory
+  here treats targets as opaque. With variable targets, a test can be
+  redundant because its target is what the rest of the word gives
+  anyway (absorption). A stuck lookup's word is observed on one input,
+  of a known label.
+- **Segments joined by atoms.** After an atom the rest is observed on
+  every variable, so each segment is separate. This needs writing out.
+- **Mechanising** the separation models and the two proofs above.
