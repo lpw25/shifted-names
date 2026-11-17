@@ -51,11 +51,15 @@ order:
 
 - their weakenings commute;
 - their index-0 sets are disjoint;
-- each maps the other's index-0 set onto itself, and fixes the other's
-  designated variable.
+- each fixes every index-0 variable of the other.
 
-So steps on `h` may move the index-0 variables of `g` among themselves,
-other than the designated one. Steps on the bound label fix every
+An earlier version only asked each to map the other's index-0 set onto
+itself, so that steps on `h` could move the index-0 variables of `g`
+among themselves. That breaks a law the normaliser uses:
+`⟦ g | ⟦ \ k ⟧ ⟧ = ⟦ \ k ⟧` for `k` ordered against `g`
+(`za_lift_ordered`). The lift keeps an index-0 variable of `g` where it
+is, and `⟦ \ k ⟧` would move it. `HNorm` gives both sides the same
+normal form. Steps on the bound label fix every
 variable not on it, and steps on named labels keep variables on or off
 the bound label.
 
@@ -95,86 +99,23 @@ yet.
 - **Payloads without a payload atom.** Dropping bound-label steps stays
   sound, by the bound-label condition.
 
-## Separation with facts
+## The example with facts is an identity
 
-The plan of `docs/separation.md`: three kinds of model, built here from
-the group itself.
+With that condition, the example with facts in `docs/separation.md` is
+an identity in every zero-set model:
 
-**Negative indices.** Below each index-0 variable `z` of `h`, add
-private variables `z₋₁, z₋₂, …`:
+- if `v` is index 0 of `g`, `⟦ \ h as _ ⟧` fixes `v`;
+- so "`v` is `m`" transports to "`⟦ \ h as _ ⟧ v` is `m`".
 
-- steps on `h` move along them;
-- steps on a label ordered against `h` map `z₋ₙ` to `(z')₋ₙ`, where
-  `z'` is the image of `z`;
-- steps on other labels fix them.
+More generally, when a test on `g` at position `P` fires on `y`:
 
-Then every label acts as a bijection, steps on ordered labels still
-commute, and the group `A` acts. The meaning of a segment is its end
-position and its tests, as before. The dead-entry and repeated-entry
-arguments go through, because steps on ordered labels keep index 0 of
-`g` in both directions.
+- every step on a label ordered against `g` fixes `y·P`;
+- so `y·P·c·w = y·P·w` for every such `c` and every `w`.
 
-**Walls.** These are the hyperplanes of the cube complex of `A` (its
-Cayley graph, with a square for each pair of ordered labels).
-
-- The wall of an entry on `g` at position `X` is the hyperplane dual
-  to the edge from `X` to `X·g⁻¹`.
-- Its *carrier* is the set of vertices `X·c` on the near side of that
-  edge, for `c` a product of labels ordered against `g`.
-- A test is live exactly when it is the first crossing of its wall.
-- Test `u` is *behind* `t` when `u`'s position is on the far side of
-  `t`'s wall.
-- Two walls cross only when their labels are ordered. Then the two
-  tests can never both hold: index-0 sets of ordered labels are
-  disjoint.
-
-**The model for a set `W` of walls to make true.** The walls in `W` must
-not cross, and none may be behind another.
-
-1. **Vertices.** Start from the Cayley graph of `A`, every label acting
-   by right multiplication.
-2. **Cut.** For each `t ∈ W`, on label `g`, remove the far side of its
-   hyperplane. Make every carrier vertex of `t` an index-0 variable of
-   `g`, with its private negative indices. The far sides are disjoint,
-   because the walls do not cross and none is behind another.
-3. **Designated variables.** Add, disjointly, a standard model with
-   one sequence per label, for the designated variables.
-4. **Input.** The input is the vertex `1`.
-
-**Checks:**
-
-- **Injections.** Each label's step is injective. It misses exactly the
-  carrier vertices of cut walls on that label, plus the standard part's
-  index 0.
-- **Ordered labels.**
-  - They commute, because the group does.
-  - A carrier is closed under the labels ordered against its label, so
-    those steps permute the index-0 variables of the cut label.
-  - Index-0 sets of ordered labels are disjoint, because a vertex in
-    both carriers would make the two walls cross.
-  - The designated variables are fixed, because the standard part keeps
-    ordered labels disjoint.
-
-**What holds at the input.**
-
-- **A position on the near side of every cut wall** is its own vertex.
-  It is index 0 of `g` exactly when its wall is in `W`.
-- **A position behind a cut wall `t`** reaches the negative indices of
-  `t`. Whatever happens after that, the test there is behind `t`.
-  Every word containing it has `t`'s wall live before it, so it is never
-  the first test to hold.
-- **With `W` empty**, nothing holds, and the input ends at the end
-  position. So the end positions must agree.
-
-So the three kinds of model exist with facts too. The example with
-facts from `docs/separation.md` is not an identity here:
-
-- take `t` = the test on `g` at `1` and `t'` = the test on `m` at `1`;
-- the vertex `h` is in `t`'s carrier, because `h` is ordered against
-  `g`;
-- `h` is not in `t'`'s carrier, because `h` is not ordered against
-  `m`;
-- so the test on `m` after `⟦ \ h as _ ⟧` is false.
+Tests at positions that differ in this way then fire together. No model
+of the normaliser's laws avoids this, so the normaliser itself has to
+take it into account. The separation sketch that was here assumed the
+earlier, wrong condition, and is withdrawn.
 
 ## What is left
 

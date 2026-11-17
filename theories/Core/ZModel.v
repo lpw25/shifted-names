@@ -10,15 +10,15 @@
     - a target naming [g], read by an entry that consumed [v], means
       [v] itself (shifted along [g]) when [v] is index 0 of [g], and the
       designated variable otherwise;
-    - labels the facts order commute, have disjoint index-0 sets, map
-      each other's index-0 sets onto themselves, and fix each other's
-      designated variables.  They may move the other index-0 variables
-      among themselves.
+    - labels the facts order commute, have disjoint index-0 sets, and
+      fix each other's index-0 variables (all of them: [za_lift_ordered]
+      needs it).
 
     Interleaved models are the case where every index-0 set has one
-    element ([iz], [iz_cons]).  The examples [HEtaGap.r1_r2] and the one
-    with facts in [docs/separation.md] are identities in interleaved
-    models and not here. *)
+    element ([iz], [iz_cons]).  [HEtaGap.r1_r2] is an identity in
+    interleaved models and not here.  The example with facts in
+    [docs/separation.md] is an identity here too: it follows from
+    [za_lift_ordered]'s condition. *)
 
 From Stdlib Require Import String Arith List Bool.
 From ShiftedNames.Core Require Import Label Var Normalise GEval IModel.
@@ -51,7 +51,10 @@ Definition zcons (F : order) (M : zmodel) : Prop :=
      (forall y, @zsh M g (zsh h y) = zsh h (zsh g y))
      /\ (forall y, @zat0 M h (zsh g y) = zat0 h y) /\ (forall y, @zat0 M g (zsh h y) = zat0 g y)
      /\ (forall v, @zat0 M g v = true -> zat0 h v = false)
-     /\ @zsh M g (zdes h) = zdes h /\ @zsh M h (zdes g) = zdes g)
+     /\ @zsh M g (zdes h) = zdes h /\ @zsh M h (zdes g) = zdes g
+     (** each fixes every index-0 variable of the other: without this,
+         the lift [⟦ g | ⟦ \ h ⟧ ⟧] is not [⟦ \ h ⟧] ([za_lift_ordered]) *)
+     /\ (forall v, @zat0 M h v = true -> zsh g v = v) /\ (forall v, @zat0 M g v = true -> zsh h v = v))
   (** the bound label moves only its own variables, and named steps keep
       them its own *)
   /\ (forall v, @zat0 M LNone v = true -> zbnd v = true)
@@ -185,7 +188,18 @@ Proof. induction n as [|n IH]; cbn [iter]; [reflexivity|]; rewrite <- IH, z_comm
 Lemma zread_sh i v : @zsh M h (zread g i v) = zread g i (zsh h v).
 Proof.
   unfold zread; rewrite z_at0_g; destruct (zat0 g v); rewrite iter_comm; [reflexivity|].
-  rewrite (proj2 (proj2 (proj2 (proj2 (proj2 H))))); reflexivity.
+  rewrite (proj1 (proj2 (proj2 (proj2 (proj2 (proj2 H)))))); reflexivity.
+Qed.
+
+Lemma z_fix_zero v : @zat0 M g v = true -> @zsh M h v = v.
+Proof. apply H. Qed.
+
+(** The lift of [⟦ \ h ⟧] under an ordered [g] is [⟦ \ h ⟧]. *)
+Lemma za_lift_ordered (K : zV M -> zres M) v : za (ALift g (AOuter h AId)) K v = za (AOuter h AId) K v.
+Proof.
+  cbn [za]; destruct (zat0 g v) eqn:E.
+  - rewrite (z_fix_zero v E); reflexivity.
+  - rewrite z_comm, zsh_zun by exact E; reflexivity.
 Qed.
 
 End Ordered.
@@ -268,6 +282,10 @@ Proof.
       rewrite (Off g h v Hgh ltac:(rewrite E; discriminate)); reflexivity.
     + unfold msh; rewrite (consistent_sym M F g h 0 HM Hgh); reflexivity.
     + unfold msh; rewrite (HM g h 0 Hgh); reflexivity.
+    + intros v Ev; unfold mat0 in Ev; destruct (mpos h v) as [[|i]|] eqn:E; try discriminate.
+      unfold msh; rewrite (Off' g h v Hgh ltac:(rewrite E; discriminate)); reflexivity.
+    + intros v Ev; unfold mat0 in Ev; destruct (mpos g v) as [[|i]|] eqn:E; try discriminate.
+      unfold msh; rewrite (Off g h v Hgh ltac:(rewrite E; discriminate)); reflexivity.
   - intros v; unfold mat0; destruct (mpos LNone v) as [[|i]|]; congruence.
   - intros v; unfold msh; destruct (mpos LNone v); congruence.
   - intros v; unfold msh; destruct (mpos LNone v) as [i|] eqn:E; [rewrite mpos_seq; reflexivity|rewrite E; reflexivity].
