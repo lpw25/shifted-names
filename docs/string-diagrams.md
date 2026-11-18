@@ -454,6 +454,36 @@ which says you may split before you are asked.
 - **No question is answered before it is asked.** So rule 4, which uses
   `t`'s answer at `u`, earlier in the word, does not hold.
 
+**A third answer instead of a tree.** A test answers yes, no or
+unknown. Three points:
+
+- **"Unknown" cannot just stop evaluation.** If it did, `[u, t, t']`
+  and `[u, t', t]` on an input where `u` is unknown would both be
+  "stuck at `u`", and no model would separate them. The result has to
+  keep what happens after an unknown test.
+- **What is kept is a list, not a tree.** A test with a term target
+  ends the walk when it fires, so the result is the ordered list of
+  possible outcomes: "maybe `a`, maybe `b`, else …", the "A or B"
+  values. A tree appears only where an entry with a variable target
+  fires and the walk continues.
+- **The lift must not be evaluated as a test.** Suppose
+  `⟦ g | ⟦ \ h as _ ⟧ ⟧` is evaluated by asking whether the input is
+  at index 0 of `g`. Then the lift law forces "maybe at index 0 of
+  `g`" to imply "fixed by `h`". In the facts example that makes `u`
+  literally the same question as `t'`, and in the 14-step example the
+  same question as `t`. Rule 4 then holds again, joint instances
+  included, because a test being merely possible triggers the folds.
+  The lift is ordered commutation. If its "maybe" outcome is compared
+  only inside its own branch, a step on `h` may move a variable whose
+  answer for `g` is unknown. Then `u` and `t'` are different questions,
+  and the outcome lists `[a?, b?, c?]` and `[a?, c?, b?]` differ.
+- **What must stay out:** an equation that inserts a question, together
+  with a continuing list, before an earlier question. That is eta, and
+  it brings rule 4 back. Outcome lists whose "maybe" entries are leaves
+  cannot express it.
+
+Not yet checked against all of the normaliser's equations.
+
 **Open:** deciding joint instances below cubic cost. A candidate is
 congruence closure that records, for each merge, the tests it depends
 on, keeping only sets of at most two (proof-producing congruence
