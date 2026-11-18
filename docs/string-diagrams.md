@@ -239,6 +239,12 @@ already drawn has a precise form:
 - **Left out:** consequences that also need disjunctive axioms, such as
   "equal or disjoint" between labels. Example 2 needs one.
 
+*Correction (see "Rule 4 needs a case split too" below):* this line is
+right about the axioms but misplaces rule 4. The chase decides each
+branch of a decision list with conditional equations only. Concluding
+that two decision lists are equal also uses a case split on which tests
+fire, and that is excluded middle on `Z`.
+
 The same line appears in name-passing calculi:
 
 - **Late bisimilarity** is the analogue of standard interpretations. It
@@ -353,14 +359,62 @@ In both, the walk to `u` uses one test's loop and then, in the middle
 of the walk, the other's. A loop used only at the end is always
 stripped by the wall.
 
-**No model drops rule 4 while keeping the lift law.** The normaliser
-identifies `⟦ g | ⟦ \ h as _ ⟧ ⟧` with `⟦ \ h as _ ⟧` for ordered
-`g, h`. On an input `v` at index 0 of `g`, the left side gives `v` and
-the right side gives `sh_h v`, so every model where the identity holds
-has `sh_h v = v`. Every rule-4 instance is a consequence of that law
-together with injectivity, commutation and wall transport, all of which
-the normaliser uses. So keeping the lift law means keeping rule 4, joint
-instances included.
+**Rule 4 needs a case split too.** An earlier version of this section
+claimed that every model of the normaliser's equations satisfies rule
+4. That is false: the term model, adjustments modulo the normaliser's
+own equations, satisfies every equation, and in it the two sides of a
+rule-4 instance are different normal forms. The argument assumed three
+things about models:
+
+1. **Extensional.** An adjustment is determined by what it does to each
+   variable.
+2. **Local.** Each step acts on a variable by a fixed function of that
+   variable, the same wherever the step occurs in a word.
+3. **Two-valued tests.** Every variable either is or is not at index 0
+   of each label.
+
+The derivation uses them like this:
+
+- **1 and 2** turn the equation `⟦ g | ⟦ \ h as _ ⟧ ⟧ = ⟦ \ h as _ ⟧`
+  into a fact about single variables: `sh_h v = v` whenever `Z_g v`.
+  The derivation then reuses that fact in the middle of a different
+  word.
+- **3** is the case split. `[u, t, t']` and `[u, t', t]` are equal
+  because on every input:
+  - either `u` fires;
+  - or at most one of `t` and `t'` fires;
+  - or both fire, which the chase refutes.
+
+  This is the same kind of argument as example 2: excluded middle, on
+  tests instead of on label overlap.
+
+**A model class without assumption 3** should make rule 4 fail, as
+example 2 fails, while keeping every equation the normaliser uses.
+Those equations are commutation, cancellation, absorption, the
+same-target swap, and eta through commutation and cancellation. None of
+them splits cases on a test.
+
+The candidate is the open-bisimulation one:
+
+- **Worlds** are stages at which variables may still be identified
+  later, and tests may still be undecided.
+- **At the generic world,** `sh_h v` is a separate variable from `v`.
+  Deciding `Z_g v = true` in a later world forces the two to be
+  identified, by the lift law.
+- **Values at the generic world:** a decision list stuck on an
+  undecided `u` stays a stuck list. So `[u, t, t']` and `[u, t', t]`
+  can differ there, as `τ.[x = y]τ + τ + τ.τ` and `τ + τ.τ` differ
+  under open bisimilarity.
+
+This is not built or checked yet. It needs:
+
+- the model class, with the normaliser's equations checked against it
+  (as `ZModel.v` does for zero-set models);
+- a model in it separating a rule-4 instance;
+- a check that canonicity without rule 4 still holds for the other
+  pairs. The existing two-valued separation models remain in the class.
+
+If it works, rule 4 drops out of the spec, its cost with it.
 
 **Open:** deciding joint instances below cubic cost. A candidate is
 congruence closure that records, for each merge, the tests it depends
@@ -369,8 +423,9 @@ closure). Done naively that is still `k²` labels per merge.
 
 ## What this changes
 
-- **The spec has a precise form.** Equal in every model of a
-  conditional-equational theory, with the Boolean sort two-valued.
+- **The spec's model class is a choice.** With tests two-valued it
+  includes rule 4. Without that, it should exclude rule 4 (open
+  question above).
 - **Completeness of the closure** (the "corner lemma" in
   `docs/zero-sets.md`) has a standard shape. The chase is complete for
   free models, so two things remain to prove:
