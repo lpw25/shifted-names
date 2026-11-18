@@ -191,6 +191,35 @@ The same line appears in name-passing calculi:
   - For presheaf models of name-passing in general, see
     [Fiore and Staton, I&C 2006].
 
+### A tested candidate for a stronger equality, and why it fails
+
+A search (scratch `opt2/`) looked for an extra equality that would make
+rule 4 local. The best candidate, E1, says: for distinct labels `h` and
+`m`, every index-0 variable of `m` is index 0 of `h` or fixed by
+`⟦ \ h as _ ⟧`. As an axiom:
+
+```
+Z_m v = true  ⇒  Z_h v = true  ∨  sh_h v = v
+```
+
+That is a disjunction, so E1 is not a conditional equation, and the
+search found the consequences that line predicts:
+
+- **It works for the three examples.** The facts example, the 14-step
+  example and `r1`/`r2` all become checks at a single point.
+- **It adds a new case split.** Even without facts, a new identity
+  holds only by a case split on whether the input is index 0 of `k`.
+  This is the same kind as examples 1 and 2.
+- **It is NP-hard with facts.** Deciding whether a test can fire
+  encodes SAT. The search checked this for two variables, with both a
+  satisfiable and an unsatisfiable formula, and found an explicit
+  zero-set countermodel for the unsatisfiable case.
+- **The safe half does nothing for rule 4.** That half, "a weakening
+  never moves a variable into `Z_m` from outside", is a dead-entry rule.
+
+So a stronger equality only helps by adding a disjunctive axiom, and
+that brings case splits. Rule 4 stays as the chase.
+
 ## What this changes
 
 - **The spec has a precise form.** Equal in every model of a
