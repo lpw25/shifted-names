@@ -180,9 +180,16 @@ The same line appears in name-passing calculi:
 - **Late bisimilarity** is the analogue of standard interpretations. It
   needs excluded middle on whether two names are equal.
 - **Open bisimilarity** is the analogue of our choice. It drops excluded
-  middle, and is characterised by an intuitionistic modal logic. The
-  models are presheaves, a free cocompletion ([Ahn, Horne and Tiu,
-  CONCUR 2017], [Fiore and Staton, I&C 2006]).
+  middle, and is characterised by an intuitionistic modal logic
+  ([Ahn, Horne and Tiu, CONCUR 2017]):
+  - Its Kripke worlds are processes with their history, ordered by
+    substitution instance. A Kripke model over that order is a
+    presheaf, the free cocompletion.
+  - Their example, `τ.[x = y]τ + τ + τ.τ` against `τ + τ.τ`, is equal
+    only by assuming `∀x, y. x = y ∨ x ≠ y`. That is the shape of
+    example 2.
+  - For presheaf models of name-passing in general, see
+    [Fiore and Staton, I&C 2006].
 
 ## What this changes
 
@@ -205,5 +212,5 @@ The same line appears in name-passing calculi:
 
 [arXiv:2205.02425]: https://arxiv.org/abs/2205.02425
 [arXiv:2111.03784]: https://arxiv.org/abs/2111.03784
-[Ahn, Horne and Tiu, CONCUR 2017]: https://arxiv.org/abs/1701.05324
+[Ahn, Horne and Tiu, CONCUR 2017]: https://strathprints.strath.ac.uk/87704/1/Ahn-etal-CONCUR-2017-A-characterisation-of-open-bisimilarity-using-an-intuitionistic-modal-logic.pdf
 [Fiore and Staton, I&C 2006]: https://www.cs.ox.ac.uk/publications/publication15273-abstract.html
