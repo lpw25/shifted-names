@@ -436,6 +436,35 @@ lift law, as fixed equations. This gives two possible specs:
   equations by expanding and rewriting in context, which needs
   checking.
 
+**Why the normaliser does not find rule 4, though it has absorption and
+the lift law.** It uses them only as contractions where the pattern
+already appears in the word. The branch argument splits on `Z_g v`
+before `u`, but the word's only test on `g` at `v` is `t`, which comes
+after `u`. The general eta law for tests is the non-local form
+
+```
+C[x] = if Z_g v then C[x, knowing Z_g v] else C[x, knowing not Z_g v]
+```
+
+It allows a split anywhere, on any test the context could make. Using it
+means inserting a test the word does not contain, and the normaliser
+never inserts tests. The same gap is known for sums in the typed
+lambda-calculus: eta for sums is non-local, and rewriting that only
+contracts is incomplete. Lindley (TLCA 2007) gives a non-local
+rewriting theory for it. Scherer (POPL 2017) decides it by
+*saturation*: deconstruct every sum "as early as possible", when it
+first becomes derivable. For us, that is splitting on a test at the
+first point where the walk could make it.
+
+**What dropping general eta loses.** None of the normaliser's equations
+needs general eta. Absorption, the lift law, ordered commutation, the
+same-target swap and cancellation are each a fixed equation. What is
+lost is exactly what needs a split moved earlier than any test in the
+word: the rule-4 family. But a model class without general eta is
+unusual. In set-like models a test is a real two-way choice, and eta
+holds. Models that fail it treat tests like weak coproducts, and then
+absorption and the lift law have to be imposed as axioms.
+
 **Open:** deciding joint instances below cubic cost. A candidate is
 congruence closure that records, for each merge, the tests it depends
 on, keeping only sets of at most two (proof-producing congruence
