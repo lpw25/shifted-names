@@ -388,33 +388,53 @@ The derivation uses them like this:
   This is the same kind of argument as example 2: excluded middle, on
   tests instead of on label overlap.
 
-**A model class without assumption 3** should make rule 4 fail, as
-example 2 fails, while keeping every equation the normaliser uses.
-Those equations are commutation, cancellation, absorption, the
-same-target swap, and eta through commutation and cancellation. None of
-them splits cases on a test.
+**A model class without assumption 3 does not escape rule 4.** I tried
+the open-bisimulation idea, in which tests may be undecided and
+variables identified later. It fails on paper, because two of the
+normaliser's own equations are eta laws for tests:
 
-The candidate is the open-bisimulation one:
+- **Absorption.** `E g` whose target is the consumed variable, followed
+  by `W g`, is the identity. The left side is "if `Z_g v` then `v`
+  else `sh_g (un_g v)`". It equals `v` only because both branches equal
+  `v`.
+- **The lift law** `⟦ g | ⟦ \ h as _ ⟧ ⟧ = ⟦ \ h as _ ⟧`. The left
+  side is "if `Z_g v` then `v` else `sh_h v`", and the two sides agree
+  only branch by branch.
 
-- **Worlds** are stages at which variables may still be identified
-  later, and tests may still be undecided.
-- **At the generic world,** `sh_h v` is a separate variable from `v`.
-  Deciding `Z_g v = true` in a later world forces the two to be
-  identified, by the lift law.
-- **Values at the generic world:** a decision list stuck on an
-  undecided `u` stays a stuck list. So `[u, t, t']` and `[u, t', t]`
-  can differ there, as `τ.[x = y]τ + τ + τ.τ` and `τ + τ.τ` differ
-  under open bisimilarity.
+A model in which an undecided test leaves a stuck tree, compared as a
+tree, breaks both. So the model must validate eta for tests: a tree
+equals `z` when each branch does, under that branch's hypothesis. The
+lift law must also hold in every context. If `⟦ \ h as _ ⟧` is followed
+by a test on `m`, then in the branch where `Z_g v` holds, the tests on
+`m` at `v` and at `sh_h v` must agree. With those two in place, the
+facts example follows by branch reasoning alone:
 
-This is not built or checked yet. It needs:
+```
+compare [u, t, t'] and [u, t', t] where u is false:
+  branch t (Z_g v):  t' tests m at v; the lift law in context says this
+                     agrees with u, which is m at sh_h v, so t' is false
+                     there. Both lists give t's target.
+  branch not t:      both lists continue with t'.
+```
 
-- the model class, with the normaliser's equations checked against it
-  (as `ZModel.v` does for zero-set models);
-- a model in it separating a rule-4 instance;
-- a check that canonicity without rule 4 still holds for the other
-  pairs. The existing two-valued separation models remain in the class.
+This needs no excluded middle beyond case analysis on each test as it
+is evaluated, and no reasoning from an impossible branch. So rule 4
+holds in intuitionistic (Kripke, open-bisimulation style) models too.
+That is unlike example 2, whose axiom is a disjunction.
 
-If it works, rule 4 drops out of the spec, its cost with it.
+**The real meta-property** is general eta for tests: values are
+determined by their branches. The term model escapes rule 4 because it
+has only the eta instances the normaliser states: absorption and the
+lift law, as fixed equations. This gives two possible specs:
+
+- **Semantic:** models with general eta for tests. Rule 4 is part of
+  the spec, and its cost has to be solved.
+- **Equational:** "equal in every model" ranges over all algebras of
+  the normaliser's equations. By Birkhoff this means "provable from
+  them", and canonicity becomes completeness of the normaliser for its
+  own axioms. Rule 4 is required only if it can be derived from those
+  equations by expanding and rewriting in context, which needs
+  checking.
 
 **Open:** deciding joint instances below cubic cost. A candidate is
 congruence closure that records, for each merge, the tests it depends
@@ -423,9 +443,9 @@ closure). Done naively that is still `k²` labels per merge.
 
 ## What this changes
 
-- **The spec's model class is a choice.** With tests two-valued it
-  includes rule 4. Without that, it should exclude rule 4 (open
-  question above).
+- **The spec's model class is a choice.** Models with general eta for
+  tests include rule 4. The equational spec includes it only if it is
+  derivable from the normaliser's own equations (open, above).
 - **Completeness of the closure** (the "corner lemma" in
   `docs/zero-sets.md`) has a standard shape. The chase is complete for
   free models, so two things remain to prove:
