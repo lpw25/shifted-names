@@ -359,111 +359,62 @@ In both, the walk to `u` uses one test's loop and then, in the middle
 of the walk, the other's. A loop used only at the end is always
 stripped by the wall.
 
-**Rule 4 needs a case split too.** An earlier version of this section
+**Which models have rule 4.** An earlier version of this section
 claimed that every model of the normaliser's equations satisfies rule
 4. That is false: the term model, adjustments modulo the normaliser's
 own equations, satisfies every equation, and in it the two sides of a
-rule-4 instance are different normal forms. The argument assumed three
-things about models:
+rule-4 instance are different normal forms.
 
-1. **Extensional.** An adjustment is determined by what it does to each
-   variable.
-2. **Local.** Each step acts on a variable by a fixed function of that
-   variable, the same wherever the step occurs in a word.
-3. **Two-valued tests.** Every variable either is or is not at index 0
-   of each label.
+A later version said absorption and the lift law were "eta laws for
+tests". That was an artefact of the zero-set encoding. There a target
+naming `g`'s index `i` is read relative to the consumed variable:
+`zread g i v` is the consumed variable's `i`-th successor if `v` is at
+index 0 of `g`, and the designated one's otherwise. That makes
+`⟦ g as v \ g as v ⟧` look like a test, and the proof of
+`za_lift_ordered` a case split.
 
-The derivation uses them like this:
+In interleaved models a target is a fixed variable (`iz_read`), and
+the lift law `⟦ g | ⟦ \ h as _ ⟧ ⟧ = ⟦ \ h as _ ⟧` is just ordered
+commutation. The items `g as v` and `h as _` commute, and a step on `h`
+leaves `g`'s variables alone because ordered labels have disjoint
+streams.
 
-- **1 and 2** turn the equation `⟦ g | ⟦ \ h as _ ⟧ ⟧ = ⟦ \ h as _ ⟧`
-  into a fact about single variables: `sh_h v = v` whenever `Z_g v`.
-  The derivation then reuses that fact in the middle of a different
-  word.
-- **3** is the case split. `[u, t, t']` and `[u, t', t]` are equal
-  because on every input:
-  - either `u` fires;
-  - or at most one of `t` and `t'` fires;
-  - or both fire, which the chase refutes.
+**What rule 4 actually uses.** In interleaved models, for an input `x`:
 
-  This is the same kind of argument as example 2: excluded middle, on
-  tests instead of on label overlap.
+- `t` fires means `x` is `g₀`; `t'` fires means `x` is `m₀`;
+- if both fire, `x` is on `g`'s stream, so `⟦ \ h as _ ⟧` fixes it
+  (`h` is ordered against `g`). Then `u`, which asks whether
+  `⟦ \ h as _ ⟧ x` is `m₀`, fires.
 
-**A model class without assumption 3 does not escape rule 4.** I tried
-the open-bisimulation idea, in which tests may be undecided and
-variables identified later. It fails on paper, because two of the
-normaliser's own equations are eta laws for tests:
+So `[u, t, t']` and `[u, t', t]` agree on every input. This uses only:
 
-- **Absorption.** `E g` whose target is the consumed variable, followed
-  by `W g`, is the identity. The left side is "if `Z_g v` then `v`
-  else `sh_g (un_g v)`". It equals `v` only because both branches equal
-  `v`.
-- **The lift law** `⟦ g | ⟦ \ h as _ ⟧ ⟧ = ⟦ \ h as _ ⟧`. The left
-  side is "if `Z_g v` then `v` else `sh_h v`", and the two sides agree
-  only branch by branch.
+- **extensionality:** adjustments are functions on variables, equal
+  when equal on each one;
+- **disjointness of ordered labels:** the same fact ordered commutation
+  rests on.
 
-A model in which an undecided test leaves a stuck tree, compared as a
-tree, breaks both. So the model must validate eta for tests: a tree
-equals `z` when each branch does, under that branch's hypothesis. The
-lift law must also hold in every context. If `⟦ \ h as _ ⟧` is followed
-by a test on `m`, then in the branch where `Z_g v` holds, the tests on
-`m` at `v` and at `sh_h v` must agree. With those two in place, the
-facts example follows by branch reasoning alone:
+Every model in which adjustments act on variables has rule 4. Dropping
+it means a non-extensional model, such as the term model.
 
-```
-compare [u, t, t'] and [u, t', t] where u is false:
-  branch t (Z_g v):  t' tests m at v; the lift law in context says this
-                     agrees with u, which is m at sh_h v, so t' is false
-                     there. Both lists give t's target.
-  branch not t:      both lists continue with t'.
-```
+**Why the normaliser does not find rule 4.** The equality holds input
+by input: an input that passes `t` and `t'` also passes `u`, which comes
+earlier. The normaliser rewrites words, and each rewrite is local: it
+looks at adjacent steps, or steps that commute together. No rewrite
+lets a later test (`t`) tell it something about an earlier one (`u`).
+Whether rule 4 can be derived from the normaliser's equations used in
+both directions is not known. The input-by-input argument does not
+give such a derivation.
 
-This needs no excluded middle beyond case analysis on each test as it
-is evaluated, and no reasoning from an impossible branch. So rule 4
-holds in intuitionistic (Kripke, open-bisimulation style) models too.
-That is unlike example 2, whose axiom is a disjunction.
+The same gap between rewriting and extensional equality is known for
+sum types in the typed lambda-calculus. There, eta for sums is
+non-local, and rewriting that only contracts is incomplete:
 
-**The real meta-property** is general eta for tests: values are
-determined by their branches. The term model escapes rule 4 because it
-has only the eta instances the normaliser states: absorption and the
-lift law, as fixed equations. This gives two possible specs:
+- Lindley (TLCA 2007) gives a non-local rewriting theory for it.
+- Scherer (POPL 2017) decides it by *saturation*: case-split on each
+  sum as early as it becomes available.
 
-- **Semantic:** models with general eta for tests. Rule 4 is part of
-  the spec, and its cost has to be solved.
-- **Equational:** "equal in every model" ranges over all algebras of
-  the normaliser's equations. By Birkhoff this means "provable from
-  them", and canonicity becomes completeness of the normaliser for its
-  own axioms. Rule 4 is required only if it can be derived from those
-  equations by expanding and rewriting in context, which needs
-  checking.
-
-**Why the normaliser does not find rule 4, though it has absorption and
-the lift law.** It uses them only as contractions where the pattern
-already appears in the word. The branch argument splits on `Z_g v`
-before `u`, but the word's only test on `g` at `v` is `t`, which comes
-after `u`. The general eta law for tests is the non-local form
-
-```
-C[x] = if Z_g v then C[x, knowing Z_g v] else C[x, knowing not Z_g v]
-```
-
-It allows a split anywhere, on any test the context could make. Using it
-means inserting a test the word does not contain, and the normaliser
-never inserts tests. The same gap is known for sums in the typed
-lambda-calculus: eta for sums is non-local, and rewriting that only
-contracts is incomplete. Lindley (TLCA 2007) gives a non-local
-rewriting theory for it. Scherer (POPL 2017) decides it by
-*saturation*: deconstruct every sum "as early as possible", when it
-first becomes derivable. For us, that is splitting on a test at the
-first point where the walk could make it.
-
-**What dropping general eta loses.** None of the normaliser's equations
-needs general eta. Absorption, the lift law, ordered commutation, the
-same-target swap and cancellation are each a fixed equation. What is
-lost is exactly what needs a split moved earlier than any test in the
-word: the rule-4 family. But a model class without general eta is
-unusual. In set-like models a test is a real two-way choice, and eta
-holds. Models that fail it treat tests like weak coproducts, and then
-absorption and the lift law have to be imposed as axioms.
+The analogue for us is to consider each test at the first point where
+the walk could make it.
 
 **Open:** deciding joint instances below cubic cost. A candidate is
 congruence closure that records, for each merge, the tests it depends
@@ -472,9 +423,9 @@ closure). Done naively that is still `k²` labels per merge.
 
 ## What this changes
 
-- **The spec's model class is a choice.** Models with general eta for
-  tests include rule 4. The equational spec includes it only if it is
-  derivable from the normaliser's own equations (open, above).
+- **Rule 4 is part of any extensional spec.** It follows from
+  extensionality and disjointness of ordered labels. Only a
+  non-extensional spec, such as the term model, avoids it.
 - **Completeness of the closure** (the "corner lemma" in
   `docs/zero-sets.md`) has a standard shape. The chase is complete for
   free models, so two things remain to prove:
