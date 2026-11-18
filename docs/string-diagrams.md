@@ -127,6 +127,70 @@ as Boolean equations at the tests' points:
 The branch happens in some model only if the chase of its equations
 never derives `true = false`.
 
+### The same thing as graph rewriting: the point graph and folding
+
+**The point graph.** Run a word on one generic input `y`.
+
+- **Nodes** are the points it visits: `y` moved by each prefix of the
+  word.
+- **Edges:** each step adds an edge labelled by its label, from a point
+  `P` to `sh_h P`.
+- **Tests:** each test is a mark on a node, with its label, target and
+  place in the order.
+
+This graph does not depend on how labels overlap. A model and an input
+give a graph homomorphism from it into the model's graph. The
+homomorphism is non-injective exactly where the model makes two points
+equal. So a fixed overlap pattern is a quotient of the point graph,
+and the string diagram above, read along `y`'s wire, is that quotient.
+In graph-rewriting terms this is a non-injective match (Habel, Müller
+and Plump).
+
+**The normaliser's rules are rewrites of the point graph:**
+
+| Normaliser rule | Rewrite |
+|---|---|
+| cancellation | **fold**: two `h`-edges into the same node are merged, and so are their sources |
+| steps on ordered labels commute | **square completion**: the point graph lives in the cube complex of positions |
+| eta (dead entries) | an entry at `Q` whose `h`-edge into `Q` already exists folds into it. Its test is dead, since `Z_h (sh_h R) = false` |
+| same-target swap | test marks with equal targets are not ordered against each other |
+| rule 4 | **conditional loop**: a firing test on `g` at `P` puts a `k`-loop at `P` for each `k` ordered against `g`; then fold |
+| a fixed overlap | a quotient of the point graph |
+
+The first rule is **Stallings folding**: the graph rewriting that
+merges two same-labelled edges at a vertex, and their other ends.
+
+- It is confluent: the folded graph does not depend on the order of
+  folds.
+- Touikan folds any connected labelled graph with `V` vertices and `E`
+  edges in `O(E + (V + E) log* V)` time, using union-find
+  ([arXiv:0805.2348], Theorem 1.6).
+
+Our folds are the "functions" rule of the closure in both directions:
+two edges out of a node with the same label, or two edges into it.
+
+**Eta in one pass.** Folding gives the one-pass eta pass that
+`docs/performance.md` plans. Process the word left to right. An entry
+is dead exactly when the `h`-edge into its node already exists, that
+is, when its wall has already been crossed. With positions kept as
+hash-consed normal forms, "already exists" is one dictionary lookup on
+the wall key. No reductions are repeated.
+
+**The whole normaliser is one rewriting system.** The rewrites are:
+
+- fold;
+- complete squares;
+- add lift-law loops in a branch, then fold.
+
+Then read the normal word off the folded graph. The separate passes of
+the current design (reduce, eta, re-sort, repeat) are one confluent
+system computed in one sweep. The remaining questions are about this
+graph:
+
+- the order of test marks: "behind" and "crossing" are positions of
+  walls, which are hyperplanes of the cube complex;
+- which pairs of marks rule 4 lets swap.
+
 ### The two difficult examples are three chase steps each
 
 **The facts example** (`docs/separation.md`: fact `g < h`, `m`
@@ -232,14 +296,14 @@ that brings case splits. Rule 4 stays as the chase.
     never merge visited points;
   - a branch the chase leaves consistent still has a model when every
     remaining `Z` is set to `true` or `false`.
-- **The implementation is an e-graph.** A union-find over the visited
-  points, with conditional rewrites for the lift law and commutation,
-  is congruence closure: `O(n log n)` per closure (Downey, Sethi and
-  Tarjan).
+- **The implementation is folding.** Union-find over the visited
+  points, with square completion and lift-law loops. Each closure costs
+  `O(n log* n)` (Touikan).
 - **Not changed: the cost.** Asking about every pair of tests is still
   `k²` closures.
 
 [arXiv:2205.02425]: https://arxiv.org/abs/2205.02425
 [arXiv:2111.03784]: https://arxiv.org/abs/2111.03784
+[arXiv:0805.2348]: https://arxiv.org/abs/0805.2348
 [Ahn, Horne and Tiu, CONCUR 2017]: https://strathprints.strath.ac.uk/87704/1/Ahn-etal-CONCUR-2017-A-characterisation-of-open-bisimilarity-using-an-intuitionistic-modal-logic.pdf
 [Fiore and Staton, I&C 2006]: https://www.cs.ox.ac.uk/publications/publication15273-abstract.html
