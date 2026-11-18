@@ -284,6 +284,89 @@ search found the consequences that line predicts:
 So a stronger equality only helps by adding a disjunctive axiom, and
 that brings case splits. Rule 4 stays as the chase.
 
+## Rule 4 in the family of conditional folds
+
+Notation: `W g` is `⟦ \ g as _ ⟧`, and `E g` is an entry on `g` (a
+test).
+
+**The family.** Every rule of the closure has the form "these marks
+imply these folds". Three members matter:
+
+| Rule | Premise | Conclusion | Status |
+|---|---|---|---|
+| wall transport | none | `Z_g` is unchanged along steps on labels ordered against `g` | already used: tests are per wall |
+| dead entry (eta) | none | a node with an incoming `h`-edge has `Z_h = false` | already used |
+| rule 4 | a firing test on `g` at `P` | loops at `P` for every label ordered against `g` | the costly one |
+
+**What rule 4 concludes.** Rule 4 is a *conditional duplicate*. The
+duplicate rule says that a later test on a wall an earlier entry
+already crossed never fires. Rule 4 says the same thing in the branch
+where some test `t` fires: after `t`'s loops are folded in, an earlier
+test `u` sits on the same wall as a later test `t'`, so `t'` cannot be
+the first to fire. Hence `t` and `t'` may swap.
+
+**The cheap subset: one-sided instances.** In these, the folds from one
+of the two tests already put `u` on the other test's wall. They need
+one closure per test, not per pair:
+
+- for each test `t`, fold `t`'s loops;
+- read off which earlier tests now share a wall with later tests.
+
+That is `k` closures of `O(n log* n)` each, which is quadratic in
+total. Exhaustive check (scratch `opt1/rank2.py`), counting every pair
+of tests that rule 4 forces:
+
+| Labels | Facts | Steps | Instances | One-sided |
+|---|---|---|---|---|
+| `g, h, m` | `g < h` | up to 7 | 100 | all |
+| `a, b, c, d` | `a < b, c < d` | up to 6 | 32 | all |
+| `a, b, c` | `a < c` | up to 6 | 8 | all |
+
+**Measure walls, not points.** On points rather than walls some of
+these looked joint, for example "`W a`, then `W b`, then a test on
+`m`" with `b` ordered against `m`. On walls they are one-sided, because
+`b` is stripped from the end of the wall. No instance in these runs was
+forced by a single test alone, which would make that test dead.
+
+**Joint instances exist** in longer words. Take `a < g` and `b < m`:
+
+```
+W b ⨾ W a ⨾ E m (u) ⨾ W m ⨾ E a ⨾ E b ⨾ E g (t) ⨾ W g ⨾ E m (t') ⨾ W m
+```
+
+- `t` and `t'` test the start.
+- `u` tests the point after `W b ⨾ W a`.
+- If both fire, `b` fixes the start (by `t'`) and then `a` fixes it
+  (by `t`), so `u` is at the start and fires.
+- Either loop alone is not enough, since `a` is not stripped from
+  `m`'s wall.
+
+There is a 17-step version with `t` and `t'` at different points, using
+a third label `c`:
+
+```
+W c ⨾ W b ⨾ E c ⨾ W a ⨾ W c ⨾ E m (u) ⨾ W m ⨾ E c ⨾ E a ⨾ W c ⨾ E b ⨾ E c
+  ⨾ E g (t) ⨾ W g ⨾ W c ⨾ E m (t') ⨾ W m
+```
+
+In both, the walk to `u` uses one test's loop and then, in the middle
+of the walk, the other's. A loop used only at the end is always
+stripped by the wall.
+
+**No model drops rule 4 while keeping the lift law.** The normaliser
+identifies `⟦ g | ⟦ \ h as _ ⟧ ⟧` with `⟦ \ h as _ ⟧` for ordered
+`g, h`. On an input `v` at index 0 of `g`, the left side gives `v` and
+the right side gives `sh_h v`, so every model where the identity holds
+has `sh_h v = v`. Every rule-4 instance is a consequence of that law
+together with injectivity, commutation and wall transport, all of which
+the normaliser uses. So keeping the lift law means keeping rule 4, joint
+instances included.
+
+**Open:** deciding joint instances below cubic cost. A candidate is
+congruence closure that records, for each merge, the tests it depends
+on, keeping only sets of at most two (proof-producing congruence
+closure). Done naively that is still `k²` labels per merge.
+
 ## What this changes
 
 - **The spec has a precise form.** Equal in every model of a
@@ -299,8 +382,9 @@ that brings case splits. Rule 4 stays as the chase.
 - **The implementation is folding.** Union-find over the visited
   points, with square completion and lift-law loops. Each closure costs
   `O(n log* n)` (Touikan).
-- **Not changed: the cost.** Asking about every pair of tests is still
-  `k²` closures.
+- **The cost, partly.** One-sided rule-4 instances need one closure per
+  test, which is quadratic in total. Joint instances still need one per
+  pair.
 
 [arXiv:2205.02425]: https://arxiv.org/abs/2205.02425
 [arXiv:2111.03784]: https://arxiv.org/abs/2111.03784
