@@ -416,6 +416,44 @@ non-local, and rewriting that only contracts is incomplete:
 The analogue for us is to consider each test at the first point where
 the walk could make it.
 
+**Non-extensional models of sums, and the analogue for us.** Models of
+sums without eta get it by giving the sum inhabitants that are neither
+left nor right:
+
+- **Normalisation by evaluation.** Abel and Sattler (arXiv:1902.06097)
+  use presheaves over contexts with a *cover monad*. A variable of sum
+  type is an unknown. When evaluation needs to know which side it is,
+  it asks an oracle, and the value becomes a case tree whose nodes are
+  those questions. With the free cover monad nothing more is
+  identified: "it does not matter in which order the questions are
+  asked (commuting case splits), and whether the same question is
+  asked several times (redundant case splits)" are listed as
+  refinements. Full eta needs sheaves: Altenkirch, Dybjer, Hofmann and
+  Scott (LICS 2001) add a Grothendieck topology in which left and right
+  cover the sum.
+- **Domain models** add `⊥`. **Cubical models** give higher inductive
+  types formal composition constructors. Both are extra inhabitants of
+  the same kind.
+
+The pattern is a presheaf-style model with case trees, quotiented by
+exactly the case-tree equations wanted. Eta is the sheaf condition,
+which says you may split before you are asked.
+
+**For us:**
+
+- **The input** is an unknown variable.
+- **Each entry with a term target** asks the oracle "is the current
+  position at index 0 of `g`?". "Yes" ends the branch with the target.
+  "No" continues, and the answer is recorded at the new stage.
+- **Recorded answers propagate forward** along the walk. For example,
+  after "`P` is index 0 of `g`", steps on `h` fix `P`.
+- **A meaning is a case tree.** Two words are equal when their trees
+  are equal modulo the equations we choose: redundant questions dropped
+  (dead and duplicate tests), questions with the same answer commuting
+  (the same-target swap), and ordered commutation.
+- **No question is answered before it is asked.** So rule 4, which uses
+  `t`'s answer at `u`, earlier in the word, does not hold.
+
 **Open:** deciding joint instances below cubic cost. A candidate is
 congruence closure that records, for each merge, the tests it depends
 on, keeping only sets of at most two (proof-producing congruence
