@@ -562,6 +562,54 @@ into a lift's yes-branch stops at the first step on a label unordered
 with `g`: no law moves an entry on `m` across `⟦ g | … ⟧`. That is
 consistent with it not being derivable, but is not a proof.
 
+### Classes of models, not single models
+
+The spec should read "equal in every model of a class C", where C is a
+class defined by axioms. A concrete model plays two roles only:
+
+- a member of C that separates two words shows they are not equal in
+  the spec;
+- a law that fails in some member of C is not part of the spec.
+
+It does not have to be natural to be a witness.
+
+Read this way, the obstruction above is a statement about classes:
+
+- **If every member of C is decision-based, rule 4 holds in C.** Any
+  class C satisfying the normaliser's laws whose members all evaluate
+  adjustments by asking questions about the input contains rule 4.
+- **Rule 4 fails in C only if C has a non-decision member,** one where
+  a lift is not a question. The separating witness must be of that
+  kind.
+
+Two ways to define C:
+
+- **Models of the zero-set theory in a general category, instead of in
+  sets.** Absorption and the lift law are proved in `ZModel.v` by case
+  analysis on `zat0`. They hold in a category only if that case
+  analysis is available there, as in extensive categories, which
+  include every topos. Case analysis also proves rule 4 (the obstruction).
+  So this does not drop rule 4.
+- **All algebras of the normaliser's laws, taken as axioms.** By
+  Birkhoff, "equal in every member" is "derivable from the laws". Rule
+  4 is out exactly when it is not derivable. A witness is any algebra
+  of the laws that separates the facts example. `HNorm`'s normal forms
+  are the obvious candidate, if normalisation is invariant under each
+  law. Canonicity then means `HNorm` decides the equational theory of
+  its own laws.
+
+The same pattern is studied for if-then-else. Different classes of
+models give different equational theories:
+
+- Boolean tests: Bloom and Tindell 1983.
+- Three-valued (non-halting) tests: Guzmán and Squier's C-algebras, and
+  Panicker, Krishna and Bhaduri (arXiv:1609.00132).
+- Bergstra and Ponse's proposition algebra: a hierarchy of classes
+  (free, repetition-proof, contractive, memorizing, static), each
+  characterised by transforming evaluation trees (arXiv:1504.08321).
+
+Rule 4 is a consequence at the static (propositional) end.
+
 **Open:** deciding joint instances below cubic cost. A candidate is
 congruence closure that records, for each merge, the tests it depends
 on, keeping only sets of at most two (proof-producing congruence
