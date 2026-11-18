@@ -280,3 +280,35 @@ meanings are. Meaning is judged by pairs of tests with the closure.
 |---|---|---|---|---|
 | `g < h` | up to 7 | 1,244 | 4 | 0 |
 | `a < b, c < d` | up to 6 | 656 | 0 | 0 |
+
+**A cleaner route to Part B.** Build the model directly from the
+closure, rather than from `H`:
+
+1. Take the closure's classes of points, with their steps, the loops (a
+   class fixed by a label) and the index-0 facts.
+2. Add the private negative ray below each index-0 class. Every other
+   label loops on it; this agrees with the lift law, so squares with
+   ordered labels close.
+3. If the result is *folded* (at most one step of each label in and out
+   of each class) and *locally convex* (two steps on commuting labels
+   from one class always close into a square), it is a locally isometric
+   immersion into the Salvetti complex of the facts' group.
+4. It then embeds in the covering space of that complex for its
+   fundamental group (Haglund–Wise). That covering, with the rays, is a
+   zero-set model in which:
+   - no further points are identified;
+   - there are no further index-0 variables.
+
+So any finite set of points on which the closure is folded and locally
+convex gives a complete answer.
+
+- The closure makes the classes folded (rule 4).
+- Local convexity can fail on the visited points alone, when a square's
+  fourth corner is not visited.
+- Adding missing corners and closing again until nothing changes would
+  give a complete procedure, at a possible cost in size.
+
+The lemma that would keep it at the visited points is that adding those
+corners never changes the classes of the visited points. That is what
+the experiment above tests, with every point within two steps standing
+in for the corners.
