@@ -484,6 +484,84 @@ unknown. Three points:
 
 Not yet checked against all of the normaliser's equations.
 
+## Non-extensional models tried, and an obstruction
+
+The aim: a model satisfying every law the normaliser uses in which the
+facts example (or the 14-step example) is not an identity. Each
+candidate, and the law it fails:
+
+| Candidate | Fails |
+|---|---|
+| a test answers yes, no or unknown; "unknown" stops evaluation | separates nothing: both lists are "stuck at `u`" |
+| unknown answers kept as an ordered list of possible outcomes; the lift evaluated as a test | the lift law forces "maybe at index 0 of `g`" to imply "fixed by `h`". Then `u` and `t'` are the same question, and the duplicate-test law makes the lists equal |
+| inputs are sets of variables; a test fires if some member is at index 0 | absorption `⟦ g as v \ g as v ⟧ = ⟦⟧`: forces an entry to treat members separately, which is extensional again |
+| linear: vectors, isometries, projections | the same-target swap forces any two tests to commute, so the projections generate a Boolean algebra |
+| Boolean-valued, or Kripke/Heyting-valued, with total decision lists | the facts example holds by Boolean (or Heyting) reasoning |
+| Heyting-valued with partial decision lists | the same-target swap: the two orders have different domains (open sets of the line give a counterexample) |
+| case trees (normalisation by evaluation), with or without restrictions on which splits may be collapsed | the obstruction below |
+
+**The obstruction.** Call a model *decision-based* when:
+
+- **trees:** an adjustment acts on an input by asking yes/no questions
+  of the form "is the current variable at index 0 of `g`?" and
+  continuing on each answer;
+- **sequential composition:** composing runs the second adjustment in
+  each branch of the first, with that branch's answers known;
+- **branch-wise equality:** two trees that ask the same question are
+  equal only if their branches are.
+
+Every decision-based model of the following laws makes the facts example
+an identity:
+
+- (A) absorption: `⟦ g | ⟦⟧ ⟧ = ⟦⟧`;
+- (B) lift composition: `⟦ g | σ ⟧ ⨾ ⟦ g | τ ⟧ = ⟦ g | σ ⨾ τ ⟧`;
+- (C) cancellation: `⟦ \ m as _ ⟧` followed by an entry on `m` is
+  `⟦⟧`, also under a lift;
+- (D) `⟦ g | ⟦ \ h as _ ⟧ ⟧ = ⟦ \ h as _ ⟧` for ordered `g, h`;
+- (E) a repeated test is dead;
+- wall transport.
+
+Proof sketch, with `q` the question "is `v` at index 0 of `g`?":
+
+1. By (A), (B) and (C),
+   `⟦ g | ⟦ \ m as _ ⟧ ⟧ ⨾ ⟦ g | entry on m ⟧ = ⟦⟧`. Its tree asks `q`
+   and returns `v` on both answers. Composing it in front of any `C`
+   gives "ask `q`, then `C`", so every `C` equals its split on `q`
+   (eta for `q`).
+2. By (B) with `σ = ⟦ \ h as _ ⟧` and (D), the trees for
+   `⟦ \ h as _ ⟧ ⨾ ⟦ g | τ ⟧` and `⟦ g | ⟦ \ h as _ ⟧ ⨾ τ ⟧` agree.
+   On the yes-branch of `q`, one continues from `⟦ \ h as _ ⟧ v` and
+   the other from `v`. By branch-wise equality and composition, nothing
+   later can tell them apart on that branch.
+3. Split both lists on `q` (step 1).
+   - **Yes-branch:** `u` asks about `⟦ \ h as _ ⟧ v`, which by step 2
+     behaves as `v`. So `u` is `t'`'s question, `t'` is dead after it
+     by (E), and `t` is answered yes. Both lists give "`u`? `a` :
+     `b`".
+   - **No-branch:** `t` is answered no, so both lists give
+     "`u`? `a` : `t'`? `c` : rest".
+
+So step 1 is where any decision-based model gets eta, and only for
+splits on questions about the input.
+
+**What escapes.** A model in which a lift does not ask anything. `HNorm`
+is one: it represents `⟦ h | a ⟧` as "the entry `h := (h₀ looked up in
+K)`". The yes-side value is a *lookup of the name `h₀`* through the
+rest of the word, which can get stuck. It is not "the input again".
+In step 1, the composite is then reduced by merging the two lifts by
+(B) before anything is asked. Nothing turns a later test on the lift's
+output into a question about the input, so step 3 has no split to use.
+
+A model of that kind interprets lifts and lookups as formal operations
+with their own equations, much as normalisation by evaluation uses
+neutral terms. It is close to the syntactic model.
+
+Whether the facts example follows from laws (A) to (E) by equational
+reasoning alone is not settled. Trying to push the rest of the word
+into a lift's yes-branch stops at the first step on a label unordered
+with `g`: no law moves an entry on `m` across `⟦ g | … ⟧`. That is
+consistent with it not being derivable, but is not a proof.
+
 **Open:** deciding joint instances below cubic cost. A candidate is
 congruence closure that records, for each merge, the tests it depends
 on, keeping only sets of at most two (proof-producing congruence
