@@ -509,7 +509,7 @@ codebase.
 | weakenings composed with entries | 0.11 / 0.45 / 1.7 s (×4) | 0.049 / 0.18 / 0.78 s (×4) |
 | entries composed with weakenings | 0.14 / 0.52 / 2.2 s (×4) | 0.030 / 0.12 / 0.52 s (×4) |
 | payload entries composed with weakenings | 0.15 / 0.49 / 1.9 s (×4) | — |
-| lifts with some restores kept | 0.28 / 1.6 / 11.8 s (×7) | 0.014 / 0.059 / 0.24 s (×4) |
+| lifts with some restores kept | 0.15 / 0.61 / 2.6 s (×4; was ×7) | 0.014 / 0.059 / 0.24 s (×4) |
 | copy chain with weakenings | 0.021 / 0.04 / 0.081 s | — |
 | a weakening through blocked forms | 0.007 / 0.01 / 0.02 s | — |
 
@@ -522,14 +522,30 @@ The quadratic families are quadratic in the Python pass too: outputs and
 inputs are placed by insertion into sorted lists, and every absorbed
 restore re-places the outputs below it.
 
-The one cost beyond Python's is lifts with kept restores (cubic). After
-each absorbed restore the outputs below are re-placed. Each output swap
-there scans every input (`swap_in_b`), whereas Python touches only the
-reads at that depth. Two shortcuts were tried in Python and rejected,
-because they change normal forms (1–2 of 4,000 random expressions):
+Lifts with kept restores were cubic too. After each absorbed restore
+the outputs below are re-placed, and each output swap scanned every
+input. Two shortcuts were tried in Python and rejected, because they
+change normal forms (1–2 of 4,000 random expressions):
 
 - skipping that placement during a lift chain;
 - placing all outputs once after the chain.
+
+Instead, when a placement first needs a swap, it turns the inputs into
+a map from keys to inputs and a map from depths to the keys of the reads
+there (`imap`). A swap (`sswap`) then updates only the reads at its
+depth; it is proved to do what `swap_in_b` does to the list. The family
+is now quadratic, as in Python.
+
+**What still costs.** Each insertion still scans the whole form somewhere:
+
+- placement by insertion;
+- `iabsorb_b` converting the form on every absorption attempt (about 60%
+  of the time for weakenings composed with entries);
+- the composition scans.
+
+A label summary built at each composition did not help, since building
+it costs as much as the scan it saves. These would need summaries kept
+in the form itself, such as counts or positions per label.
 
 ## Still open
 
