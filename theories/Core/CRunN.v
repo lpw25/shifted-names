@@ -1,13 +1,25 @@
-(** * The context-form pass with binary depths
+(** * The context-form pass
 
-    [CRun2]'s pass, with the depths and name indices of reads, and the
-    number of outputs of a form, in [N] instead of [nat].  Under a chain
-    of [n] lifts a form has [n] restores reading depths [0 .. n-1]; in
-    unary these alone have size [n²].
+    An expression is read right to left as a word of forms and lifted
+    atoms.  Each new item is inserted at the front of the word and the
+    word is settled: adjacent forms are composed, and where they cannot
+    be, single outputs and inputs move on; only what is new is
+    re-examined.  A chain of lifts is applied to a form at once, its
+    restores absorbed innermost first.
 
-    List positions (which output, which input, which item) stay [nat]:
-    each is used to walk a list that far, so converting one costs no more
-    than the walk.
+    Representation:
+    - a form ([bform]) keeps its outputs bottom first, with their number,
+      so new outputs go on at the bottom in constant time and reads near
+      the bottom are reached from the front of the list;
+    - outputs and inputs carry their ids in the same lists;
+    - depths and name indices of reads ([btgt]), and the number of
+      outputs, are binary ([N]); list positions (which output, which
+      input, which item) stay [nat], since each is used to walk a list
+      that far;
+    - an output swap looks up the reads between the two outputs in a map
+      from depths to counts, and only scans the inputs when there is one;
+    - lists are reversed with [rev'] (linear), and the outputs passed in a
+      composition are kept newest first with their count.
 
     It depends only on the specification [CSpec]: every operation is
     proved sound against the meaning of forms there ([rrunN_sound]), and
@@ -24,14 +36,14 @@ Inductive btgt : Type :=
 Definition ta (t : btgt) : tgt := match t with BR z i d => TR z (N.to_nat i) (N.to_nat d) | BT u p => TT u p end.
 Definition tb (t : tgt) : btgt := match t with TR z i d => BR z (N.of_nat i) (N.of_nat d) | TT u p => BT u p end.
 
-(** [CForm]'s forms, with binary targets. *)
+(** Forms without ids, outputs top first. *)
 Record bfm : Type := mkC { cout : list lexp; cin : list (lexp * btgt) }.
 
 Definition ina (x : lexp * btgt) : lexp * tgt := (fst x, ta (snd x)).
 Definition fa (f : bfm) : form := mkF (cout f) (map ina (cin f)).
 Definition fb (f : form) : bfm := mkC (fout f) (map (fun x => (fst x, tb (snd x))) (fin f)).
 
-(** [CRun2]'s forms, with binary targets and count. *)
+(** Forms with ids, outputs bottom first, and their number. *)
 Record bform : Type := mkB {
   bo : list (positive * lexp);
   bl : N;
@@ -92,7 +104,7 @@ Fixpoint bslot_go (l : lexp) (O : list lexp) (k j : nat) : option nat :=
 Fixpoint ballkd (l : lexp) (L : list lexp) : bool :=
   match L with [] => true | o :: L' => if kd F l o then ballkd l L' else false end.
 
-(** ** [CForm]'s steps, binary *)
+(** ** Steps on forms without ids *)
 
 Definition bswap_read (k : N) (b : lexp) (t : btgt) : option btgt :=
   match t with
@@ -200,7 +212,7 @@ Definition bin_first (p : nat) (f : bfm) : option (lexp * btgt * bfm) :=
   | None => None
   end.
 
-(** ** [CRun2]'s steps, binary *)
+(** ** Steps on forms with ids *)
 
 Definition blab (x : positive * (lexp * btgt)) : lexp := fst (snd x).
 
@@ -1687,4 +1699,488 @@ Proof.
       apply (tok_mono (length (bo f2))); [lia|exact T].
 Qed.
 
+(** *** Steps that keep meaning and [bok] *)
+
+Definition keeps (e e' : bform) : Prop := bok e' /\ forall z, fd (beff e') z = fd (beff e) z.
+
+Lemma keeps_trans a b c : keeps a b -> keeps b c -> keeps a c.
+Proof. intros [_ H1] [O2 H2]; split; [exact O2|intros z; rewrite H2, H1; reflexivity]. Qed.
+
+Lemma keeps_refl e : bok e -> keeps e e.
+Proof. intros O; split; [exact O|reflexivity]. Qed.
+
+Lemma reread_front_b_keeps n e : bok e -> keeps e (reread_front_b F n e).
+Proof.
+  intros Ok; split; [|intros z; apply (inputs_rel e _ z (reread_front_b_rel e n z (proj1 Ok)))].
+  destruct Ok as [O W]; split; [exact O|]; unfold wfd in *; cbn [beff fout fin bo bi] in *.
+  revert W; unfold reread_front_b; cbn [bi]; generalize (bi e); induction n as [|n IH]; intros [|[i [l t]] I] W; cbn [map_front map];
+    try exact W; inversion W as [|a b W1 W2]; subst; constructor; [|apply IH, W2].
+  cbn [isnd ina snd fst] in *; apply nread_e_b_tok, W1.
+Qed.
+
+Lemma reread_at_b_keeps j e : bok e -> keeps e (reread_at_b F j e).
+Proof.
+  intros Ok; split; [|intros z; apply (inputs_rel e _ z (reread_at_b_rel e j z (proj1 Ok)))].
+  destruct Ok as [O W]; split; [exact O|]; unfold wfd in *; cbn [beff fout fin bo bi] in *.
+  revert W; unfold reread_at_b; cbn [bi]; generalize (bi e); intros L; induction L as [|[i [l t]] I IH]; intros W; cbn [map]; [exact W|].
+  inversion W as [|a b W1 W2]; subst; constructor; [|apply IH, W2].
+  cbn [isnd ina snd fst] in *; destruct (bis_dep _ t); [apply nread_e_b_tok|]; exact W1.
+Qed.
+
+Lemma bub_in_b_perm x I : Permutation (bub_in_b F x I) (x :: I).
+Proof.
+  induction I as [|y I IH]; cbn [bub_in_b]; [reflexivity|].
+  destruct (before F (blab y) (blab x)); [rewrite IH; apply perm_swap|reflexivity].
+Qed.
+
+Lemma place_front_b_perm n I : Permutation (place_front_b F n I) I.
+Proof.
+  revert I; induction n as [|n IH]; intros [|x I]; cbn [place_front_b]; try reflexivity.
+  rewrite bub_in_b_perm; apply perm_skip, IH.
+Qed.
+
+Lemma ins_out_b_perm x rp : Permutation (ins_out_b F x rp) (x :: rp).
+Proof.
+  induction rp as [|y r IH]; cbn [ins_out_b]; [reflexivity|].
+  destruct (before F (blab x) (blab y)); [rewrite IH; apply perm_swap|reflexivity].
+Qed.
+
+Lemma out_pass_b_perm rp suf : Permutation (out_pass_b F rp suf) (rev rp ++ suf).
+Proof.
+  revert rp; induction suf as [|x s IH]; intros rp; cbn [out_pass_b]; [rewrite rev'_rev, app_nil_r; reflexivity|].
+  rewrite IH, ins_out_b_perm; cbn [rev]; rewrite <- app_assoc; reflexivity.
+Qed.
+
+Lemma place_suffix_out_b_perm p I : Permutation (place_suffix_out_b F p I) I.
+Proof. unfold place_suffix_out_b; rewrite rev'_rev, out_pass_b_perm, rev_involutive, firstn_skipn; reflexivity. Qed.
+
+Lemma place_front_b_keeps n e : bok e -> keeps e (mkB (bo e) (bl e) (place_front_b F n (bi e))).
+Proof.
+  intros Ok; split; [apply perm_ok; [exact Ok|apply place_front_b_perm]|].
+  intros z; apply perm_inputs; intros b; apply place_front_b_sound.
+Qed.
+
+Lemma place_suffix_b_keeps p e : bok e -> keeps e (mkB (bo e) (bl e) (place_suffix_out_b F p (bi e))).
+Proof.
+  intros Ok; split; [apply perm_ok; [exact Ok|apply place_suffix_out_b_perm]|].
+  intros z; apply perm_inputs; intros b; apply place_suffix_out_b_sound.
+Qed.
+
+Lemma place_out_bottom_b_keeps r e : bok e -> keeps e (place_out_bottom_b F r e).
+Proof. intros Ok; destruct (place_out_bottom_b_sound r e Ok) as [H O]; split; assumption. Qed.
+
+Lemma place_out_top_b_keeps r e : bok e -> keeps e (place_out_top_b F r e).
+Proof. intros Ok; destruct (place_out_top_b_sound r e Ok) as [H O]; split; assumption. Qed.
+
+Lemma bof_i_keeps e g o i : (forall z, fd (fa g) z = fd (beff e) z) -> keeps e (bof_i g o i).
+Proof. intros H; split; [apply bof_i_ok|intros z; rewrite bof_i_sound; apply H]. Qed.
+
+(** *** Absorbing, composing, moving *)
+
+Lemma iabsorb_b_keeps p e e' : bok e -> iabsorb_b F p e = Some e' -> keeps e e'.
+Proof.
+  intros Ok; unfold iabsorb_b; destruct (babsorb2 F p (b_to_c e)) as [[j g]|] eqn:A; [|discriminate].
+  intros H; injection H as <-.
+  set (e0 := bof_i g (remove_at j (rev' (map fst (bo e)))) (remove_at p (map fst (bi e)))).
+  assert (K0 : keeps e e0) by (apply bof_i_keeps; intros z; rewrite (babsorb2_sound F M HM p _ j g z A), fa_b_to_c; reflexivity).
+  assert (K1 := keeps_trans _ _ _ K0 (reread_at_b_keeps j e0 (proj1 K0))).
+  assert (K2 := keeps_trans _ _ _ K1 (place_out_bottom_b_keeps (N.to_nat (bl (reread_at_b F j e0)) - j) _ (proj1 K1))).
+  exact (keeps_trans _ _ _ K2 (place_suffix_b_keeps p _ (proj1 K2))).
+Qed.
+
+Lemma absorb_scan_b_keeps new e p I e' : bok e -> absorb_scan_b F new e p I = Some e' -> keeps e e'.
+Proof.
+  intros Ok; revert p; induction I as [|x I IH]; intros p; cbn [absorb_scan_b]; [discriminate|].
+  destruct (mem (fst x) new && restore_like_b x); [|apply IH].
+  destruct (iabsorb_b F p e) as [g|] eqn:A; [intros H; injection H as <-; apply (iabsorb_b_keeps p), A; exact Ok|apply IH].
+Qed.
+
+Lemma absorb_new_b_keeps fuel new e : bok e -> keeps e (absorb_new_b F fuel new e).
+Proof.
+  revert e; induction fuel as [|fuel IH]; intros e Ok; cbn [absorb_new_b]; [apply keeps_refl, Ok|].
+  destruct (absorb_scan_b F new e 0 (bi e)) as [g|] eqn:A; [|apply keeps_refl, Ok].
+  pose proof (absorb_scan_b_keeps _ _ _ _ _ Ok A) as K; exact (keeps_trans _ _ _ K (IH g (proj1 K))).
+Qed.
+
+Theorem icompose_b_sound f1 f2 g no ni canc : bok f1 -> bok f2 -> icompose_b F f1 f2 = Some (g, no, ni, canc) ->
+  bok g /\ forall z, fd (beff g) z = fd (beff f1) (fd (beff f2) z).
+Proof.
+  intros O1 O2; unfold icompose_b.
+  destruct (ecompose_b F f1 f2) as [[[[g0 passed] newin] c]|] eqn:E; [|discriminate]; intros H; injection H as <- _ _ _.
+  destruct (ecompose_b_sound _ _ _ _ _ _ O1 O2 E) as [S0 Ok0].
+  assert (K1 := reread_front_b_keeps (length (bi f1)) g0 Ok0).
+  assert (K2 := keeps_trans _ _ _ K1 (place_front_b_keeps (length (bi f1)) _ (proj1 K1))).
+  set (g2 := mkB (bo (reread_front_b F (length (bi f1)) g0)) (bl (reread_front_b F (length (bi f1)) g0))
+                 (place_front_b F (length (bi f1)) (bi (reread_front_b F (length (bi f1)) g0)))) in K2.
+  assert (K3 : keeps g0 (if c then mkB (bo g2) (bl g2) (place_suffix_out_b F (length (bi f1)) (bi g2)) else g2))
+    by (destruct c; [exact (keeps_trans _ _ _ K2 (place_suffix_b_keeps _ _ (proj1 K2)))|exact K2]).
+  assert (K4 := keeps_trans _ _ _ K3 (place_out_bottom_b_keeps (length passed) _ (proj1 K3))).
+  assert (K5 : keeps g0 (match newin with [] => place_out_bottom_b F (length passed) (if c then mkB (bo g2) (bl g2) (place_suffix_out_b F (length (bi f1)) (bi g2)) else g2)
+                                     | _ => absorb_new_b F (S (length newin)) newin (place_out_bottom_b F (length passed) (if c then mkB (bo g2) (bl g2) (place_suffix_out_b F (length (bi f1)) (bi g2)) else g2)) end))
+    by (destruct newin; [exact K4|exact (keeps_trans _ _ _ K4 (absorb_new_b_keeps _ _ _ (proj1 K4)))]).
+  destruct K5 as [O5 H5]; split; [exact O5|intros z; rewrite H5; apply S0].
+Qed.
+
+Lemma ok_single_out (x : positive) o : bok (mkB [(x, o)] 1 []).
+Proof. split; [reflexivity|constructor]. Qed.
+
+Lemma bin_first_tok p f h t f' : bin_first F p f = Some (h, t, f') -> tok 0 (ta t).
+Proof.
+  unfold bin_first; destruct (nth_error (cin f) p) as [[h0 t0]|]; [|discriminate].
+  destruct (_ && _); [|discriminate].
+  destruct t0 as [z i d|u q].
+  - destruct (bpull F (cout f) (N.to_nat d) z i); cbn; [|discriminate].
+    destruct (omap _ _); [|discriminate]; intros H; injection H as _ <- _; cbn; lia.
+  - destruct (omap _ _); [|discriminate]; intros H; injection H as _ <- _; exact Logic.I.
+Qed.
+
+Theorem imove_b_sound f1 f2 y f1' g new canc lost : bok f1 -> bok f2 -> imove_b F f1 f2 y = Some (f1', g, new, canc, lost) ->
+  bok f1' /\ bok g /\ forall z, fd (beff f1') (fd (beff g) z) = fd (beff f1) (fd (beff f2) z).
+Proof.
+  intros O1 O2; unfold imove_b.
+  destruct (index_of y (oids_b f1)) as [j|].
+  - destruct (bout_first F j (b_to_c f1)) as [[o f1o]|] eqn:Of; [|discriminate].
+    destruct (icompose_b F (mkB [(y, o)] 1 []) f2) as [[[[g' no] ni] c]|] eqn:C; [|discriminate].
+    intros H; injection H as <- <- _ _ _.
+    destruct (icompose_b_sound _ _ _ _ _ _ (ok_single_out y o) O2 C) as [Og Hg].
+    set (e0 := bof_i f1o (remove_at j (oids_b f1)) (iids_b f1)).
+    assert (K0 : bok e0 /\ forall z, fd (beff e0) z = fd (fa f1o) z) by (split; [apply bof_i_ok|intros z; apply bof_i_sound]).
+    assert (K1 := reread_at_b_keeps j e0 (proj1 K0)).
+    assert (K2 := keeps_trans _ _ _ K1 (place_out_bottom_b_keeps (N.to_nat (bl (reread_at_b F j e0)) - j) _ (proj1 K1))).
+    destruct K2 as [O3 H3]; split; [exact O3|split; [exact Og|]].
+    intros z; rewrite H3, (proj2 K0), Hg, <- (fa_b_to_c f1), (bout_first_sound F M HM j _ _ _ _ Of); reflexivity.
+  - destruct (index_of y (iids_b f1)) as [p|]; [|discriminate].
+    destruct (bin_first F p (b_to_c f1)) as [[[h t] f1o]|] eqn:If; [|discriminate].
+    destruct (icompose_b F (mkB [] 0 [(y, (h, t))]) f2) as [[[[g' no] ni] c]|] eqn:C; [|discriminate].
+    intros H; injection H as <- <- _ _ _.
+    assert (Os : bok (mkB [] 0 [(y, (h, t))])) by (split; [reflexivity|constructor; [exact (bin_first_tok _ _ _ _ _ If)|constructor]]).
+    destruct (icompose_b_sound _ _ _ _ _ _ Os O2 C) as [Og Hg].
+    set (e0 := bof_i f1o (oids_b f1) (remove_at p (iids_b f1))).
+    assert (K0 : bok e0 /\ forall z, fd (beff e0) z = fd (fa f1o) z) by (split; [apply bof_i_ok|intros z; apply bof_i_sound]).
+    assert (K1 := place_suffix_b_keeps p e0 (proj1 K0)).
+    destruct K1 as [O3 H3]; split; [exact O3|split; [exact Og|]].
+    intros z; rewrite H3, (proj2 K0), Hg, <- (fa_b_to_c f1), (bin_first_sound F M HM p _ _ _ _ _ If); reflexivity.
+Qed.
+
+(** *** Lifts *)
+
+Definition shift_tl (L : list lexp) (t : tgt) : tgt :=
+  match t with TR z i d => TR z i (length L + d) | TT u p => TT u (fold_right PShift p L) end.
+
+(** A form under the lifts [L], outermost first, as one form. *)
+Definition lift_spec (L : list lexp) (f : form) : form :=
+  mkF (L ++ fout f) (mapi_from 0 (fun k h => (h, TR h 0 k)) L ++ map (fun '(g, t) => (g, shift_tl L t)) (fin f)).
+
+Lemma map_shift_mapi h k (L : list lexp) :
+  map (fun '(g, t) => (g, shift_t h t)) (mapi_from k (fun k h' => (h', TR h' 0 k)) L)
+  = mapi_from (S k) (fun k h' => (h', TR h' 0 k)) L.
+Proof. revert k; induction L as [|h' L IH]; intros k; cbn; [reflexivity|rewrite IH; reflexivity]. Qed.
+
+Lemma map_shift_tl h L (I : list (lexp * tgt)) :
+  map (fun '(g, t) => (g, shift_t h t)) (map (fun '(g, t) => (g, shift_tl L t)) I)
+  = map (fun '(g, t) => (g, shift_tl (h :: L) t)) I.
+Proof. induction I as [|[g [z i d|u q]] I IH]; cbn; [reflexivity| |]; rewrite IH; reflexivity. Qed.
+
+Lemma lift_spec_eq L f : lift_spec L f = fold_right lift_f f L.
+Proof.
+  induction L as [|h L IH].
+  - destruct f as [O I]; unfold lift_spec; cbn; f_equal.
+    induction I as [|[g [z i d|u q]] I IH]; cbn; [reflexivity| |]; rewrite IH; reflexivity.
+  - change (fold_right lift_f f (h :: L)) with (lift_f h (fold_right lift_f f L)); rewrite <- IH.
+    unfold lift_f, lift_spec; cbn [fout fin app mapi_from]; f_equal.
+    rewrite map_app, map_shift_mapi, map_shift_tl; reflexivity.
+Qed.
+
+Lemma map_snd_combine {X Y} (a : list X) (b : list Y) : length a = length b -> map snd (combine a b) = b.
+Proof. revert b; induction a as [|x a IH]; intros [|y b] H; cbn in *; try discriminate; [reflexivity|rewrite IH; [reflexivity|lia]]. Qed.
+
+Lemma length_pseq c n : length (pseq c n) = n.
+Proof. revert c; induction n as [|n IH]; intros c; cbn; [reflexivity|rewrite IH; reflexivity]. Qed.
+
+Lemma length_mapiN {X Y} k (g : N -> X -> Y) l : length (mapi_fromN k g l) = length l.
+Proof. revert k; induction l as [|a l IH]; intros k; cbn; [reflexivity|rewrite IH; reflexivity]. Qed.
+
+Lemma mapi_fromN_eq k L :
+  map ina (mapi_fromN (N.of_nat k) (fun k h => (h, BR h 0 k)) L) = mapi_from k (fun k h => (h, TR h 0 k)) L.
+Proof.
+  revert k; induction L as [|h L IH]; intros k; cbn [mapi_fromN mapi_from map]; [reflexivity|]; f_equal.
+  - rewrite ina_pair; cbn [ta]; rewrite Nat2N.id; reflexivity.
+  - rewrite <- Nat2N.inj_succ; apply IH.
+Qed.
+
+Lemma beff_lift_b L f c : beff (lift_b L f c) = lift_spec L (beff f).
+Proof.
+  unfold lift_b, beff, lift_spec; cbn [bo bi fout fin]; f_equal.
+  - rewrite rev'_rev, map_app, rev_app_distr, map_rev, rev_involutive, map_snd_combine by (rewrite length_pseq; reflexivity); reflexivity.
+  - rewrite map_app, map_isnd, map_snd_combine by (rewrite length_pseq, length_mapiN; reflexivity).
+    rewrite (mapi_fromN_eq 0); f_equal; rewrite !map_map; apply map_ext; intros [i [g [z j d|u q]]]; rewrite !isnd_eq; cbn [ta bshift_ts shift_tl]; rewrite ?N2Nat.inj_add, ?Nat2N.id; reflexivity.
+Qed.
+
+Lemma lift_b_sound L f c z : fd (beff (lift_b L f c)) z = liftsem M L (fd (beff f)) z.
+Proof. rewrite beff_lift_b, lift_spec_eq; apply CSpec.lift_fold_sound. Qed.
+
+Lemma restores_tok n k (L : list lexp) : k + length L <= n ->
+  Forall (fun lt => tok n (snd lt)) (mapi_from k (fun k h => (h, TR h 0 k)) L).
+Proof. revert k; induction L as [|h L IH]; intros k H; cbn in *; constructor; [cbn; lia|apply IH; lia]. Qed.
+
+Lemma lift_b_ok L f c : bok f -> bok (lift_b L f c).
+Proof.
+  intros [O W]; split.
+  - unfold lift_b; cbn [bl bo]; rewrite N2Nat.inj_add, Nat2N.id, rev'_rev, length_app, length_rev, length_combine, length_pseq, O; lia.
+  - unfold wfd in *; rewrite beff_lift_b; unfold lift_spec; cbn [fout fin] in *; rewrite length_app.
+    apply Forall_app; split; [apply restores_tok; lia|].
+    rewrite Forall_forall in *; intros [g t] Hin; apply in_map_iff in Hin as [[g0 t0] [E Hin]]; injection E as <- <-.
+    specialize (W _ Hin); destruct t0; cbn in *; [lia|exact Logic.I].
+Qed.
+
+Lemma absorb_walk_b_keeps fuel p rf inside e k : bok e -> keeps e (fst (absorb_walk_b F fuel p rf inside e k)).
+Proof.
+  revert p rf inside e k; induction fuel as [|fuel IH]; intros p rf inside e k Ok; cbn [absorb_walk_b]; [apply keeps_refl, Ok|].
+  destruct rf as [|x rf]; [apply keeps_refl, Ok|].
+  destruct (if pre_x_b F x inside e then iabsorb_b F p e else None) as [e'|] eqn:A.
+  - assert (K : keeps e e') by (destruct (pre_x_b F x inside e); [apply (iabsorb_b_keeps p e e' Ok A)|discriminate]).
+    exact (keeps_trans _ _ _ K (IH _ _ _ _ _ (proj1 K))).
+  - apply IH, Ok.
+Qed.
+
+Lemma lift_many_b_sound L f c : bok f ->
+  match fst (lift_many_b F L (BF f) c) with
+  | BF g => bok g /\ forall z, fd (beff g) z = liftsem M L (fd (beff f)) z
+  | BA _ _ => False
+  end.
+Proof.
+  intros Ok; unfold lift_many_b.
+  destruct (absorb_walk_b F _ _ _ _ (lift_b L f c) 0) as [f1 k] eqn:W.
+  assert (K0 : keeps (lift_b L f c) f1).
+  { pose proof (absorb_walk_b_keeps (length L) (pred (length L)) (rev' (firstn (length L) (bi (lift_b L f c))))
+                  (skipn (length L) (bi (lift_b L f c))) (lift_b L f c) 0 (lift_b_ok L f c Ok)) as K; rewrite W in K; exact K. }
+  assert (K1 := keeps_trans _ _ _ K0 (place_front_b_keeps k f1 (proj1 K0))).
+  assert (K2 := keeps_trans _ _ _ K1 (place_out_top_b_keeps (Nat.min k (N.to_nat (bl (mkB (bo f1) (bl f1) (place_front_b F k (bi f1)))))) _ (proj1 K1))).
+  cbn [fst]; destruct K2 as [O2 H2]; split; [exact O2|intros z; rewrite H2; apply lift_b_sound].
+Qed.
+
+(** *** The word *)
+
+Definition okit (it : bitem) : Prop := match it with BF f => bok f | BA _ _ => True end.
+
+Local Notation wde := (fun st x => wden M (map bstrip st) x).
+
+Lemma try_ids_b_sound f1 f2 xs cands f1' g new canc lost : bok f1 -> bok f2 ->
+  try_ids_b F f1 f2 xs cands = Some (f1', g, new, canc, lost) ->
+  bok f1' /\ bok g /\ forall z, fd (beff f1') (fd (beff g) z) = fd (beff f1) (fd (beff f2) z).
+Proof.
+  intros O1 O2; induction xs as [|y xs IH]; cbn [try_ids_b]; [discriminate|].
+  destruct (mem y cands); [|apply IH].
+  destruct (imove_b F f1 f2 y) as [[[[[a b] c] d] e]|] eqn:E; [|apply IH].
+  intros H; injection H as -> -> -> -> ->; apply (imove_b_sound _ _ _ _ _ _ _ _ O1 O2 E).
+Qed.
+
+Lemma moves_b_sound fuel k f1 f2 c acc f1' g acc' : bok f1 -> bok f2 -> moves_b F fuel k f1 f2 c acc = (f1', g, acc') ->
+  bok f1' /\ bok g /\ forall z, fd (beff f1') (fd (beff g) z) = fd (beff f1) (fd (beff f2) z).
+Proof.
+  revert f1 f2 c acc; induction fuel as [|fuel IH]; intros f1 f2 c acc O1 O2; cbn [moves_b].
+  - intros H; injection H as <- <- _; auto.
+  - destruct (try_ids_b F f1 f2 (ids_of_b f1) c) as [[[[[a b] new] canc] lost]|] eqn:T.
+    + destruct (try_ids_b_sound _ _ _ _ _ _ _ _ _ O1 O2 T) as [Oa [Ob H1]].
+      intros H; destruct (IH _ _ _ _ Oa Ob H) as [O3 [O4 H2]]; split; [exact O3|split; [exact O4|intros z; rewrite H2, H1; reflexivity]].
+    + intros H; injection H as <- <- _; auto.
+Qed.
+
+Lemma Forall_firstn' {X} (P : X -> Prop) n l : Forall P l -> Forall P (firstn n l).
+Proof. revert l; induction n; intros [|a l] H; cbn; auto; inversion H; subst; constructor; auto. Qed.
+
+Lemma Forall_skipn' {X} (P : X -> Prop) n l : Forall P l -> Forall P (skipn n l).
+Proof. revert l; induction n; intros [|a l] H; cbn; auto; inversion H; subst; auto. Qed.
+
+Lemma Forall_put2b k st mid : Forall okit st -> Forall okit mid -> Forall okit (put2b k st mid).
+Proof.
+  intros H1 H2; unfold put2b; apply Forall_app; split; [apply Forall_firstn', H1|].
+  apply Forall_app; split; [exact H2|apply Forall_skipn', H1].
+Qed.
+
+Lemma wde_app st1 st2 x : wde (st1 ++ st2) x = wde st1 (wde st2 x).
+Proof. cbn; rewrite map_app; apply CSpec.wden_app. Qed.
+
+Lemma step_b_put k st a b mid x : nth_error st k = Some a -> nth_error st (S k) = Some b ->
+  (forall y, wde mid y = iden M (bstrip a) (iden M (bstrip b) y)) -> wde (put2b k st mid) x = wde st x.
+Proof.
+  intros Ha Hb H; unfold put2b; pose proof (split2 st k a b Ha Hb) as E.
+  set (A := firstn k st) in *; set (R := skipn (S (S k)) st) in *.
+  rewrite E; rewrite !wde_app, H; reflexivity.
+Qed.
+
+Lemma iempty_b_den g : iempty_b g = true -> forall y, fd (beff g) y = y.
+Proof. destruct g as [[|o go] gl [|i gi]]; cbn; try discriminate; reflexivity. Qed.
+
+Lemma step_b_sound s : Forall okit (fst s) -> Forall okit (fst (step_b F s)) /\ forall x, wde (fst (step_b F s)) x = wde (fst s) x.
+Proof.
+  destruct s as [st w]; unfold step_b; cbn [fst]; intros Hst.
+  destruct w as [|[k cands] w']; [auto|].
+  destruct (nth_error st k) as [[f1|L1 n1]|] eqn:Ea; try (split; [exact Hst|reflexivity]).
+  destruct (nth_error st (S k)) as [[f2|L2 n2]|] eqn:Eb; try (split; [exact Hst|reflexivity]).
+  assert (O1 : bok f1) by (rewrite Forall_forall in Hst; apply (Hst (BF f1)), (nth_error_In _ _ Ea)).
+  assert (O2 : bok f2) by (rewrite Forall_forall in Hst; apply (Hst (BF f2)), (nth_error_In _ _ Eb)).
+  destruct (match cands with None => icompose_b F f1 f2 | Some _ => None end) as [[[[g no] ni] cc]|] eqn:Mg.
+  - assert (G : bok g /\ forall y, fd (beff g) y = fd (beff f1) (fd (beff f2) y))
+      by (destruct cands; [discriminate|apply (icompose_b_sound _ _ _ _ _ _ O1 O2 Mg)]).
+    destruct G as [Og G].
+    destruct (iempty_b g) eqn:Em; cbn [fst].
+    + split; [apply Forall_put2b; [exact Hst|constructor]|].
+      intros x; apply (step_b_put k st (BF f1) (BF f2)); auto; intros y; cbn [map bstrip wden iden]; rewrite <- G, (iempty_b_den g Em); reflexivity.
+    + split; [apply Forall_put2b; [exact Hst|constructor; [exact Og|constructor]]|].
+      intros x; apply (step_b_put k st (BF f1) (BF f2)); auto; intros y; cbn [map bstrip wden iden]; apply G.
+  - destruct (moves_b F _ k f1 f2 _ []) as [[f1' g] acc] eqn:Mv.
+    destruct (moves_b_sound _ _ _ _ _ _ _ _ _ O1 O2 Mv) as [Oa [Ob G]].
+    destruct (iempty_b f1') eqn:Em; cbn [fst].
+    + split; [apply Forall_put2b; [exact Hst|repeat first [apply Forall_nil|apply Forall_cons; [assumption|]]]|].
+      intros x; apply (step_b_put k st (BF f1) (BF f2)); auto; intros y; cbn [map bstrip wden iden]; rewrite <- G, (iempty_b_den f1' Em); reflexivity.
+    + split; [apply Forall_put2b; [exact Hst|repeat first [apply Forall_nil|apply Forall_cons; [assumption|]]]|].
+      intros x; apply (step_b_put k st (BF f1) (BF f2)); auto; intros y; cbn [map bstrip wden iden]; apply G.
+Qed.
+
+Lemma settle_b_sound p s : Forall okit (fst s) -> Forall okit (fst (settle_b F p s)) /\ forall x, wde (fst (settle_b F p s)) x = wde (fst s) x.
+Proof.
+  revert s; induction p as [p IH|p IH|]; intros s Hs; cbn [settle_b]; destruct (snd s); try (split; [exact Hs|reflexivity]).
+  - destruct (IH s Hs) as [A1 B1]; destruct (IH _ A1) as [A2 B2]; destruct (step_b_sound _ A2) as [A3 B3].
+    split; [exact A3|intros x; rewrite B3, B2, B1; reflexivity].
+  - destruct (IH s Hs) as [A1 B1]; destruct (IH _ A1) as [A2 B2]; split; [exact A2|intros x; rewrite B2, B1; reflexivity].
+  - apply step_b_sound, Hs.
+Qed.
+
+Lemma insert_b_sound it st : okit it -> Forall okit st ->
+  Forall okit (insert_b F it st) /\ forall x, wde (insert_b F it st) x = iden M (bstrip it) (wde st x).
+Proof.
+  intros Hi Hs; destruct it as [f|L n]; cbn [insert_b]; [|split; [constructor; [exact Hi|exact Hs]|reflexivity]].
+  destruct (iempty_b f) eqn:E.
+  - split; [exact Hs|intros x; cbn [map bstrip iden]; symmetry; apply (iempty_b_den f E)].
+  - destruct (settle_b_sound bbig (BF f :: st, [(0, None)])) as [A B]; [constructor; assumption|].
+    split; [exact A|intros x; rewrite B; reflexivity].
+Qed.
+
+Lemma lift_many_b_sound' L it c : okit it -> okit (fst (lift_many_b F L it c)) /\
+  forall x, iden M (bstrip (fst (lift_many_b F L it c))) x = liftsem M L (iden M (bstrip it)) x.
+Proof.
+  destruct it as [f|L' n]; intros Hi.
+  - pose proof (lift_many_b_sound L f c Hi) as H; destruct (fst (lift_many_b F L (BF f) c)) as [g|]; [|contradiction].
+    destruct H as [Og Hg]; split; [exact Og|exact Hg].
+  - split; [exact Logic.I|intros x; cbn; apply CSpec.lden_app].
+Qed.
+
+Lemma insert_lifted_b_sound L w st c : Forall okit w -> Forall okit st ->
+  Forall okit (fst (insert_lifted_b F L w st c)) /\ forall x, wde (fst (insert_lifted_b F L w st c)) x = liftsem M L (wde w) (wde st x).
+Proof.
+  revert c; induction w as [|it w IH]; intros c Hw Hs; cbn [insert_lifted_b].
+  - split; [exact Hs|intros x; cbn; symmetry; apply CSpec.liftsem_id].
+  - inversion Hw as [|a b Hit Hw']; subst.
+    destruct (insert_lifted_b F L w st c) as [st1 c1] eqn:E1.
+    destruct (lift_many_b F L it c1) as [it' c2] eqn:E2; cbn [fst].
+    destruct (IH c Hw' Hs) as [A1 B1]; rewrite E1 in A1, B1; cbn [fst] in A1, B1.
+    destruct (lift_many_b_sound' L it c1 Hit) as [A2 B2]; rewrite E2 in A2, B2; cbn [fst] in A2, B2.
+    destruct (insert_b_sound it' st1 A2 A1) as [A3 B3]; split; [exact A3|].
+    intros x; rewrite B3, B1, B2, CSpec.liftsem_comp; reflexivity.
+Qed.
+
 End SoundN.
+
+(** *** Expressions *)
+
+(** The chain of lifts inside [rnormN], as a function of its own. *)
+Section PeelN.
+Variable F : order.
+Fixpoint peelN (R : list lexp) (a : aexp) (st : list bitem) (c : positive) {struct a} : list bitem * positive :=
+  match a with
+  | ALift h' a' => peelN (h' :: R) a' st c
+  | _ => let '(w, c1) := rnormN F a [] c in insert_lifted_b F (rev' R) w st c1
+  end.
+End PeelN.
+
+Lemma rnormN_lift F h a st c : rnormN F (ALift h a) st c = peelN F [h] a st c.
+Proof. reflexivity. Qed.
+
+Lemma rnormN_inner F h t a st c :
+  rnormN F (AInner h t a) st c = peelN F [h] a (insert_b F (BF (fst (bfresh (entry h t) c))) st) (snd (bfresh (entry h t) c)).
+Proof. reflexivity. Qed.
+
+Lemma rnormN_outer F h a st c : rnormN F (AOuter h a) st c = rnormN F a (insert_b F (BF (fst (bfresh (weak h) c))) st) (snd (bfresh (weak h) c)).
+Proof. reflexivity. Qed.
+
+Section SoundExp.
+
+Variable F : order.
+Variable M : cmodel.
+Hypothesis HM : ccons F M.
+
+Local Notation wde := (fun st x => wden M (map bstrip st) x).
+
+Lemma bfresh_ok f c : bok (fst (bfresh f c)).
+Proof. apply bof_i_ok. Qed.
+
+Lemma bfresh_sound f c x : fden M (beff (fst (bfresh f c))) x = fden M f x.
+Proof. cbn [bfresh fst]; rewrite bof_i_sound, fa_fb; reflexivity. Qed.
+
+Theorem rnormN_sound : forall e,
+  (forall st c, Forall okit st -> Forall okit (fst (rnormN F e st c)) /\ forall x, wde (fst (rnormN F e st c)) x = ca e (wde st x))
+  /\ (forall R st c, Forall okit st -> Forall okit (fst (peelN F R e st c)) /\ forall x, wde (fst (peelN F R e st c)) x = liftsem M (rev R) (ca e) (wde st x)).
+Proof.
+  assert (Peel : forall e, (forall st c, Forall okit st -> Forall okit (fst (rnormN F e st c)) /\ forall x, wde (fst (rnormN F e st c)) x = ca e (wde st x)) ->
+            (forall a, e <> ALift (fst a) (snd a)) ->
+            forall R st c, Forall okit st -> Forall okit (fst (peelN F R e st c)) /\ forall x, wde (fst (peelN F R e st c)) x = liftsem M (rev R) (ca e) (wde st x)).
+  { intros e H1 Hn R st c Hs.
+    assert (P : peelN F R e st c = let '(w, c1) := rnormN F e [] c in insert_lifted_b F (rev' R) w st c1)
+      by (destruct e as [| | | | |h' a']; try reflexivity; exfalso; apply (Hn (h', a')); reflexivity).
+    rewrite P, rev'_rev; destruct (rnormN F e [] c) as [w c1] eqn:E.
+    destruct (H1 [] c (Forall_nil _)) as [A B]; rewrite E in A, B; cbn [fst] in A, B.
+    destruct (insert_lifted_b_sound F M HM (rev R) w st c1 A Hs) as [A2 B2]; split; [exact A2|].
+    intros x; rewrite B2; apply CSpec.liftsem_ext; intros y; apply B. }
+  induction e as [|n|a [IHa1 IHa2] b [IHb1 IHb2]|h a [IH1 IH2]|h t a [IH1 IH2]|h a [IH1 IH2]].
+  - assert (H1 : forall st c, Forall okit st -> Forall okit (fst (rnormN F AId st c)) /\ forall x, wde (fst (rnormN F AId st c)) x = ca AId (wde st x))
+      by (intros st c Hs; split; [exact Hs|reflexivity]).
+    split; [exact H1|apply Peel; [exact H1|intros [? ?]; discriminate]].
+  - assert (H1 : forall st c, Forall okit st -> Forall okit (fst (rnormN F (AAtom n) st c)) /\ forall x, wde (fst (rnormN F (AAtom n) st c)) x = ca (AAtom n) (wde st x)).
+    { intros st c Hs; cbn [rnormN fst]; destruct (insert_b_sound F M HM (BA [] n) st Logic.I Hs) as [A B]; split; [exact A|intros x; rewrite B; reflexivity]. }
+    split; [exact H1|apply Peel; [exact H1|intros [? ?]; discriminate]].
+  - assert (H1 : forall st c, Forall okit st -> Forall okit (fst (rnormN F (ACompose a b) st c)) /\ forall x, wde (fst (rnormN F (ACompose a b) st c)) x = ca (ACompose a b) (wde st x)).
+    { intros st c Hs; cbn [rnormN]; destruct (rnormN F a st c) as [st1 c1] eqn:E.
+      destruct (IHa1 st c Hs) as [A1 B1]; rewrite E in A1, B1; cbn [fst] in A1, B1.
+      destruct (IHb1 st1 c1 A1) as [A2 B2]; split; [exact A2|intros x; rewrite B2, B1; reflexivity]. }
+    split; [exact H1|apply Peel; [exact H1|intros [? ?]; discriminate]].
+  - assert (H1 : forall st c, Forall okit st -> Forall okit (fst (rnormN F (AOuter h a) st c)) /\ forall x, wde (fst (rnormN F (AOuter h a) st c)) x = ca (AOuter h a) (wde st x)).
+    { intros st c Hs; rewrite rnormN_outer.
+      destruct (insert_b_sound F M HM (BF (fst (bfresh (weak h) c))) st (bfresh_ok _ _) Hs) as [A B].
+      destruct (IH1 _ (snd (bfresh (weak h) c)) A) as [A2 B2]; split; [exact A2|intros x; rewrite B2, B; cbn [bstrip iden]; rewrite bfresh_sound; reflexivity]. }
+    split; [exact H1|apply Peel; [exact H1|intros [? ?]; discriminate]].
+  - assert (H1 : forall st c, Forall okit st -> Forall okit (fst (rnormN F (AInner h t a) st c)) /\ forall x, wde (fst (rnormN F (AInner h t a) st c)) x = ca (AInner h t a) (wde st x)).
+    { intros st c Hs; rewrite rnormN_inner.
+      destruct (insert_b_sound F M HM (BF (fst (bfresh (entry h t) c))) st (bfresh_ok _ _) Hs) as [A B].
+      destruct (IH2 [h] _ (snd (bfresh (entry h t) c)) A) as [A2 B2]; split; [exact A2|intros x; rewrite B2, B; cbn [bstrip iden rev app]; rewrite bfresh_sound].
+      cbn [liftsem]; rewrite CSpec.entry_sound, cpop_push, chd_push; reflexivity. }
+    split; [exact H1|apply Peel; [exact H1|intros [? ?]; discriminate]].
+  - split.
+    + intros st c Hs; rewrite rnormN_lift; destruct (IH2 [h] st c Hs) as [A B]; split; [exact A|intros x; rewrite B; reflexivity].
+    + intros R st c Hs; cbn [peelN]; destruct (IH2 (h :: R) st c Hs) as [A B]; split; [exact A|].
+      intros x; rewrite B; cbn [rev]; rewrite CSpec.liftsem_app; apply CSpec.liftsem_ext; reflexivity.
+Qed.
+
+Theorem rrunN_sound e x : wden M (rrunN F e) x = ca e x.
+Proof. unfold rrunN; destruct (proj1 (rnormN_sound e) [] xH (Forall_nil _)) as [_ B]; rewrite B; reflexivity. Qed.
+
+End SoundExp.
+
+(** ** The normaliser: the pass, then [CNorm] *)
+
+Definition crN_form (F : order) (e : aexp) : aexp := wexp (rrunN F e).
+
+Theorem crN_form_sound F e : forall M, ccons F M -> forall x : cU M, ca (crN_form F e) x = ca e x.
+Proof. intros M HM x; unfold crN_form; rewrite CSpec.wexp_sound, (rrunN_sound F M HM); reflexivity. Qed.
+
+Definition crN_eq (F : order) (e1 e2 : aexp) : bool := cn_eq F (crN_form F e1) (crN_form F e2).
+
+Theorem crN_eq_correct F
+  (Hirr : forall a, lt_known F a a = false)
+  (Htrans : forall a b c, lt_known F a b = true -> lt_known F b c = true -> lt_known F a c = true)
+  e1 e2 : crN_eq F e1 e2 = true <-> cequal F e1 e2.
+Proof.
+  unfold crN_eq; rewrite (CComplete.cn_eq_correct F Hirr Htrans); split; intros H M HM x.
+  - rewrite <- (crN_form_sound F e1 M HM x), <- (crN_form_sound F e2 M HM x); apply H, HM.
+  - rewrite (crN_form_sound F e1 M HM x), (crN_form_sound F e2 M HM x); apply H, HM.
+Qed.

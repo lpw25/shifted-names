@@ -441,8 +441,64 @@ labels, `n` = 1,000 / 2,000 / 4,000:
 | copies | 0.03 / 0.05 / 0.17 s | 0.02 / 0.04 / 0.09 s |
 | nested lifts | 0.11 / 0.48 / 1.74 s | — |
 
-The remaining quadratic cost is unary: depths and counts are `nat`, so a
-depth comparison under `n` nested lifts costs `n`.
+Nested lifts remain quadratic for two reasons:
+
+- `List.rev` is the naive, quadratic reversal;
+- depths are unary, and under `n` lifts the `n` restores read depths
+  `0 … n-1`, so they alone have size `n²`.
+
+## The pass with binary depths, on the specification alone (`Core/CSpec.v`, `Core/CRunN.v`)
+
+**`CSpec.v`** holds the specification:
+
+- forms and targets, and their reading as expressions (`of_exp`, `wexp`);
+- their meaning in a comprehension model (`fden`, `wden`) and the
+  semantic lemmas about it;
+- `liftsem` and its laws;
+- generic list helpers.
+
+`CForm.v` re-exports it, so `CForm`, `CRun` and `CRun2` are unchanged.
+
+**`CRunN.v`** is the pass to keep. It changes `CRun2`'s representation in
+three ways:
+
+- depths, name indices and the output count are binary (`N`). List
+  positions stay `nat`, since each is used to walk a list that far;
+- lists are reversed with `rev'` (linear);
+- the outputs passed in a composition are kept newest first, with their
+  count.
+
+`CRunN` imports only `CSpec`. Every step is proved sound against `fden`
+directly: reads, swaps, composition, absorbing a restore, moving an
+output or input on, and lifts (against `fold_right lift_f`).
+
+- `rrunN_sound` gives `wden M (rrunN F e) x = ca e x`.
+- `crN_eq_correct` follows by `CNorm` completeness and is closed under the
+  global context.
+- `CRunN.v` builds in a copy of the theory with `CForm.v`, `CRun.v` and
+  `CRun2.v` deleted.
+
+`rrunN` agrees with the Python pass (and with `rrun2`) on 2,410 words.
+
+**Cost under `vm_compute`**, 8 labels, timing the binary result
+(`rnormN`; converting it back to unary is itself quadratic for nested
+lifts):
+
+| Family | `n` = 8,000 / 16,000 / 32,000 |
+|---|---|
+| nested lifts | 0.04 / 0.10 / 0.15 s |
+| a lift over `n` weakenings | 0.09 / 0.19 / 0.31 s |
+| `n` lifted compositions | 0.48 / 0.98 / 2.0 s |
+
+| Family | `n` = 2,000 / 4,000 / 8,000 |
+|---|---|
+| weakenings | 0.03 / 0.06 / 0.10 s |
+| copies | 0.04 / 0.08 / 0.14 s |
+| nested lifts, `rnorm2` | 0.41 / 1.57 / 5.87 s |
+| nested lifts, `rnormN` | 0.01 / 0.02 / 0.04 s |
+
+All are linear. Label atoms (`LAtom n`) are still unary throughout the
+codebase.
 
 ## Still open
 
@@ -454,8 +510,12 @@ depth comparison under `n` nested lifts costs `n`.
   should not be used with `HNorm`.
 - **Cost:** stuck lookups could be made cheaper, for example by
   memoising `relnf` per label and cell.
-- **`CForm.v`'s own pass** (`run`, `cf_eq`) is superseded by `CRun.v`.
-  It is sound but cubic, misses the lift law once sorting has moved the
-  lifted output down, and its `tidy` can stop after one bubble pass.
-- **`CRun2` still uses unary depths** (`nat`), which keeps nested lifts
-  quadratic. Switching them to binary `N` is next.
+- **Superseded passes, which can now be deleted:**
+  - `CForm.v`'s own pass (`run`, `cf_eq`): sound but cubic; it misses the
+    lift law once sorting has moved the lifted output down, and its `tidy`
+    can stop after one bubble pass;
+  - `CRun.v`;
+  - `CRun2.v`.
+
+  Nothing in `CSpec` or `CRunN` depends on them.
+- **Label atoms are unary** (`LAtom n`), across the codebase.
