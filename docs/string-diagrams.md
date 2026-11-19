@@ -610,6 +610,45 @@ models give different equational theories:
 
 Rule 4 is a consequence at the static (propositional) end.
 
+### Why every model so far was decision-based
+
+Every model above, like `apply` and `extensionality` in
+`Core/Indexed.v`, reads an adjustment as a function on variables. A map
+out of the variables of a context whose innermost item is on `h` is a
+map out of "`h`'s head, or one of the rest". That is a coproduct, so
+the entry on `h` becomes a copairing, which is the "test". Copairing
+comes with eta for sums, and eta for sums is what the obstruction
+exploits. The reading is a choice, not forced.
+
+**The dual reading: adjustments as maps into contexts.**
+
+- Context extension by `h` is a comprehension, `Γ ↦ Γ.h`, with a
+  projection `p : Γ.h → Γ` and a head `q`.
+- An entry is a pairing `⟨σ, t⟩`, a weakening is `p`, and a lift
+  `⟦ h | a ⟧` is the action of extension by `h` on `a`.
+
+The normaliser's laws for one label are then the laws of products:
+
+| Law | Reading |
+|---|---|
+| cancellation | `p ∘ ⟨σ, t⟩ = σ` (beta for pairing) |
+| absorption `⟦ h \| ⟦⟧ ⟧ = ⟦⟧` | `⟨p, q⟩ = id` (eta for pairing: product eta, not sum eta) |
+| lift composition | functoriality of extension |
+| ordered commutation, the lift law | an exchange isomorphism `Γ.g.h ≅ Γ.h.g` for ordered `g, h`, natural, commuting with `p` and `q` |
+
+This is the semantics of substitution in categories with families or
+natural models, and for one label the free structure gives de Bruijn
+indices. It is the analogue of cartesian closed categories for the
+lambda-calculus. Nothing in it is a test, and its eta is harmless.
+
+**Open: unordered labels.** The syntax lets a step on `h`, or a name
+`hᵢ`, reach past an item on a label `k` unordered with `h`, because
+adjustments are not typed by their named items. In a standard model,
+extension by `k` is either extension by `h` or exchanges with it. The
+generic class needs a structure between `Γ.k.h` and `Γ.h.k` that
+covers both without choosing. This is where "between equal and not
+equal" has to live.
+
 **Open:** deciding joint instances below cubic cost. A candidate is
 congruence closure that records, for each merge, the tests it depends
 on, keeping only sets of at most two (proof-producing congruence
