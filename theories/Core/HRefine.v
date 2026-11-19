@@ -291,12 +291,14 @@ Proof.
         if CNorm.kd F g l && forallb (CNorm.kd F l) kept then CNorm.relnf_go F g kept cw
         else cs :: CNorm.relnf_go F g (l :: kept) cw)
         by (rewrite (RStep_label S s cs Hs) in El; destruct cs; cbn in El |- *; try discriminate; injection El as ->; reflexivity).
+      assert (Dr : HNorm.droppable F g l kept = CNorm.kd F g l && forallb (CNorm.kd F l) kept)
+        by (unfold HNorm.droppable; change (HNorm.kd F g l) with (CNorm.kd F g l); destruct (CNorm.kd F g l); reflexivity).
       assert (Eh : HNorm.relnf_go F g kept ((s, i) :: w) =
         if CNorm.kd F g l && forallb (CNorm.kd F l) kept then HNorm.relnf_go F g kept w
         else let '(p, b) := HNorm.relnf_go F g (l :: kept) w in
              match p with [] => if Pos.eqb (HNorm.wid b) (HNorm.wid w) then ([], (s, i) :: w) else ([s], b) | _ => (s :: p, b) end)
-        by (destruct s; cbn in El |- *; try discriminate; injection El as ->; reflexivity).
-      rewrite Ec, Eh; clear Ec Eh.
+        by (rewrite <- Dr; destruct s; cbn in El |- *; try discriminate; injection El as ->; reflexivity).
+      rewrite Ec, Eh; clear Ec Eh Dr.
       destruct (CNorm.kd F g l && forallb (CNorm.kd F l) kept); [apply IH|].
       destruct (IH (l :: kept)) as [cp [cb [H1 [H2 H3]]]].
       destruct (HNorm.relnf_go F g (l :: kept) w) as [p b]; cbn [fst snd] in H1, H2.

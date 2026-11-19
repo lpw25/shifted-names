@@ -159,16 +159,61 @@ comprehension mixes `d`'s tape, the target matters.
 - **Cases are gone.** Examples 1 and 2 are not identities, as intended,
   and no case split on label overlap is needed anywhere.
 
-## Not yet done
+## The theorems (`Core/CNorm.v`, `Comp.v`, `CSound.v`, `CComplete.v`, `HRefine.v`)
 
-- **Term atoms with payloads (`TBindE`), and adjustment atoms**, are not
-  yet in the tests. A term atom should be a map `U → A` that ignores the
-  bound label: that is `bound_off`.
-- **Soundness in Coq.** A record of comprehension models, the
-  interpretation of `aexp`, and a lemma for each rule of `HNorm`, as
-  `ZModel.v` does for zero-set models.
-- **Completeness: canonicity of `HNorm` for this class.** Two expressions
-  with different normal forms should differ in some comprehension model.
-  The natural proof is normalisation by evaluation. Show that `HNorm`'s
-  normal forms form a comprehension model, the free one, or embed
-  injectively into a generic instance.
+All closed under the global context (no axioms). `F` is the order of
+the facts, and the completeness half assumes that `lt_known F` is
+irreflexive and transitive.
+
+| File | Content |
+|---|---|
+| `Comp.v` | comprehension models (`cmodel`, `ccons`), the meaning `ca` of expressions, `cequal` |
+| `CNorm.v` | `HNorm`'s algorithm on plain lists, with stuck lookups made canonical (`relnf`, below) |
+| `CSound.v` | `cn_sound`: equal normal forms imply equal in every comprehension model |
+| `CComplete.v` | the term model on normal words (`tmodel`); `cn_complete`; `cn_eq_correct : cn_eq F a b = true <-> cequal F a b` |
+| `HRefine.v` | hash-consed words read as `CNorm` words; `hn_eq_cn : hn_eq F a b = cn_eq F a b`; `hn_eq_correct : hn_eq F a b = true <-> cequal F a b` |
+
+**The term model.** Environments are normal words, values are values:
+
+- `cpop h` is `pushW h`;
+- `chd h` is `lookup h 0`;
+- `cpush h` is `pushE h`;
+- an atom conses its step;
+- a term atom is the term with its cleaned payload.
+
+Normal words are sorted, with no weakening followed by an entry on the
+same label (cancellation) and no absorbable entry. The laws of a
+comprehension model are then lemmas about the normaliser's operations,
+and an expression means its own normal form there. That is
+completeness.
+
+**A fix to `HNorm` that completeness needed.** A lookup stuck at a step
+used to keep the whole rest of the word. A later step on a label `h`
+known distinct from the looked-up `g`, behind steps that commute with
+`h`, does not affect the lookup. For example, with `g < h` and `k < h`,
+`⟦ k | ⟦ \ h as _ ⟧ ⟧ ⨾ ⟦ \ g as _ ⟧ ⨾ E h(·)` equals `⟦ \ g as _ ⟧`,
+but the stuck value kept the entry on `h`, so the absorption check
+failed. On words of up to 3 steps with these facts, `HNorm` missed
+1,504 identities. Now a stuck lookup keeps only the steps that can
+affect it (`relnf`), and `HNorm` matches the generic models exactly
+there (10,023 classes).
+
+**Cost of the fix.** A stuck lookup now scans the rest of its word.
+Families with no stuck lookups are unchanged. Nested lifts over label
+atoms, where every lookup is stuck, become quadratic:
+
+| Nested lifts | old | new |
+|---|---|---|
+| 1,024, eight label atoms | 0.054 s | 1.09 s |
+| 1,024, 1,024 label atoms | 0.17 s | 4.7 s (label atoms are unary numbers, so each comparison grows with `n`) |
+
+## Still open
+
+- **The order hypotheses.** Irreflexivity and transitivity of
+  `lt_known F` are assumed. They should follow from consistent facts,
+  but are not proved for `order_of`.
+- **`TNorm` has the same stuck-lookup problem** and is not fixed.
+- **The eta pass of `HEta` is not sound** for comprehension models and
+  should not be used with `HNorm`.
+- **Cost:** stuck lookups could be made cheaper, for example by
+  memoising `relnf` per label and cell.

@@ -96,6 +96,10 @@ Definition before (a b : lexp) : bool := match lcmp F a b with Some Lt => true |
     distinct from [g] that commutes with every step kept before it is
     dropped.  [relnf_go] gives the kept steps after the first change, to
     put back on the rest, which is shared. *)
+(** Written with [if]: [vm_compute] evaluates both sides of [&&]. *)
+Definition droppable (g l : lexp) (kept : list lexp) : bool :=
+  if kd g l then forallb (kd l) kept else false.
+
 Fixpoint relnf_go (g : lexp) (kept : list lexp) (w : word) : list step * word :=
   match w with
   | [] => ([], [])
@@ -103,7 +107,7 @@ Fixpoint relnf_go (g : lexp) (kept : list lexp) (w : word) : list step * word :=
       match s with
       | SA _ => ([], w)
       | SE l _ | SW l =>
-          if kd g l && forallb (kd l) kept then relnf_go g kept w'
+          if droppable g l kept then relnf_go g kept w'
           else let '(p, b) := relnf_go g (l :: kept) w' in
                match p with
                | [] => if Pos.eqb (wid b) (wid w') then ([], w) else ([s], b)
