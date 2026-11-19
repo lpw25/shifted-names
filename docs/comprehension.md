@@ -414,6 +414,36 @@ representation, not of the algorithm:
 With label atoms numbered up to `n` (`LAtom n` is unary), comparisons also
 grow with `n`, as for `HNorm`.
 
+## A representation without the quadratic lists (`Core/CRun2.v`)
+
+`CRun2.v` keeps `CRun.v`'s algorithm and changes the representation:
+
+- an `eform` holds its outputs bottom-first (`ob`), so new outputs are
+  pushed at the head, with a cached count `ol`;
+- ids live next to the outputs and inputs they name;
+- the reads at each depth are counted in a `PositiveMap`, so an output
+  swap needs no scan of the inputs;
+- composition, reads and placement are native. The rarer steps (moves,
+  absorption at a slot) go through `CRun`'s representation via `of_i` and
+  `to_i`.
+
+`rrun2_sound` gives `wden M (rrun2 F e) x = ca e x` under the invariant
+`ok` (the cached count is right; no input reads deeper than the outputs).
+`cr2_eq_correct` follows by `CNorm` completeness. It is closed under the
+global context.
+
+`rrun2` agrees with the Python pass on 2,410 words. Under `vm_compute`, 8
+labels, `n` = 1,000 / 2,000 / 4,000:
+
+| Family | `rrun2` | `rrun` |
+|---|---|---|
+| weakenings | 0.03 / 0.12 / 0.47 s | 0.17 / 0.67 / 2.57 s |
+| copies | 0.03 / 0.05 / 0.17 s | 0.02 / 0.04 / 0.09 s |
+| nested lifts | 0.11 / 0.48 / 1.74 s | — |
+
+The remaining quadratic cost is unary: depths and counts are `nat`, so a
+depth comparison under `n` nested lifts costs `n`.
+
 ## Still open
 
 - **The order hypotheses.** Irreflexivity and transitivity of
@@ -427,5 +457,5 @@ grow with `n`, as for `HNorm`.
 - **`CForm.v`'s own pass** (`run`, `cf_eq`) is superseded by `CRun.v`.
   It is sound but cubic, misses the lift law once sorting has moved the
   lifted output down, and its `tidy` can stop after one bubble pass.
-- **The Coq pass is quadratic** where the Python one is linear: lists
-  appended at the end and positions reached by `nth_error` (see below).
+- **`CRun2` still uses unary depths** (`nat`), which keeps nested lifts
+  quadratic. Switching them to binary `N` is next.

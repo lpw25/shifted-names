@@ -47,6 +47,7 @@ theories/Core/HRefine.v
 theories/Core/XRead.v
 theories/Core/CForm.v
 theories/Core/CRun.v
+theories/Core/CRun2.v
 theories/Core/Order.v
 theories/Core/LayeredOrder.v
 theories/Core/Canon.v
