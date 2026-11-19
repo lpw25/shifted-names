@@ -989,3 +989,339 @@ Proof.
 Qed.
 
 End Refine2.
+
+Lemma map_fst_iina l : map fst (map iina l) = map fst l.
+Proof. rewrite map_map; reflexivity. Qed.
+
+Definition tr5 (r : bform * bform * list positive * bool * bool) : eform * eform * list positive * bool * bool :=
+  let '(a, b, c, d, e) := r in (ea a, ea b, c, d, e).
+
+Definition tr4 (r : bform * list positive * list positive * bool) : eform * list positive * list positive * bool :=
+  let '(g, a, b, c) := r in (ea g, a, b, c).
+
+Section Refine3.
+
+Variable F : order.
+
+Lemma iabsorb_b_eq p e : option_map ea (iabsorb_b F p e) = iabsorb_e F p (ea e).
+Proof.
+  unfold iabsorb_b, iabsorb_e; rewrite <- fa_b_to_c, <- babsorb2_eq.
+  destruct (babsorb2 F p (b_to_c e)) as [[j g]|]; cbn [option_map]; [|reflexivity].
+  cbv zeta; rewrite ob_ea, ei_ea, map_fst_iina, rev'_rev, <- ea_bof_i, <- reread_at_b_eq, ol_ea, <- place_out_bottom_b_eq.
+  rewrite ob_ea, ol_ea, ei_ea, <- place_suffix_out_b_eq; reflexivity.
+Qed.
+
+Lemma restore_like_b_eq x : restore_like_b x = restore_like (iina x).
+Proof.
+  destruct x as [id [l [z [|q] d|u p]]]; try reflexivity.
+  destruct (Npos_succ q) as [m [H1 _]]; unfold restore_like_b, restore_like, iina, ina; cbn [fst snd ta]; rewrite H1; reflexivity.
+Qed.
+
+Lemma absorb_scan_b_eq new e p I : option_map ea (absorb_scan_b F new e p I) = absorb_scan_e F new (ea e) p (map iina I).
+Proof.
+  revert p; induction I as [|x I IH]; intros p; cbn [absorb_scan_b absorb_scan_e map]; [reflexivity|].
+  rewrite <- restore_like_b_eq; change (fst (iina x)) with (fst x).
+  destruct (mem (fst x) new && restore_like_b x); [|apply IH].
+  rewrite <- iabsorb_b_eq; destruct (iabsorb_b F p e); [reflexivity|apply IH].
+Qed.
+
+Lemma absorb_new_b_eq fuel new e : ea (absorb_new_b F fuel new e) = absorb_new_e F fuel new (ea e).
+Proof.
+  revert e; induction fuel as [|fuel IH]; intros e; cbn [absorb_new_b absorb_new_e]; [reflexivity|].
+  rewrite ei_ea, <- absorb_scan_b_eq; destruct (absorb_scan_b F new e 0 (bi e)); cbn [option_map]; [apply IH|reflexivity].
+Qed.
+
+Lemma icompose_b_eq f1 f2 : option_map tr4 (icompose_b F f1 f2) = icompose_e F (ea f1) (ea f2).
+Proof.
+  unfold icompose_b, icompose_e.
+  pose proof (ecompose_b_eq F f1 f2) as H; fold tr4 in H.
+  replace (option_map (fun '(g, a, b, c) => (ea g, a, b, c)) (ecompose_b F f1 f2)) with (option_map tr4 (ecompose_b F f1 f2)) in H
+    by (destruct (ecompose_b F f1 f2) as [[[[? ?] ?] ?]|]; reflexivity).
+  rewrite <- H; destruct (ecompose_b F f1 f2) as [[[[g passed] newin] canc]|]; cbn [option_map tr4]; [|reflexivity].
+  rewrite ei_ea, length_map; cbv zeta.
+  rewrite <- reread_front_b_eq, !ob_ea, !ol_ea, !ei_ea, <- place_front_b_eq, <- ea_mk.
+  destruct canc.
+  - rewrite !ob_ea, !ol_ea, !ei_ea, <- place_suffix_out_b_eq, <- ea_mk, <- place_out_bottom_b_eq.
+    destruct newin; [reflexivity|rewrite <- absorb_new_b_eq; reflexivity].
+  - rewrite <- place_out_bottom_b_eq; destruct newin; [reflexivity|rewrite <- absorb_new_b_eq; reflexivity].
+Qed.
+
+Lemma oids_b_eq f : oids_e (ea f) = oids_b f.
+Proof. unfold oids_e, oids_b; rewrite ob_ea, rev'_rev; reflexivity. Qed.
+
+Lemma iids_b_eq f : iids_e (ea f) = iids_b f.
+Proof. unfold iids_e, iids_b; rewrite ei_ea, map_fst_iina; reflexivity. Qed.
+
+Lemma imove_b_eq f1 f2 x : option_map tr5 (imove_b F f1 f2 x) = imove_e F (ea f1) (ea f2) x.
+Proof.
+  unfold imove_b, imove_e; rewrite oids_b_eq, iids_b_eq.
+  destruct (index_of x (oids_b f1)) as [j|].
+  - rewrite <- fa_b_to_c, <- bout_first_eq; destruct (bout_first F j (b_to_c f1)) as [[o f1']|]; cbn [option_map]; [|reflexivity].
+    change (mkE [(x, o)] 1 []) with (ea (mkB [(x, o)] 1%N [])); rewrite <- icompose_b_eq.
+    destruct (icompose_b F _ f2) as [[[[g no] ni] canc]|]; cbn [option_map tr4]; [|reflexivity].
+    cbv zeta; rewrite <- ea_bof_i, <- reread_at_b_eq, ol_ea, <- place_out_bottom_b_eq; reflexivity.
+  - destruct (index_of x (iids_b f1)) as [p|]; [|reflexivity].
+    rewrite <- fa_b_to_c, <- bin_first_eq; destruct (bin_first F p (b_to_c f1)) as [[[h t] f1']|]; cbn [option_map]; [|reflexivity].
+    change (mkE [] 0 [(x, (h, ta t))]) with (ea (mkB [] 0%N [(x, (h, t))])); rewrite <- icompose_b_eq.
+    destruct (icompose_b F _ f2) as [[[[g no] ni] canc]|]; cbn [option_map tr4]; [|reflexivity].
+    cbv zeta; rewrite <- ea_bof_i, ob_ea, ol_ea, ei_ea, <- place_suffix_out_b_eq; reflexivity.
+Qed.
+
+Lemma ids_of_b_eq f : ids_of_e (ea f) = ids_of_b f.
+Proof. unfold ids_of_e, ids_of_b; rewrite oids_b_eq, iids_b_eq; reflexivity. Qed.
+
+Lemma isz_b_eq f : isz_e (ea f) = isz_b f.
+Proof. unfold isz_e, isz_b; rewrite ol_ea, ei_ea, length_map; reflexivity. Qed.
+
+Lemma iempty_b_eq f : iempty_e (ea f) = iempty_b f.
+Proof. unfold iempty_e, iempty_b; rewrite ob_ea, ei_ea; destruct (bo f), (bi f); reflexivity. Qed.
+
+Lemma try_ids_b_eq f1 f2 xs cands : option_map tr5 (try_ids_b F f1 f2 xs cands) = try_ids_e F (ea f1) (ea f2) xs cands.
+Proof.
+  induction xs as [|y xs IH]; cbn [try_ids_b try_ids_e]; [reflexivity|].
+  destruct (mem y cands); [|apply IH].
+  rewrite <- imove_b_eq; destruct (imove_b F f1 f2 y); [reflexivity|apply IH].
+Qed.
+
+Lemma moves_b_eq fuel k f1 f2 c acc :
+  (ea (fst (fst (moves_b F fuel k f1 f2 c acc))), ea (snd (fst (moves_b F fuel k f1 f2 c acc))), snd (moves_b F fuel k f1 f2 c acc))
+  = moves_e F fuel k (ea f1) (ea f2) c acc.
+Proof.
+  revert f1 f2 c acc; induction fuel as [|fuel IH]; intros f1 f2 c acc; cbn [moves_b moves_e]; [reflexivity|].
+  rewrite ids_of_b_eq, <- try_ids_b_eq.
+  destruct (try_ids_b F f1 f2 (ids_of_b f1) c) as [[[[[a b] new] canc] lost]|]; cbn [option_map tr5]; [|reflexivity].
+  rewrite <- IH, ids_of_b_eq; reflexivity.
+Qed.
+
+Lemma put2b_eq k st mid : map ia (put2b k st mid) = put2e k (map ia st) (map ia mid).
+Proof. unfold put2b, put2e; rewrite !map_app, firstn_map, skipn_map; reflexivity. Qed.
+
+Lemma step_b_eq s : (map ia (fst (step_b F s)), snd (step_b F s)) = step_e F (map ia (fst s), snd s).
+Proof.
+  destruct s as [st w]; unfold step_b, step_e; cbn [fst snd].
+  destruct w as [|[k cands] w']; [reflexivity|].
+  rewrite !nth_error_map.
+  destruct (nth_error st k) as [[f1|L1 n1]|]; cbn [option_map ia]; try reflexivity.
+  destruct (nth_error st (S k)) as [[f2|L2 n2]|]; cbn [option_map ia]; try reflexivity.
+  assert (Hm : match cands with None => icompose_e F (ea f1) (ea f2) | Some _ => None end
+               = option_map tr4 (match cands with None => icompose_b F f1 f2 | Some _ => None end))
+    by (destruct cands; [reflexivity|symmetry; apply icompose_b_eq]).
+  rewrite Hm; destruct (match cands with None => icompose_b F f1 f2 | Some _ => None end) as [[[[g no] ni] cc]|]; cbn [option_map tr4].
+  - rewrite iempty_b_eq; destruct (iempty_b g); cbn [fst snd]; rewrite put2b_eq; reflexivity.
+  - rewrite isz_b_eq; replace (match cands with Some c => c | None => ids_of_e (ea f1) end)
+      with (match cands with Some c => c | None => ids_of_b f1 end) by (rewrite ids_of_b_eq; reflexivity).
+    rewrite <- moves_b_eq; destruct (moves_b F _ k f1 f2 _ []) as [[f1' g] acc]; cbn [fst snd].
+    rewrite iempty_b_eq; destruct (iempty_b f1'); cbn [fst snd]; rewrite put2b_eq; reflexivity.
+Qed.
+
+Lemma settle_b_eq p s : (map ia (fst (settle_b F p s)), snd (settle_b F p s)) = settle_e F p (@pair (list eitem) (list (nat * option (list positive))) (map ia (fst s)) (snd s)).
+Proof.
+  revert s; induction p as [p IH|p IH|]; intros [st w]; cbn [settle_b settle_e snd fst]; destruct w as [|x w]; try reflexivity.
+  - pose proof (IH (st, x :: w)) as H1; cbn [fst snd] in H1; rewrite <- H1, <- IH, <- step_b_eq; reflexivity.
+  - pose proof (IH (st, x :: w)) as H1; cbn [fst snd] in H1; rewrite <- H1, <- IH; reflexivity.
+  - apply (step_b_eq (st, x :: w)).
+Qed.
+
+Lemma insert_b_eq it st : map ia (insert_b F it st) = insert_e F (ia it) (map ia st).
+Proof.
+  destruct it as [f|L n]; cbn [insert_b insert_e ia]; [|reflexivity].
+  rewrite iempty_b_eq; destruct (iempty_b f); [reflexivity|].
+  pose proof (settle_b_eq big (BF f :: st, [(0, None)])) as H; cbn [fst snd map ia] in H; rewrite <- H; cbn [fst]; reflexivity.
+Qed.
+
+End Refine3.
+
+Lemma map_iina_combine ids (l : list (lexp * btgt)) : map iina (combine ids l) = combine ids (map ina l).
+Proof. revert ids; induction l as [|x l IH]; intros [|i ids]; cbn; rewrite ?IH; reflexivity. Qed.
+
+Lemma mapi_fromN_eq k L :
+  map ina (mapi_fromN (N.of_nat k) (fun k h => (h, BR h 0 k)) L) = mapi_from k (fun k h => (h, TR h 0 k)) L.
+Proof.
+  revert k; induction L as [|h L IH]; intros k; cbn [mapi_fromN mapi_from map]; [reflexivity|]; f_equal.
+  - unfold ina; cbn [fst snd ta]; rewrite Nat2N.id; reflexivity.
+  - rewrite <- Nat2N.inj_succ; apply IH.
+Qed.
+
+Lemma bshift_ts_eq L t : ta (bshift_ts (N.of_nat (length L)) L t) = shift_ts L (ta t).
+Proof. destruct t; cbn; [rewrite N2Nat.inj_add, Nat2N.id|]; reflexivity. Qed.
+
+Lemma lift_b_eq L f c : ea (lift_b L f c) = lift_e L (ea f) c.
+Proof.
+  unfold lift_b, lift_e; cbv zeta; rewrite ea_mk, ob_ea, ol_ea, ei_ea, rev'_rev, N2Nat.inj_add, Nat2N.id; f_equal.
+  rewrite map_app, map_iina_combine, (mapi_fromN_eq 0), !map_map; f_equal.
+  apply map_ext; intros [id [g t]]; unfold iina, ina; cbn; rewrite bshift_ts_eq; reflexivity.
+Qed.
+
+Lemma fresh_b_eq f c : (ea (fst (fresh_b f c)), snd (fresh_b f c)) = fresh_e f c.
+Proof. unfold fresh_b, fresh_e; destruct (fresh f c) as [[g o i] c']; cbn [fst snd ff oids iids]; rewrite ea_bof_i, fa_fb; reflexivity. Qed.
+
+Section Refine4.
+
+Variable F : order.
+
+Lemma bub_down_b_eq x below pos I mo : tr3 (bub_down_b F x below pos I mo) = bub_down F x below (N.to_nat pos) (map iina I) mo.
+Proof.
+  revert pos I mo; induction below as [|y below IH]; intros pos I mo; cbn [bub_down_b bub_down]; [reflexivity|].
+  destruct (before F (snd y) (snd x)); [|reflexivity].
+  rewrite <- idx_of_b_eq; generalize (match mo with Some m => m | None => idx_of_b I end) as m; intros m.
+  rewrite cnt_b_eq, N2Nat.inj_succ; destruct (cnt m (S (N.to_nat pos))) as [|c].
+  - rewrite <- N2Nat.inj_succ, <- IH; destruct (bub_down_b F x below (N.succ pos) I (Some m)) as [[r I'] mo']; reflexivity.
+  - rewrite <- swap_in_b_eq; destruct (swap_in_b F pos (snd y) I) as [I'|]; cbn [option_map]; [|reflexivity].
+    rewrite <- N2Nat.inj_succ, <- idx_move_b_eq, <- IH; destruct (bub_down_b F x below _ I' _) as [[r I''] mo']; reflexivity.
+Qed.
+
+Lemma place_down_b_eq k pre rest I mo : tr3 (place_down_b F k pre rest I mo) = place_down F (N.to_nat k) pre rest (map iina I) mo.
+Proof.
+  revert k; induction pre as [|x pre IH]; intros k; cbn [place_down_b place_down]; [reflexivity|].
+  rewrite <- N2Nat.inj_succ, <- IH; destruct (place_down_b F (N.succ k) pre rest I mo) as [[r' I'] mo']; cbn [tr3 fst snd].
+  apply bub_down_b_eq.
+Qed.
+
+Lemma place_out_top_b_eq r e : ea (place_out_top_b F r e) = place_out_top F r (ea e).
+Proof.
+  unfold place_out_top_b, place_out_top; rewrite ob_ea, ei_ea, rev'_rev.
+  pose proof (place_down_b_eq 0 (firstn r (rev (bo e))) (skipn r (rev (bo e))) (bi e) None) as H; change (N.to_nat 0) with 0 in H.
+  rewrite <- H; destruct (place_down_b F 0 _ _ (bi e) None) as [[o Is] mo]; cbn [tr3 fst snd]; rewrite ea_mk, rev'_rev; reflexivity.
+Qed.
+
+Lemma below_ok_b_eq l n O s : below_ok_b F l n O s = below_ok F l (N.to_nat n) O s.
+Proof.
+  revert n s; induction O as [|[id o] O IH]; intros n s; cbn [below_ok_b]; destruct n as [|q]; try reflexivity.
+  - destruct (Npos_succ q) as [m [H1 _]]; rewrite H1; reflexivity.
+  - destruct (Npos_succ q) as [m [H1 H2]]; rewrite H1; cbn [below_ok].
+    destruct (lexp_eqb o l); [destruct s; [reflexivity|rewrite IH, H2; reflexivity]|].
+    destruct (kd F l o); [rewrite IH, H2|]; reflexivity.
+Qed.
+
+Lemma ballkd_in_e_eq l I : ballkd_in_e F l I = allkd_in_e F l (map iina I).
+Proof. induction I as [|[id [m t]] I IH]; cbn; [reflexivity|rewrite IH; reflexivity]. Qed.
+
+Lemma pre_x_b_eq x inside e : pre_x_b F x inside e = pre_x F (iina x) (map iina inside) (ea e).
+Proof.
+  destruct x as [id [l [z [|q] d|u p]]]; try reflexivity.
+  - unfold pre_x_b, pre_x, iina, ina; cbn [fst snd ta]; rewrite N0nat, ol_ea, ob_ea, Nleb_nat.
+    destruct (lexp_eqb z l); [|reflexivity]; destruct (Nat.leb _ _); [|reflexivity].
+    rewrite below_ok_b_eq, N2Nat.inj_sub, ballkd_in_e_eq; reflexivity.
+  - destruct (Npos_succ q) as [m [H1 _]]; unfold pre_x_b, pre_x, iina, ina; cbn [fst snd ta]; rewrite H1; reflexivity.
+Qed.
+
+Lemma absorb_walk_b_eq fuel p rf inside e k :
+  (ea (fst (absorb_walk_b F fuel p rf inside e k)), snd (absorb_walk_b F fuel p rf inside e k))
+  = absorb_walk F fuel p (map iina rf) (map iina inside) (ea e) k.
+Proof.
+  revert p rf inside e k; induction fuel as [|fuel IH]; intros p rf inside e k; cbn [absorb_walk_b absorb_walk]; [reflexivity|].
+  destruct rf as [|x rf]; cbn [map]; [reflexivity|].
+  rewrite <- pre_x_b_eq; destruct (pre_x_b F x inside e).
+  - rewrite <- iabsorb_b_eq; destruct (iabsorb_b F p e) as [e'|]; cbn [option_map].
+    + rewrite ei_ea, firstn_map, skipn_map, <- map_rev, <- IH, rev'_rev; reflexivity.
+    + change (iina x :: map iina inside) with (map iina (x :: inside)); apply IH.
+  - change (iina x :: map iina inside) with (map iina (x :: inside)); apply IH.
+Qed.
+
+Lemma lift_many_b_eq L it c : (ia (fst (lift_many_b F L it c)), snd (lift_many_b F L it c)) = lift_many_e F L (ia it) c.
+Proof.
+  destruct it as [f|L' n]; [|reflexivity].
+  unfold lift_many_b, lift_many_e; cbn [ia]; cbv zeta; rewrite <- lift_b_eq, ei_ea, firstn_map, skipn_map, <- map_rev, <- absorb_walk_b_eq, rev'_rev.
+  destruct (absorb_walk_b F _ _ _ _ _ 0) as [f1 k]; cbn [fst snd ia].
+  rewrite ob_ea, ol_ea, ei_ea, <- place_front_b_eq, <- ea_mk, <- place_out_top_b_eq, ol_ea; reflexivity.
+Qed.
+
+Lemma insert_lifted_b_eq L w st c :
+  (map ia (fst (insert_lifted_b F L w st c)), snd (insert_lifted_b F L w st c)) = insert_lifted_e F L (map ia w) (map ia st) c.
+Proof.
+  induction w as [|it w IH]; cbn [insert_lifted_b insert_lifted_e map]; [reflexivity|].
+  rewrite <- IH; destruct (insert_lifted_b F L w st c) as [st1 c1]; cbn [fst snd].
+  rewrite <- lift_many_b_eq; destruct (lift_many_b F L it c1) as [it' c2]; cbn [fst snd].
+  rewrite insert_b_eq; reflexivity.
+Qed.
+
+End Refine4.
+
+Section PeelN.
+Variable F : order.
+Fixpoint peelN (R : list lexp) (a : aexp) (st : list bitem) (c : positive) {struct a} : list bitem * positive :=
+  match a with
+  | ALift h' a' => peelN (h' :: R) a' st c
+  | _ => let '(w, c1) := rnormN F a [] c in insert_lifted_b F (rev' R) w st c1
+  end.
+End PeelN.
+
+Lemma rnormN_lift F h a st c : rnormN F (ALift h a) st c = peelN F [h] a st c.
+Proof. reflexivity. Qed.
+
+Lemma rnormN_inner F h t a st c :
+  rnormN F (AInner h t a) st c = peelN F [h] a (insert_b F (BF (fst (fresh_b (entry h t) c))) st) (snd (fresh_b (entry h t) c)).
+Proof. unfold rnormN at 1; cbn [fresh_b]; destruct (fresh (entry h t) c); reflexivity. Qed.
+
+Lemma rnormN_outer F h a st c : rnormN F (AOuter h a) st c = rnormN F a (insert_b F (BF (fst (fresh_b (weak h) c))) st) (snd (fresh_b (weak h) c)).
+Proof. unfold rnormN at 1; cbn [fresh_b]; destruct (fresh (weak h) c); reflexivity. Qed.
+
+Section Refine5.
+
+Variable F : order.
+
+Local Notation rel x y := ((map ia (fst x), snd x) = y).
+
+Theorem rnormN_eq : forall e,
+  (forall st c, rel (rnormN F e st c) (rnorm2 F e (map ia st) c))
+  /\ (forall R st c, rel (peelN F R e st c) (peel2 F R e (map ia st) c)).
+Proof.
+  assert (Peel : forall e, (forall st c, rel (rnormN F e st c) (rnorm2 F e (map ia st) c)) ->
+            (forall a, e <> ALift (fst a) (snd a)) -> forall R st c, rel (peelN F R e st c) (peel2 F R e (map ia st) c)).
+  { intros e H1 Hn R st c.
+    assert (P : peelN F R e st c = let '(w, c1) := rnormN F e [] c in insert_lifted_b F (rev' R) w st c1)
+      by (destruct e as [| | | | |h' a']; try reflexivity; exfalso; apply (Hn (h', a')); reflexivity).
+    assert (P2 : peel2 F R e (map ia st) c = let '(w, c1) := rnorm2 F e [] c in insert_lifted_e F (rev R) w (map ia st) c1)
+      by (destruct e as [| | | | |h' a']; try reflexivity; exfalso; apply (Hn (h', a')); reflexivity).
+    rewrite P, P2; change (@nil eitem) with (map ia []); rewrite <- H1.
+    destruct (rnormN F e [] c) as [w c1]; cbn [fst snd]; rewrite rev'_rev; apply insert_lifted_b_eq. }
+  induction e as [|n|a [IHa1 IHa2] b [IHb1 IHb2]|h a [IH1 IH2]|h t a [IH1 IH2]|h a [IH1 IH2]].
+  - assert (H1 : forall st c, rel (rnormN F AId st c) (rnorm2 F AId (map ia st) c)) by reflexivity.
+    split; [exact H1|apply Peel; [exact H1|intros [? ?]; discriminate]].
+  - assert (H1 : forall st c, rel (rnormN F (AAtom n) st c) (rnorm2 F (AAtom n) (map ia st) c))
+      by (intros st c; cbn [rnormN rnorm2 fst snd]; rewrite insert_b_eq; reflexivity).
+    split; [exact H1|apply Peel; [exact H1|intros [? ?]; discriminate]].
+  - assert (H1 : forall st c, rel (rnormN F (ACompose a b) st c) (rnorm2 F (ACompose a b) (map ia st) c)).
+    { intros st c; cbn [rnormN rnorm2]; rewrite <- IHa1; destruct (rnormN F a st c) as [st1 c1]; cbn [fst snd]; apply IHb1. }
+    split; [exact H1|apply Peel; [exact H1|intros [? ?]; discriminate]].
+  - assert (H1 : forall st c, rel (rnormN F (AOuter h a) st c) (rnorm2 F (AOuter h a) (map ia st) c)).
+    { intros st c; rewrite rnormN_outer, rnorm2_outer, IH1, insert_b_eq.
+      pose proof (fresh_b_eq (weak h) c) as Hf; rewrite fresh_e_eq in Hf.
+      pose proof (f_equal fst Hf) as Hf1; pose proof (f_equal snd Hf) as Hf2; cbn [fst snd] in Hf1, Hf2.
+      cbn [ia]; rewrite Hf1, Hf2; reflexivity. }
+    split; [exact H1|apply Peel; [exact H1|intros [? ?]; discriminate]].
+  - assert (H1 : forall st c, rel (rnormN F (AInner h t a) st c) (rnorm2 F (AInner h t a) (map ia st) c)).
+    { intros st c; rewrite rnormN_inner, rnorm2_inner, IH2, insert_b_eq.
+      pose proof (fresh_b_eq (entry h t) c) as Hf; rewrite fresh_e_eq in Hf.
+      pose proof (f_equal fst Hf) as Hf1; pose proof (f_equal snd Hf) as Hf2; cbn [fst snd] in Hf1, Hf2.
+      cbn [ia]; rewrite Hf1, Hf2; reflexivity. }
+    split; [exact H1|apply Peel; [exact H1|intros [? ?]; discriminate]].
+  - split.
+    + intros st c; rewrite rnormN_lift, rnorm2_lift; apply IH2.
+    + intros R st c; cbn [peelN peel2]; apply IH2.
+Qed.
+
+Theorem rrunN_eq e : rrunN F e = rrun2 F e.
+Proof.
+  unfold rrunN, rrun2; rewrite <- map_map; f_equal.
+  change (@nil eitem) with (map ia []); rewrite <- (proj1 (rnormN_eq e) [] xH); reflexivity.
+Qed.
+
+End Refine5.
+
+(** ** The normaliser *)
+
+Theorem rrunN_sound F M (HM : ccons F M) e x : wden M (rrunN F e) x = ca e x.
+Proof. rewrite rrunN_eq; apply (rrun2_sound F M HM). Qed.
+
+Definition crN_form (F : order) (e : aexp) : aexp := wexp (rrunN F e).
+
+Definition crN_eq (F : order) (e1 e2 : aexp) : bool := cn_eq F (crN_form F e1) (crN_form F e2).
+
+Theorem crN_eq_correct F
+  (Hirr : forall a, lt_known F a a = false)
+  (Htrans : forall a b c, lt_known F a b = true -> lt_known F b c = true -> lt_known F a c = true)
+  e1 e2 : crN_eq F e1 e2 = true <-> cequal F e1 e2.
+Proof.
+  unfold crN_eq, crN_form; rewrite !rrunN_eq; apply (cr2_eq_correct F Hirr Htrans).
+Qed.
