@@ -35,3 +35,7 @@ Makefile.rocq
 Makefile.rocq.conf
 .Makefile.rocq.d
 .lia.cache
+
+# Python
+__pycache__/
+proto/comprehension/coq/
