@@ -35,6 +35,45 @@ acting first on a variable, is `b ∘ a`. A word `s₁ ⨾ … ⨾ sₙ` is
 | `TVarE h i`, the name `hᵢ` | `q_h ∘ p_hⁱ` |
 | `TShiftE h t` | `t ∘ p_h` |
 
+## Composition
+
+Every adjustment is an endomorphism of `U`, and composition is
+composition in `End(U)`.
+
+**Direction.** An adjustment sends each input name to a result over its
+output. So it is a morphism from its output context to its input
+context, the direction of substitutions. `ACompose a b`, with `b`
+acting first on a variable, is `b ∘ a`:
+
+- `b` gives each input name a result over `b`'s output;
+- precomposing `a` substitutes `a`'s results into those.
+
+Terms are maps `U → A`. Substituting `σ` into a term `t` is `t ∘ σ`.
+
+Equivalently, a model is a monoid `End(U)` acting on terms, with, for
+each label `h`:
+
+- an element `p_h` of `End(U)` and a term `q_h`;
+- a pairing `⟨σ, t⟩_h`;
+
+satisfying these laws, which are the substitution laws of the
+σ-calculus (Abadi, Cardelli, Curien and Lévy), one copy per label:
+
+```
+p_h ∘ ⟨σ, t⟩_h = σ
+q_h ∘ ⟨σ, t⟩_h = t
+⟨p_h, q_h⟩_h = id
+⟨σ, t⟩_h ∘ τ = ⟨σ ∘ τ, t ∘ τ⟩_h
+```
+
+Ordered labels add their commutation. Composites reduce by these
+equations. `p_h ∘ ⟨σ, t⟩_k` for unordered `h ≠ k` matches none of them
+and stays as it is: that is a stuck lookup.
+
+**In the set instances,** an adjustment acts on environments of its
+output and gives environments of its input. So `s₁ ⨾ … ⨾ sₙ` applies
+`sₙ` to the environment first and `s₁` last.
+
 ## The normaliser's laws are the laws of pairing
 
 | Law | Why it holds |
