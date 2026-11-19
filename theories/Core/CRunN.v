@@ -90,15 +90,11 @@ Section RunN.
 Variable F : order.
 
 (** The output a read of [l₀] at depth [j] reaches through outputs on
-    labels ordered against [l]. *)
-Fixpoint bslot_go (l : lexp) (O : list lexp) (k j : nat) : option nat :=
-  match k with
-  | 0 => None
-  | S k' =>
-      match nth_error O j with
-      | Some o => if lexp_eqb o l then Some j else if kd F l o then bslot_go l O k' (S j) else None
-      | None => None
-      end
+    labels ordered against [l]; [R] is the outputs from depth [j] on. *)
+Fixpoint bslot_go (l : lexp) (R : list lexp) (j : nat) : option nat :=
+  match R with
+  | [] => None
+  | o :: R' => if lexp_eqb o l then Some j else if kd F l o then bslot_go l R' (S j) else None
   end.
 
 Fixpoint ballkd (l : lexp) (L : list lexp) : bool :=
@@ -140,8 +136,16 @@ Definition babsorb_at (j p : nat) (f : bfm) : option bfm :=
   | _, _ => None
   end.
 
-Definition bset_in (p : nat) (t : btgt) (f : bfm) : bfm :=
-  mkC (cout f) (mapi_from 0 (fun q '(l, s) => (l, if Nat.eqb q p then t else s)) (cin f)).
+(** The input at position [p] given the target [t]: a walk to [p], with
+    no comparison of positions. *)
+Fixpoint set_tgt (p : nat) (t : btgt) (I : list (lexp * btgt)) : list (lexp * btgt) :=
+  match p, I with
+  | 0, (l, _) :: I' => (l, t) :: I'
+  | S p', x :: I' => x :: set_tgt p' t I'
+  | _, [] => []
+  end.
+
+Definition bset_in (p : nat) (t : btgt) (f : bfm) : bfm := mkC (cout f) (set_tgt p t (cin f)).
 
 Fixpoint ballkd_in (l : lexp) (I : list (lexp * btgt)) : bool :=
   match I with [] => true | (m, _) :: I' => if kd F l m then ballkd_in l I' else false end.
@@ -150,7 +154,7 @@ Definition babsorb2 (p : nat) (f : bfm) : option (nat * bfm) :=
   match nth_error (cin f) p with
   | Some (l, BR z i d) =>
       if lexp_eqb z l then if N.eqb i 0 then
-        match bslot_go l (cout f) (length (cout f)) (N.to_nat d) with
+        match bslot_go l (skipn (N.to_nat d) (cout f)) (N.to_nat d) with
         | Some j =>
             if ballkd l (skipn (S j) (cout f)) then if ballkd_in l (skipn (S p) (cin f)) then
               option_map (fun g => (j, g)) (babsorb_at j p (bset_in p (BR l 0 (N.of_nat j)) f))
@@ -818,23 +822,25 @@ Proof.
       rewrite N2Nat.inj_pred, Pd, cname_pop_other by (apply kdk, K); reflexivity.
 Qed.
 
-Lemma bslot_go_sound l O k j j' y : bslot_go F l O k j = Some j' -> cname l 0 (popn O j' y) = cname l 0 (popn O j y).
+Lemma skipn_cons_inv {X} (O : list X) j o R : skipn j O = o :: R -> nth_error O j = Some o /\ skipn (S j) O = R.
+Proof. revert O; induction j as [|j IH]; intros [|x O] H; cbn in *; try discriminate; [injection H as -> ->; auto|apply IH, H]. Qed.
+
+Lemma bslot_go_sound l O R j j' y : R = skipn j O -> bslot_go F l R j = Some j' -> cname l 0 (popn O j' y) = cname l 0 (popn O j y).
 Proof.
-  revert j; induction k as [|k IH]; intros j; cbn; [discriminate|].
-  destruct (nth_error O j) as [o|] eqn:N; [|discriminate].
+  revert j; induction R as [|o R IH]; intros j HR; cbn; [discriminate|].
+  destruct (skipn_cons_inv O j o R (eq_sym HR)) as [N HR'].
   destruct (lexp_eqb o l) eqn:E; [intros H; injection H as <-; reflexivity|].
-  destruct (kd F l o) eqn:K; [|discriminate]; intros H; rewrite (IH _ H).
+  destruct (kd F l o) eqn:K; [|discriminate]; intros H; rewrite (IH _ (eq_sym HR') H).
   assert (L : j < length O) by (apply nth_error_Some; congruence).
   rewrite (popn_S O j y L), (nth_error_nth O j LNone N); apply cname_pop_other, kdk, K.
 Qed.
 
-Lemma bpushes_mapi O (g : nat -> lexp * btgt -> lexp * btgt) I k b x :
-  (forall q l t, nth_error I q = Some (l, t) -> fst (g (k + q) (l, t)) = l /\ tden O (ta (snd (g (k + q) (l, t)))) x = tden O (ta t) x) ->
-  pushes O (map ina (mapi_from k g I)) b x = pushes O (map ina I) b x.
+Lemma pushes_set_tgt O p t I b x : (forall l s, nth_error I p = Some (l, s) -> tden O (ta t) x = tden O (ta s) x) ->
+  pushes O (map ina (set_tgt p t I)) b x = pushes O (map ina I) b x.
 Proof.
-  revert k; induction I as [|[l t] I IH]; intros k H; [reflexivity|]; cbn [mapi_from map pushes].
-  destruct (g k (l, t)) as [l' t'] eqn:G; destruct (H 0 l t eq_refl) as [H1 H2]; rewrite Nat.add_0_r, G in H1, H2; cbn in H1, H2; subst l'.
-  rewrite !ina_pair; cbn [pushes]; rewrite IH, H2; [reflexivity|]; intros q l2 t2 N; replace (S k + q) with (k + S q) by lia; apply (H (S q)), N.
+  revert p; induction I as [|[l s] I IH]; intros [|p] H; cbn [set_tgt map]; try reflexivity; rewrite !ina_pair; cbn [pushes].
+  - rewrite (H l s eq_refl); reflexivity.
+  - rewrite IH; [reflexivity|]; intros l' s' N; apply (H l' s' N).
 Qed.
 
 Lemma babsorb2_sound p f j g x : babsorb2 F p f = Some (j, g) -> fden (fa g) x = fden (fa f) x.
@@ -842,15 +848,14 @@ Proof.
   unfold babsorb2; destruct (nth_error (cin f) p) as [[l [z i d|u q]]|] eqn:Np; try discriminate.
   destruct (lexp_eqb z l) eqn:C1; [|discriminate]; destruct (N.eqb i 0) eqn:C2; [|discriminate].
   apply lexp_eqb_true in C1; apply N.eqb_eq in C2; subst z i.
-  destruct (bslot_go F l (cout f) (length (cout f)) (N.to_nat d)) as [j'|] eqn:S; [|discriminate].
+  destruct (bslot_go F l (skipn (N.to_nat d) (cout f)) (N.to_nat d)) as [j'|] eqn:S; [|discriminate].
   destruct (ballkd F l _); [|discriminate]; destruct (ballkd_in F l _); [|discriminate].
   destruct (babsorb_at F j' p (bset_in p (BR l 0 (N.of_nat j')) f)) as [g'|] eqn:A; cbn [option_map]; [|discriminate].
   intros H; injection H as <- <-.
   rewrite (babsorb_at_sound _ _ _ _ x A).
-  unfold bset_in, fa, fden; cbn [cout cin fout fin]; apply bpushes_mapi; intros q l' t N; cbn.
-  split; [reflexivity|]; destruct (Nat.eqb q p) eqn:Q; [|reflexivity].
-  apply Nat.eqb_eq in Q; subst q; rewrite Np in N; injection N as <- <-; cbn [tden ta].
-  rewrite Nat2N.id, N0nat; apply (bslot_go_sound _ _ _ _ _ _ S).
+  unfold bset_in, fa, fden; cbn [cout cin fout fin]; apply pushes_set_tgt; intros l' t N.
+  rewrite Np in N; injection N as <- <-; cbn [tden ta].
+  rewrite Nat2N.id, N0nat; apply (bslot_go_sound _ _ _ _ _ _ eq_refl S).
 Qed.
 
 Lemma bout_first_sound j f o f' y : bout_first F j f = Some (o, f') -> fden (fa f) y = fden (fa f') (cpop o y).
