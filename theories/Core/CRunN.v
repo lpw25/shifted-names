@@ -915,3 +915,570 @@ Proof.
 Qed.
 
 End StepsN.
+
+(** *** Forms with ids *)
+
+Section SoundN.
+
+Variable F : order.
+Variable M : cmodel.
+Hypothesis HM : ccons F M.
+
+Local Notation popn := (popn M).
+Local Notation tden := (tden M).
+Local Notation pushes := (pushes M).
+Local Notation fd := (fden M).
+Local Notation wden_app := (CSpec.wden_app M).
+Local Notation pushes_app := (CSpec.pushes_app M).
+Local Notation pushes_ext := (CSpec.pushes_ext M).
+Local Notation tden_shift := (CSpec.tden_shift M).
+Local Notation pushes_shift := (CSpec.pushes_shift M).
+Local Notation lift_f_sound := (CSpec.lift_f_sound M).
+Local Notation restore_sound := (CSpec.restore_sound M).
+Local Notation ttgt_sound := (CSpec.ttgt_sound M).
+Local Notation entry_sound := (CSpec.entry_sound M).
+Local Notation lift_i_sound := (CSpec.lift_i_sound M).
+Local Notation lift_w_sound := (CSpec.lift_w_sound M).
+Local Notation of_exp_sound := (CSpec.of_exp_sound M).
+Local Notation rexp_sound := (CSpec.rexp_sound M).
+Local Notation texp_of_sound := (CSpec.texp_of_sound M).
+Local Notation fexp_sound := (CSpec.fexp_sound M).
+Local Notation iexp_sound := (CSpec.iexp_sound M).
+Local Notation wexp_sound := (CSpec.wexp_sound M).
+Local Notation pops_comm := (CSpec.pops_comm F M HM).
+Local Notation cname_pop_other := (CSpec.cname_pop_other F M HM).
+Local Notation cname_push_other := (CSpec.cname_push_other F M HM).
+Local Notation pop_comm := (CSpec.pop_comm F M HM).
+Local Notation kdk := (CSpec.kdk F).
+Local Notation bk := (CSpec.bk F).
+Local Notation popn_0 := (CSpec.popn_0 M).
+Local Notation popn_app_le := (CSpec.popn_app_le M).
+Local Notation popn_app_add := (CSpec.popn_app_add M).
+Local Notation popn_over := (CSpec.popn_over M).
+Local Notation popn_min := (CSpec.popn_min M).
+Local Notation popn_S := (CSpec.popn_S M).
+Local Notation omap_pushes := (CSpec.omap_pushes M).
+Local Notation forallb_kd := (CSpec.forallb_kd F).
+Local Notation forallb_kd_in := (CSpec.forallb_kd_in F).
+Local Notation popn_pop_comm := (CSpec.popn_pop_comm F M HM).
+Local Notation popn_hd := (CSpec.popn_hd F M HM).
+Local Notation popn_push_comm := (CSpec.popn_push_comm F M HM).
+Local Notation pushes_pop_comm := (CSpec.pushes_pop_comm F M HM).
+Local Notation pushes_hd := (CSpec.pushes_hd F M HM).
+Local Notation pushes_push_comm := (CSpec.pushes_push_comm F M HM).
+Local Notation popn_mid := (CSpec.popn_mid M).
+Local Notation popn_at := (CSpec.popn_at M).
+Local Notation popn_len_le := (CSpec.popn_len_le M).
+Local Notation wden_rev_cons := (CSpec.wden_rev_cons M).
+
+(** Reads no deeper than the outputs; the number of outputs right. *)
+Definition tok (n : nat) (t : tgt) : Prop := match t with TR _ _ d => d <= n | TT _ _ => True end.
+Definition wfd (f : form) : Prop := Forall (fun lt => tok (length (fout f)) (snd lt)) (fin f).
+Definition bok (e : bform) : Prop := N.to_nat (bl e) = length (bo e) /\ wfd (beff e).
+
+Lemma length_zipd {X} ids (l : list X) : length (zipd ids l) = length l.
+Proof. revert ids; induction l as [|x l IH]; intros [|i ids]; cbn; rewrite ?IH; reflexivity. Qed.
+
+Lemma map_snd_zipd {X} ids (l : list X) : map snd (zipd ids l) = l.
+Proof. revert ids; induction l as [|x l IH]; intros [|i ids]; cbn; rewrite ?IH; reflexivity. Qed.
+
+Lemma map_isnd I : map isnd I = map ina (map snd I).
+Proof. rewrite map_map; reflexivity. Qed.
+
+Lemma beff_len e : length (fout (beff e)) = length (bo e).
+Proof. unfold beff; cbn; rewrite length_rev, length_map; reflexivity. Qed.
+
+Lemma beff_bof_i g o i : beff (bof_i g o i) =
+  mkF (cout g) (map ina (map (fun x => (fst x, bclamp (N.of_nat (length (cout g))) (snd x))) (cin g))).
+Proof. unfold beff, bof_i; cbn; rewrite rev'_rev, map_rev, rev_involutive, !map_snd_zipd, map_isnd, map_snd_zipd; reflexivity. Qed.
+
+Lemma bclamp_sound O P t x : tden (O ++ P) (ta (bclamp (N.of_nat (length O)) t)) x = tden O (ta t) x.
+Proof.
+  destruct t as [z i d|u p]; [|reflexivity]; cbn [bclamp ta tden]; rewrite N2Nat.inj_min, Nat2N.id.
+  rewrite popn_app_le by lia; rewrite popn_min; reflexivity.
+Qed.
+
+Lemma pushes_bclamp O I b x :
+  pushes O (map ina (map (fun x => (fst x, bclamp (N.of_nat (length O)) (snd x))) I)) b x = pushes O (map ina I) b x.
+Proof.
+  induction I as [|[l t] I IH]; cbn [map]; [reflexivity|]; rewrite !ina_pair; cbn [pushes fst snd]; rewrite IH.
+  pose proof (bclamp_sound O [] t x) as H; rewrite app_nil_r in H; rewrite H; reflexivity.
+Qed.
+
+Lemma bof_i_sound g o i x : fd (beff (bof_i g o i)) x = fd (fa g) x.
+Proof. rewrite beff_bof_i; unfold fden, fa; cbn [fout fin cout cin]; apply pushes_bclamp. Qed.
+
+Lemma tok_bclamp n t : tok n (ta (bclamp (N.of_nat n) t)).
+Proof. destruct t; cbn; rewrite ?N2Nat.inj_min, ?Nat2N.id; [lia|exact Logic.I]. Qed.
+
+Lemma bof_i_ok g o i : bok (bof_i g o i).
+Proof.
+  split; [cbn; rewrite Nat2N.id, rev'_rev, length_rev, length_zipd; reflexivity|].
+  unfold wfd; rewrite beff_bof_i; cbn [fout fin].
+  apply Forall_forall; intros [l t] H; apply in_map_iff in H as [[l' t'] [E H]]; apply in_map_iff in H as [[l0 t0] [E' _]].
+  rewrite ina_pair in E; injection E as <- <-; injection E' as <- <-; apply tok_bclamp.
+Qed.
+
+(** *** Reads, from the bottom *)
+
+Lemma nread_up_b_sound up B z i d x : N.to_nat d = length up ->
+  tden (rev (map snd up) ++ B) (ta (nread_up_b F up z i d)) x = cname z (N.to_nat i) (popn (rev (map snd up) ++ B) (N.to_nat d) x).
+Proof.
+  revert B i d; induction up as [|[id o] up IH]; intros B i d Hd; cbn [length] in Hd.
+  - destruct d as [|q]; [reflexivity|]; destruct (Npos_succ q) as [m [H1 _]]; lia.
+  - destruct d as [|q]; [cbn in Hd; lia|]; destruct (Npos_succ q) as [m [H1 H2]].
+    assert (Hm : m = length up) by lia; rewrite Hm in H1, H2; clear Hm m.
+    replace (rev (map snd ((id, o) :: up)) ++ B) with (rev (map snd up) ++ o :: B) by (cbn; rewrite <- app_assoc; reflexivity).
+    assert (P : popn (rev (map snd up) ++ o :: B) (N.to_nat (N.pos q)) x = cpop o (popn (rev (map snd up) ++ o :: B) (length up) x)).
+    { rewrite H1; replace (S (length up)) with (length (rev (map snd up)) + S 0) by (rewrite length_rev, length_map; lia).
+      rewrite popn_at, popn_0, popn_len_le by (rewrite length_rev, length_map; lia); rewrite length_rev, length_map; reflexivity. }
+    cbn [nread_up_b]; rewrite P.
+    destruct (lexp_eqb o z) eqn:E.
+    + apply lexp_eqb_true in E; subst o; rewrite IH by (rewrite H2; reflexivity).
+      rewrite H2, N2Nat.inj_succ, (cname_pop M); reflexivity.
+    + destruct (kd F z o) eqn:K.
+      * rewrite IH by (rewrite H2; reflexivity); rewrite H2, cname_pop_other by (apply kdk, K); reflexivity.
+      * cbn [ta tden]; rewrite P; reflexivity.
+Qed.
+
+Lemma nread_up_b_tok up z i d n : N.to_nat d <= n -> tok n (ta (nread_up_b F up z i d)).
+Proof.
+  revert i d; induction up as [|[id o] up IH]; intros i d Hd; destruct d as [|q]; cbn [nread_up_b]; try (cbn [ta tok]; lia).
+  destruct (lexp_eqb o z); [apply IH; rewrite N2Nat.inj_pred; lia|].
+  destruct (kd F z o); [apply IH; rewrite N2Nat.inj_pred; lia|cbn [ta tok]; lia].
+Qed.
+
+Lemma nread_e_b_sound e t x : N.to_nat (bl e) = length (bo e) ->
+  tden (fout (beff e)) (ta (nread_e_b F e t)) x = tden (fout (beff e)) (ta t) x.
+Proof.
+  intros H; destruct t as [z i d|u p]; [|reflexivity]; cbn [nread_e_b]; rewrite Nleb_nat, H.
+  destruct (Nat.leb (N.to_nat d) (length (bo e))) eqn:L; [|reflexivity]; apply Nat.leb_le in L.
+  rewrite N2Nat.inj_sub, H.
+  set (k := length (bo e) - N.to_nat d).
+  assert (Fo : fout (beff e) = rev (map snd (skipn k (bo e))) ++ rev (map snd (firstn k (bo e))))
+    by (cbn; rewrite <- rev_app_distr, <- map_app, firstn_skipn; reflexivity).
+  rewrite Fo, nread_up_b_sound by (rewrite length_skipn; unfold k; lia); reflexivity.
+Qed.
+
+Lemma nread_e_b_tok e t n : tok n (ta t) -> tok n (ta (nread_e_b F e t)).
+Proof.
+  destruct t as [z i d|u p]; cbn [nread_e_b]; [|auto]; intros Hn.
+  destruct (N.leb d (bl e)); [apply nread_up_b_tok; exact Hn|exact Hn].
+Qed.
+
+(** *** Inputs related one to one *)
+
+Definition irel (O : list lexp) (x : cU M) (a b : positive * (lexp * btgt)) : Prop :=
+  fst (isnd a) = fst (isnd b) /\ tden O (snd (isnd a)) x = tden O (snd (isnd b)) x
+  /\ forall n, tok n (snd (isnd b)) -> tok n (snd (isnd a)).
+
+Lemma pushes_irel O x I I' b : Forall2 (irel O x) I' I -> pushes O (map isnd I') b x = pushes O (map isnd I) b x.
+Proof.
+  induction 1 as [|[i [l t]] [i' [l' t']] I I' [E1 [E2 _]] _ IH]; [reflexivity|]; cbn in *; subst; rewrite IH, E2; reflexivity.
+Qed.
+
+Lemma wfd_irel O x n I I' : Forall2 (irel O x) I' I -> Forall (fun lt => tok n (snd lt)) (map isnd I) ->
+  Forall (fun lt => tok n (snd lt)) (map isnd I').
+Proof.
+  induction 1 as [|a b I I' [_ [_ E3]] _ IH]; cbn; [auto|]; intros H; inversion H; subst; constructor; auto.
+Qed.
+
+Lemma irel_refl O x a : irel O x a a.
+Proof. split; [reflexivity|split; [reflexivity|auto]]. Qed.
+
+Lemma Forall2_refl_irel O x I : Forall2 (irel O x) I I.
+Proof. induction I; constructor; auto using irel_refl. Qed.
+
+Lemma reread_front_b_rel e n x : N.to_nat (bl e) = length (bo e) -> Forall2 (irel (fout (beff e)) x) (bi (reread_front_b F n e)) (bi e).
+Proof.
+  intros H; unfold reread_front_b; cbn [bi]; generalize (bi e); induction n as [|n IH]; intros [|[i [l t]] I];
+    cbn [map_front]; try apply Forall2_refl_irel; constructor; [|apply IH].
+  unfold irel, isnd; cbn [snd]; rewrite !ina_pair; cbn [snd fst]; split; [reflexivity|split]; [apply nread_e_b_sound, H|].
+  intros k Hk; apply nread_e_b_tok, Hk.
+Qed.
+
+Lemma reread_at_b_rel e j x : N.to_nat (bl e) = length (bo e) -> Forall2 (irel (fout (beff e)) x) (bi (reread_at_b F j e)) (bi e).
+Proof.
+  intros H; unfold reread_at_b; cbn [bi]; generalize (bi e); intros L; induction L as [|[i [l t]] I IH]; cbn [map]; constructor; auto.
+  unfold irel, isnd; cbn [snd]; rewrite !ina_pair; cbn [snd fst]; split; [reflexivity|split]; destruct (bis_dep _ t); try reflexivity; try auto.
+  - apply nread_e_b_sound, H.
+  - intros k Hk; apply nread_e_b_tok, Hk.
+Qed.
+
+Lemma inputs_rel e I' x : Forall2 (irel (fout (beff e)) x) I' (bi e) ->
+  fd (beff (mkB (bo e) (bl e) I')) x = fd (beff e) x.
+Proof. intros R; unfold fden; cbn [beff fout fin bo bi]; apply pushes_irel, R. Qed.
+
+Lemma inputs_ok e I' x : bok e -> Forall2 (irel (fout (beff e)) x) I' (bi e) -> bok (mkB (bo e) (bl e) I').
+Proof.
+  intros [H1 H2] R; split; [exact H1|]; unfold wfd in *; cbn [beff fout fin bo bi] in *.
+  eapply wfd_irel; eassumption.
+Qed.
+
+(** *** Placing inputs *)
+
+Lemma pushes_swap2 O (a c : positive * (lexp * btgt)) s b z : before F (blab c) (blab a) = true ->
+  pushes O (map isnd (c :: a :: s)) b z = pushes O (map isnd (a :: c :: s)) b z.
+Proof.
+  destruct a as [i [l t]], c as [j [m u]]; unfold blab, isnd; cbn; intros B.
+  apply (kd_push_push F M HM); apply bk; exact B.
+Qed.
+
+Lemma pushes_app_mid O (A s1 s2 : list (positive * (lexp * btgt))) b z :
+  pushes O (map isnd s1) b z = pushes O (map isnd s2) b z ->
+  pushes O (map isnd (A ++ s1)) b z = pushes O (map isnd (A ++ s2)) b z.
+Proof. intros H; rewrite !map_app, !pushes_app, H; reflexivity. Qed.
+
+Lemma pushes_cons_eq O (a : positive * (lexp * btgt)) (s1 s2 : list (positive * (lexp * btgt))) b z :
+  (forall b, pushes O (map isnd s1) b z = pushes O (map isnd s2) b z) ->
+  pushes O (map isnd (a :: s1)) b z = pushes O (map isnd (a :: s2)) b z.
+Proof. destruct a as [i [l t]]; unfold isnd; cbn; intros H; rewrite H; reflexivity. Qed.
+
+Lemma bub_in_b_sound O x I b z : pushes O (map isnd (bub_in_b F x I)) b z = pushes O (map isnd (x :: I)) b z
+  /\ Permutation (bub_in_b F x I) (x :: I).
+Proof.
+  revert b; induction I as [|y I IH]; intros b; cbn [bub_in_b]; [split; reflexivity|].
+  destruct (before F (blab y) (blab x)) eqn:B; [|split; reflexivity].
+  split.
+  - rewrite (pushes_cons_eq O y _ (x :: I) b z) by (intros b'; apply IH); apply pushes_swap2, B.
+  - destruct (IH b) as [_ P]; rewrite P; apply perm_swap.
+Qed.
+
+Lemma place_front_b_sound O n I b z : pushes O (map isnd (place_front_b F n I)) b z = pushes O (map isnd I) b z
+  /\ Permutation (place_front_b F n I) I.
+Proof.
+  revert I b; induction n as [|n IH]; intros [|x I] b; cbn [place_front_b]; try (split; reflexivity).
+  destruct (bub_in_b_sound O x (place_front_b F n I) b z) as [E P]; rewrite E; split.
+  - apply pushes_cons_eq; intros b'; apply IH.
+  - rewrite P; apply perm_skip, IH; exact b.
+Qed.
+
+Lemma ins_out_b_sound O x rp s b z : pushes O (map isnd (rev (ins_out_b F x rp) ++ s)) b z = pushes O (map isnd (rev rp ++ x :: s)) b z
+  /\ Permutation (ins_out_b F x rp) (x :: rp).
+Proof.
+  revert s; induction rp as [|y r IH]; intros s; cbn [ins_out_b]; [split; reflexivity|].
+  destruct (before F (blab x) (blab y)) eqn:B; [|split; [cbn [rev]; rewrite <- !app_assoc; reflexivity|reflexivity]].
+  split.
+  - cbn [rev]; rewrite <- !app_assoc; cbn [app].
+    rewrite (proj1 (IH (y :: s))); apply pushes_app_mid, pushes_swap2, B.
+  - rewrite (proj2 (IH s)); apply perm_swap.
+Qed.
+
+Lemma out_pass_b_sound O rp suf b z : pushes O (map isnd (out_pass_b F rp suf)) b z = pushes O (map isnd (rev rp ++ suf)) b z
+  /\ Permutation (out_pass_b F rp suf) (rev rp ++ suf).
+Proof.
+  revert rp; induction suf as [|x s IH]; intros rp; cbn [out_pass_b]; [rewrite rev'_rev, app_nil_r; split; reflexivity|].
+  destruct (IH (ins_out_b F x rp)) as [E P]; destruct (ins_out_b_sound O x rp s b z) as [E2 P2]; split.
+  - rewrite E, E2; reflexivity.
+  - rewrite P, P2; cbn [rev]; rewrite <- app_assoc; reflexivity.
+Qed.
+
+Lemma place_suffix_out_b_sound O p I b z : pushes O (map isnd (place_suffix_out_b F p I)) b z = pushes O (map isnd I) b z
+  /\ Permutation (place_suffix_out_b F p I) I.
+Proof.
+  unfold place_suffix_out_b; rewrite rev'_rev; destruct (out_pass_b_sound O (rev (firstn p I)) (skipn p I) b z) as [E P].
+  rewrite rev_involutive, firstn_skipn in E, P; split; assumption.
+Qed.
+
+Lemma perm_inputs e I' x : (forall b, pushes (fout (beff e)) (map isnd I') b x = pushes (fout (beff e)) (map isnd (bi e)) b x) ->
+  fd (beff (mkB (bo e) (bl e) I')) x = fd (beff e) x.
+Proof. intros H; unfold fden; cbn [beff fout fin bo bi]; apply H. Qed.
+
+Lemma perm_ok e I' : bok e -> Permutation I' (bi e) -> bok (mkB (bo e) (bl e) I').
+Proof.
+  intros [H1 H2] P; split; [exact H1|]; unfold wfd in *; cbn [beff fout fin bo bi] in *.
+  rewrite Forall_forall in *; intros lt Hin; apply H2.
+  apply (Permutation_in _ (Permutation_map isnd P)), Hin.
+Qed.
+
+(** *** The map from depths to the number of reads there *)
+
+Definition cntI (d : N) (I : list (positive * (lexp * btgt))) : nat :=
+  length (filter (fun y => bis_dep d (snd (snd y))) I).
+
+Definition idx_ok (m : PositiveMap.t nat) (I : list (positive * (lexp * btgt))) : Prop := forall d, cnt_b m d = cntI d I.
+
+Lemma dkey_b_inj d d' : dkey_b d = dkey_b d' -> d = d'.
+Proof. unfold dkey_b; intros H; apply N.succ_inj; rewrite <- !N.succ_pos_spec, H; reflexivity. Qed.
+
+Lemma cnt_add m d v d' : cnt_b (PositiveMap.add (dkey_b d) v m) d' = if N.eqb d d' then v else cnt_b m d'.
+Proof.
+  unfold cnt_b; destruct (N.eqb_spec d d') as [<-|Ne].
+  - rewrite PositiveMap.gss; reflexivity.
+  - rewrite PositiveMap.gso; [reflexivity|]; intros K; apply Ne; symmetry; apply dkey_b_inj, K.
+Qed.
+
+Lemma cnt_empty d : cnt_b (PositiveMap.empty nat) d = 0.
+Proof. unfold cnt_b; rewrite PositiveMap.gempty; reflexivity. Qed.
+
+Lemma cnt_idx_add m t d : cnt_b (idx_add_b m t) d = cnt_b m d + (if bis_dep d t then 1 else 0).
+Proof.
+  destruct t as [z i d'|u p]; cbn [idx_add_b bis_dep]; [|lia].
+  rewrite cnt_add; destruct (N.eqb_spec d' d); [subst; lia|lia].
+Qed.
+
+Lemma idx_of_ok I : idx_ok (idx_of_b I) I.
+Proof.
+  unfold idx_of_b, idx_ok, cntI.
+  assert (G : forall (J : list (positive * (lexp * btgt))) m d, cnt_b (fold_left (fun m x => idx_add_b m (snd (snd x))) J m) d
+                             = cnt_b m d + length (filter (fun y : positive * (lexp * btgt) => bis_dep d (snd (snd y))) J)).
+  { induction J as [|y J IH]; intros m d; cbn [fold_left filter]; [cbn; lia|].
+    rewrite IH, cnt_idx_add; destruct (bis_dep d (snd (snd y))); cbn; lia. }
+  intros d; rewrite G, cnt_empty; reflexivity.
+Qed.
+
+Lemma swap_in_zero m I k b : idx_ok m I -> cnt_b m (N.succ k) = 0 -> swap_in_b F k b I = Some I.
+Proof.
+  intros H Z; rewrite H in Z; unfold cntI in Z; unfold swap_in_b; clear H.
+  induction I as [|[i [l t]] I IH]; [reflexivity|]; cbn [omap].
+  cbn [filter snd] in Z; destruct (bis_dep (N.succ k) t) eqn:D; [discriminate|].
+  rewrite IH by exact Z.
+  destruct t as [z j d|u p]; cbn [bswap_read option_map]; [|reflexivity].
+  cbn [bis_dep] in D; rewrite D; reflexivity.
+Qed.
+
+Lemma cntI_cons d y I : cntI d (y :: I) = (if bis_dep d (snd (snd y)) then 1 else 0) + cntI d I.
+Proof. unfold cntI; cbn [filter]; destruct (bis_dep d (snd (snd y))); reflexivity. Qed.
+
+Ltac eqbsN := repeat (match goal with |- context [N.eqb ?a ?b] => destruct (N.eqb_spec a b); try subst end); simpl; try lia.
+
+Lemma bswap_read_dep k b t t' : bswap_read F k b t = Some t' -> forall d,
+  (if bis_dep d t' then 1 else 0) =
+  (if N.eqb d (N.succ k) then 0 else if N.eqb d (N.succ (N.succ k)) then (if bis_dep (N.succ (N.succ k)) t then 1 else 0) + (if bis_dep (N.succ k) t then 1 else 0)
+   else if bis_dep d t then 1 else 0).
+Proof.
+  intros G d; destruct t as [z j dd|u p]; cbn [bswap_read] in G.
+  - destruct (N.eqb dd (N.succ k)) eqn:Dk.
+    + apply N.eqb_eq in Dk; subst dd.
+      assert (exists j', t' = BR z j' (N.succ (N.succ k))) as [j' ->]
+        by (destruct (lexp_eqb z b); [destruct j; [discriminate|injection G as <-; eexists; reflexivity]|
+            destruct (kd F z b); [injection G as <-; eexists; reflexivity|discriminate]]).
+      cbn [bis_dep]; eqbsN.
+    + injection G as <-; cbn [bis_dep]; apply N.eqb_neq in Dk; eqbsN.
+  - injection G as <-; cbn [bis_dep]; eqbsN.
+Qed.
+
+Lemma swap_in_depths k b I I' : swap_in_b F k b I = Some I' -> forall d,
+  cntI d I' = if N.eqb d (N.succ k) then 0 else if N.eqb d (N.succ (N.succ k)) then cntI (N.succ (N.succ k)) I + cntI (N.succ k) I else cntI d I.
+Proof.
+  unfold swap_in_b; revert I'; induction I as [|[i [l t]] I IH]; intros I' E d; cbn [omap] in E.
+  - injection E as <-; unfold cntI; cbn; eqbsN.
+  - destruct (bswap_read F k b t) as [t'|] eqn:G; cbn [option_map] in E; [|discriminate].
+    destruct (omap _ I) as [I''|] eqn:E2; [|discriminate]; injection E as <-.
+    specialize (IH I'' eq_refl d); rewrite !cntI_cons, IH; cbn [snd].
+    rewrite (bswap_read_dep k b t t' G d); eqbsN.
+Qed.
+
+Lemma idx_move_ok m I k b I' : idx_ok m I -> swap_in_b F k b I = Some I' -> idx_ok (idx_move_b m (N.succ k)) I'.
+Proof.
+  intros H E d; rewrite (swap_in_depths k b I I' E d); unfold idx_move_b; rewrite !cnt_add, !H; eqbsN.
+Qed.
+
+Lemma isnd_eq i l t : isnd (i, (l, t)) = (l, ta t).
+Proof. reflexivity. Qed.
+
+Lemma tag_pushes (g : btgt -> option btgt) O O' I I' b x x' :
+  omap (fun '(id, (l, t)) => option_map (fun t' => (id, (l, t'))) (g t)) I = Some I' ->
+  (forall t t', g t = Some t' -> tden O' (ta t') x' = tden O (ta t) x) ->
+  pushes O' (map isnd I') b x' = pushes O (map isnd I) b x.
+Proof.
+  revert I'; induction I as [|[i [h t]] I IH]; intros I' E H; cbn in E.
+  - injection E as <-; reflexivity.
+  - destruct (g t) as [t'|] eqn:G; cbn in E; [|discriminate].
+    destruct (omap _ I) as [I''|] eqn:E2; [|discriminate]; injection E as <-.
+    cbn [map]; rewrite !isnd_eq; cbn [pushes]; rewrite (H t t' G), (IH I'' eq_refl H); reflexivity.
+Qed.
+
+Lemma swap_in_tok k b I I' n : swap_in_b F k b I = Some I' -> N.to_nat k + 2 <= n ->
+  Forall (fun lt => tok n (snd lt)) (map isnd I) -> Forall (fun lt => tok n (snd lt)) (map isnd I').
+Proof.
+  unfold swap_in_b; revert I'; induction I as [|[i [l t]] I IH]; intros I' E Hn H; cbn [omap map] in *.
+  - injection E as <-; constructor.
+  - inversion H as [|a b0 H1 H2]; subst.
+    destruct (bswap_read F k b t) as [t'|] eqn:Sw; cbn in *; [|discriminate].
+    destruct (omap _ I) as [I''|]; [|discriminate]; injection E as <-; cbn; constructor; [|apply IH; auto].
+    cbn [isnd ina snd fst] in H1 |- *; destruct t as [z j d|u p]; cbn in Sw, H1 |- *.
+    + destruct (N.eqb d (N.succ k)); [destruct (lexp_eqb z b); [destruct j|destruct (kd F z b)]|]; try discriminate;
+        injection Sw as <-; cbn; rewrite ?N2Nat.inj_succ; lia.
+    + injection Sw as <-; exact Logic.I.
+Qed.
+
+(** One output swap. *)
+Lemma boswap_step (top bot : list lexp) a c I I' z :
+  before F c a = true -> swap_in_b F (N.of_nat (length top)) c I = Some I' ->
+  fd (mkF (top ++ c :: a :: bot) (map isnd I')) z = fd (mkF (top ++ a :: c :: bot) (map isnd I)) z.
+Proof.
+  intros Bf Sw.
+  assert (D : known_distinct F a c) by (apply known_distinct_sym, bk, Bf).
+  unfold fden; cbn [fout fin]; rewrite !length_app; cbn [length].
+  rewrite !popn_mid, (pop_comm c a) by (apply known_distinct_sym; exact D).
+  apply (tag_pushes _ _ _ I I' _ _ _ Sw).
+  intros t t' Sw1; destruct t as [z0 i d|u p]; cbn [bswap_read] in Sw1; [|injection Sw1 as <-; reflexivity].
+  rewrite Neqb_nat, N2Nat.inj_succ, Nat2N.id in Sw1.
+  destruct (Nat.eqb (N.to_nat d) (S (length top))) eqn:Ed.
+  - apply Nat.eqb_eq in Ed.
+    assert (P1 : popn (top ++ a :: c :: bot) (N.to_nat d) z = cpop a (popn top (length top) z)).
+    { rewrite Ed; replace (S (length top)) with (length top + S 0) by lia; rewrite popn_at, popn_0; reflexivity. }
+    assert (P2 : popn (top ++ c :: a :: bot) (S (S (length top))) z = cpop a (cpop c (popn top (length top) z))).
+    { replace (S (S (length top))) with (length top + S (S 0)) by lia; rewrite popn_mid, popn_0; reflexivity. }
+    destruct (lexp_eqb z0 c) eqn:Ez.
+    + apply lexp_eqb_true in Ez; subst z0; destruct i as [|q]; [discriminate|]; injection Sw1 as <-; cbn [tden ta].
+      change (Pos.pred_N q) with (N.pred (N.pos q)); destruct (Npos_succ q) as [m [H1 H2]].
+      rewrite H1, H2, !N2Nat.inj_succ, Nat2N.id, P1, P2, (pop_comm a c _ D), (cname_pop M); reflexivity.
+    + destruct (kd F z0 c) eqn:K; [|discriminate]; injection Sw1 as <-; cbn [tden ta].
+      rewrite !N2Nat.inj_succ, Nat2N.id, P1, P2, (pop_comm a c _ D), cname_pop_other by (apply kdk, K); reflexivity.
+  - injection Sw1 as <-; cbn [tden ta]; apply Nat.eqb_neq in Ed.
+    destruct (Nat.le_gt_cases (N.to_nat d) (length top)) as [Le|Gt].
+    + rewrite !popn_len_le by exact Le; reflexivity.
+    + replace (N.to_nat d) with (length top + S (S (N.to_nat d - length top - 2))) by lia.
+      rewrite !popn_mid, (pop_comm a c _ D); reflexivity.
+Qed.
+
+Definition itok (n : nat) (I : list (positive * (lexp * btgt))) : Prop := Forall (fun lt => tok n (snd lt)) (map isnd I).
+Definition iok (mo : option (PositiveMap.t nat)) (I : list (positive * (lexp * btgt))) : Prop :=
+  forall m, mo = Some m -> idx_ok m I.
+
+Lemma get_idx_ok mo I : iok mo I -> idx_ok (match mo with Some m => m | None => idx_of_b I end) I.
+Proof. destruct mo as [m|]; [intros H; apply H; reflexivity|intros _; apply idx_of_ok]. Qed.
+
+Lemma rev_mid (below acc : list (positive * lexp)) y x :
+  rev (map snd (below ++ y :: x :: acc)) = rev (map snd acc) ++ snd x :: snd y :: rev (map snd below).
+Proof. rewrite map_app, rev_app_distr; cbn; rewrite <- !app_assoc; reflexivity. Qed.
+
+(** *** Outputs moved up from the bottom *)
+
+Lemma bub_out_b_sound x acc : forall below pos I mo r I' mo' n,
+  bub_out_b F x acc pos I mo = (r, I', mo') -> N.to_nat pos = length acc -> n = length below + S (length acc) ->
+  iok mo I -> itok n I ->
+  (forall z, fd (mkF (rev (map snd (below ++ r))) (map isnd I')) z = fd (mkF (rev (map snd (below ++ x :: acc))) (map isnd I)) z)
+  /\ iok mo' I' /\ length r = S (length acc) /\ itok n I'.
+Proof.
+  induction acc as [|y acc IH]; intros below pos I mo r I' mo' n E Hp Hn Hi Ht; cbn [bub_out_b] in E.
+  - injection E as <- <- <-; auto.
+  - destruct (before F (snd x) (snd y)) eqn:B; [|injection E as <- <- <-; auto].
+    pose proof (get_idx_ok mo I Hi) as Hm; set (m := match mo with Some m => m | None => idx_of_b I end) in *.
+    cbn [length] in Hp.
+    assert (Hp' : N.to_nat (N.pred pos) = length acc) by (rewrite N2Nat.inj_pred; lia).
+    assert (Ep : pos = N.succ (N.pred pos)) by lia.
+    assert (Ek : N.pred pos = N.of_nat (length (rev (map snd acc)))) by (rewrite length_rev, length_map, <- Hp', N2Nat.id; reflexivity).
+    destruct (cnt_b m pos) as [|c] eqn:C.
+    + destruct (bub_out_b F x acc (N.pred pos) I (Some m)) as [[r0 I0] mo0] eqn:E0; injection E as <- <- <-.
+      destruct (IH (below ++ [y]) (N.pred pos) I (Some m) r0 I0 mo0 n E0 Hp') as [S1 [S2 [S3 S4]]];
+        [rewrite length_app; cbn in *; lia|intros m' Hm'; injection Hm' as <-; exact Hm|exact Ht|].
+      split; [|split; [exact S2|split; [cbn; lia|exact S4]]]; intros z.
+      replace (below ++ y :: r0) with ((below ++ [y]) ++ r0) by (rewrite <- app_assoc; reflexivity); rewrite S1.
+      replace ((below ++ [y]) ++ x :: acc) with (below ++ y :: x :: acc) by (rewrite <- app_assoc; reflexivity).
+      rewrite !rev_mid; apply boswap_step; [exact B|]; rewrite <- Ek; apply (swap_in_zero m); [exact Hm|rewrite <- Ep; exact C].
+    + destruct (swap_in_b F (N.pred pos) (snd x) I) as [I1|] eqn:Sw.
+      * destruct (bub_out_b F x acc (N.pred pos) I1 (Some (idx_move_b m pos))) as [[r0 I0] mo0] eqn:E0; injection E as <- <- <-.
+        destruct (IH (below ++ [y]) (N.pred pos) I1 _ r0 I0 mo0 n E0 Hp') as [S1 [S2 [S3 S4]]];
+          [rewrite length_app; cbn in *; lia|intros m' Hm'; injection Hm' as <-; rewrite Ep; apply (idx_move_ok m I _ _ _ Hm Sw)|
+           apply (swap_in_tok _ _ _ _ _ Sw); [cbn in Hn; lia|exact Ht]|].
+        split; [|split; [exact S2|split; [cbn; lia|exact S4]]]; intros z.
+        replace (below ++ y :: r0) with ((below ++ [y]) ++ r0) by (rewrite <- app_assoc; reflexivity); rewrite S1.
+        replace ((below ++ [y]) ++ x :: acc) with (below ++ y :: x :: acc) by (rewrite <- app_assoc; reflexivity).
+        rewrite !rev_mid; apply boswap_step; [exact B|]; rewrite <- Ek; exact Sw.
+      * injection E as <- <- <-; split; [reflexivity|split; [intros m' Hm'; injection Hm' as <-; exact Hm|auto]].
+Qed.
+
+Lemma place_rng_b_sound rng : forall k n above below I mo o I' mo',
+  place_rng_b F k n rng above I mo = (o, I', mo') -> N.to_nat k = length below -> N.to_nat n = N.to_nat k + length rng + length above ->
+  iok mo I -> itok (N.to_nat n) I ->
+  (forall z, fd (mkF (rev (map snd (below ++ o))) (map isnd I')) z = fd (mkF (rev (map snd (below ++ rng ++ above))) (map isnd I)) z)
+  /\ iok mo' I' /\ length o = length rng + length above /\ itok (N.to_nat n) I'.
+Proof.
+  induction rng as [|x rng IH]; intros k n above below I mo o I' mo' E Hk Hn Hi Ht; cbn [place_rng_b] in E.
+  - injection E as <- <- <-; auto.
+  - destruct (place_rng_b F (N.succ k) n rng above I mo) as [[a' I1] mo1] eqn:E1.
+    destruct (IH (N.succ k) n above (below ++ [x]) I mo a' I1 mo1 E1) as [S1 [S2 [S3 S4]]];
+      [rewrite length_app; cbn; lia|cbn in Hn; lia|exact Hi|exact Ht|].
+    destruct (bub_out_b_sound x a' below (n - 1 - k) I1 mo1 o I' mo' (N.to_nat n) E) as [T1 [T2 [T3 T4]]];
+      [rewrite S3; cbn in Hn; lia|rewrite S3; cbn in Hn; lia|exact S2|exact S4|].
+    split; [|split; [exact T2|split; [rewrite T3, S3; reflexivity|exact T4]]]; intros z.
+    rewrite T1; replace (below ++ x :: a') with ((below ++ [x]) ++ a') by (rewrite <- app_assoc; reflexivity).
+    rewrite S1, <- app_assoc; reflexivity.
+Qed.
+
+Lemma place_out_bottom_b_sound r e : bok e ->
+  (forall z, fd (beff (place_out_bottom_b F r e)) z = fd (beff e) z) /\ bok (place_out_bottom_b F r e).
+Proof.
+  intros [H1 H2]; unfold place_out_bottom_b.
+  destruct (place_rng_b F 0 (bl e) (firstn r (bo e)) (skipn r (bo e)) (bi e) None) as [[o I] mo] eqn:E.
+  destruct (place_rng_b_sound _ 0 (bl e) _ [] _ _ _ _ _ E eq_refl) as [S1 [_ [S3 S4]]];
+    [rewrite length_firstn, length_skipn, H1; cbn; lia|intros m Hm; discriminate|unfold itok; unfold wfd in H2; rewrite beff_len in H2; rewrite H1; exact H2|].
+  split; [intros z; specialize (S1 z); cbn [app] in S1; rewrite firstn_skipn in S1; exact S1|split; cbn [bl bo]].
+  - rewrite S3, <- length_app, firstn_skipn; exact H1.
+  - unfold wfd; rewrite beff_len; cbn [bo bi]; rewrite S3, <- length_app, firstn_skipn, <- H1; exact S4.
+Qed.
+
+(** *** Outputs moved down from the top *)
+
+Lemma bub_down_b_sound x below : forall above pos I mo r I' mo' n,
+  bub_down_b F x below pos I mo = (r, I', mo') -> N.to_nat pos = length above -> n = length above + S (length below) ->
+  iok mo I -> itok n I ->
+  (forall z, fd (mkF (map snd (above ++ r)) (map isnd I')) z = fd (mkF (map snd (above ++ x :: below)) (map isnd I)) z)
+  /\ iok mo' I' /\ length r = S (length below) /\ itok n I'.
+Proof.
+  induction below as [|y below IH]; intros above pos I mo r I' mo' n E Hp Hn Hi Ht; cbn [bub_down_b] in E.
+  - injection E as <- <- <-; auto.
+  - destruct (before F (snd y) (snd x)) eqn:B; [|injection E as <- <- <-; auto].
+    pose proof (get_idx_ok mo I Hi) as Hm; set (m := match mo with Some m => m | None => idx_of_b I end) in *.
+    assert (Ek : pos = N.of_nat (length (map snd above))) by (rewrite length_map, <- Hp, N2Nat.id; reflexivity).
+    assert (L : forall r0, map snd (above ++ y :: r0) = map snd (above ++ [y]) ++ map snd r0)
+      by (intros; rewrite <- map_app, <- app_assoc; reflexivity).
+    assert (L2 : map snd (above ++ x :: y :: below) = map snd above ++ snd x :: snd y :: map snd below)
+      by (rewrite map_app; reflexivity).
+    assert (L3 : map snd ((above ++ [y]) ++ x :: below) = map snd above ++ snd y :: snd x :: map snd below)
+      by (rewrite <- app_assoc, map_app; reflexivity).
+    destruct (cnt_b m (N.succ pos)) as [|c] eqn:C.
+    + destruct (bub_down_b F x below (N.succ pos) I (Some m)) as [[r0 I0] mo0] eqn:E0; injection E as <- <- <-.
+      destruct (IH (above ++ [y]) (N.succ pos) I (Some m) r0 I0 mo0 n E0) as [S1 [S2 [S3 S4]]];
+        [rewrite N2Nat.inj_succ, length_app; cbn; lia|rewrite length_app; cbn in *; lia|intros m' Hm'; injection Hm' as <-; exact Hm|exact Ht|].
+      split; [|split; [exact S2|split; [cbn; lia|exact S4]]]; intros z.
+      rewrite L, <- map_app, S1, L3, L2.
+      apply boswap_step; [exact B|]; rewrite <- Ek; apply (swap_in_zero m); [exact Hm|exact C].
+    + destruct (swap_in_b F pos (snd y) I) as [I1|] eqn:Sw.
+      * destruct (bub_down_b F x below (N.succ pos) I1 (Some (idx_move_b m (N.succ pos)))) as [[r0 I0] mo0] eqn:E0; injection E as <- <- <-.
+        destruct (IH (above ++ [y]) (N.succ pos) I1 _ r0 I0 mo0 n E0) as [S1 [S2 [S3 S4]]];
+          [rewrite N2Nat.inj_succ, length_app; cbn; lia|rewrite length_app; cbn in *; lia|intros m' Hm'; injection Hm' as <-; apply (idx_move_ok m I _ _ _ Hm Sw)|
+           apply (swap_in_tok _ _ _ _ _ Sw); [cbn in Hn; lia|exact Ht]|].
+        split; [|split; [exact S2|split; [cbn; lia|exact S4]]]; intros z.
+        rewrite L, <- map_app, S1, L3, L2.
+        apply boswap_step; [exact B|]; rewrite <- Ek; exact Sw.
+      * injection E as <- <- <-; split; [reflexivity|split; [intros m' Hm'; injection Hm' as <-; exact Hm|auto]].
+Qed.
+
+Lemma place_down_b_sound pre : forall k rest above I mo o I' mo' n,
+  place_down_b F k pre rest I mo = (o, I', mo') -> N.to_nat k = length above -> n = N.to_nat k + length pre + length rest ->
+  iok mo I -> itok n I ->
+  (forall z, fd (mkF (map snd (above ++ o)) (map isnd I')) z = fd (mkF (map snd (above ++ pre ++ rest)) (map isnd I)) z)
+  /\ iok mo' I' /\ length o = length pre + length rest /\ itok n I'.
+Proof.
+  induction pre as [|x pre IH]; intros k rest above I mo o I' mo' n E Hk Hn Hi Ht; cbn [place_down_b] in E.
+  - injection E as <- <- <-; auto.
+  - destruct (place_down_b F (N.succ k) pre rest I mo) as [[r' I1] mo1] eqn:E1.
+    destruct (IH (N.succ k) rest (above ++ [x]) I mo r' I1 mo1 n E1) as [S1 [S2 [S3 S4]]];
+      [rewrite N2Nat.inj_succ, length_app; cbn; lia|rewrite N2Nat.inj_succ; cbn in Hn; lia|exact Hi|exact Ht|].
+    destruct (bub_down_b_sound x r' above k I1 mo1 o I' mo' n E) as [T1 [T2 [T3 T4]]];
+      [exact Hk|rewrite S3; cbn in Hn; lia|exact S2|exact S4|].
+    split; [|split; [exact T2|split; [rewrite T3, S3; reflexivity|exact T4]]]; intros z.
+    rewrite T1; replace (above ++ x :: r') with ((above ++ [x]) ++ r') by (rewrite <- app_assoc; reflexivity).
+    rewrite S1, <- app_assoc; reflexivity.
+Qed.
+
+Lemma place_out_top_b_sound r e : bok e ->
+  (forall z, fd (beff (place_out_top_b F r e)) z = fd (beff e) z) /\ bok (place_out_top_b F r e).
+Proof.
+  intros [H1 H2]; unfold place_out_top_b; rewrite !rev'_rev.
+  destruct (place_down_b F 0 (firstn r (rev (bo e))) (skipn r (rev (bo e))) (bi e) None) as [[o I] mo] eqn:E.
+  destruct (place_down_b_sound _ 0 _ [] _ _ _ _ _ (N.to_nat (bl e)) E eq_refl) as [S1 [_ [S3 S4]]];
+    [rewrite length_firstn, length_skipn, length_rev, H1; cbn; lia|intros m Hm; discriminate|unfold itok; unfold wfd in H2; rewrite beff_len in H2; rewrite H1; exact H2|].
+  assert (Lo : length o = length (bo e)) by (rewrite S3, <- length_app, firstn_skipn, length_rev; reflexivity).
+  rewrite rev'_rev; split.
+  - intros z; specialize (S1 z); cbn [app] in S1; rewrite firstn_skipn in S1.
+    unfold beff; cbn [bo bi bl fout fin]; rewrite map_rev, rev_involutive, S1, map_rev; reflexivity.
+  - unfold bok; cbn [bl bo]; split; [rewrite length_rev, Lo; exact H1|].
+    unfold wfd, beff; cbn [fout fin bo bi]; rewrite map_rev, rev_involutive, length_map, Lo, <- H1; exact S4.
+Qed.
+
+End SoundN.
