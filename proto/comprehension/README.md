@@ -18,3 +18,6 @@ Run from this directory:
     mkdir -p coq && python3 gen2.py
     (cd coq && rocq c -R ../../../theories ShiftedNames abv4.v > abv4.out)
     python3 check3.py abv4
+- `forms.py`: the context-form pass of `Core/CForm.v`, followed by
+  `HNorm` without `relnf`, compared on every word with `HNorm` with
+  `relnf` (`python3 forms.py`, a few minutes).
