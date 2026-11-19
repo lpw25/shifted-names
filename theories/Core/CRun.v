@@ -38,20 +38,6 @@ Inductive iitem : Type :=
 
 Definition strip (it : iitem) : item := match it with JF f => IF (ff f) | JA L n => IA L n end.
 
-Definition mem (x : positive) (l : list positive) : bool := existsb (Pos.eqb x) l.
-
-Fixpoint index_of (x : positive) (l : list positive) : option nat :=
-  match l with [] => None | y :: l' => if Pos.eqb x y then Some 0 else option_map S (index_of x l') end.
-
-(** [n] fresh ids from [c]. *)
-Fixpoint pseq (c : positive) (n : nat) : list positive :=
-  match n with 0 => [] | S n' => c :: pseq (Pos.succ c) n' end.
-
-Definition padd (c : positive) (n : nat) : positive := Nat.iter n Pos.succ c.
-
-Fixpoint mapi_from {X Y} (k : nat) (g : nat -> X -> Y) (l : list X) : list Y :=
-  match l with [] => [] | a :: l' => g k a :: mapi_from (S k) g l' end.
-
 Definition tdep (t : tgt) : option nat := match t with TR _ _ d => Some d | TT _ _ => None end.
 
 Definition is_dep (j : nat) (t : tgt) : bool := match tdep t with Some d => Nat.eqb d j | None => false end.
@@ -437,6 +423,13 @@ Variable M : cmodel.
 Hypothesis HM : ccons F M.
 
 Local Notation fd := (fden M).
+Local Notation liftsem := (CSpec.liftsem M).
+Local Notation liftsem_ext := (CSpec.liftsem_ext M).
+Local Notation liftsem_app := (CSpec.liftsem_app M).
+Local Notation liftsem_comp := (CSpec.liftsem_comp M).
+Local Notation liftsem_id := (CSpec.liftsem_id M).
+Local Notation lift_fold_sound := (CSpec.lift_fold_sound M).
+Local Notation lden_app := (CSpec.lden_app M).
 Local Notation wd := (fun st x => wden M (map strip st) x).
 
 (** *** Inputs and outputs swapped *)
@@ -623,14 +616,6 @@ Proof.
     + intros H; injection H as <- <- _; reflexivity.
 Qed.
 
-Lemma split2 {X} (st : list X) k a b : nth_error st k = Some a -> nth_error st (S k) = Some b ->
-  st = firstn k st ++ a :: b :: skipn (S (S k)) st.
-Proof.
-  revert st; induction k as [|k IH]; intros [|c st] Ha Hb; cbn in *; try discriminate.
-  - injection Ha as ->; destruct st as [|d st]; [discriminate|]; injection Hb as ->; reflexivity.
-  - f_equal; apply IH; assumption.
-Qed.
-
 Lemma wd_app st1 st2 x : wd (st1 ++ st2) x = wd st1 (wd st2 x).
 Proof. cbn; rewrite map_app; apply wden_app. Qed.
 
@@ -673,33 +658,6 @@ Proof.
 Qed.
 
 (** *** Lifts *)
-
-Fixpoint liftsem (L : list lexp) (g : cU M -> cU M) (x : cU M) : cU M :=
-  match L with [] => g x | h :: L' => cpush h (liftsem L' g (cpop h x)) (chd h x) end.
-
-Lemma liftsem_ext L g g' x : (forall y, g y = g' y) -> liftsem L g x = liftsem L g' x.
-Proof. intros H; revert x; induction L as [|h L IH]; intros x; cbn; [apply H|rewrite IH; reflexivity]. Qed.
-
-Lemma liftsem_app L1 L2 g x : liftsem (L1 ++ L2) g x = liftsem L1 (liftsem L2 g) x.
-Proof. revert x; induction L1 as [|h L IH]; intros x; cbn; [reflexivity|rewrite IH; reflexivity]. Qed.
-
-Lemma liftsem_comp L g g' x : liftsem L g (liftsem L g' x) = liftsem L (fun y => g (g' y)) x.
-Proof.
-  revert x; induction L as [|h L IH]; intros x; cbn; [reflexivity|].
-  rewrite cpop_push, chd_push, IH; reflexivity.
-Qed.
-
-Lemma liftsem_id L x : liftsem L (fun y => y) x = x.
-Proof. revert x; induction L as [|h L IH]; intros x; cbn; [reflexivity|rewrite IH; apply cpush_pop]. Qed.
-
-Lemma lift_fold_sound L f x : fd (fold_right lift_f f L) x = liftsem L (fd f) x.
-Proof.
-  revert x; induction L as [|h L IH]; intros x; [reflexivity|].
-  change (fold_right lift_f f (h :: L)) with (lift_f h (fold_right lift_f f L)); rewrite lift_f_sound, IH; reflexivity.
-Qed.
-
-Lemma lden_app L L' n x : lden M (L ++ L') n x = liftsem L (lden M L' n) x.
-Proof. revert x; induction L as [|h L IH]; intros x; cbn; [reflexivity|rewrite IH; reflexivity]. Qed.
 
 Lemma map_shift_mapi h k (L : list lexp) :
   map (fun '(g, t) => (g, shift_t h t)) (mapi_from k (fun k h' => (h', TR h' 0 k)) L)

@@ -40,12 +40,6 @@ Definition eff (e : eform) : form := mkF (rev (map snd (ob e))) (map snd (ei e))
 
 Definition estrip (it : eitem) : item := match it with KF f => IF (eff f) | KA L n => IA L n end.
 
-Fixpoint zipd {X} (ids : list positive) (l : list X) : list (positive * X) :=
-  match l with
-  | [] => []
-  | x :: l' => match ids with i :: ids' => (i, x) :: zipd ids' l' | [] => (xH, x) :: zipd [] l' end
-  end.
-
 Definition to_i (e : eform) : iform := mkI (eff e) (rev (map fst (ob e))) (map fst (ei e)).
 
 (** Back from [CRun]'s representation; targets clamped to the outputs
@@ -80,9 +74,6 @@ Definition nread_e (e : eform) (t : tgt) : tgt :=
   | TR z i d => if Nat.leb d (ol e) then nread_up (skipn (ol e - d) (ob e)) z i d else t
   | TT _ _ => t
   end.
-
-Fixpoint map_front {X} (n : nat) (g : X -> X) (l : list X) : list X :=
-  match n, l with S n', x :: l' => g x :: map_front n' g l' | _, _ => l end.
 
 Definition reread_front (n : nat) (e : eform) : eform :=
   mkE (ob e) (ol e) (map_front n (fun '(id, (l, t)) => (id, (l, nread_e e t))) (ei e)).
@@ -1114,9 +1105,6 @@ Proof.
     [| destruct (kd F l z); [|discriminate]]; intros H; destruct (IH _ H) as [l' Hl]; exists l'; right; exact Hl.
 Qed.
 
-Lemma last_map {X Y} (g : X -> Y) l d : last (map g l) (g d) = g (last l d).
-Proof. induction l as [|a l IH]; [reflexivity|]; destruct l; [reflexivity|]; exact IH. Qed.
-
 Lemma clamp_id n (I : list (lexp * tgt)) : Forall (fun lt => tok n (snd lt)) I ->
   map (fun '(l, t) => (l, clamp n t)) I = I.
 Proof.
@@ -1147,9 +1135,6 @@ Qed.
 Lemma last_erase (st : list (list (positive * (lexp * tgt)) * list (positive * lexp))) :
   last (map erase st) ([], []) = erase (last st ([], [])).
 Proof. rewrite <- (last_map erase st ([], [])); reflexivity. Qed.
-
-Lemma omap_ext {X Y} (g g' : X -> option Y) l : (forall x, g x = g' x) -> omap g l = omap g' l.
-Proof. intros H; induction l as [|a l IH]; cbn; [reflexivity|rewrite H, IH; reflexivity]. Qed.
 
 Lemma newt_e_spec f2 st t : newt_e F f2 st t = newt F (ol f2) (fexp (eff f2)) (map erase st) t.
 Proof.

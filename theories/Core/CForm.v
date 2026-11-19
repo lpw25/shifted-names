@@ -22,79 +22,8 @@
 
 From Stdlib Require Import List Bool Arith Lia.
 From ShiftedNames.Core Require Import Label Normalise GEval CNorm Comp CSound CComplete.
+From ShiftedNames.Core Require Export CSpec.
 Import ListNotations.
-
-Inductive tgt : Type :=
-| TR (z : lexp) (i d : nat)
-| TT (u : nat) (p : pexp).
-
-Record form : Type := mkF { fout : list lexp; fin : list (lexp * tgt) }.
-
-Inductive item : Type :=
-| IF (f : form)
-| IA (L : list lexp) (n : nat).
-
-Definition fword : Type := list item.
-
-(** ** Expressions as words of forms *)
-
-Definition shift_t (h : lexp) (t : tgt) : tgt :=
-  match t with TR z i d => TR z i (S d) | TT u p => TT u (PShift h p) end.
-
-Definition lift_f (h : lexp) (f : form) : form :=
-  mkF (h :: fout f) ((h, TR h 0 0) :: map (fun '(g, t) => (g, shift_t h t)) (fin f)).
-
-Definition lift_i (h : lexp) (it : item) : item :=
-  match it with IF f => IF (lift_f h f) | IA L n => IA (h :: L) n end.
-
-(** A target term: the weakenings it is read under, and the read. *)
-Fixpoint ttgt (t : texp) : list lexp * tgt :=
-  match t with
-  | TVarE z i => ([], TR z i 0)
-  | TBindE u p => ([], TT u p)
-  | TShiftE k t' => if is_bind t' then ttgt t' else let '(ks, r) := ttgt t' in (k :: ks, shift_t k r)
-  end.
-
-(** The identity, popping [ks] and pushing them back. *)
-Definition restore (ks : list lexp) : form := fold_right lift_f (mkF [] []) ks.
-
-Definition entry (h : lexp) (t : texp) : form :=
-  let '(ks, r) := ttgt t in mkF ks ((h, r) :: fin (restore ks)).
-
-Definition weak (h : lexp) : form := mkF [h] [].
-
-Fixpoint of_exp (e : aexp) : fword :=
-  match e with
-  | AId => []
-  | AAtom n => [IA [] n]
-  | ACompose a b => of_exp b ++ of_exp a
-  | AOuter h a => of_exp a ++ [IF (weak h)]
-  | AInner h t a => map (lift_i h) (of_exp a) ++ [IF (entry h t)]
-  | ALift h a => map (lift_i h) (of_exp a)
-  end.
-
-(** ** Back to expressions *)
-
-Fixpoint rexp (O : list lexp) (d : nat) (z : lexp) (i : nat) : texp :=
-  match O, d with
-  | o :: O', S d' => TShiftE o (rexp O' d' z i)
-  | _, _ => TVarE z i
-  end.
-
-Definition texp_of (O : list lexp) (t : tgt) : texp :=
-  match t with TR z i d => rexp O d z i | TT u p => TBindE u p end.
-
-Definition fexp (f : form) : aexp :=
-  fold_right (fun '(h, t) a => AInner h (texp_of (fout f) t) a)
-    (fold_right (fun o a => AOuter o a) AId (fout f)) (fin f).
-
-Definition iexp (it : item) : aexp :=
-  match it with IF f => fexp f | IA L n => fold_right ALift (AAtom n) L end.
-
-Fixpoint wexp (w : fword) : aexp :=
-  match w with [] => AId | it :: w' => ACompose (wexp w') (iexp it) end.
-
-(** ** The pass *)
 
 Section Pass.
 
@@ -176,12 +105,6 @@ Definition newt (n2 : nat) (f2 : aexp) (st : list (list (lexp * tgt) * list lexp
   | TT u p => Some (TT u (PComp f2 p))
   end.
 
-Fixpoint omap {X Y} (f : X -> option Y) (l : list X) : option (list Y) :=
-  match l with
-  | [] => Some []
-  | x :: l' => match f x, omap f l' with Some y, Some l'' => Some (y :: l'') | _, _ => None end
-  end.
-
 (** [f1 ⨾ f2] as one form, [f1] acting first on a variable. *)
 Definition compose (f1 f2 : form) : option form :=
   let O2 := fout f2 in
@@ -220,13 +143,6 @@ Definition swap_read (k : nat) (b : lexp) (t : tgt) : option tgt :=
   | TT _ _ => Some t
   end.
 
-Fixpoint swap_at {X} (k : nat) (l : list X) : list X :=
-  match k, l with
-  | 0, a :: b :: r => b :: a :: r
-  | S k', a :: r => a :: swap_at k' r
-  | _, _ => l
-  end.
-
 Definition oswap (k : nat) (f : form) : option form :=
   match nth_error (fout f) k, nth_error (fout f) (S k) with
   | Some a, Some b =>
@@ -260,13 +176,6 @@ Definition drop_read (j : nat) (l : lexp) (t : tgt) : option tgt :=
       else if lexp_eqb z l then Some (TR z (S i) (pred d))
       else if kd F z l then Some (TR z i (pred d)) else None
   | TT _ _ => Some t
-  end.
-
-Fixpoint remove_at {X} (k : nat) (l : list X) : list X :=
-  match k, l with
-  | 0, _ :: r => r
-  | S k', a :: r => a :: remove_at k' r
-  | _, [] => []
   end.
 
 Definition absorb_at (j p : nat) (f : form) : option form :=
@@ -421,197 +330,55 @@ Variable F : order.
 Variable M : cmodel.
 Hypothesis HM : ccons F M.
 
-Fixpoint popn (O : list lexp) (d : nat) (x : cU M) : cU M :=
-  match O, d with o :: O', S d' => popn O' d' (cpop o x) | _, _ => x end.
-
-Definition tden (O : list lexp) (t : tgt) (x : cU M) : cA M :=
-  match t with TR z i d => cname z i (popn O d x) | TT u p => cterm u (fpb p) (cp p x) end.
-
-Fixpoint pushes (O : list lexp) (I : list (lexp * tgt)) (b x : cU M) : cU M :=
-  match I with [] => b | (h, t) :: I' => cpush h (pushes O I' b x) (tden O t x) end.
-
-Definition fden (f : form) (x : cU M) : cU M :=
-  pushes (fout f) (fin f) (popn (fout f) (length (fout f)) x) x.
-
-Fixpoint lden (L : list lexp) (n : nat) (x : cU M) : cU M :=
-  match L with [] => catom n x | h :: L' => cpush h (lden L' n (cpop h x)) (chd h x) end.
-
-Definition iden (it : item) (x : cU M) : cU M :=
-  match it with IF f => fden f x | IA L n => lden L n x end.
-
-Fixpoint wden (w : fword) (x : cU M) : cU M :=
-  match w with [] => x | it :: w' => iden it (wden w' x) end.
-
-Lemma wden_app w1 w2 x : wden (w1 ++ w2) x = wden w1 (wden w2 x).
-Proof. induction w1 as [|it w1 IH]; cbn; [reflexivity|rewrite IH; reflexivity]. Qed.
-
-Lemma pushes_app O I1 I2 b x : pushes O (I1 ++ I2) b x = pushes O I1 (pushes O I2 b x) x.
-Proof. induction I1 as [|[h t] I1 IH]; cbn; [reflexivity|rewrite IH; reflexivity]. Qed.
-
-Lemma pushes_ext O O' I b x x' : (forall h t, In (h, t) I -> tden O t x = tden O' t x') ->
-  pushes O I b x = pushes O' I b x'.
-Proof.
-  induction I as [|[h t] I IH]; intros H; cbn; [reflexivity|].
-  rewrite (H h t (or_introl eq_refl)); f_equal; apply IH.
-  intros h' t' Ht; apply (H h'); right; exact Ht.
-Qed.
-
-(** *** From expressions *)
-
-Lemma tden_shift h O t x : tden (h :: O) (shift_t h t) x = tden O t (cpop h x).
-Proof. destruct t; reflexivity. Qed.
-
-Lemma pushes_shift h O I b x :
-  pushes (h :: O) (map (fun '(g, t) => (g, shift_t h t)) I) b x = pushes O I b (cpop h x).
-Proof. induction I as [|[g t] I IH]; cbn; [reflexivity|]; rewrite IH, tden_shift; reflexivity. Qed.
-
-Lemma lift_f_sound h f x : fden (lift_f h f) x = cpush h (fden f (cpop h x)) (chd h x).
-Proof. unfold fden, lift_f; cbn [fout fin pushes length popn]; rewrite pushes_shift; reflexivity. Qed.
-
-Lemma restore_out ks : fout (restore ks) = ks.
-Proof. induction ks as [|k ks IH]; cbn; [reflexivity|f_equal; exact IH]. Qed.
-
-Lemma restore_sound ks x : fden (restore ks) x = x.
-Proof.
-  revert x; induction ks as [|k ks IH]; intros x; [reflexivity|].
-  change (restore (k :: ks)) with (lift_f k (restore ks)); rewrite lift_f_sound, IH; apply cpush_pop.
-Qed.
-
-Lemma ttgt_sound t x : tden (fst (ttgt t)) (snd (ttgt t)) x = ct t x.
-Proof.
-  revert x; induction t as [z i|u p|k t IH]; intros x; try reflexivity.
-  cbn [ttgt ct]; destruct (is_bind t); [apply IH|].
-  destruct (ttgt t) as [ks r] eqn:E; cbn [fst snd]; rewrite tden_shift.
-  exact (IH (cpop k x)).
-Qed.
-
-Lemma entry_sound h t x : fden (entry h t) x = cpush h x (ct t x).
-Proof.
-  unfold entry; pose proof (ttgt_sound t x) as T; destruct (ttgt t) as [ks r]; cbn [fst snd] in T.
-  unfold fden; cbn [fout fin pushes]; rewrite T; f_equal.
-  pose proof (restore_sound ks x) as R; unfold fden in R; rewrite restore_out in R; exact R.
-Qed.
-
-Lemma lift_i_sound h it x : iden (lift_i h it) x = cpush h (iden it (cpop h x)) (chd h x).
-Proof. destruct it; [apply lift_f_sound|reflexivity]. Qed.
-
-Lemma lift_w_sound h w x : wden (map (lift_i h) w) x = cpush h (wden w (cpop h x)) (chd h x).
-Proof.
-  revert x; induction w as [|it w IH]; intros x; cbn [map wden].
-  - symmetry; apply cpush_pop.
-  - rewrite IH, lift_i_sound, cpop_push, chd_push; reflexivity.
-Qed.
-
-Theorem of_exp_sound e x : wden (of_exp e) x = ca e x.
-Proof.
-  revert x; induction e as [|n|a IHa b IHb|h a IH|h t a IH|h a IH]; intros x; cbn [of_exp ca].
-  - reflexivity.
-  - reflexivity.
-  - rewrite wden_app, IHb, IHa; reflexivity.
-  - rewrite wden_app; cbn; rewrite IH; reflexivity.
-  - rewrite wden_app; cbn [wden iden]; rewrite entry_sound, lift_w_sound, cpop_push, chd_push, IH; reflexivity.
-  - rewrite lift_w_sound, IH; reflexivity.
-Qed.
-
-(** *** Back to expressions *)
-
-Lemma is_bind_rexp O d z i : is_bind (rexp O d z i) = false.
-Proof. revert d; induction O as [|o O IH]; intros [|d]; cbn; auto. Qed.
-
-Lemma rexp_sound O d z i x : ct (rexp O d z i) x = cname z i (popn O d x).
-Proof.
-  revert d x; induction O as [|o O IH]; intros [|d] x; try reflexivity.
-  cbn [rexp ct]; rewrite is_bind_rexp, IH; reflexivity.
-Qed.
-
-Lemma texp_of_sound O t x : ct (texp_of O t) x = tden O t x.
-Proof. destruct t; [apply rexp_sound|reflexivity]. Qed.
-
-Lemma fexp_sound f x : ca (fexp f) x = fden f x.
-Proof.
-  unfold fexp, fden; destruct f as [O I]; cbn [fout fin].
-  induction I as [|[h t] I IH]; cbn [fold_right pushes].
-  - clear; revert x; induction O as [|o O IH]; intros x; [reflexivity|]; cbn; apply IH.
-  - cbn [ca]; rewrite IH, texp_of_sound; reflexivity.
-Qed.
-
-Lemma iexp_sound it x : ca (iexp it) x = iden it x.
-Proof.
-  destruct it as [f|L n]; [apply fexp_sound|]; cbn.
-  revert x; induction L as [|h L IH]; intros x; cbn; [reflexivity|rewrite IH; reflexivity].
-Qed.
-
-Lemma wexp_sound w x : ca (wexp w) x = wden w x.
-Proof. induction w as [|it w IH]; cbn; [reflexivity|rewrite IH, iexp_sound; reflexivity]. Qed.
-
-(** *** Labels the facts order *)
-
-Lemma pops_comm y g i (z : cU M) : known_distinct F y g ->
-  iter i (cpop y) (cpop g z) = cpop g (iter i (cpop y) z).
-Proof.
-  intros D; induction i as [|i IH]; cbn; [reflexivity|]; rewrite IH.
-  destruct (kd_pops F M HM y g D (iter i (cpop y) z)) as [E _]; exact E.
-Qed.
-
-Lemma cname_pop_other y g i (z : cU M) : known_distinct F y g -> cname y i (cpop g z) = cname y i z.
-Proof.
-  intros D; unfold cname; rewrite (pops_comm y g i z D).
-  destruct (kd_pops F M HM y g D (iter i (cpop y) z)) as [_ [E _]]; exact E.
-Qed.
-
-Lemma cname_push_other y g i (z : cU M) s : known_distinct F y g -> cname y i (cpush g z s) = cname y i z.
-Proof.
-  intros D; revert z; induction i as [|i IH]; intros z.
-  - apply (kd_hd_push F M HM y g D).
-  - rewrite <- (cname_pop M y i), (kd_pop_push F M HM y g D), IH, (cname_pop M y i); reflexivity.
-Qed.
-
-Lemma pop_comm a b (x : cU M) : known_distinct F a b -> cpop a (cpop b x) = cpop b (cpop a x).
-Proof. intros D; destruct (kd_pops F M HM a b D x) as [E _]; exact E. Qed.
-
-Lemma kdk a b : kd F a b = true -> known_distinct F a b.
-Proof. apply kd_known. Qed.
-
-Lemma bk a b : before F a b = true -> known_distinct F a b.
-Proof. apply before_known. Qed.
-
-Lemma lexp_eqb_true a b : lexp_eqb a b = true -> a = b.
-Proof. apply lexp_eqb_eq. Qed.
-
-(** *** Pops *)
-
-Lemma popn_0 O x : popn O 0 x = x.
-Proof. destruct O; reflexivity. Qed.
-
-Lemma popn_app_le A B d x : d <= length A -> popn (A ++ B) d x = popn A d x.
-Proof.
-  revert d x; induction A as [|a A IH]; intros d x Hd.
-  - destruct d; cbn in *; [destruct B; reflexivity|lia].
-  - destruct d; cbn in *; [destruct (A ++ B); reflexivity|]; apply IH; lia.
-Qed.
-
-Lemma popn_app_add A B m x : popn (A ++ B) (length A + m) x = popn B m (popn A (length A) x).
-Proof. revert x; induction A as [|a A IH]; intros x; cbn; [reflexivity|apply IH]. Qed.
-
-Lemma popn_over O d x : length O <= d -> popn O d x = popn O (length O) x.
-Proof.
-  revert d x; induction O as [|o O IH]; intros d x Hd.
-  - destruct d; reflexivity.
-  - destruct d; cbn in *; [lia|]; apply IH; lia.
-Qed.
-
-Lemma popn_min O d x : popn O (Nat.min d (length O)) x = popn O d x.
-Proof.
-  destruct (Nat.le_ge_cases d (length O)) as [H|H].
-  - rewrite Nat.min_l by exact H; reflexivity.
-  - rewrite Nat.min_r by exact H; symmetry; apply popn_over, H.
-Qed.
-
-Lemma popn_S O d x : d < length O -> popn O (S d) x = cpop (nth d O LNone) (popn O d x).
-Proof.
-  revert d x; induction O as [|o O IH]; intros d x Hd; cbn in *; [lia|].
-  destruct d as [|d]; [rewrite !popn_0; reflexivity|]; apply IH; lia.
-Qed.
+Local Notation popn := (popn M).
+Local Notation tden := (tden M).
+Local Notation pushes := (pushes M).
+Local Notation fden := (fden M).
+Local Notation lden := (lden M).
+Local Notation iden := (iden M).
+Local Notation wden := (wden M).
+Local Notation wden_app := (CSpec.wden_app M).
+Local Notation pushes_app := (CSpec.pushes_app M).
+Local Notation pushes_ext := (CSpec.pushes_ext M).
+Local Notation tden_shift := (CSpec.tden_shift M).
+Local Notation pushes_shift := (CSpec.pushes_shift M).
+Local Notation lift_f_sound := (CSpec.lift_f_sound M).
+Local Notation restore_sound := (CSpec.restore_sound M).
+Local Notation ttgt_sound := (CSpec.ttgt_sound M).
+Local Notation entry_sound := (CSpec.entry_sound M).
+Local Notation lift_i_sound := (CSpec.lift_i_sound M).
+Local Notation lift_w_sound := (CSpec.lift_w_sound M).
+Local Notation of_exp_sound := (CSpec.of_exp_sound M).
+Local Notation rexp_sound := (CSpec.rexp_sound M).
+Local Notation texp_of_sound := (CSpec.texp_of_sound M).
+Local Notation fexp_sound := (CSpec.fexp_sound M).
+Local Notation iexp_sound := (CSpec.iexp_sound M).
+Local Notation wexp_sound := (CSpec.wexp_sound M).
+Local Notation pops_comm := (CSpec.pops_comm F M HM).
+Local Notation cname_pop_other := (CSpec.cname_pop_other F M HM).
+Local Notation cname_push_other := (CSpec.cname_push_other F M HM).
+Local Notation pop_comm := (CSpec.pop_comm F M HM).
+Local Notation kdk := (CSpec.kdk F).
+Local Notation bk := (CSpec.bk F).
+Local Notation popn_0 := (CSpec.popn_0 M).
+Local Notation popn_app_le := (CSpec.popn_app_le M).
+Local Notation popn_app_add := (CSpec.popn_app_add M).
+Local Notation popn_over := (CSpec.popn_over M).
+Local Notation popn_min := (CSpec.popn_min M).
+Local Notation popn_S := (CSpec.popn_S M).
+Local Notation omap_pushes := (CSpec.omap_pushes M).
+Local Notation forallb_kd := (CSpec.forallb_kd F).
+Local Notation forallb_kd_in := (CSpec.forallb_kd_in F).
+Local Notation popn_pop_comm := (CSpec.popn_pop_comm F M HM).
+Local Notation popn_hd := (CSpec.popn_hd F M HM).
+Local Notation popn_push_comm := (CSpec.popn_push_comm F M HM).
+Local Notation pushes_pop_comm := (CSpec.pushes_pop_comm F M HM).
+Local Notation pushes_hd := (CSpec.pushes_hd F M HM).
+Local Notation pushes_push_comm := (CSpec.pushes_push_comm F M HM).
+Local Notation popn_mid := (CSpec.popn_mid M).
+Local Notation popn_at := (CSpec.popn_at M).
+Local Notation popn_len_le := (CSpec.popn_len_le M).
+Local Notation wden_rev_cons := (CSpec.wden_rev_cons M).
 
 (** *** Reads *)
 
@@ -645,25 +412,6 @@ Qed.
 Lemma sort_in_sound O I b x : pushes O (sort_in F I) b x = pushes O I b x.
 Proof. destruct I as [|y I]; [reflexivity|apply bubble_sound]. Qed.
 
-Lemma omap_pushes (g : lexp * tgt -> option (lexp * tgt)) O O' I I' b x x' :
-  omap g I = Some I' ->
-  (forall h t h' t', g (h, t) = Some (h', t') -> h' = h /\ tden O' t' x' = tden O t x) ->
-  pushes O' I' b x' = pushes O I b x.
-Proof.
-  revert I'; induction I as [|[h t] I IH]; intros I' E H; cbn in E.
-  - injection E as <-; reflexivity.
-  - destruct (g (h, t)) as [[h' t']|] eqn:G; [|discriminate].
-    destruct (omap g I) as [I''|] eqn:E2; [|discriminate]; injection E as <-.
-    destruct (H h t h' t' G) as [-> T]; cbn; rewrite T, (IH I'' eq_refl H); reflexivity.
-Qed.
-
-Lemma omap_length {X Y} (g : X -> option Y) l l' : omap g l = Some l' -> length l' = length l.
-Proof.
-  revert l'; induction l as [|a l IH]; intros l' E; cbn in E; [injection E as <-; reflexivity|].
-  destruct (g a), (omap g l) as [l''|] eqn:E2; try discriminate; injection E as <-; cbn; f_equal; apply IH; reflexivity.
-Qed.
-
-
 (** *** Composing two forms *)
 
 Lemma popin_sound o rem O b x :
@@ -693,13 +441,6 @@ Proof.
       * rewrite (cname_push M); apply IH.
     + destruct (kd F l z) eqn:K; [|split; discriminate].
       rewrite cname_push_other by (apply known_distinct_sym, kdk, K); apply IH.
-Qed.
-
-Lemma nth_error_last_len {X} (st : list X) n d : length st = S n -> nth_error st n = Some (last st d).
-Proof.
-  revert n; induction st as [|a st IH]; intros n H; [discriminate|]; cbn in H; injection H as H.
-  destruct n as [|n]; [destruct st; [reflexivity|discriminate]|].
-  destruct st as [|b st]; [discriminate|]; apply (IH n); cbn; exact H.
 Qed.
 
 (** The states of [popall]: after [d] outputs, the inputs left and the
@@ -791,82 +532,6 @@ Proof.
     + cbn [tden]; symmetry; apply R2; reflexivity.
   - injection Nt as <-; cbn [tden cp fpb]; rewrite fexp_sound, Y; reflexivity.
 Qed.
-
-(** *** Lists split at a position *)
-
-Lemma split_at {X} (l : list X) k a : nth_error l k = Some a -> exists A B, l = A ++ a :: B /\ length A = k.
-Proof. apply nth_error_split. Qed.
-
-Lemma remove_at_app {X} (A B : list X) a : remove_at (length A) (A ++ a :: B) = A ++ B.
-Proof. induction A as [|c A IH]; cbn; [reflexivity|rewrite IH; reflexivity]. Qed.
-
-Lemma swap_at_app {X} (A B : list X) a b : swap_at (length A) (A ++ a :: b :: B) = A ++ b :: a :: B.
-Proof. induction A as [|c A IH]; cbn; [reflexivity|rewrite IH; reflexivity]. Qed.
-
-Lemma skipn_app_at {X} (A B : list X) a : skipn (S (length A)) (A ++ a :: B) = B.
-Proof. induction A as [|c A IH]; cbn; [reflexivity|exact IH]. Qed.
-
-Lemma firstn_app_at {X} (A B : list X) a : firstn (length A) (A ++ a :: B) = A.
-Proof. induction A as [|c A IH]; cbn; [reflexivity|rewrite IH; reflexivity]. Qed.
-
-Lemma forallb_kd l (L : list lexp) : forallb (kd F l) L = true -> Forall (known_distinct F l) L.
-Proof. intros H; rewrite forallb_forall in H; apply Forall_forall; intros a Ha; apply kdk, H, Ha. Qed.
-
-Lemma forallb_kd_in l (Q : list (lexp * tgt)) : forallb (fun '(m, _) => kd F l m) Q = true ->
-  Forall (fun mt => known_distinct F l (fst mt)) Q.
-Proof.
-  intros H; rewrite forallb_forall in H; apply Forall_forall; intros [m t] Hm; cbn.
-  apply kdk; exact (H (m, t) Hm).
-Qed.
-
-(** *** Steps on labels the facts order, through pops and pushes *)
-
-Lemma popn_pop_comm o B n y : Forall (known_distinct F o) B -> popn B n (cpop o y) = cpop o (popn B n y).
-Proof.
-  revert n y; induction B as [|b B IH]; intros [|n] y H; try reflexivity; inversion H; subst; cbn.
-  rewrite (pop_comm b o) by (apply known_distinct_sym; assumption); apply IH; assumption.
-Qed.
-
-Lemma popn_hd o B n y : Forall (known_distinct F o) B -> chd o (popn B n y) = chd o y.
-Proof.
-  revert n y; induction B as [|b B IH]; intros [|n] y H; try reflexivity; inversion H; subst; cbn.
-  rewrite IH by assumption; destruct (kd_pops F M HM o b H2 y) as [_ [E _]]; exact E.
-Qed.
-
-Lemma popn_push_comm h O d y v : Forall (known_distinct F h) O -> popn O d (cpush h y v) = cpush h (popn O d y) v.
-Proof.
-  revert d y; induction O as [|o O IH]; intros [|d] y H; try reflexivity; inversion H; subst; cbn.
-  rewrite (kd_pop_push F M HM o h) by (apply known_distinct_sym; assumption); apply IH; assumption.
-Qed.
-
-Lemma pushes_pop_comm l O Q b y : Forall (fun mt => known_distinct F l (fst mt)) Q ->
-  pushes O Q (cpop l b) y = cpop l (pushes O Q b y).
-Proof.
-  induction Q as [|[m t] Q IH]; intros H; [reflexivity|]; inversion H; subst; cbn [pushes].
-  rewrite IH, (kd_pop_push F M HM l m) by assumption; reflexivity.
-Qed.
-
-Lemma pushes_hd l O Q b y : Forall (fun mt => known_distinct F l (fst mt)) Q -> chd l (pushes O Q b y) = chd l b.
-Proof.
-  induction Q as [|[m t] Q IH]; intros H; [reflexivity|]; inversion H; subst; cbn [pushes].
-  rewrite (kd_hd_push F M HM l m) by assumption; apply IH; assumption.
-Qed.
-
-Lemma pushes_push_comm h O Q b v y : Forall (fun mt => known_distinct F h (fst mt)) Q ->
-  cpush h (pushes O Q b y) v = pushes O Q (cpush h b v) y.
-Proof.
-  induction Q as [|[m t] Q IH]; intros H; [reflexivity|]; inversion H; subst; cbn [pushes].
-  rewrite (kd_push_push F M HM h m) by assumption; f_equal; apply IH; assumption.
-Qed.
-
-Lemma popn_mid A a b B m x : popn (A ++ a :: b :: B) (length A + S (S m)) x = popn B m (cpop b (cpop a (popn A (length A) x))).
-Proof. rewrite popn_app_add; reflexivity. Qed.
-
-Lemma popn_at A a B m x : popn (A ++ a :: B) (length A + S m) x = popn B m (cpop a (popn A (length A) x)).
-Proof. rewrite popn_app_add; reflexivity. Qed.
-
-Lemma popn_len_le A B d x : d <= length A -> popn (A ++ B) d x = popn A d x.
-Proof. apply popn_app_le. Qed.
 
 (** *** Sorting the outputs *)
 
@@ -1074,9 +739,6 @@ Qed.
 
 Lemma fempty_sound f x : fempty f = true -> fden f x = x.
 Proof. unfold fempty, fden; destruct f as [[|o O] [|[h t] I]]; cbn; easy. Qed.
-
-Lemma wden_rev_cons it out x : wden (rev (it :: out)) x = wden (rev out) (iden it x).
-Proof. cbn [rev]; rewrite wden_app; reflexivity. Qed.
 
 Lemma addf_sound fuel f out x : wden (rev (addf F fuel f out)) x = wden (rev out) (fden f x).
 Proof.
