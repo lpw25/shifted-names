@@ -44,6 +44,7 @@ theories/Core/Comp.v
 theories/Core/CSound.v
 theories/Core/CComplete.v
 theories/Core/HRefine.v
+theories/Core/XRead.v
 theories/Core/Order.v
 theories/Core/LayeredOrder.v
 theories/Core/Canon.v

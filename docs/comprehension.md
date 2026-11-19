@@ -207,6 +207,43 @@ atoms, where every lookup is stuck, become quadratic:
 | 1,024, eight label atoms | 0.054 s | 1.09 s |
 | 1,024, 1,024 label atoms | 0.17 s | 4.7 s (label atoms are unary numbers, so each comparison grows with `n`) |
 
+## Segments need reads placed among their outputs (`Core/XRead.v`)
+
+`Normalise.v`'s segments record, per label, the input targets and the
+number of outputs, and a target `h₀` is a name of the segment's
+output. With unordered labels that is not enough.
+
+Take facts `g < k`, `g < l`, `k < l`, with `h` ordered against none of
+them. Let `C = ⟦ g as v; h as v \ h as v ⟧`, which copies `h₀` into
+`g`. Put the weakenings of `k` and `l` on either side of `C`:
+
+| Word | Where `g`'s read of `h₀` sits |
+|---|---|
+| `X1 = ⟦ \ l as _ ⟧ ⨾ C ⨾ ⟦ \ k as _ ⟧` | below `k`, above `l` |
+| `X2 = C ⨾ ⟦ \ k as _ ⟧ ⨾ ⟦ \ l as _ ⟧` | below both |
+| `X3 = ⟦ \ k as _ ⟧ ⨾ ⟦ \ l as _ ⟧ ⨾ C` | above both |
+| `X4 = ⟦ \ k as _ ⟧ ⨾ C ⨾ ⟦ \ l as _ ⟧` | below `l`, above `k` |
+
+All four have one input on `g` reading `h₀` and one weakening each of
+`k` and `l`, and the weakenings commute with each other. They are
+pairwise different in comprehension models: `XRead.v` proves it from
+`cn_eq_correct`, with no axioms. A segment holding only targets and
+output counts would identify all four.
+
+Weakenings that move right until they are blocked give the four
+distinct forms, if a target `h₀` in a segment means the identity tail
+(below all of the segment's outputs) and a read of `h` blocks a
+weakening on a label not ordered against `h`:
+
+- `X2`: one segment, with input `g` reading `h₀` and outputs `k`, `l`.
+- `X1`: `⟦ \ l as _ ⟧`, then a segment with input `g` reading `h₀` and
+  output `k`.
+- `X4`: the same with `k` and `l` swapped.
+- `X3`: `⟦ \ k as _; l as _ ⟧`, then `C`.
+
+So segments split at atoms, and also wherever a weakening meets an
+input or a read on a label it is not ordered against.
+
 ## Still open
 
 - **The order hypotheses.** Irreflexivity and transitivity of
