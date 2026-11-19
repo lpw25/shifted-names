@@ -230,19 +230,73 @@ pairwise different in comprehension models: `XRead.v` proves it from
 `cn_eq_correct`, with no axioms. A segment holding only targets and
 output counts would identify all four.
 
-Weakenings that move right until they are blocked give the four
-distinct forms, if a target `h₀` in a segment means the identity tail
-(below all of the segment's outputs) and a read of `h` blocks a
-weakening on a label not ordered against `h`:
+As words of single steps these are already as far right as the
+moves below take them: the weakening of `l` cannot pass `C`, because
+`C`'s target reads `h`, which the weakening of `l` may affect. So the
+order of the steps keeps the information, and nothing extra is needed
+in the representation.
 
-- `X2`: one segment, with input `g` reading `h₀` and outputs `k`, `l`.
-- `X1`: `⟦ \ l as _ ⟧`, then a segment with input `g` reading `h₀` and
-  output `k`.
-- `X4`: the same with `k` and `l` swapped.
-- `X3`: `⟦ \ k as _; l as _ ⟧`, then `C`.
+## A left-to-right pass (`Core/LPass.v`)
 
-So segments split at atoms, and also wherever a weakening meets an
-input or a read on a label it is not ordered against.
+Words of single steps, each target read where its step stands:
+`RW h` is `⟦ \ h as _ ⟧`, `RE g t` is an input entry on `g` with target
+`t` (so `RE g (TVarE h 0)` copies `h₀` into `g`), and `RO e` is any other
+expression, which nothing passes.
+
+The pass moves weakenings and entries whose target is a name to the
+right. Write `s₁ ⨾ s₂ → s₂' ⨾ s₁'` for `s₁` moving past `s₂`, with `s₂`'s
+label `g` sorting before `s₁`'s label `h` (so they commute):
+
+| Move | Condition | Sound because |
+|---|---|---|
+| `⟦ \ h as _ ⟧ ⨾ RE h t → ε` | | `p_h ∘ ⟨σ, t⟩_h = σ` |
+| `⟦ \ h as _ ⟧ ⨾ ⟦ \ g as _ ⟧ → ⟦ \ g as _ ⟧ ⨾ ⟦ \ h as _ ⟧` | | pops commute |
+| `⟦ \ h as _ ⟧ ⨾ RE g t → RE g t' ⨾ ⟦ \ h as _ ⟧` | `t` does not read `h₀`; `t' ∘ p_h = t` | `p_h` commutes with the push on `g` |
+| `RE h a ⨾ ⟦ \ g as _ ⟧ → ⟦ \ g as _ ⟧ ⨾ RE h a'` | `a' = a ∘ p_g` is a name | the same |
+| `RE h a ⨾ RE g t → RE g t' ⨾ RE h a'` | `a'` is `a` read through the entry on `g`; `t' = t ∘ p_h` | pushes commute |
+| `RE g x₀ ⨾ RE x t → RE g t' ⨾ RE x t` | `t' = t ∘ p_x` | `q_x ∘ ⟨σ, t⟩_x = t` |
+
+Shifting a name past `p_g` changes its index if it is on `g` and leaves
+it alone if its label is ordered against `g`. A name on a label
+unordered with `g` cannot be shifted, which is what stops a move. A term
+target shifted past `p_h` gets `p_h` at the end of its payload.
+
+Each row is a lemma in every comprehension model consistent with the
+facts (`swap_sound`, `subst_sound`), so the pass keeps the meaning
+(`pass_sound`, `lpass_cequal`).
+
+The pass is an insertion: each step, from the last, moves right into the
+steps after it, as far as it goes.
+
+**The examples that needed `relnf`.** With facts `g < h`, `k < h`,
+`m < h`:
+
+- `W1 = RE h ·₀ ⨾ RE g m₀ ⨾ ⟦ \ k as _ ⟧` and `W2`, with the first two
+  swapped, both become `RE g m₀ ⨾ ⟦ \ k as _ ⟧ ⨾ RE h ·₀`.
+- `Y1 = RE g g₀ ⨾ RE h g₀ ⨾ ⟦ \ k as _ ⟧` and `Y2 = RE g h₀ ⨾ RE h g₀ ⨾
+  ⟦ \ k as _ ⟧` both become `Y1`: the copy of `h₀` takes the entry on
+  `h`'s target (the last row).
+
+Both are proved by computation in `LPass.Examples`. `Y` is the first
+case the pass missed without the last row.
+
+**Tested, not proved: the pass removes the need for `relnf`.** Run the
+pass, then `HNorm` without `relnf` (`proto/comprehension/pnorm.py`
+with `fix=False`), and compare with `HNorm` with `relnf` on every word.
+The two give the same classes on:
+
+| Labels | Facts | Steps |
+|---|---|---|
+| `g, h, k, m` | `g < h`, `k < h`, `m < h` | up to 3, no lifts |
+| `g, h, k` | `g < h`, `k < h` | up to 3, no lifts |
+| `a, b, c` | `a < b`, `b < c` | up to 3, no lifts |
+
+With lifts (`⟦ l | ⟦ \ k as _ ⟧ ⟧`) it does not: on `g, h, k` with
+`g < h`, `k < h`, up to 3 steps, 567 classes of the fixed normaliser
+are split. The pass treats a lift as an opaque step. A lift
+`⟦ k | a ⟧` is an entry on `k` whose target `k₀` is read after `a` and a
+weakening of `k`, not where the entry stands, so it is not a single
+step of this word.
 
 ## Still open
 
