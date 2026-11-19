@@ -254,7 +254,8 @@ with redex (fuel : nat) (pre w : list step) (M : PositiveMap.t (list (mode * pos
                   if dead (rev pre) h then (Some (rev pre ++ r'), M, Z)
                   else
                     let '(rw, Z1) := rebuild r' [] Z in
-                    let '(v0, M1, Z2) := eval f (lookup F h 0 rw) M Z1 in
+                    let '(lv, Z1') := lookup F h 0 rw Z1 in
+                    let '(v0, M1, Z2) := eval f lv M Z1' in
                     (if val_eqb v v0 then Some (rev pre ++ r') else None, M1, Z2)
                 else (None, M, Z)
             | _, _ => (None, M, Z)

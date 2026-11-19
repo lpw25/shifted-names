@@ -39,6 +39,11 @@ theories/Core/HEta.v
 theories/Core/HEtaGap.v
 theories/Core/CModel.v
 theories/Core/ZModel.v
+theories/Core/CNorm.v
+theories/Core/Comp.v
+theories/Core/CSound.v
+theories/Core/CComplete.v
+theories/Core/HRefine.v
 theories/Core/Order.v
 theories/Core/LayeredOrder.v
 theories/Core/Canon.v

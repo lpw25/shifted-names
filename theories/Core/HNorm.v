@@ -15,7 +15,10 @@
     order; the cells in front of the edit are rebuilt, the rest is
     shared.
 
-    This file is for measuring time and size only: nothing is proved. *)
+    A stuck lookup keeps only the steps that can affect it ([relnf]),
+    as [CNorm] does; [HRefine] proves that the two compute the same
+    normal forms, so [hn_eq] decides equality in comprehension models
+    ([Comp]). *)
 
 From Stdlib Require Import String List PArith NArith Bool FMapPositive.
 From ShiftedNames.Core Require Import Label Normalise GEval.
@@ -88,19 +91,57 @@ Definition kd (a b : lexp) : bool := match lcmp F a b with Some Lt | Some Gt => 
 (** [a] sorts before [b]. *)
 Definition before (a b : lexp) : bool := match lcmp F a b with Some Lt => true | _ => false end.
 
-(** The variable [hᵢ] at the start of [w], followed to its value. *)
-Fixpoint lookup (h : lexp) (i : nat) (w : word) : val :=
+(** A lookup of [g] stuck at the first step of [w] keeps only the steps
+    that can affect it ([CNorm.relnf]): a later step on a label known
+    distinct from [g] that commutes with every step kept before it is
+    dropped.  [relnf_go] gives the kept steps after the first change, to
+    put back on the rest, which is shared. *)
+Fixpoint relnf_go (g : lexp) (kept : list lexp) (w : word) : list step * word :=
   match w with
-  | [] => VVar h i
+  | [] => ([], [])
+  | (s, _) :: w' =>
+      match s with
+      | SA _ => ([], w)
+      | SE l _ | SW l =>
+          if kd g l && forallb (kd l) kept then relnf_go g kept w'
+          else let '(p, b) := relnf_go g (l :: kept) w' in
+               match p with
+               | [] => if Pos.eqb (wid b) (wid w') then ([], w) else ([s], b)
+               | _ => (s :: p, b)
+               end
+      end
+  end.
+
+Definition relnf (g : lexp) (w : word) (S : st) : word * st :=
+  match w with
+  | [] => ([], S)
+  | (s, _) :: w' =>
+      match s with
+      | SA _ => (w, S)
+      | SE l _ | SW l =>
+          let '(p, b) := relnf_go g [l] w' in
+          match p with
+          | [] => if Pos.eqb (wid b) (wid w') then (w, S) else rebuild [s] b S
+          | _ => rebuild (s :: p) b S
+          end
+      end
+  end.
+
+(** The variable [hᵢ] at the start of [w], followed to its value. *)
+Fixpoint lookup (h : lexp) (i : nat) (w : word) (Z : st) : val * st :=
+  match w with
+  | [] => (VVar h i, Z)
   | (s, x) :: w' =>
       match s with
       | SE g v =>
-          if lexp_eqb g h then match i with 0 => v | S i' => lookup h i' w' end
-          else if kd g h then lookup h i w' else VLook h i x
+          if lexp_eqb g h then match i with 0 => (v, Z) | S i' => lookup h i' w' Z end
+          else if kd g h then lookup h i w' Z
+          else let '(r, S1) := relnf h w Z in (VLook h i (wid r), S1)
       | SW g =>
-          if lexp_eqb g h then lookup h (S i) w'
-          else if kd g h then lookup h i w' else VLook h i x
-      | SA _ => VLook h i x
+          if lexp_eqb g h then lookup h (S i) w' Z
+          else if kd g h then lookup h i w' Z
+          else let '(r, S1) := relnf h w Z in (VLook h i (wid r), S1)
+      | SA _ => let '(r, S1) := relnf h w Z in (VLook h i (wid r), S1)
       end
   end.
 
@@ -158,7 +199,10 @@ Definition pushW (h : lexp) (w : word) (S : st) : word * st :=
 Definition pushE (h : lexp) (v : val) (w : word) (S : st) : word * st :=
   match stop h w with
   | (p, (SW g, _) :: r) as pr =>
-      if lexp_eqb g h && val_eqb v (lookup h 0 r) then rebuild p r S else place (SE h v) p (snd pr) S
+      if lexp_eqb g h then
+        let '(v', S1) := lookup h 0 r S in
+        if val_eqb v v' then rebuild p r S1 else place (SE h v) p (snd pr) S1
+      else place (SE h v) p (snd pr) S
   | (p, r) => place (SE h v) p r S
   end.
 
@@ -201,14 +245,14 @@ Fixpoint norm (e : aexp) (K : word) (S : st) {struct e} : word * st :=
       let '(K1, S2) := norm a K S1 in
       pushE h v K1 S2
   | ALift h a =>
-      let v := lookup h 0 K in
-      let '(K1, S1) := pushW h K S in
+      let '(v, S0) := lookup h 0 K S in
+      let '(K1, S1) := pushW h K S0 in
       let '(K2, S2) := norm a K1 S1 in
       pushE h v K2 S2
   end
 with tval (t : texp) (K : word) (S : st) {struct t} : val * st :=
   match t with
-  | TVarE h i => (lookup h i K, S)
+  | TVarE h i => lookup h i K S
   | TBindE u p =>
       let '(P, S1) := pnorm p K S in
       let '(P', S2) := clean (fpb p) P S1 in
@@ -313,7 +357,8 @@ Fixpoint renorm (fuel : nat) (i : positive) (M : PositiveMap.t word) (T : st) {s
                           end
                       | VLook g j x =>
                           let '(wx, M2, S2) := renorm f x M1 S1 in
-                          (lookup F g j wx, M2, S2)
+                          let '(v', S3) := lookup F g j wx S2 in
+                          (v', M2, S3)
                       end in
                     let '(w, S3) := pushE F h v' wt S2 in (w, M2, S3)
                 | SW h => let '(w, S2) := pushW F h wt S1 in (w, M1, S2)

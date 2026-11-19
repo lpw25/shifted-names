@@ -6,6 +6,12 @@ from gmodel import P, ordered, env
 K=3
 class GModel:
     def __init__(s,labels,LT,rng,share=0.3,regsize=2,nops=12):
+        LT=set(LT); ch=True
+        while ch:                                   # the facts are transitive
+            ch=False
+            for (a,b) in list(LT):
+                for (c,d) in list(LT):
+                    if b==c and (a,d) not in LT: LT.add((a,d)); ch=True
         s.labels=labels; s.LT=LT; s.consts={}
         s.tau={l:l for l in labels}
         for l in labels:
