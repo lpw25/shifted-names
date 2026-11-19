@@ -364,6 +364,56 @@ the form, as `HNorm`'s insertion does on the same words.
 `rforms_check.py`: the reworked pass, then `HNorm` without `relnf`, gives
 exactly the classes of `HNorm` with `relnf` on all six test sets above.
 
+## The reworked pass in Coq (`Core/CRun.v`)
+
+`CRun.v` is `rforms.py` in Coq. An `iform` is a `CForm.form` with ids for
+its outputs and inputs (binary `positive`s), so that the pass knows which
+items are new. Every operation computes its form with operations of
+`CForm` or new ones proved here, and moves the ids along; the ids only
+decide what is tried, so soundness does not depend on them.
+
+| Part | Definitions | Soundness |
+|---|---|---|
+| placing by insertion | `iswap`, `ioswap`, `place_in_inward`, `place_out_up`, ... | `iswap_sound`, `place_*_sound` |
+| reads taken as early as they go | `reread` | `reread_sound` |
+| absorption through commuting outputs | `slot_go`, `absorb2`, `iabsorb`, `absorb_new` | `absorb2_sound`, ... |
+| composing, with ids | `icompose` | `icompose_sound` |
+| one item moved on | `imove`, `try_ids`, `moves` | `imove_sound`, `moves_sound` |
+| the word | `step`, `settle` (binary fuel), `insert` | `step_sound`, `settle_sound`, `insert_sound` |
+| lifts at once | `lift_n` (`= fold_right lift_f`), `lift_many` | `lift_n_eq`, `lift_many_sound` |
+| expressions, from the end | `rnorm`, `peel`, `rrun` | `rnorm_sound`, `rrun_sound` |
+| the decision | `cr_eq` (the pass, then `CNorm`) | `cr_eq_correct : cr_eq F a b = true <-> cequal F a b` |
+
+All closed under the global context.
+
+**Same results as the prototype.** On 2,410 words (every word of up to 2
+steps over `g, h, k` with `g < h`, `k < h`, lifts included, and 1,500
+random ones of 3 steps), `rrun` gives exactly the forms of `rforms.py`.
+`CRun.Examples` checks `W1`/`W2`, `Y1`/`Y2`, the lift law
+`⟦ \ g as _ ⟧ ⨾ ⟦ k | ⟦ \ h as _ ⟧ ⟧ = ⟦ \ g as _ ⟧ ⨾ ⟦ \ h as _ ⟧`, and
+`⟦ h | ⟦ \ g as _ ⟧ ⟧ = ⟦ \ g as _ ⟧` (which `CForm.run` misses).
+
+**Cost under `vm_compute`**, 8 labels, doubling `n`:
+
+| Family | `n` | Time | Growth |
+|---|---|---|---|
+| nested lifts | 2,000 | 0.69 s | ×3 to ×5 |
+| weakenings | 4,000 | 2.7 s | ×4 |
+| copies | 4,000 | 0.56 s | ×3.5 |
+
+These are quadratic where the Python pass is linear, for two reasons of
+representation, not of the algorithm:
+
+- new outputs go at the bottom of a form, which is the end of a list, so
+  each `compose` copies the form's outputs (Python appends in place);
+- inputs and outputs are reached by position (`nth_error`, `swap_at`,
+  `remove_at`), linear in the position, where Python indexes in constant
+  time. In the worst case (an item bubbling far through a large form)
+  this makes a swap linear and the pass cubic.
+
+With label atoms numbered up to `n` (`LAtom n` is unary), comparisons also
+grow with `n`, as for `HNorm`.
+
 ## Still open
 
 - **The order hypotheses.** Irreflexivity and transitivity of
@@ -374,6 +424,8 @@ exactly the classes of `HNorm` with `relnf` on all six test sets above.
   should not be used with `HNorm`.
 - **Cost:** stuck lookups could be made cheaper, for example by
   memoising `relnf` per label and cell.
-- **The reworked pass is not in Coq yet.** `CForm.v` has the first
-  version, sound but cubic, with the absorption gap above and a `tidy`
-  that can stop after one bubble pass.
+- **`CForm.v`'s own pass** (`run`, `cf_eq`) is superseded by `CRun.v`.
+  It is sound but cubic, misses the lift law once sorting has moved the
+  lifted output down, and its `tidy` can stop after one bubble pass.
+- **The Coq pass is quadratic** where the Python one is linear: lists
+  appended at the end and positions reached by `nth_error` (see below).
