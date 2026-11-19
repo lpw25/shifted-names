@@ -21,3 +21,7 @@ Run from this directory:
 - `forms.py`: the context-form pass of `Core/CForm.v`, followed by
   `HNorm` without `relnf`, compared on every word with `HNorm` with
   `relnf` (`python3 forms.py`, a few minutes).
+- `rforms.py`: the same pass, reworked so that a step only touches what moves (the expression
+  is processed from its end; new items are placed by insertion; only items that just arrived
+  are tried against the next form). `rforms_check.py`: the canonicity check;
+  `rforms_time.py`: timings with moves counted.

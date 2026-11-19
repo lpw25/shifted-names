@@ -310,6 +310,60 @@ of `HNorm` with `relnf` on every word of:
 These words have no terms and no atoms, so the term and atom cases of
 the pass are covered by the soundness proofs only.
 
+## Cost of the pass (`proto/comprehension/rforms.py`)
+
+The pass of `CForm.v` (and `forms.py`) re-tidies the whole form after
+every merge, rewrites every read of the left form in `compose`, and tries
+every item when two forms are blocked: cubic on a word that builds one
+form, quartic in the worst case.
+
+`rforms.py` is the same pass reworked so that a step only touches what
+moves:
+
+- **Order.** The expression is processed from its end, as `HNorm` does.
+  Each new form enters on the left of the settled word, and its outputs
+  and inputs move right, form by form, as far as they go. Items still
+  only move right.
+- **Placing.** A form that receives items places only those: new outputs
+  and inputs by insertion, new reads taken as early as they go, new
+  restores absorbed. Sorting a merged form is never redone from scratch.
+- **Moving on.** Only items that just arrived in a form are tried against
+  the next one. A boundary is looked at again in full only when an input
+  of the form to its right is cancelled, or the form to its left loses an
+  input.
+- **Lifts.** A chain of lifts is applied in one go, absorbing restores
+  innermost first, so nested lifts do not copy the lifted form once per
+  lift.
+- **Absorption** takes a restore whose read reaches its output through
+  outputs it commutes with (the old check wanted the read exactly at the
+  output, and missed the lift law once sorting had moved the output down;
+  `CForm.absorb_at` has the same gap).
+
+**Bound.** A new item passes each settled item at most once; a boundary is
+looked at again in full at most once per input that disappears, at a cost
+of the size of the form on its left. So the comparisons are proportional
+to the moves made, plus `O(m)` per disappearing input: `O(n²)` in the
+worst case. (The prototype also memmoves Python lists in place, which is
+`O(m)` per step in C.)
+
+**Measured** (doubling `n`; seconds at the largest `n`):
+
+| Family | Growth | Time | Moves |
+|---|---|---|---|
+| copies along an ordered chain with weakenings (one form) | ×4 | 0.29 s at 1,600 steps | quadratic |
+| `HNorm` (no `relnf`) on the same words | ×5 | 0.40 s | |
+| nested lifts, unordered labels | ×2 | 0.003 s at 800 | 0 |
+| nested lifts, ordered labels (all absorbed) | ×2 | 0.005 s at 800 | 0 |
+| weakenings on unordered labels | ×2 | 0.021 s at 4,000 | 0 |
+| copies on unordered labels (all blocked) | ×2 | 0.035 s at 4,000 | linear |
+| random words over 8 labels | ×2 | 0.013 s at 800 | linear |
+
+The chain is quadratic because each weakening passes all the inputs of
+the form, as `HNorm`'s insertion does on the same words.
+
+`rforms_check.py`: the reworked pass, then `HNorm` without `relnf`, gives
+exactly the classes of `HNorm` with `relnf` on all six test sets above.
+
 ## Still open
 
 - **The order hypotheses.** Irreflexivity and transitivity of
@@ -320,3 +374,6 @@ the pass are covered by the soundness proofs only.
   should not be used with `HNorm`.
 - **Cost:** stuck lookups could be made cheaper, for example by
   memoising `relnf` per label and cell.
+- **The reworked pass is not in Coq yet.** `CForm.v` has the first
+  version, sound but cubic, with the absorption gap above and a `tidy`
+  that can stop after one bubble pass.
