@@ -122,29 +122,39 @@ Qed.
 Lemma lookup_pass g i p q :
   Forall (fun s => exists l, slabel s = Some l /\ kd F l g = true) p -> lookup F g i (p ++ q) = lookup F g i q.
 Proof.
-  induction p as [|s p IH]; intros Hp; [reflexivity|].
+  unfold lookup; induction p as [|s p IH]; intros Hp; [reflexivity|].
   inversion Hp as [|? ? [l [El Kl]] Hp']; subst.
-  assert (N : lexp_eqb l g = false) by (apply lexp_eqb_false; apply kd_spec in Kl as [N _]; exact N).
-  destruct s as [h v|h|a]; cbn in El; try discriminate; injection El as ->; cbn [app lookup];
-    rewrite N, Kl; apply IH, Hp'.
+  assert (P : passes F g l [] = true) by (unfold passes; rewrite kd_sym, Kl; reflexivity).
+  destruct s as [h v|h|a]; cbn in El; try discriminate; injection El as ->; cbn [app follow];
+    rewrite P; apply IH, Hp'.
 Qed.
+
+Lemma passes_self h kept : passes F h h kept = false.
+Proof. unfold passes; destruct (kd F h h) eqn:K; [apply kd_spec in K as [N _]; contradiction|reflexivity]. Qed.
 
 Lemma sbefore_kd h p : Forall (sbefore h) p -> Forall (fun s => exists l, slabel s = Some l /\ kd F l h = true) p.
 Proof. intros H; eapply Forall_impl; [|exact H]; intros s [l [E B]]; exists l; split; [exact E|apply before_kd, B]. Qed.
 
-(** A dropped step: [relnf_go] drops a step on [h] behind steps sorting
-    before [h], when [h] is known distinct from [g]. *)
-Lemma relnf_go_drop g h x r q : forall kept,
-  kd F g h = true -> slabel x = Some h -> forallb (kd F h) kept = true -> Forall (sbefore h) q ->
-  relnf_go F g kept (q ++ x :: r) = relnf_go F g kept (q ++ r).
+(** [follow] passes a step on [h], known distinct from [g], behind steps
+    sorting before [h]: those it keeps are on labels known distinct from
+    [h]. *)
+Lemma follow_drop g h x r q : forall i kept,
+  kd F g h = true -> slabel x = Some h -> forallb (skd F h) kept = true -> Forall (sbefore h) q ->
+  follow F g i kept (q ++ x :: r) = follow F g i kept (q ++ r).
 Proof.
-  induction q as [|s q IH]; intros kept K Ex Hk Hq.
-  - cbn [app]; destruct x as [l v|l|a]; cbn in Ex; try discriminate; injection Ex as ->; cbn [relnf_go];
-      rewrite K, Hk; reflexivity.
+  induction q as [|s q IH]; intros i kept K Ex Hk Hq.
+  - cbn [app]; assert (P : passes F g h kept = true) by (unfold passes; rewrite K, Hk; reflexivity).
+    destruct x as [l v|l|a]; cbn in Ex; try discriminate; injection Ex as ->; cbn [follow]; rewrite P; reflexivity.
   - inversion Hq as [|? ? [l [El Bl]] Hq']; subst.
-    destruct s as [l' v|l'|a]; cbn in El; try discriminate; injection El as ->; cbn [app relnf_go];
-      (destruct (kd F g l && forallb (kd F l) kept); [apply IH; assumption|f_equal; apply IH; try assumption];
-       cbn [forallb]; rewrite Hk, andb_true_r, kd_sym; apply before_kd, Bl).
+    assert (Hs : skd F h s = true) by (unfold skd; rewrite El, kd_sym; apply before_kd, Bl).
+    assert (Hk' : forallb (skd F h) (s :: kept) = true) by (cbn [forallb]; rewrite Hs, Hk; reflexivity).
+    destruct s as [l' v|l'|a]; cbn in El; try discriminate; injection El as ->; cbn [app follow].
+    + destruct (passes F g l kept); [apply IH; assumption|].
+      destruct kept as [|t kept']; [|apply IH; assumption].
+      destruct (lexp_eqb l g); [destruct i as [|i]; [reflexivity|apply IH; auto]|apply IH; assumption].
+    + destruct (passes F g l kept); [apply IH; assumption|].
+      destruct kept as [|t kept']; [|apply IH; assumption].
+      destruct (lexp_eqb l g); apply IH; auto.
 Qed.
 
 (** A lookup of [g] does not see a step on [h], known distinct from [g],
@@ -152,21 +162,7 @@ Qed.
 Lemma lookup_drop g h x i q r :
   kd F g h = true -> slabel x = Some h -> Forall (sbefore h) q ->
   lookup F g i (q ++ x :: r) = lookup F g i (q ++ r).
-Proof.
-  revert i; induction q as [|s q IH]; intros i K Ex Hq.
-  - cbn [app]; assert (N : lexp_eqb h g = false) by (apply lexp_eqb_false; apply kd_spec in K as [N _]; auto).
-    destruct x as [l v|l|a]; cbn in Ex; try discriminate; injection Ex as ->; cbn [lookup];
-      rewrite N, kd_sym, K; reflexivity.
-  - inversion Hq as [|? ? [l [El Bl]] Hq']; subst.
-    assert (R : relnf F g (s :: q ++ x :: r) = relnf F g (s :: q ++ r)).
-    { destruct s as [l' v|l'|a]; cbn in El; try discriminate; injection El as ->; cbn [relnf]; f_equal;
-        apply (relnf_go_drop g h); try assumption; cbn [forallb]; rewrite andb_true_r, kd_sym; apply before_kd, Bl. }
-    destruct s as [l' v|l'|a]; cbn in El; try discriminate; injection El as ->; cbn [app lookup].
-    + destruct (lexp_eqb l g); [destruct i as [|i]; [reflexivity|apply IH; assumption]|].
-      destruct (kd F l g); [apply IH; assumption|]; cbn [app] in R; rewrite R; reflexivity.
-    + destruct (lexp_eqb l g); [apply IH; assumption|].
-      destruct (kd F l g); [apply IH; assumption|]; cbn [app] in R; rewrite R; reflexivity.
-Qed.
+Proof. intros K Ex Hq; apply (follow_drop g h x r q i []); auto. Qed.
 
 (** ** Normal words
 
@@ -231,7 +227,7 @@ Proof.
   unfold pushE; destruct (stop F h w) as [p r] eqn:E.
   destruct (stop_parts h w p r E) as [-> [Hp _]].
   assert (Ins : lookup F h 0 (p ++ SE h t :: r) = t)
-    by (rewrite lookup_pass by (apply sbefore_kd, Hp); cbn; rewrite lexp_eqb_refl; reflexivity).
+    by (rewrite lookup_pass by (apply sbefore_kd, Hp); unfold lookup; cbn [follow]; rewrite passes_self, lexp_eqb_refl; reflexivity).
   destruct r as [|[g v|g|a] r']; try exact Ins.
   destruct (lexp_eqb g h && val_eqb t (lookup F h 0 r')) eqn:G; [|exact Ins].
   apply andb_true_iff in G as [_ G]; apply val_eqb_eq in G; subst t.
@@ -248,7 +244,7 @@ Proof.
     rewrite lexp_eqb_refl, val_eqb_refl; reflexivity. }
   destruct r as [|[g v|g|a] r']; try exact Ins.
   destruct (lexp_eqb g h) eqn:G; [|exact Ins].
-  apply lexp_eqb_eq in G; subst g; cbn [lookup]; rewrite lexp_eqb_refl.
+  apply lexp_eqb_eq in G; subst g; unfold lookup; cbn [follow]; rewrite passes_self, lexp_eqb_refl.
   pose proof (nfb_okpair p (SE h v) r' Hw) as Hok.
   unfold pushE; rewrite stop_app by (exact Hp || exact (okpair_stops h (SE h v) r' eq_refl Hok)).
   destruct r' as [|[g v'|g|a] r'']; try reflexivity.
@@ -262,11 +258,11 @@ Proof.
   unfold pushW; destruct (stop F h w) as [p r] eqn:E.
   destruct (stop_parts h w p r E) as [-> [Hp _]].
   assert (Ins : lookup F h j (p ++ SW h :: r) = lookup F h (S j) (p ++ r)).
-  { rewrite !lookup_pass by (apply sbefore_kd, Hp); cbn [lookup]; rewrite lexp_eqb_refl; reflexivity. }
+  { rewrite !lookup_pass by (apply sbefore_kd, Hp); unfold lookup; cbn [follow]; rewrite passes_self, lexp_eqb_refl; reflexivity. }
   destruct r as [|[g v|g|a] r']; try exact Ins.
   destruct (lexp_eqb g h) eqn:G; [|exact Ins].
   apply lexp_eqb_eq in G; subst g; rewrite !lookup_pass by (apply sbefore_kd, Hp).
-  cbn [lookup]; rewrite lexp_eqb_refl; reflexivity.
+  unfold lookup; cbn [follow]; rewrite passes_self, lexp_eqb_refl; reflexivity.
 Qed.
 
 (** A lookup of [g] does not see a weakening or an entry on [h] known

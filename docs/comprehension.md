@@ -168,7 +168,7 @@ irreflexive and transitive.
 | File | Content |
 |---|---|
 | `Comp.v` | comprehension models (`cmodel`, `ccons`), the meaning `ca` of expressions, `cequal` |
-| `CNorm.v` | `HNorm`'s algorithm on plain lists, with stuck lookups made canonical (`relnf`, below) |
+| `CNorm.v` | `HNorm`'s algorithm on plain lists; a lookup gives a variable with a payload when it cannot get past a step (`follow`, below) |
 | `CSound.v` | `cn_sound`: equal normal forms imply equal in every comprehension model |
 | `CComplete.v` | the term model on normal words (`tmodel`); `cn_complete`; `cn_eq_correct : cn_eq F a b = true <-> cequal F a b` |
 | `HRefine.v` | hash-consed words read as `CNorm` words; `hn_eq_cn : hn_eq F a b = cn_eq F a b`; `hn_eq_correct : hn_eq F a b = true <-> cequal F a b` |
@@ -194,11 +194,23 @@ known distinct from the looked-up `g`, behind steps that commute with
 `⟦ k | ⟦ \ h as _ ⟧ ⟧ ⨾ ⟦ \ g as _ ⟧ ⨾ E h(·)` equals `⟦ \ g as _ ⟧`,
 but the stuck value kept the entry on `h`, so the absorption check
 failed. On words of up to 3 steps with these facts, `HNorm` missed
-1,504 identities. Now a stuck lookup keeps only the steps that can
-affect it (`relnf`), and `HNorm` matches the generic models exactly
-there (10,023 classes).
+1,504 identities.
 
-**Cost of the fix.** A stuck lookup now scans the rest of its word.
+Now a lookup is one function, `follow`, in both `CNorm` and `HNorm`. It
+follows `hᵢ` through the word as `apply_var` follows a variable through
+an adjustment. It passes a step that cannot affect `hᵢ`: one on a label
+known distinct from `h` and from the label of every step kept so far,
+which can therefore be moved in front of the kept steps. Until a step is
+kept, a step on `h` moves the index or, as an entry for `h₀`, gives the
+value. Any other step is kept, and the value is then the variable `hᵢ`
+with the kept steps as its payload (`VLook h i w`), hash-consed in
+`HNorm`. An atom is kept with everything after it. The payload needs no
+further normalisation: the kept steps of a normal word form a normal
+word, since a step is passed only when it is ordered against every kept
+step around it. `HNorm` matches the generic models exactly on these
+words (10,023 classes), and `cn_complete` proves it in general.
+
+**Cost of the fix.** A lookup that keeps a step now scans the rest of its word.
 Families with no stuck lookups are unchanged. Nested lifts over label
 atoms, where every lookup is stuck, become quadratic:
 
@@ -294,9 +306,10 @@ Then `cf_eq` runs the pass and `CNorm`, and `cf_eq_correct : cf_eq F a b
 - `⟦ \ g as _ ⟧ ⨾ ⟦ k | ⟦ \ h as _ ⟧ ⟧` and `⟦ \ g as _ ⟧ ⨾ ⟦ \ h as _ ⟧`
   give one form (the lift law).
 
-**Tested, not proved: the pass removes the need for `relnf`.** A Python
-copy of the pass, then `HNorm` without `relnf`, gives exactly the classes
-of `HNorm` with `relnf` on every word of:
+**Tested, not proved: the pass removes the need for passing steps once a
+lookup has kept one.** A Python copy of the pass, then the old `HNorm`
+(whose payload was the whole rest of the word), gives exactly the classes
+of `HNorm` on every word of:
 
 | Labels | Facts | Steps | Lifts | Classes |
 |---|---|---|---|---|
@@ -351,7 +364,7 @@ worst case. (The prototype also memmoves Python lists in place, which is
 | Family | Growth | Time | Moves |
 |---|---|---|---|
 | copies along an ordered chain with weakenings (one form) | ×4 | 0.29 s at 1,600 steps | quadratic |
-| `HNorm` (no `relnf`) on the same words | ×5 | 0.40 s | |
+| the old `HNorm` (whole rest as payload) on the same words | ×5 | 0.40 s | |
 | nested lifts, unordered labels | ×2 | 0.003 s at 800 | 0 |
 | nested lifts, ordered labels (all absorbed) | ×2 | 0.005 s at 800 | 0 |
 | weakenings on unordered labels | ×2 | 0.021 s at 4,000 | 0 |
@@ -361,8 +374,8 @@ worst case. (The prototype also memmoves Python lists in place, which is
 The chain is quadratic because each weakening passes all the inputs of
 the form, as `HNorm`'s insertion does on the same words.
 
-`rforms_check.py`: the reworked pass, then `HNorm` without `relnf`, gives
-exactly the classes of `HNorm` with `relnf` on all six test sets above.
+`rforms_check.py`: the reworked pass, then the old `HNorm`, gives
+exactly the classes of `HNorm` on all six test sets above.
 
 ## The reworked pass in Coq (`Core/CRun.v`)
 
@@ -556,18 +569,17 @@ words each), and every set at length 3:
 
 | Pipeline | Unsound | Missed |
 |---|---|---|
-| `HNorm` (with `relnf`) alone | 0 | 0 |
-| the pass, then `HNorm` with `relnf` | 0 | 0 |
-| the pass, then `HNorm` without `relnf` | 0 | 40 (all on `g, h, k`) |
+| `HNorm` alone | 0 | 0 |
+| the pass, then `HNorm` | 0 | 0 |
+| the pass, then the old `HNorm`, whose payload was the whole rest of the word | 0 | 40 (all on `g, h, k`) |
 
 The misses of the last pipeline are not the pass's to fix. In each,
 `HNorm` gets a lookup stuck at a step on a label not ordered against
 the read's. It records the variable together with the rest of the word,
 which includes a step the pass legitimately moved there but that cannot
 affect the read (for example a weakening of `h` in a stuck lookup of
-`k₀`, with `k < h`). Trimming such steps as the stuck lookup is made is
-what `relnf` does; `HNorm` in Coq already does it, sharing the result by
-word id. An earlier rule in `rforms.py` that worked around one case
+`k₀`, with `k < h`). `follow` passes such a step, as `apply_var` would
+once it has been moved in front of the kept steps. An earlier rule in `rforms.py` that worked around one case
 (redirecting reads of an output's slot) has been removed.
 
 **Cost** under `vm_compute`, 8 labels (`a0 < … < a7` unless noted),
@@ -604,8 +616,8 @@ word id. An earlier rule in `rforms.py` that worked around one case
 - **`TNorm` has the same stuck-lookup problem** and is not fixed.
 - **The eta pass of `HEta` is not sound** for comprehension models and
   should not be used with `HNorm`.
-- **Cost:** stuck lookups could be made cheaper, for example by
-  memoising `relnf` per label and cell.
+- **Cost:** lookups that keep a step could be made cheaper, for example
+  by memoising their payloads per label and cell.
 - **Superseded passes, which can now be deleted:**
   - `CForm.v`'s own pass (`run`, `cf_eq`): sound but cubic; it misses the
     lift law once sorting has moved the lifted output down, and its `tidy`

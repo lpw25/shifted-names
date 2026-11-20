@@ -1,8 +1,8 @@
 (** * The normaliser, without sharing
 
-    [HNorm]'s algorithm on plain lists ([docs/comprehension.md]), with
-    one change: a lookup stuck at a step keeps only the steps of the rest
-    of the word that can affect it ([relnf]).  [CSound] proves it sound
+    [HNorm]'s algorithm on plain lists ([docs/comprehension.md]).  A
+    lookup that cannot get past a step gives the variable with the steps
+    that can affect it as its payload ([follow]).  [CSound] proves it sound
     and [CComplete] complete for comprehension models ([Comp]).
 
     A word is a list of steps, the first applying first to a variable:
@@ -10,8 +10,8 @@
     - [SW h]: a weakening on [h];
     - [SA a]: an adjustment atom.
     Values are absolute, read at the end of the word: a name [hᵢ], a term
-    with its payload word, or a name looked up through a word whose
-    first step stops it. *)
+    with its payload word, or a name with the payload word it is read
+    through. *)
 
 From Stdlib Require Import String List Bool Arith.
 From ShiftedNames.Core Require Import Label Normalise GEval.
@@ -105,49 +105,46 @@ Definition kd (a b : lexp) : bool := match lcmp F a b with Some Lt | Some Gt => 
 (** [a] sorts before [b]. *)
 Definition before (a b : lexp) : bool := match lcmp F a b with Some Lt => true | _ => false end.
 
-(** ** Stuck lookups keep only what can affect them
+(** ** Following a variable
 
-    In a lookup of [g] stopped at the first step of a word, a later step
-    on a label known distinct from [g] that commutes with every step kept
-    before it can be moved to the front, where it does not affect [g].
-    [kept] are the labels of the steps kept so far. *)
-Fixpoint relnf_go (g : lexp) (kept : list lexp) (w : cword) : cword :=
+    [follow h i kept w] follows [hᵢ] through [w], first step first, as
+    [apply_var] follows a variable through an adjustment.  It passes a
+    step that cannot affect [hᵢ]: one on a label known distinct from [h]
+    and from the label of every step kept so far, which can be moved in
+    front of the kept steps.  Until a step is kept, a step on [h] moves
+    the index, or, as an entry for [h₀], gives the value.  Any other step
+    is kept, and the value is then the variable [hᵢ] with the kept steps
+    as its payload; an atom is kept with everything after it.  [kept] is
+    in reverse order. *)
+
+Definition skd (l : lexp) (t : cstep) : bool := match slabel t with Some m => kd l m | None => false end.
+
+Definition passes (h l : lexp) (kept : cword) : bool := kd h l && forallb (skd l) kept.
+
+Fixpoint follow (h : lexp) (i : nat) (kept : cword) (w : cword) : cval :=
   match w with
-  | [] => []
+  | [] => match kept with [] => VVar h i | _ => VLook h i (rev kept) end
   | s :: w' =>
       match s with
-      | SA _ => w
-      | SE l _ | SW l =>
-          if kd g l && forallb (kd l) kept then relnf_go g kept w'
-          else s :: relnf_go g (l :: kept) w'
-      end
-  end.
-
-Definition relnf (g : lexp) (w : cword) : cword :=
-  match w with
-  | [] => []
-  | s :: w' =>
-      match s with
-      | SA _ => w
-      | SE l _ | SW l => s :: relnf_go g [l] w'
+      | SE g v =>
+          if passes h g kept then follow h i kept w'
+          else match kept with
+               | [] => if lexp_eqb g h then match i with 0 => v | S i' => follow h i' [] w' end
+                       else follow h i [s] w'
+               | _ => follow h i (s :: kept) w'
+               end
+      | SW g =>
+          if passes h g kept then follow h i kept w'
+          else match kept with
+               | [] => if lexp_eqb g h then follow h (S i) [] w' else follow h i [s] w'
+               | _ => follow h i (s :: kept) w'
+               end
+      | SA _ => VLook h i (rev_append kept w)
       end
   end.
 
 (** The name [hᵢ] at the start of [w], followed to its value. *)
-Fixpoint lookup (h : lexp) (i : nat) (w : cword) : cval :=
-  match w with
-  | [] => VVar h i
-  | s :: w' =>
-      match s with
-      | SE g v =>
-          if lexp_eqb g h then match i with 0 => v | S i' => lookup h i' w' end
-          else if kd g h then lookup h i w' else VLook h i (relnf h w)
-      | SW g =>
-          if lexp_eqb g h then lookup h (S i) w'
-          else if kd g h then lookup h i w' else VLook h i (relnf h w)
-      | SA _ => VLook h i (relnf h w)
-      end
-  end.
+Definition lookup (h : lexp) (i : nat) (w : cword) : cval := follow h i [] w.
 
 (** The steps a new step on [h] passes: those on labels sorting before
     [h]; and the rest. *)

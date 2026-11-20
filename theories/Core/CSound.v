@@ -180,11 +180,11 @@ Proof.
   inversion D; subst; rewrite IH by assumption; apply (sden_comm s t _ x l Es); assumption.
 Qed.
 
-(** ** Stuck lookups *)
+(** ** Following a variable *)
 
-(** A step that [relnf_go] drops does not affect [hᵢ] behind the kept
-    steps [pre]. *)
-Lemma relnf_drop h i pre s l y x :
+(** A step [follow] passes does not affect [hᵢ] behind the kept steps
+    [pre]. *)
+Lemma pass_sound h i pre s l y x :
   slabel s = Some l -> kd F h l = true -> Forall (sdist l) pre ->
   cname h i (wpre pre (sden s y x) x) = cname h i (wpre pre y x).
 Proof.
@@ -192,67 +192,43 @@ Proof.
   apply sdist_cname; exists l; split; [exact Es|apply known_distinct_sym, kd_known, K].
 Qed.
 
-Lemma forallb_kd_sdist l kept pre :
-  forallb (kd F l) kept = true ->
-  Forall (fun t => exists m, slabel t = Some m /\ In m kept) pre -> Forall (sdist l) pre.
+Lemma forallb_skd_sdist l kept : forallb (skd F l) kept = true -> Forall (sdist l) (rev kept).
 Proof.
-  intros Hk Hp; rewrite Forall_forall in Hp |- *; intros t Ht.
-  destruct (Hp t Ht) as [m [Em Im]]; exists m; split; [exact Em|].
-  rewrite forallb_forall in Hk; apply known_distinct_sym, kd_known, Hk, Im.
+  intros Hk; apply Forall_rev; rewrite forallb_forall in Hk; rewrite Forall_forall; intros t Ht.
+  specialize (Hk t Ht); unfold skd in Hk; destruct (slabel t) as [m|] eqn:Em; [|discriminate].
+  exists m; split; [exact Em|apply known_distinct_sym, kd_known, Hk].
 Qed.
 
-Lemma relnf_go_sound h i w : forall kept pre x,
-  Forall (fun t => exists m, slabel t = Some m /\ In m kept) pre ->
-  cname h i (wpre pre (wden (relnf_go F h kept w) x) x) = cname h i (wpre pre (wden w x) x).
+Lemma follow_sound h w : forall i kept x,
+  vden (follow F h i kept w) x = cname h i (wden (rev kept ++ w) x).
 Proof.
-  induction w as [|s w IH]; intros kept pre x Hp; [reflexivity|].
-  assert (Step : forall l, slabel s = Some l ->
-    relnf_go F h kept (s :: w) =
-      (if kd F h l && forallb (kd F l) kept then relnf_go F h kept w else s :: relnf_go F h (l :: kept) w)).
-  { intros l El; destruct s as [g v|g|a]; cbn in El |- *; try discriminate; injection El as ->; reflexivity. }
-  destruct (slabel s) as [l|] eqn:El.
-  - rewrite (Step l eq_refl); destruct (kd F h l && forallb (kd F l) kept) eqn:E.
-    + apply andb_true_iff in E as [E1 E2]; rewrite IH by exact Hp; cbn [wden].
-      symmetry; apply (relnf_drop h i pre s l); [exact El|exact E1|apply (forallb_kd_sdist l kept); [exact E2|exact Hp]].
-    + cbn [wden].
-      assert (Hp' : Forall (fun t => exists m, slabel t = Some m /\ In m (l :: kept)) (pre ++ [s])).
-      { apply Forall_app; split.
-        - eapply Forall_impl; [|exact Hp]; intros t [m [Em Im]]; exists m; split; [exact Em|right; exact Im].
-        - constructor; [exists l; split; [exact El|left; reflexivity]|constructor]. }
-      pose proof (IH (l :: kept) _ x Hp') as IH'; rewrite !wpre_app in IH'; exact IH'.
-  - destruct s as [g v|g|a]; cbn in El; try discriminate; reflexivity.
-Qed.
-
-Lemma relnf_sound h i w x : cname h i (wden (relnf F h w) x) = cname h i (wden w x).
-Proof.
-  destruct w as [|s w]; [reflexivity|].
-  destruct s as [l v|l|a]; cbn [relnf]; [| |reflexivity].
-  - pose proof (relnf_go_sound h i w [l] [SE l v] x) as E; cbn [wpre] in E; cbn [wden]; apply E.
-    constructor; [exists l; split; [reflexivity|left; reflexivity]|constructor].
-  - pose proof (relnf_go_sound h i w [l] [SW l] x) as E; cbn [wpre] in E; cbn [wden]; apply E.
-    constructor; [exists l; split; [reflexivity|left; reflexivity]|constructor].
+  induction w as [|s w IH]; intros i kept x.
+  - destruct kept as [|t kept]; [reflexivity|]; cbn [follow]; rewrite vden_look, app_nil_r; reflexivity.
+  - assert (Pass : forall l, slabel s = Some l -> passes F h l kept = true ->
+      vden (follow F h i kept w) x = cname h i (wden (rev kept ++ s :: w) x)).
+    { intros l El P; unfold passes in P; apply andb_true_iff in P as [P1 P2].
+      rewrite IH, !wden_app; cbn [wden]; symmetry; apply (pass_sound h i _ s l); [exact El|exact P1|].
+      apply forallb_skd_sdist, P2. }
+    assert (Keep : vden (follow F h i (s :: kept) w) x = cname h i (wden (rev kept ++ s :: w) x)).
+    { rewrite IH; cbn [rev]; rewrite <- app_assoc; reflexivity. }
+    destruct s as [g v|g|a]; cbn [follow].
+    + destruct (passes F h g kept) eqn:P; [apply (Pass g eq_refl P)|].
+      destruct kept as [|t kept']; [|exact Keep].
+      destruct (lexp_eqb g h) eqn:E; [|exact Keep].
+      apply lexp_eqb_eq in E; subst g; cbn [rev app wden sden]; destruct i as [|i].
+      * rewrite cname_push0; reflexivity.
+      * rewrite cname_push, IH; reflexivity.
+    + destruct (passes F h g kept) eqn:P; [apply (Pass g eq_refl P)|].
+      destruct kept as [|t kept']; [|exact Keep].
+      destruct (lexp_eqb g h) eqn:E; [|exact Keep].
+      apply lexp_eqb_eq in E; subst g; cbn [rev app wden sden]; rewrite cname_pop, IH; reflexivity.
+    + rewrite vden_look, rev_append_rev; reflexivity.
 Qed.
 
 (** ** Lookups *)
 
-Lemma lookup_sound h w : forall i x, vden (lookup F h i w) x = cname h i (wden w x).
-Proof.
-  induction w as [|s w IH]; intros i x; [reflexivity|].
-  destruct s as [g v|g|a]; cbn [lookup wden sden].
-  - destruct (lexp_eqb g h) eqn:E.
-    + apply lexp_eqb_eq in E; subst g; destruct i as [|i].
-      * rewrite cname_push0; reflexivity.
-      * rewrite cname_push; apply IH.
-    + destruct (kd F g h) eqn:K.
-      * rewrite IH; symmetry; apply (sdist_cname h (SE g v)); exists g; split; [reflexivity|apply kd_known, K].
-      * rewrite vden_look, relnf_sound; reflexivity.
-  - destruct (lexp_eqb g h) eqn:E.
-    + apply lexp_eqb_eq in E; subst g; rewrite cname_pop; apply IH.
-    + destruct (kd F g h) eqn:K.
-      * rewrite IH; symmetry; apply (sdist_cname h (SW g) i _ x); exists g; split; [reflexivity|apply kd_known, K].
-      * rewrite vden_look, relnf_sound; reflexivity.
-  - rewrite vden_look, relnf_sound; reflexivity.
-Qed.
+Lemma lookup_sound h w i x : vden (lookup F h i w) x = cname h i (wden w x).
+Proof. apply (follow_sound h w i [] x). Qed.
 
 (** ** Pushing steps *)
 

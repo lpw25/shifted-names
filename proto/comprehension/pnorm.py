@@ -1,5 +1,6 @@
-"""A pure (unshared) copy of HNorm, with an optional fix: a stuck lookup of g keeps only the steps of
-its word that can affect it (relnf)."""
+"""A pure (unshared) copy of HNorm.  A lookup follows the variable as CNorm.follow does: once it
+cannot get past a step, the value is the variable with the steps that can affect it as its payload.
+fix=False: the old HNorm, whose payload is the whole rest of the word from that step."""
 BOUND='·'
 class N:
     def __init__(s, LT, fix=True):
@@ -12,26 +13,24 @@ class N:
                     if b==c and (a,d) not in s.LT: s.LT.add((a,d)); ch=True
     def before(s,a,b): return a!=b and ((a,b) in s.LT or (b==BOUND and a!=BOUND))
     def kd(s,a,b): return s.before(a,b) or s.before(b,a)
-    def relnf(s,g,w):
-        if not s.fix: return w
-        out=[]; kept=set(); atom=False
-        for st in w:
-            if st[0]!='A' and out and not atom and s.kd(g,st[1]) and all(s.kd(st[1],m) for m in kept): continue
-            out.append(st)
-            if st[0]=='A': atom=True
-            else: kept.add(st[1])
-        return tuple(out)
+    def passes(s,h,l,kept):
+        return s.kd(h,l) and all(s.kd(l,t[1]) for t in kept)
     def lookup(s,h,i,w):
+        # CNorm.follow: pass what cannot affect h_i; until a step is kept, a step on h moves the
+        # index or gives the value; keep anything else, and the value is h_i with the kept steps
+        # as its payload.  With fix=False nothing is passed once a step is kept.
+        kept=[]
         for j,st in enumerate(w):
-            if st[0]=='A': return ('L',h,i,s.relnf(h,w[j:]))
+            if st[0]=='A': return ('L',h,i,tuple(kept)+tuple(w[j:]))
             g=st[1]
-            if g==h:
+            if (s.fix or not kept) and s.passes(h,g,kept): continue
+            if not kept and g==h:
                 if st[0]=='E':
                     if i==0: return st[2]
                     i-=1
                 else: i+=1
-            elif not s.kd(g,h): return ('L',h,i,s.relnf(h,w[j:]))
-        return ('V',h,i)
+            else: kept.append(st)
+        return ('L',h,i,tuple(kept)) if kept else ('V',h,i)
     def stop(s,h,w):
         j=0
         while j<len(w) and w[j][0]!='A' and s.before(w[j][1],h): j+=1

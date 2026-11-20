@@ -15,8 +15,8 @@
     order; the cells in front of the edit are rebuilt, the rest is
     shared.
 
-    A stuck lookup keeps only the steps that can affect it ([relnf]),
-    as [CNorm] does; [HRefine] proves that the two compute the same
+    A lookup that cannot get past a step gives the variable with the
+    steps that can affect it as its payload ([follow]), as [CNorm] does; [HRefine] proves that the two compute the same
     normal forms, so [hn_eq] decides equality in comprehension models
     ([Comp]). *)
 
@@ -91,63 +91,51 @@ Definition kd (a b : lexp) : bool := match lcmp F a b with Some Lt | Some Gt => 
 (** [a] sorts before [b]. *)
 Definition before (a b : lexp) : bool := match lcmp F a b with Some Lt => true | _ => false end.
 
-(** A lookup of [g] stuck at the first step of [w] keeps only the steps
-    that can affect it ([CNorm.relnf]): a later step on a label known
-    distinct from [g] that commutes with every step kept before it is
-    dropped.  [relnf_go] gives the kept steps after the first change, to
-    put back on the rest, which is shared. *)
+(** ** Following a variable
+
+    As [CNorm.follow]: [hᵢ] is followed through [w], first step first.  A
+    step that cannot affect it is passed: one on a label known distinct
+    from [h] and from the label of every step kept so far.  Until a step
+    is kept, a step on [h] moves the index or gives the value.  Any other
+    step is kept, and the value is then [hᵢ] with the kept steps as its
+    payload, hash-consed; an atom is kept with the rest of the word,
+    which is shared.  [kept] is in reverse order. *)
+
+Definition skd (l : lexp) (t : step) : bool :=
+  match t with SE m _ | SW m => kd l m | SA _ => false end.
+
 (** Written with [if]: [vm_compute] evaluates both sides of [&&]. *)
-Definition droppable (g l : lexp) (kept : list lexp) : bool :=
-  if kd g l then forallb (kd l) kept else false.
+Definition passes (h l : lexp) (kept : list step) : bool :=
+  if kd h l then forallb (skd l) kept else false.
 
-Fixpoint relnf_go (g : lexp) (kept : list lexp) (w : word) : list step * word :=
+Fixpoint follow (h : lexp) (i : nat) (kept : list step) (w : word) (Z : st) : val * st :=
   match w with
-  | [] => ([], [])
-  | (s, _) :: w' =>
-      match s with
-      | SA _ => ([], w)
-      | SE l _ | SW l =>
-          if droppable g l kept then relnf_go g kept w'
-          else let '(p, b) := relnf_go g (l :: kept) w' in
-               match p with
-               | [] => if Pos.eqb (wid b) (wid w') then ([], w) else ([s], b)
-               | _ => (s :: p, b)
-               end
+  | [] =>
+      match kept with
+      | [] => (VVar h i, Z)
+      | _ => let '(r, S1) := rebuild (rev kept) [] Z in (VLook h i (wid r), S1)
       end
-  end.
-
-Definition relnf (g : lexp) (w : word) (S : st) : word * st :=
-  match w with
-  | [] => ([], S)
   | (s, _) :: w' =>
       match s with
-      | SA _ => (w, S)
-      | SE l _ | SW l =>
-          let '(p, b) := relnf_go g [l] w' in
-          match p with
-          | [] => if Pos.eqb (wid b) (wid w') then (w, S) else rebuild [s] b S
-          | _ => rebuild (s :: p) b S
-          end
+      | SE g v =>
+          if passes h g kept then follow h i kept w' Z
+          else match kept with
+               | [] => if lexp_eqb g h then match i with 0 => (v, Z) | S i' => follow h i' [] w' Z end
+                       else follow h i [s] w' Z
+               | _ => follow h i (s :: kept) w' Z
+               end
+      | SW g =>
+          if passes h g kept then follow h i kept w' Z
+          else match kept with
+               | [] => if lexp_eqb g h then follow h (S i) [] w' Z else follow h i [s] w' Z
+               | _ => follow h i (s :: kept) w' Z
+               end
+      | SA _ => let '(r, S1) := rebuild (rev kept) w Z in (VLook h i (wid r), S1)
       end
   end.
 
 (** The variable [hᵢ] at the start of [w], followed to its value. *)
-Fixpoint lookup (h : lexp) (i : nat) (w : word) (Z : st) : val * st :=
-  match w with
-  | [] => (VVar h i, Z)
-  | (s, x) :: w' =>
-      match s with
-      | SE g v =>
-          if lexp_eqb g h then match i with 0 => (v, Z) | S i' => lookup h i' w' Z end
-          else if kd g h then lookup h i w' Z
-          else let '(r, S1) := relnf h w Z in (VLook h i (wid r), S1)
-      | SW g =>
-          if lexp_eqb g h then lookup h (S i) w' Z
-          else if kd g h then lookup h i w' Z
-          else let '(r, S1) := relnf h w Z in (VLook h i (wid r), S1)
-      | SA _ => let '(r, S1) := relnf h w Z in (VLook h i (wid r), S1)
-      end
-  end.
+Definition lookup (h : lexp) (i : nat) (w : word) (Z : st) : val * st := follow h i [] w Z.
 
 (** Where a step on [h] stops: the steps it passes and the rest,
     starting at the stopping step.  It passes steps on labels that sort

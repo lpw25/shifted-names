@@ -1,16 +1,17 @@
 """Canonicity of the whole normaliser against comprehension models.
 
 The pipeline: a context-form pass (rforms.R, or another with the same interface), then HNorm
-on its forms: without relnf (pnorm.N(fix=False), the default) or with it (second='fix').  Every word up to a length is grouped by its
+on its forms: the old HNorm, whose lookups keep the whole rest of the word (pnorm.N(fix=False),
+the default), or HNorm (second='fix').  Every word up to a length is grouped by its
 meaning in sampled generic comprehension models (gmodel2.GModel), as in checkpy.py:
 
 - unsound: two words with the same output and different meanings;
 - missed:  words with the same meaning (in every sampled model) and different outputs.
 
-HNorm with relnf (pnorm.N(fix=True)) is reported alongside, as a reference.
+HNorm alone (pnorm.N(fix=True)) is reported alongside, as a reference.
 
     python3 pipe_check.py [rl|rlr] [N] [fix|nofix]
-    (rlr: the left-to-right pass of rlr.py; fix: HNorm with relnf after the pass)
+    (rlr: the left-to-right pass of rlr.py; fix: HNorm after the pass)
 """
 import sys, random
 sys.path.insert(0, '.')
@@ -31,7 +32,7 @@ def main(Pass, labels, LT, n, nmodels=30, seed=0, vidx=(0, 1), lifts=True, show=
     ns = nf if second == 'fix' else nn
     by_sig = {}      # meaning -> {pipeline output: word}
     by_out = {}      # pipeline output -> {meaning: word}
-    ref = {}         # meaning -> set of HNorm-with-relnf outputs
+    ref = {}         # meaning -> set of HNorm outputs
     nw = 0
     for w in checkpy.words(labels, n, vidx, lifts):
         nw += 1
@@ -44,7 +45,7 @@ def main(Pass, labels, LT, n, nmodels=30, seed=0, vidx=(0, 1), lifts=True, show=
     missed = [v for v in by_sig.values() if len(v) > 1]
     ref_missed = sum(len(v) - 1 for v in ref.values())
     print(f"{labels} {sorted(LT)} n<={n} lifts={lifts} then-HNorm-{second}: words={nw} meanings={len(by_sig)} "
-          f"unsound={len(unsound)} missed={sum(len(v) - 1 for v in missed)} (HNorm+relnf missed={ref_missed})", flush=True)
+          f"unsound={len(unsound)} missed={sum(len(v) - 1 for v in missed)} (HNorm alone missed={ref_missed})", flush=True)
     for v in unsound[:show]: print('   unsound:', ' | '.join(fmt(w) for w in v.values()))
     for v in sorted(missed, key=lambda v: sum(len(w) for w in v.values()))[:show]:
         print('   missed: ', ' | '.join(fmt(w) for w in v.values()))

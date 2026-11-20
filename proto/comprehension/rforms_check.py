@@ -1,4 +1,4 @@
-"""Canonicity check of rforms.py: the pass, then HNorm without relnf, against HNorm with relnf."""
+"""Canonicity check of rforms.py: the pass, then the old HNorm (pnorm.N(fix=False)), against HNorm."""
 import sys; sys.path.insert(0,'.')
 from rforms import R, of_word
 from forms import norm_forms

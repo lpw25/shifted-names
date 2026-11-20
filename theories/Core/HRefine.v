@@ -275,102 +275,60 @@ Proof.
     + split; [constructor|apply RWCons; assumption].
 Qed.
 
-Lemma relnf_go_rel S g w cw : Inv S -> RWord S w cw -> forall kept,
-  exists cp cb, Forall2 (RStep S) (fst (HNorm.relnf_go F g kept w)) cp
-    /\ RWord S (snd (HNorm.relnf_go F g kept w)) cb
-    /\ CNorm.relnf_go F g kept cw = cp ++ cb.
+Lemma Forall2_rev_RStep S p cp : Forall2 (RStep S) p cp -> Forall2 (RStep S) (rev p) (rev cp).
 Proof.
-  intros I H; induction H as [|s i w cs cw Hc Hs Hw IH]; intros kept.
-  - exists [], []; cbn; repeat split; constructor.
-  - assert (Gen : forall l, hlabel s = Some l ->
-      exists cp cb, Forall2 (RStep S) (fst (HNorm.relnf_go F g kept ((s, i) :: w))) cp
-        /\ RWord S (snd (HNorm.relnf_go F g kept ((s, i) :: w))) cb
-        /\ CNorm.relnf_go F g kept (cs :: cw) = cp ++ cb).
-    { intros l El.
-      assert (Ec : CNorm.relnf_go F g kept (cs :: cw) =
-        if CNorm.kd F g l && forallb (CNorm.kd F l) kept then CNorm.relnf_go F g kept cw
-        else cs :: CNorm.relnf_go F g (l :: kept) cw)
-        by (rewrite (RStep_label S s cs Hs) in El; destruct cs; cbn in El |- *; try discriminate; injection El as ->; reflexivity).
-      assert (Dr : HNorm.droppable F g l kept = CNorm.kd F g l && forallb (CNorm.kd F l) kept)
-        by (unfold HNorm.droppable; change (HNorm.kd F g l) with (CNorm.kd F g l); destruct (CNorm.kd F g l); reflexivity).
-      assert (Eh : HNorm.relnf_go F g kept ((s, i) :: w) =
-        if CNorm.kd F g l && forallb (CNorm.kd F l) kept then HNorm.relnf_go F g kept w
-        else let '(p, b) := HNorm.relnf_go F g (l :: kept) w in
-             match p with [] => if Pos.eqb (HNorm.wid b) (HNorm.wid w) then ([], (s, i) :: w) else ([s], b) | _ => (s :: p, b) end)
-        by (rewrite <- Dr; destruct s; cbn in El |- *; try discriminate; injection El as ->; reflexivity).
-      rewrite Ec, Eh; clear Ec Eh Dr.
-      destruct (CNorm.kd F g l && forallb (CNorm.kd F l) kept); [apply IH|].
-      destruct (IH (l :: kept)) as [cp [cb [H1 [H2 H3]]]].
-      destruct (HNorm.relnf_go F g (l :: kept) w) as [p b]; cbn [fst snd] in H1, H2.
-      rewrite H3; destruct p as [|s1 p'].
-      - inversion H1; subst; cbn [app].
-        destruct (Pos.eqb (HNorm.wid b) (HNorm.wid w)) eqn:Ew.
-        + apply Pos.eqb_eq in Ew.
-          pose proof (proj1 (R_func S I) _ _ (RWord_RId S b cb H2) cw) as Eb.
-          rewrite Ew in Eb; specialize (Eb (RWord_RId S w cw Hw)); subst cb.
-          exists [], (cs :: cw); cbn; repeat split; [constructor|apply RWCons; assumption].
-        + exists [cs], cb; cbn; repeat split; [constructor; [exact Hs|constructor]|exact H2].
-      - exists (cs :: cp), cb; cbn; repeat split; [constructor; assumption|exact H2]. }
-    inversion Hs as [h v cv Hv|h|a]; subst.
-    + apply (Gen h); reflexivity.
-    + apply (Gen h); reflexivity.
-    + exists [], (CNorm.SA a :: cw); cbn; repeat split; [constructor|apply RWCons; assumption].
+  induction 1 as [|s cs p cp Hs Hp IH]; cbn [rev]; [constructor|].
+  apply Forall2_app; [exact IH|constructor; [exact Hs|constructor]].
 Qed.
 
-Lemma relnf_spec_step S g s i w cs cw l r S' :
-  Inv S -> cellof S i = Some (s, HNorm.wid w) -> RStep S s cs -> RWord S w cw ->
-  hlabel s = Some l -> CNorm.relnf F g (cs :: cw) = cs :: CNorm.relnf_go F g [l] cw ->
-  (let '(p, b) := HNorm.relnf_go F g [l] w in
-   match p with [] => if Pos.eqb (HNorm.wid b) (HNorm.wid w) then ((s, i) :: w, S) else HNorm.rebuild [s] b S
-   | _ => HNorm.rebuild (s :: p) b S end) = (r, S') ->
-  Inv S' /\ Ext S S' /\ RWord S' r (CNorm.relnf F g (cs :: cw)).
+Lemma passes_rel S h l kept ckept : Forall2 (RStep S) kept ckept ->
+  HNorm.passes F h l kept = CNorm.passes F h l ckept.
 Proof.
-  intros I Hc Hs Hw El Ec E; rewrite Ec.
-  destruct (relnf_go_rel S g w cw I Hw [l]) as [cp [cb [H1 [H2 H3]]]]; rewrite H3.
-  destruct (HNorm.relnf_go F g [l] w) as [p b]; cbn [fst snd] in H1, H2.
-  destruct p as [|s1 p'].
-  - inversion H1; subst; cbn [app].
-    destruct (Pos.eqb (HNorm.wid b) (HNorm.wid w)) eqn:Ew.
-    + apply Pos.eqb_eq in Ew; injection E as <- <-.
-      pose proof (proj1 (R_func S I) _ _ (RWord_RId S b cb H2) cw) as Eb.
-      rewrite Ew in Eb; specialize (Eb (RWord_RId S w cw Hw)); subst cb.
-      split; [exact I|split; [apply Ext_refl|apply RWCons; assumption]].
-    + apply (rebuild_spec [s] [cs] S b cb r S' I); [constructor; [exact Hs|constructor]|exact H2|exact E].
-  - apply (rebuild_spec (s :: s1 :: p') (cs :: cp) S b cb r S' I); [constructor; [exact Hs|exact H1]|exact H2|exact E].
+  intros Hk; unfold HNorm.passes, CNorm.passes; change (HNorm.kd F h l) with (CNorm.kd F h l).
+  destruct (CNorm.kd F h l); [cbn [andb]|reflexivity].
+  induction Hk as [|t ct kept ckept Ht Hk IH]; [reflexivity|cbn [forallb]; rewrite IH; f_equal].
+  inversion Ht; reflexivity.
 Qed.
 
-Lemma relnf_spec S g w cw r S' : Inv S -> RWord S w cw -> HNorm.relnf F g w S = (r, S') ->
-  Inv S' /\ Ext S S' /\ RWord S' r (CNorm.relnf F g cw).
+Lemma follow_stuck S h i kept ckept w cw v S' :
+  Inv S -> Forall2 (RStep S) kept ckept -> RWord S w cw ->
+  (let '(r, S1) := HNorm.rebuild (rev kept) w S in (HNorm.VLook h i (HNorm.wid r), S1)) = (v, S') ->
+  Inv S' /\ Ext S S' /\ RVal S' v (CNorm.VLook h i (rev ckept ++ cw)).
 Proof.
-  intros I H E; destruct H as [|s i w cs cw Hc Hs Hw].
-  - injection E as <- <-; split; [exact I|split; [apply Ext_refl|constructor]].
-  - inversion Hs as [h v cv Hv|h|a]; subst.
-    + apply (relnf_spec_step S g _ i w _ cw h r S' I Hc Hs Hw eq_refl eq_refl E).
-    + apply (relnf_spec_step S g _ i w _ cw h r S' I Hc Hs Hw eq_refl eq_refl E).
-    + cbn in E; injection E as <- <-; split; [exact I|split; [apply Ext_refl|apply RWCons; assumption]].
+  intros I Hk Hw E; destruct (HNorm.rebuild (rev kept) w S) as [r S1] eqn:Er; injection E as <- <-.
+  destruct (rebuild_spec (rev kept) (rev ckept) S w cw r S1 I (Forall2_rev_RStep S _ _ Hk) Hw Er) as [I1 [X1 H1]].
+  split; [exact I1|split; [exact X1|constructor; apply RWord_RId, H1]].
+Qed.
+
+Lemma follow_spec S h w cw : Inv S -> RWord S w cw -> forall i kept ckept v S',
+  Forall2 (RStep S) kept ckept -> HNorm.follow F h i kept w S = (v, S') ->
+  Inv S' /\ Ext S S' /\ RVal S' v (CNorm.follow F h i ckept cw).
+Proof.
+  intros I H; induction H as [|s x w cs cw Hc Hs Hw IH]; intros i kept ckept v S' Hk E.
+  - destruct Hk as [|t ct kept ckept Ht Hk']; cbn [HNorm.follow CNorm.follow] in E |- *.
+    + injection E as <- <-; split; [exact I|split; [apply Ext_refl|constructor]].
+    + pose proof (follow_stuck S h i (t :: kept) (ct :: ckept) [] [] v S' I (Forall2_cons _ _ Ht Hk') (RWNil S) E) as R.
+      rewrite app_nil_r in R; exact R.
+  - inversion Hs as [g v0 cv Hv|g|a]; subst; cbn [HNorm.follow CNorm.follow] in E |- *.
+    + rewrite (passes_rel S h g kept ckept Hk) in E; destruct (CNorm.passes F h g ckept); [apply (IH i _ _ v S' Hk E)|].
+      destruct Hk as [|t ct kept' ckept' Ht Hk'].
+      * destruct (lexp_eqb g h).
+        -- destruct i as [|i]; [injection E as <- <-; split; [exact I|split; [apply Ext_refl|exact Hv]]|].
+           apply (IH i [] [] v S' (Forall2_nil _) E).
+        -- apply (IH i _ _ v S' (Forall2_cons _ _ Hs (Forall2_nil _)) E).
+      * apply (IH i _ _ v S' (Forall2_cons _ _ Hs (Forall2_cons _ _ Ht Hk')) E).
+    + rewrite (passes_rel S h g kept ckept Hk) in E; destruct (CNorm.passes F h g ckept); [apply (IH i _ _ v S' Hk E)|].
+      destruct Hk as [|t ct kept' ckept' Ht Hk'].
+      * destruct (lexp_eqb g h).
+        -- apply (IH (Datatypes.S i) [] [] v S' (Forall2_nil _) E).
+        -- apply (IH i _ _ v S' (Forall2_cons _ _ Hs (Forall2_nil _)) E).
+      * apply (IH i _ _ v S' (Forall2_cons _ _ Hs (Forall2_cons _ _ Ht Hk')) E).
+    + rewrite rev_append_rev; apply (follow_stuck S h i kept ckept _ _ v S' I Hk (RWCons S _ x w _ cw Hc Hs Hw) E).
 Qed.
 
 Lemma lookup_spec S h w cw : Inv S -> RWord S w cw -> forall i v S',
   HNorm.lookup F h i w S = (v, S') -> Inv S' /\ Ext S S' /\ RVal S' v (CNorm.lookup F h i cw).
-Proof.
-  intros I H; induction H as [|s x w cs cw Hc Hs Hw IH]; intros i v S' E.
-  - injection E as <- <-; split; [exact I|split; [apply Ext_refl|constructor]].
-  - assert (Stuck :
-      (let '(r, S1) := HNorm.relnf F h ((s, x) :: w) S in (HNorm.VLook h i (HNorm.wid r), S1)) = (v, S') ->
-      Inv S' /\ Ext S S' /\ RVal S' v (CNorm.VLook h i (CNorm.relnf F h (cs :: cw)))).
-    { destruct (HNorm.relnf F h ((s, x) :: w) S) as [r S1] eqn:Er; intros Ev; injection Ev as <- <-.
-      destruct (relnf_spec S h ((s, x) :: w) (cs :: cw) r S1 I (RWCons S s x w cs cw Hc Hs Hw) Er) as [I1 [X1 H1]].
-      split; [exact I1|split; [exact X1|constructor; apply RWord_RId, H1]]. }
-    inversion Hs as [g v0 cv Hv|g|a]; subst; cbn [HNorm.lookup CNorm.lookup] in E |- *.
-    + destruct (lexp_eqb g h).
-      * destruct i as [|i]; [injection E as <- <-; split; [exact I|split; [apply Ext_refl|exact Hv]]|apply (IH i v S' E)].
-      * change (HNorm.kd F g h) with (CNorm.kd F g h) in E.
-        destruct (CNorm.kd F g h); [apply (IH i v S' E)|apply Stuck, E].
-    + destruct (lexp_eqb g h); [apply (IH (Datatypes.S i) v S' E)|].
-      change (HNorm.kd F g h) with (CNorm.kd F g h) in E.
-      destruct (CNorm.kd F g h); [apply (IH i v S' E)|apply Stuck, E].
-    + apply Stuck, E.
-Qed.
+Proof. intros I H i v S' E; apply (follow_spec S h w cw I H i [] [] v S' (Forall2_nil _) E). Qed.
 
 Lemma pushW_spec S h w cw w' S' : Inv S -> RWord S w cw -> HNorm.pushW F h w S = (w', S') ->
   Inv S' /\ Ext S S' /\ RWord S' w' (CNorm.pushW F h cw).

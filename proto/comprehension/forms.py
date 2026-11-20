@@ -1,5 +1,5 @@
-"""Context forms and the left-to-right pass of Core/CForm.v, in Python; then HNorm without relnf
-(pnorm.N(fix=False)) is compared with HNorm with relnf on every word."""
+"""Context forms and the left-to-right pass of Core/CForm.v, in Python; then the old HNorm
+(pnorm.N(fix=False)) is compared with HNorm on every word."""
 import sys; sys.path.insert(0,'.')
 import random
 from check3 import fmt
