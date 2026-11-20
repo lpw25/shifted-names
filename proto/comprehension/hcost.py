@@ -92,6 +92,18 @@ def adv_cells(n):
     for j in range(m): steps += [E(y[j], 'x'), W(c[j])]
     return word_expr(steps + [W(bj) for bj in b])
 def adv_cells_facts(n): return adv_labels_facts(n)
+def adv_rebuild(n):
+    """advC, with a weakening on z (after every other label) pushed after each lookup: it lands
+    at the end of the word, so every cell in front of it is rebuilt, although no cone changes."""
+    m = n // 4
+    c = [f'c{j}' for j in range(m)]; b = [f'b{j}' for j in range(m)]; y = [f'y{j}' for j in range(m)]
+    steps = []
+    for j in range(m): steps += [W('z'), E(y[j], 'x'), W(c[j])]
+    return word_expr(steps + [W(bj) for bj in b])
+def adv_rebuild_facts(n):
+    m = n // 4
+    labs = [f'c{j}' for j in range(m)] + [f'b{j}' for j in range(m)] + [f'y{j}' for j in range(m)] + ['x']
+    return adv_labels_facts(n * 3 // 4) + [(l, 'z') for l in labs]
 def many_blocks(n):
     """Few labels, many blocks: c1 and c2 are not ordered, both sort before h; y is not ordered
     against anything.  Weakenings alternating on c1 and c2 (each its own block), then n weakenings
@@ -119,6 +131,7 @@ FAMILIES = {
     'advL':    (adv_labels, None),       # facts depend on n
     'advC':    (adv_cells, None),
     'manyB':   (many_blocks, None),
+    'advR':    (adv_rebuild, None),
 }
 
 # ---------------------------------------------------------------- the normaliser
