@@ -92,6 +92,15 @@ def adv_cells(n):
     for j in range(m): steps += [E(y[j], 'x'), W(c[j])]
     return word_expr(steps + [W(bj) for bj in b])
 def adv_cells_facts(n): return adv_labels_facts(n)
+def many_blocks(n):
+    """Few labels, many blocks: c1 and c2 are not ordered, both sort before h; y is not ordered
+    against anything.  Weakenings alternating on c1 and c2 (each its own block), then n weakenings
+    on h, each pushed past every c block, then n entries on y with value h0, each looking h up past
+    every c block."""
+    m = n // 3
+    return word_expr([E('y', 'h') for _ in range(m)] + [W('h') for _ in range(m)] +
+                     [W('c1') if j % 2 == 0 else W('c2') for j in range(m)])
+def many_blocks_facts(n): return [('c1', 'h'), ('c2', 'h')]
 def adv_labels_facts(n):
     m = n // 3
     c = [f'c{j}' for j in range(m)]; b = [f'b{j}' for j in range(m)]; y = [f'y{j}' for j in range(m)]
@@ -109,6 +118,7 @@ FAMILIES = {
     'blocked': (lambda n: blocked(n, 0), []),
     'advL':    (adv_labels, None),       # facts depend on n
     'advC':    (adv_cells, None),
+    'manyB':   (many_blocks, None),
 }
 
 # ---------------------------------------------------------------- the normaliser
