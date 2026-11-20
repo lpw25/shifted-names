@@ -104,6 +104,21 @@ def adv_rebuild_facts(n):
     m = n // 4
     labs = [f'c{j}' for j in range(m)] + [f'b{j}' for j in range(m)] + [f'y{j}' for j in range(m)] + ['x']
     return adv_labels_facts(n * 3 // 4) + [(l, 'z') for l in labs]
+def adv_nested(n):
+    """Lookups of different labels h_j, each able to pass a different nested set of b's, with O(m)
+    facts: c's below the hub chain g_0 < g_1 < ..., g_k < b_k, h_j < g_(j+1), e below every h.
+    Entries on e with value h_j, in front of weakenings on every c (an antichain), then every b
+    (an antichain above every c).  The lookup of h_j keeps every c and can pass b_(j+1), ...: each
+    c kept filters that set, without changing it."""
+    m = n // 3
+    return word_expr([E('e', f'h{j}') for j in range(m)] + [W(f'c{i}') for i in range(m)] +
+                     [W(f'b{k}') for k in range(m)])
+def adv_nested_facts(n):
+    m = n // 3
+    F = [(f'c{i}', 'g0') for i in range(m)] + [(f'g{k}', f'g{k+1}') for k in range(m)]
+    F += [(f'g{k}', f'b{k}') for k in range(m)] + [(f'h{j}', f'g{j+1}') for j in range(m)]
+    F += [('e', f'h{j}') for j in range(m)]
+    return F
 def many_blocks(n):
     """Few labels, many blocks: c1 and c2 are not ordered, both sort before h; y is not ordered
     against anything.  Weakenings alternating on c1 and c2 (each its own block), then n weakenings
@@ -132,6 +147,7 @@ FAMILIES = {
     'advC':    (adv_cells, None),
     'manyB':   (many_blocks, None),
     'advR':    (adv_rebuild, None),
+    'advN':    (adv_nested, None),
 }
 
 # ---------------------------------------------------------------- the normaliser
