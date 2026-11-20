@@ -98,8 +98,9 @@ Definition before (a b : lexp) : bool := match lcmp F a b with Some Lt => true |
     from [h] and from the label of every step kept so far.  Until a step
     is kept, a step on [h] moves the index or gives the value.  Any other
     step is kept, and the value is then [hᵢ] with the kept steps as its
-    payload, hash-consed; an atom is kept with the rest of the word,
-    which is shared.  [kept] is in reverse order. *)
+    payload, hash-consed; an atom is kept with the rest of the word.
+    The kept steps since the last step not kept are shared, as they
+    stand in the word ([mark]).  [kept] is in reverse order. *)
 
 Definition skd (l : lexp) (t : step) : bool :=
   match t with SE m _ | SW m => kd l m | SA _ => false end.
@@ -108,34 +109,37 @@ Definition skd (l : lexp) (t : step) : bool :=
 Definition passes (h l : lexp) (kept : list step) : bool :=
   if kd h l then forallb (skd l) kept else false.
 
-Fixpoint follow (h : lexp) (i : nat) (kept : list step) (w : word) (Z : st) : val * st :=
+(** The payload: the kept steps up to [mark], rebuilt, on [mark], which
+    is shared: [mark] starts with the last [n] kept steps. *)
+Definition payload (h : lexp) (i : nat) (kept : list step) (n : nat) (mark : word) (Z : st) : val * st :=
+  let '(r, S1) := rebuild (rev (skipn n kept)) mark Z in (VLook h i (wid r), S1).
+
+(** [mark] is the word from the first of the last [n] kept steps, all
+    contiguous; it moves on past every step that is not kept. *)
+Fixpoint follow (h : lexp) (i : nat) (kept : list step) (n : nat) (mark : word) (w : word) (Z : st) : val * st :=
   match w with
-  | [] =>
-      match kept with
-      | [] => (VVar h i, Z)
-      | _ => let '(r, S1) := rebuild (rev kept) [] Z in (VLook h i (wid r), S1)
-      end
+  | [] => match kept with [] => (VVar h i, Z) | _ => payload h i kept n mark Z end
   | (s, _) :: w' =>
       match s with
       | SE g v =>
-          if passes h g kept then follow h i kept w' Z
+          if passes h g kept then follow h i kept 0 w' w' Z
           else match kept with
-               | [] => if lexp_eqb g h then match i with 0 => (v, Z) | S i' => follow h i' [] w' Z end
-                       else follow h i [s] w' Z
-               | _ => follow h i (s :: kept) w' Z
+               | [] => if lexp_eqb g h then match i with 0 => (v, Z) | S i' => follow h i' [] 0 w' w' Z end
+                       else follow h i [s] 1 mark w' Z
+               | _ => follow h i (s :: kept) (S n) mark w' Z
                end
       | SW g =>
-          if passes h g kept then follow h i kept w' Z
+          if passes h g kept then follow h i kept 0 w' w' Z
           else match kept with
-               | [] => if lexp_eqb g h then follow h (S i) [] w' Z else follow h i [s] w' Z
-               | _ => follow h i (s :: kept) w' Z
+               | [] => if lexp_eqb g h then follow h (S i) [] 0 w' w' Z else follow h i [s] 1 mark w' Z
+               | _ => follow h i (s :: kept) (S n) mark w' Z
                end
-      | SA _ => let '(r, S1) := rebuild (rev kept) w Z in (VLook h i (wid r), S1)
+      | SA _ => payload h i kept n mark Z
       end
   end.
 
 (** The variable [hᵢ] at the start of [w], followed to its value. *)
-Definition lookup (h : lexp) (i : nat) (w : word) (Z : st) : val * st := follow h i [] w Z.
+Definition lookup (h : lexp) (i : nat) (w : word) (Z : st) : val * st := follow h i [] 0 w w Z.
 
 (** Where a step on [h] stops: the steps it passes and the rest,
     starting at the stopping step.  It passes steps on labels that sort

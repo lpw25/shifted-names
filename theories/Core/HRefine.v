@@ -290,45 +290,67 @@ Proof.
   inversion Ht; reflexivity.
 Qed.
 
-Lemma follow_stuck S h i kept ckept w cw v S' :
-  Inv S -> Forall2 (RStep S) kept ckept -> RWord S w cw ->
-  (let '(r, S1) := HNorm.rebuild (rev kept) w S in (HNorm.VLook h i (HNorm.wid r), S1)) = (v, S') ->
+Lemma Forall2_skipn {A B} (R : A -> B -> Prop) n : forall p q, Forall2 R p q -> Forall2 R (skipn n p) (skipn n q).
+Proof. induction n as [|n IH]; intros p q H; [exact H|destruct H; [constructor|apply IH, H0]]. Qed.
+
+Lemma follow_stuck S h i kept ckept n mark cmark cw v S' :
+  Inv S -> Forall2 (RStep S) kept ckept -> RWord S mark cmark -> cmark = rev (firstn n ckept) ++ cw ->
+  HNorm.payload h i kept n mark S = (v, S') ->
   Inv S' /\ Ext S S' /\ RVal S' v (CNorm.VLook h i (rev ckept ++ cw)).
 Proof.
-  intros I Hk Hw E; destruct (HNorm.rebuild (rev kept) w S) as [r S1] eqn:Er; injection E as <- <-.
-  destruct (rebuild_spec (rev kept) (rev ckept) S w cw r S1 I (Forall2_rev_RStep S _ _ Hk) Hw Er) as [I1 [X1 H1]].
-  split; [exact I1|split; [exact X1|constructor; apply RWord_RId, H1]].
+  intros I Hk Hm Em E; unfold HNorm.payload in E.
+  destruct (HNorm.rebuild (rev (skipn n kept)) mark S) as [r S1] eqn:Er; injection E as <- <-.
+  destruct (rebuild_spec (rev (skipn n kept)) (rev (skipn n ckept)) S mark cmark r S1 I
+              (Forall2_rev_RStep S _ _ (Forall2_skipn _ n _ _ Hk)) Hm Er) as [I1 [X1 H1]].
+  split; [exact I1|split; [exact X1|constructor; apply RWord_RId]].
+  rewrite Em, app_assoc, <- rev_app_distr, firstn_skipn in H1; exact H1.
 Qed.
 
-Lemma follow_spec S h w cw : Inv S -> RWord S w cw -> forall i kept ckept v S',
-  Forall2 (RStep S) kept ckept -> HNorm.follow F h i kept w S = (v, S') ->
+Lemma follow_spec S h w cw : Inv S -> RWord S w cw -> forall i kept ckept n mark cmark v S',
+  Forall2 (RStep S) kept ckept -> RWord S mark cmark -> cmark = rev (firstn n ckept) ++ cw ->
+  HNorm.follow F h i kept n mark w S = (v, S') ->
   Inv S' /\ Ext S S' /\ RVal S' v (CNorm.follow F h i ckept cw).
 Proof.
-  intros I H; induction H as [|s x w cs cw Hc Hs Hw IH]; intros i kept ckept v S' Hk E.
+  intros I H; induction H as [|s x w cs cw Hc Hs Hw IH]; intros i kept ckept n mark cmark v S' Hk Hm Em E.
   - destruct Hk as [|t ct kept ckept Ht Hk']; cbn [HNorm.follow CNorm.follow] in E |- *.
     + injection E as <- <-; split; [exact I|split; [apply Ext_refl|constructor]].
-    + pose proof (follow_stuck S h i (t :: kept) (ct :: ckept) [] [] v S' I (Forall2_cons _ _ Ht Hk') (RWNil S) E) as R.
+    + pose proof (follow_stuck S h i (t :: kept) (ct :: ckept) n mark cmark [] v S' I (Forall2_cons _ _ Ht Hk') Hm Em E) as R.
       rewrite app_nil_r in R; exact R.
-  - inversion Hs as [g v0 cv Hv|g|a]; subst; cbn [HNorm.follow CNorm.follow] in E |- *.
-    + rewrite (passes_rel S h g kept ckept Hk) in E; destruct (CNorm.passes F h g ckept); [apply (IH i _ _ v S' Hk E)|].
-      destruct Hk as [|t ct kept' ckept' Ht Hk'].
-      * destruct (lexp_eqb g h).
-        -- destruct i as [|i]; [injection E as <- <-; split; [exact I|split; [apply Ext_refl|exact Hv]]|].
-           apply (IH i [] [] v S' (Forall2_nil _) E).
-        -- apply (IH i _ _ v S' (Forall2_cons _ _ Hs (Forall2_nil _)) E).
-      * apply (IH i _ _ v S' (Forall2_cons _ _ Hs (Forall2_cons _ _ Ht Hk')) E).
-    + rewrite (passes_rel S h g kept ckept Hk) in E; destruct (CNorm.passes F h g ckept); [apply (IH i _ _ v S' Hk E)|].
-      destruct Hk as [|t ct kept' ckept' Ht Hk'].
-      * destruct (lexp_eqb g h).
-        -- apply (IH (Datatypes.S i) [] [] v S' (Forall2_nil _) E).
-        -- apply (IH i _ _ v S' (Forall2_cons _ _ Hs (Forall2_nil _)) E).
-      * apply (IH i _ _ v S' (Forall2_cons _ _ Hs (Forall2_cons _ _ Ht Hk')) E).
-    + rewrite rev_append_rev; apply (follow_stuck S h i kept ckept _ _ v S' I Hk (RWCons S _ x w _ cw Hc Hs Hw) E).
+  - assert (Next : forall i' kept' ckept', Forall2 (RStep S) kept' ckept' ->
+      HNorm.follow F h i' kept' 0 w w S = (v, S') -> Inv S' /\ Ext S S' /\ RVal S' v (CNorm.follow F h i' ckept' cw))
+      by (intros i' kept' ckept' Hk2 E2; apply (IH i' kept' ckept' 0 w cw v S' Hk2 Hw eq_refl E2)).
+    assert (Atom : forall a, s = HNorm.SA a -> cs = CNorm.SA a ->
+      HNorm.payload h i kept n mark S = (v, S') -> Inv S' /\ Ext S S' /\ RVal S' v (CNorm.VLook h i (rev_append ckept (cs :: cw)))).
+    { intros a -> -> E2; rewrite rev_append_rev; apply (follow_stuck S h i kept ckept n mark cmark _ v S' I Hk Hm Em E2). }
+    destruct Hk as [|t ct kept' ckept' Ht Hk'].
+    + assert (First : HNorm.follow F h i [s] 1 mark w S = (v, S') ->
+        Inv S' /\ Ext S S' /\ RVal S' v (CNorm.follow F h i [cs] cw)).
+      { intros E2; apply (IH i _ _ 1 mark cmark v S' (Forall2_cons _ _ Hs (Forall2_nil _)) Hm); [|exact E2].
+        rewrite Em; destruct n; reflexivity. }
+      inversion Hs as [g v0 cv Hv|g|a]; subst s cs; cbn [HNorm.follow CNorm.follow] in E |- *.
+      * rewrite (passes_rel S h g [] [] (Forall2_nil _)) in E; destruct (CNorm.passes F h g []); [apply (Next i _ _ (Forall2_nil _) E)|].
+        destruct (lexp_eqb g h); [|apply First, E].
+        destruct i as [|i]; [injection E as <- <-; split; [exact I|split; [apply Ext_refl|exact Hv]]|].
+        apply (Next i [] [] (Forall2_nil _) E).
+      * rewrite (passes_rel S h g [] [] (Forall2_nil _)) in E; destruct (CNorm.passes F h g []); [apply (Next i _ _ (Forall2_nil _) E)|].
+        destruct (lexp_eqb g h); [apply (Next (Datatypes.S i) [] [] (Forall2_nil _) E)|apply First, E].
+      * apply (Atom a eq_refl eq_refl E).
+    + assert (Hk : Forall2 (RStep S) (t :: kept') (ct :: ckept')) by (constructor; assumption).
+      assert (Keep : HNorm.follow F h i (s :: t :: kept') (Datatypes.S n) mark w S = (v, S') ->
+        Inv S' /\ Ext S S' /\ RVal S' v (CNorm.follow F h i (cs :: ct :: ckept') cw)).
+      { intros E2; apply (IH i _ _ (Datatypes.S n) mark cmark v S' (Forall2_cons _ _ Hs Hk) Hm); [|exact E2].
+        rewrite Em; cbn [firstn rev]; rewrite <- app_assoc; reflexivity. }
+      inversion Hs as [g v0 cv Hv|g|a]; subst s cs; cbn [HNorm.follow CNorm.follow] in E |- *.
+      * rewrite (passes_rel S h g _ _ Hk) in E; destruct (CNorm.passes F h g (ct :: ckept')); [apply (Next i _ _ Hk E)|].
+        apply Keep, E.
+      * rewrite (passes_rel S h g _ _ Hk) in E; destruct (CNorm.passes F h g (ct :: ckept')); [apply (Next i _ _ Hk E)|].
+        apply Keep, E.
+      * apply (Atom a eq_refl eq_refl E).
 Qed.
 
 Lemma lookup_spec S h w cw : Inv S -> RWord S w cw -> forall i v S',
   HNorm.lookup F h i w S = (v, S') -> Inv S' /\ Ext S S' /\ RVal S' v (CNorm.lookup F h i cw).
-Proof. intros I H i v S' E; apply (follow_spec S h w cw I H i [] [] v S' (Forall2_nil _) E). Qed.
+Proof. intros I H i v S' E; apply (follow_spec S h w cw I H i [] [] 0 w cw v S' (Forall2_nil _) H eq_refl E). Qed.
 
 Lemma pushW_spec S h w cw w' S' : Inv S -> RWord S w cw -> HNorm.pushW F h w S = (w', S') ->
   Inv S' /\ Ext S S' /\ RWord S' w' (CNorm.pushW F h cw).
