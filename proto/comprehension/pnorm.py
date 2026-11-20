@@ -13,23 +13,24 @@ class N:
                     if b==c and (a,d) not in s.LT: s.LT.add((a,d)); ch=True
     def before(s,a,b): return a!=b and ((a,b) in s.LT or (b==BOUND and a!=BOUND))
     def kd(s,a,b): return s.before(a,b) or s.before(b,a)
-    def passes(s,h,l,kept):
-        return s.kd(h,l) and all(s.kd(l,t[1]) for t in kept)
+    def passes(s,h,l,labs):
+        # labs: the labels of the kept steps, each once
+        return s.kd(h,l) and all(s.kd(l,m) for m in labs)
     def lookup(s,h,i,w):
         # CNorm.follow: pass what cannot affect h_i; until a step is kept, a step on h moves the
         # index or gives the value; keep anything else, and the value is h_i with the kept steps
         # as its payload.  With fix=False nothing is passed once a step is kept.
-        kept=[]
+        kept=[]; labs=set()
         for j,st in enumerate(w):
             if st[0]=='A': return ('L',h,i,tuple(kept)+tuple(w[j:]))
             g=st[1]
-            if (s.fix or not kept) and s.passes(h,g,kept): continue
+            if (s.fix or not kept) and s.passes(h,g,labs): continue
             if not kept and g==h:
                 if st[0]=='E':
                     if i==0: return st[2]
                     i-=1
                 else: i+=1
-            else: kept.append(st)
+            else: kept.append(st); labs.add(g)
         return ('L',h,i,tuple(kept)) if kept else ('V',h,i)
     def stop(s,h,w):
         j=0
