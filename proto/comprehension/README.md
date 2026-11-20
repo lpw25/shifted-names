@@ -53,3 +53,8 @@ Run from this directory:
   `python3 hcost.py [coq|fast] [family ...]`. `coq` is the lookup as in Coq; `fast` adds
   per-cell summaries (labels present, next stop per label) and memoised payloads, with the
   same normal forms (`hcost.same`).
+- `htrie.py`: `HNorm` with words stored as blocks (maximal runs of ordered labels), each a
+  hash-consed treap keyed by label in chain order, holding each label's entries and number of
+  weakenings. Same normal forms as `hcost.H` (`python3 htrie.py check`; also every word up to
+  length 4 on the canonicity-check sets). `python3 htrie.py [family ...]` gives operation counts:
+  linear on all nine timing families.
