@@ -588,15 +588,20 @@ once it has been moved in front of the kept steps. An earlier rule in `rforms.py
 
 | Family | `HNorm` alone | Pass alone | Pass, then `HNorm` |
 |---|---|---|---|
-| renamings (copy then weaken the source) | 0.010 / 0.015 / 0.036 s | 0.022 / 0.038 / 0.073 s | 0.017 / 0.032 / 0.071 s |
-| renamings, no facts | 0.11 / 0.44 / 1.85 s | 0.011 / 0.019 / 0.038 s | 0.12 / 0.53 / 1.78 s |
-| lifts, restores absorbed | 0.11 / 0.70 / 3.55 s | 0.065 / 0.34 / 1.12 s | 0.073 / 0.27 / 1.22 s |
-| weakenings composed with entries | 0.39 / 2.12 / 11.7 s | 0.18 / 1.04 / 2.68 s | 0.66 / 2.88 / 13.1 s |
-| entries composed with weakenings | 0.078 / 0.38 / 2.62 s | 0.30 / 0.96 / 3.45 s | 0.60 / 2.95 / 13.9 s |
-| payload entries composed with weakenings | 0.087 / 0.42 / 2.32 s | 0.15 / 0.72 / 2.63 s | exponential: 0.24 s at `n` = 16, 1.8 s at 20 |
-| lifts over payload entries | 0.12 / 0.78 / 4.28 s | 0.13 / 0.53 / 2.64 s | 0.47 / 2.90 / 23.2 s |
-| copy chain with weakenings | 1.73 / 13.9 / 109 s | 0.027 / 0.051 / 0.104 s | 3.36 / 25.8 / 203 s |
-| a weakening through blocked forms, no facts | 0.021 / 0.081 / 0.40 s | 0.006 / 0.009 / 0.018 s | 0.032 / 0.12 / 0.46 s |
+| renamings (copy then weaken the source) | 0.009 / 0.016 / 0.031 s | 0.015 / 0.029 / 0.058 s | 0.016 / 0.030 / 0.059 s |
+| renamings, no facts | 0.093 / 0.37 / 1.50 s | 0.011 / 0.020 / 0.040 s | 0.11 / 0.44 / 1.57 s |
+| lifts, restores absorbed | 0.14 / 0.79 / 3.63 s | 0.15 / 0.29 / 1.19 s | 0.075 / 0.31 / 1.25 s |
+| weakenings composed with entries | 0.45 / 2.19 / 11.6 s | 0.15 / 0.63 / 2.73 s | 0.48 / 2.43 / 11.5 s |
+| entries composed with weakenings | 0.085 / 0.40 / 2.36 s | 0.22 / 0.87 / 3.53 s | 0.53 / 2.90 / 12.8 s |
+| payload entries composed with weakenings | 0.091 / 0.37 / 2.11 s | 0.19 / 0.96 / 3.24 s | exponential: 0.24 s at `n` = 16, 1.8 s at 20 |
+| lifts over payload entries | 0.14 / 0.87 / 4.19 s | 0.15 / 0.67 / 2.80 s | 0.62 / 3.13 / 23.6 s |
+| copy chain with weakenings | 0.21 / 0.87 / 3.45 s | 0.025 / 0.049 / 0.10 s | 0.43 / 1.73 / 6.35 s |
+| a weakening through blocked forms, no facts | 0.022 / 0.090 / 0.30 s | 0.005 / 0.009 / 0.019 s | 0.029 / 0.096 / 0.41 s |
+
+`HNorm`'s lookups check a step against the labels of the steps they
+have kept, each once (`decide`). They used to check it against every
+kept step, which made the copy chain cubic (109 s at 1,000): there most
+lookups keep about half the word, on a handful of labels.
 
 - **Pass first rarely pays.** It helps only where it merges most of the
   word away (absorbed lifts, 3×). Elsewhere `HNorm` still does its work on
@@ -604,9 +609,10 @@ once it has been moved in front of the kept steps. An earlier rule in `rforms.py
 - **Payloads blow up.** Each composition copies the right-hand form into
   every payload passing through it, unshared, so the pass's output grows
   exponentially. Payloads need `HNorm`'s sharing.
-- **`HNorm`'s own costs are the bottleneck.** It is cubic on the copy
-  chain and quadratic or worse on most families, even where the pass alone
-  is linear.
+- **`HNorm`'s own costs are the bottleneck.** It is quadratic on most
+  families, even where the pass alone is linear. On the copy chain each
+  lookup that keeps a step walks to the end of the word to build its
+  payload.
 
 ## Still open
 
