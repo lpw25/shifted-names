@@ -47,3 +47,9 @@ Run from this directory:
     stands for; with `h0` the output `h` cannot move right.
   - `rlr` (`rlr.py`, the same steps processed left to right) also leaves
     reads below outputs placed after them, e.g. `Eg(g0) Wk Wh`.
+
+- `hcost.py`: operation counts for `HNorm` (a mirror of `Core/HNorm.v` with hash-consed
+  cells), on the timing families and two with many labels (`advL`, `advC`).
+  `python3 hcost.py [coq|fast] [family ...]`. `coq` is the lookup as in Coq; `fast` adds
+  per-cell summaries (labels present, next stop per label) and memoised payloads, with the
+  same normal forms (`hcost.same`).
