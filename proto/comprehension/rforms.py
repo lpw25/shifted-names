@@ -190,33 +190,6 @@ class R:
             else: return None
         return (oid, o), Form(f.O[:j] + f.O[j + 1:], newI)
 
-    def out_alias(s, f1, f2, j):
-        """Output j of f1 moves into f2 although inputs of f1 read the value it pops, when f2,
-        with that output added, pushes the same value on some label y: those reads are
-        redirected to y.  Returns (f1', g, oid) or None (f2 unchanged)."""
-        oid, o = f1.O[j]
-        for _, a in f1.O[:j]:
-            if not s.kd(o, a): return None
-        g = Form(list(f2.O), list(f2.I))
-        if s.compose(Form([(oid, o)], []), g) is None: return None
-        jj = next((q for q, (x, _) in enumerate(g.O) if x == oid), None)
-        if jj is None: return None           # cancelled in f2: not this case
-        alias = None; seen = {}
-        for (iid, y, (z, i, d)) in g.I:
-            m = seen.get(y, 0); seen[y] = m + 1
-            if z == o and i == 0 and d <= jj and all(s.kd(o, b) and b != o for _, b in g.O[d:jj]):
-                alias = (y, m); break
-        if alias is None: return None
-        newI = []
-        for (iid, h, (z, i, d)) in f1.I:
-            if d > j: newI.append((iid, h, (z, i, d - 1)))
-            elif z == o:
-                if i == 0: newI.append((iid, h, (alias[0], alias[1], 0)))
-                else: newI.append((iid, h, (z, i - 1, d)))
-            elif s.kd(z, o): newI.append((iid, h, (z, i, d)))
-            else: return None
-        return Form(f1.O[:j] + f1.O[j + 1:], newI), g, oid
-
     def in_first(s, f, p):
         iid, h, (z, i, d) = f.I[p]
         if not all(s.kd(h, m) for _, m, _ in f.I[p + 1:]): return None
@@ -238,14 +211,7 @@ class R:
         for j, (oid, o) in enumerate(f1.O):
             if oid == x:
                 r = s.out_first(f1, j)
-                if r is None:
-                    a = s.out_alias(f1, f2, j)
-                    if a is None: return None
-                    f1n, g, _ = a
-                    for q, (iid, h, t) in enumerate(f1n.I):
-                        if t[2] == j: f1n.I[q] = (iid, h, s.nread(f1n.O, t))
-                    s.place_outputs(f1n, up=range(j, len(f1n.O)))
-                    return f1n, g, {oid}, False, False
+                if r is None: return None
                 item, f1n = r
                 c = s.compose(Form([item], []), f2)
                 if c is None: return None
