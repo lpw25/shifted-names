@@ -25,3 +25,24 @@ Run from this directory:
   is processed from its end; new items are placed by insertion; only items that just arrived
   are tried against the next form). `rforms_check.py`: the canonicity check;
   `rforms_time.py`: timings with moves counted.
+
+- `pipe_check.py`: canonicity of the whole pipeline (a pass, then `HNorm`
+  without `relnf`) against meaning in sampled generic models.
+  `python3 pipe_check.py [rl|rlr] N`.
+
+  Length 4, 12 models (unsound / missed meanings):
+
+  | set | words | meanings | `rforms` | `rlr` | `HNorm`+`relnf` |
+  |---|---|---|---|---|---|
+  | g, h, k; g<h, k<h; no lifts | 309,325 | 126,316 | 0 / 8 | 0 / 360 | 0 / 0 |
+  | a<b<c; lifts | 780,391 | 41,878 | 0 / 0 | 0 / 0 | 0 / 0 |
+
+  With every pair of labels ordered, both passes are canonical. Where some
+  labels are unordered:
+
+  - `rforms` misses aliases across forms that do not compose, e.g.
+    `Wh Eg(g1) Eg(k0) Eg(h0)` and `Wh Eg(h0) Eg(k0) Eg(h0)`. The left
+    form reads the `g` the right form pushed (`g0`), or the `h0` it
+    stands for; with `h0` the output `h` cannot move right.
+  - `rlr` (`rlr.py`, the same steps processed left to right) also leaves
+    reads below outputs placed after them, e.g. `Eg(g0) Wk Wh`.
