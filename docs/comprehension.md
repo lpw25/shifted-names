@@ -547,6 +547,55 @@ A label summary built at each composition did not help, since building
 it costs as much as the scan it saves. These would need summaries kept
 in the form itself, such as counts or positions per label.
 
+## The pass before `HNorm`: canonicity and cost
+
+**Canonicity.** Checked against meaning in sampled generic models with
+`proto/comprehension/pipe_check.py`, length 4 on `g, h, k` (`g < h`,
+`k < h`), `g, h, m` (`g < h`) and `a < b < c`, with lifts (780,391
+words each), and every set at length 3:
+
+| Pipeline | Unsound | Missed |
+|---|---|---|
+| `HNorm` (with `relnf`) alone | 0 | 0 |
+| the pass, then `HNorm` with `relnf` | 0 | 0 |
+| the pass, then `HNorm` without `relnf` | 0 | 40 (all on `g, h, k`) |
+
+The misses of the last pipeline are not the pass's to fix. In each,
+`HNorm` gets a lookup stuck at a step on a label not ordered against
+the read's. It records the variable together with the rest of the word,
+which includes a step the pass legitimately moved there but that cannot
+affect the read (for example a weakening of `h` in a stuck lookup of
+`k₀`, with `k < h`). Trimming such steps as the stuck lookup is made is
+what `relnf` does; `HNorm` in Coq already does it, sharing the result by
+word id. An earlier rule in `rforms.py` that worked around one case
+(redirecting reads of an output's slot) has been removed.
+
+**Cost** under `vm_compute`, 8 labels (`a0 < … < a7` unless noted),
+`n` = 250 / 500 / 1,000. "Pass" is `rnormN`; "pass, then `HNorm`" is
+`HNorm.norm` on `crN_form`.
+
+| Family | `HNorm` alone | Pass alone | Pass, then `HNorm` |
+|---|---|---|---|
+| renamings (copy then weaken the source) | 0.010 / 0.015 / 0.036 s | 0.022 / 0.038 / 0.073 s | 0.017 / 0.032 / 0.071 s |
+| renamings, no facts | 0.11 / 0.44 / 1.85 s | 0.011 / 0.019 / 0.038 s | 0.12 / 0.53 / 1.78 s |
+| lifts, restores absorbed | 0.11 / 0.70 / 3.55 s | 0.065 / 0.34 / 1.12 s | 0.073 / 0.27 / 1.22 s |
+| weakenings composed with entries | 0.39 / 2.12 / 11.7 s | 0.18 / 1.04 / 2.68 s | 0.66 / 2.88 / 13.1 s |
+| entries composed with weakenings | 0.078 / 0.38 / 2.62 s | 0.30 / 0.96 / 3.45 s | 0.60 / 2.95 / 13.9 s |
+| payload entries composed with weakenings | 0.087 / 0.42 / 2.32 s | 0.15 / 0.72 / 2.63 s | exponential: 0.24 s at `n` = 16, 1.8 s at 20 |
+| lifts over payload entries | 0.12 / 0.78 / 4.28 s | 0.13 / 0.53 / 2.64 s | 0.47 / 2.90 / 23.2 s |
+| copy chain with weakenings | 1.73 / 13.9 / 109 s | 0.027 / 0.051 / 0.104 s | 3.36 / 25.8 / 203 s |
+| a weakening through blocked forms, no facts | 0.021 / 0.081 / 0.40 s | 0.006 / 0.009 / 0.018 s | 0.032 / 0.12 / 0.46 s |
+
+- **Pass first rarely pays.** It helps only where it merges most of the
+  word away (absorbed lifts, 3×). Elsewhere `HNorm` still does its work on
+  the pass's output, and is as slow or slower.
+- **Payloads blow up.** Each composition copies the right-hand form into
+  every payload passing through it, unshared, so the pass's output grows
+  exponentially. Payloads need `HNorm`'s sharing.
+- **`HNorm`'s own costs are the bottleneck.** It is cubic on the copy
+  chain and quadratic or worse on most families, even where the pass alone
+  is linear.
+
 ## Still open
 
 - **The order hypotheses.** Irreflexivity and transitivity of
