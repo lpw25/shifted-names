@@ -363,10 +363,8 @@ Definition ex_facts : order := order_of [].
 
 Lemma ex_lt_known a b : lt_known ex_facts a b = lt_base a b.
 Proof.
-  unfold lt_known, lt_gen, ex_facts, olo, ohi, clo, chi, cnodes; cbn [order_of ckeys otree otab fact_cons fold_left cmap ctree_of mk_tree List.length].
-  destruct a as [| |i], b as [| |j]; cbn; rewrite ?PositiveMap.gempty; try reflexivity.
-  all: try (destruct i as [|[p|p|]]; reflexivity).
-  all: try (destruct j; reflexivity).
+  destruct a as [| |i], b as [| |j]; try reflexivity; unfold lt_known, ex_facts, order_of; cbn; unfold tmem, tup, dfind;
+    rewrite ?PositiveMap.gleaf; reflexivity.
 Qed.
 
 

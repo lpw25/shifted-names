@@ -606,29 +606,33 @@ once it has been moved in front of the kept steps. An earlier rule in `rforms.py
 **Labels and the order table.** Label atoms carry binary numbers (`N`).
 The known order (`Normalise.lt_known`) is the fixed order (concrete labels
 by the string order, the bound label last) and the facts, followed
-transitively. The facts are worked out once (`order_of`), as a graph: its
-nodes are the label atoms and the concrete labels the facts mention
-(sorted by merge sort, O(C log C) string comparisons), its edges the
-facts and each mentioned concrete label to the next. For each node, the nodes reachable from it are found by a
-depth-first search, bounded by the number of edges, and kept as maps
-keyed by binary keys: O(L (L + E)). The mentioned concrete labels are
-done last to first, each search starting from the next label's row (the
-chain edge makes it part of the answer), so their rows share structure
-and together cost O(L + E) (`Normalise.crows`). Two atoms, the common case, are
-compared by two map lookups, and two concrete labels by the string order
-alone (facts that hold cannot order them otherwise). Otherwise `a` is
-below `b` when the fixed order says so, or when there is a path from `a`
-(for a concrete label, the first mentioned one at or above it) to `b`
-(the last at or below it). A mentioned concrete label is its own
-representative, found in a map keyed by the string's bits; any other is
-found in a balanced search tree of the mentioned labels, in O(log C)
-string comparisons. Both are proved to agree with a scan of the sorted
-list (`Normalise.clo_chi_ok`). `lcmp` looks a concrete label compared
-with an atom up once for both directions (`lcmp_eq` relates it to the
-plain definition). With unary
+transitively. The facts are worked out once (`order_of`):
+
+- the facts between atoms are the edges of a graph, and for each atom the
+  atoms reachable from it are found by a depth-first search, bounded by
+  the number of edges, and kept as a map keyed by binary keys;
+- each atom gets `up`, the least concrete label the facts put above it
+  or above an atom it reaches, and `down`, the greatest concrete label
+  the facts put below it or below an atom that reaches it;
+- each atom's row of the table also holds every atom `b` with
+  `up a ≤ down b` (then `a < up a ≤ down b < b`).
+
+Two atoms are one lookup in the table; an atom and a concrete label are
+one string comparison with the atom's `up` or `down`; two concrete
+labels are compared by the string order, which facts that hold cannot
+add to. Building it costs O(A (A + E)) for A atoms and E facts, plus one
+string comparison for each pair of an `up` and a `down`.
+
+Normalisation makes tens of millions of comparisons, so the lookups are
+kept lean: atoms are keyed by `xI` of their number (no carry, unlike
+`N.succ_pos`, which cost 20% on the eight-label families); only atoms
+with edges, or with a concrete label directly above them, get a row (a
+row for every atom of a fact made `advN` 50% slower, the extra hits
+walking deeper than early misses); and the rows and the `up` bounds are
+separate maps rather than a map of pairs (10% on `absorbL` and the copy
+chain). With unary
 atoms and an L × L table of lists closed under transitivity, building the
-table took 330 s for about 400 labels and each comparison cost O(L); now
-it takes about 1 s.
+table took 330 s for about 400 labels and each comparison cost O(L).
 
 **Many labels, atoms and concrete.** `order_of` and the whole decision
 (`hn_eq`'s normalisation with the order built in the same `vm_compute`),
@@ -642,28 +646,26 @@ Each cell: the whole decision at `m` = 33 / 133, and in brackets
 
 | Family | Atoms | Concrete, facts | Mixed |
 |---|---|---|---|
-| `manyB` | 0.009 / 0.11 s (0.001) | 0.029 / 0.44 s (0.001) | 0.024 / 0.35 s (0.001) |
-| `advL` | 0.071 / 5.3 s (0.26) | 0.020 / 0.20 s (0.06) | 0.17 / 11.4 s (0.08) |
-| `advC` | 0.036 / 2.5 s (0.26) | 0.020 / 0.21 s (0.05) | 0.091 / 5.7 s (0.10) |
-| `advR` | 0.053 / 3.3 s (0.28) | 0.033 / 0.43 s (0.06) | 0.12 / 6.7 s (0.09) |
-| `advN` | 0.031 / 1.9 s (0.61) | 0.022 / 0.25 s (0.09) | 0.029 / 0.77 s (0.38) |
+| `manyB` | 0.009 / 0.11 s (0.001) | 0.026 / 0.44 s (0.001) | 0.021 / 0.31 s (0.001) |
+| `advL` | 0.071 / 5.2 s (0.33) | 0.011 / 0.14 s (0.006) | 0.17 / 8.6 s (0.08) |
+| `advC` | 0.043 / 2.5 s (0.33) | 0.012 / 0.16 s (0.007) | 0.082 / 4.4 s (0.07) |
+| `advR` | 0.053 / 3.3 s (0.34) | 0.024 / 0.39 s (0.007) | 0.12 / 5.0 s (0.07) |
+| `advN` | 0.033 / 2.0 s (0.83) | 0.013 / 0.16 s (0.011) | 0.054 / 1.1 s (0.72) |
 
-All are under 0.01 s at 10. Before the tree, the
-map and the string-order rule for concrete pairs, the mixed `advL` took
-478 s at 133 and the concrete one 10 s: every comparison of a concrete
-label scanned the mentioned labels. A comparison now costs about 0.5 µs
-for two atoms, 1 µs for two concrete labels and 2.5 µs for an atom and a
-concrete label (the string's key), which is the remaining factor between
-the mixed and the atom columns. Timing `order_of` as a separate
-definition overstates it: reading the table back as a term loses the
-sharing between rows (2.3 s rather than 0.06 s for concrete `advL`).
+All are under 0.01 s at 10. An earlier version kept the mentioned
+concrete labels as nodes of the graph, chained in string order, and had
+to find a concrete label's node in every comparison: by scanning the
+mentioned labels, the mixed `advL` took 478 s at 133 and the concrete one
+10 s; with a search tree and a map keyed by the string's bits, 11.4 s and
+0.20 s. Timing `order_of` as a separate definition overstates it:
+reading the table back as a term loses the sharing between rows.
 
-**End to end.** `KnownOrder` proves the search finds exactly the nodes
-reachable from its start, so the known order is transitive and
-irreflexive when the facts hold under some interpretation of the labels
-(`order_of_trans`, `order_of_irrefl`); transitivity needs that only when
-both ends are concrete, where a path through other labels must agree with
-the string order. Hence
+**End to end.** `KnownOrder` proves the search finds exactly the atoms
+reachable from its start, so the table is reachability or `up a ≤ down b`
+(`otab_iff`), and `up` and `down` only tighten along a path (`up_path`,
+`down_path`). When the facts hold under some interpretation of the
+labels, an atom's `down` is below its `up`, and the known order is
+transitive and irreflexive (`order_of_trans`, `order_of_irrefl`). Hence
 `HRefine.hn_eq_order_correct`: for such facts `l`,
 `hn_eq (order_of l) a b = true` exactly when `a` and `b` are equal in
 every comprehension model consistent with `order_of l`. Closed under the

@@ -37,7 +37,7 @@ Proof. apply eq_iff_eq_true; rewrite !lexp_eqb_eq; split; auto. Qed.
 
 Lemma before_spec a b : before F a b = true <-> a <> b /\ lt_known F a b = true.
 Proof.
-  unfold before; rewrite lcmp_eq; unfold lcmp_spec; destruct (lexp_eqb a b) eqn:E.
+  unfold before, lcmp; destruct (lexp_eqb a b) eqn:E.
   - apply lexp_eqb_eq in E; split; [discriminate|intros [N _]; contradiction].
   - apply lexp_eqb_false in E; destruct (lt_known F a b) eqn:L.
     + split; auto.
@@ -46,7 +46,7 @@ Qed.
 
 Lemma kd_spec a b : kd F a b = true <-> a <> b /\ (lt_known F a b = true \/ lt_known F b a = true).
 Proof.
-  unfold kd; rewrite lcmp_eq; unfold lcmp_spec; destruct (lexp_eqb a b) eqn:E.
+  unfold kd, lcmp; destruct (lexp_eqb a b) eqn:E.
   - apply lexp_eqb_eq in E; split; [discriminate|intros [N _]; contradiction].
   - apply lexp_eqb_false in E; destruct (lt_known F a b) eqn:L1; [split; auto|].
     destruct (lt_known F b a) eqn:L2; [split; auto|split; [discriminate|intros [_ [H|H]]; discriminate]].

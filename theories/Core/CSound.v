@@ -101,14 +101,14 @@ Hypothesis HM : ccons F M.
 
 Lemma kd_known g h : kd F g h = true -> known_distinct F g h.
 Proof.
-  unfold kd; rewrite lcmp_eq; unfold lcmp_spec; destruct (lexp_eqb g h); [discriminate|].
+  unfold kd, lcmp; destruct (lexp_eqb g h); [discriminate|].
   destruct (lt_known F g h) eqn:E1; [intros _; left; exact E1|].
   destruct (lt_known F h g) eqn:E2; [intros _; right; exact E2|discriminate].
 Qed.
 
 Lemma before_known g h : before F g h = true -> known_distinct F g h.
 Proof.
-  unfold before; rewrite lcmp_eq; unfold lcmp_spec; destruct (lexp_eqb g h); [discriminate|].
+  unfold before, lcmp; destruct (lexp_eqb g h); [discriminate|].
   destruct (lt_known F g h) eqn:E1; [intros _; left; exact E1|].
   destruct (lt_known F h g); discriminate.
 Qed.
