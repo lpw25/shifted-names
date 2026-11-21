@@ -199,8 +199,12 @@ failed. On words of up to 3 steps with these facts, `HNorm` missed
 Now a lookup is one function, `follow`, in both `CNorm` and `HNorm`. It
 follows `hᵢ` through the word as `apply_var` follows a variable through
 an adjustment. It passes a step that cannot affect `hᵢ`: one on a label
-known distinct from `h` and from the label of every step kept so far,
-which can therefore be moved in front of the kept steps. Until a step is
+known distinct from `h` and sorting after the label of every step kept
+so far, which can therefore be moved in front of the kept steps. (In a
+normal word this is the same as known distinct from every kept label: a
+passed step's label always sorts after them. If it sorted before a kept
+label, it would be independent of everything between, so sortedness
+would have put it first. Checked on 2.5 million words.) Until a step is
 kept, a step on `h` moves the index or, as an entry for `h₀`, gives the
 value. Any other step is kept, and the value is then the variable `hᵢ`
 with the kept steps as its payload (`VLook h i w`), hash-consed in
@@ -598,10 +602,15 @@ once it has been moved in front of the kept steps. An earlier rule in `rforms.py
 | copy chain with weakenings | 0.21 / 0.87 / 3.45 s | 0.025 / 0.049 / 0.10 s | 0.43 / 1.73 / 6.35 s |
 | a weakening through blocked forms, no facts | 0.022 / 0.090 / 0.30 s | 0.005 / 0.009 / 0.019 s | 0.029 / 0.096 / 0.41 s |
 
-`HNorm`'s lookups check a step against the labels of the steps they
-have kept, each once (`decide`). They used to check it against every
-kept step, which made the copy chain cubic (109 s at 1,000): there most
-lookups keep about half the word, on a handful of labels.
+`HNorm`'s lookups test a step against the maximal kept labels only (the
+frontier, an antichain, so never more than the width `w` of the order);
+labels kept since the last test wait in a pending list and are merged
+only when a step has to be tested (`decide`, `mergef`). A lookup costs
+O(n·w), and normalisation O(n²·w). They used to test against every kept
+step, which made the copy chain cubic (109 s at 1,000): there most
+lookups keep about half the word, on a handful of labels. Orders with an
+antichain of about `n` labels are still cubic (`hcost.py`: `advL`,
+`advC`, `advR`).
 
 - **Pass first rarely pays.** It helps only where it merges most of the
   word away (absorbed lifts, 3×). Elsewhere `HNorm` still does its work on
