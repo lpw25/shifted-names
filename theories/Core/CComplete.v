@@ -136,18 +136,17 @@ Lemma sbefore_kd h p : Forall (sbefore h) p -> Forall (fun s => exists l, slabel
 Proof. intros H; eapply Forall_impl; [|exact H]; intros s [l [E B]]; exists l; split; [exact E|apply before_kd, B]. Qed.
 
 (** [follow] passes a step on [h], known distinct from [g], behind steps
-    sorting before [h]: those it keeps are on labels known distinct from
-    [h]. *)
+    sorting before [h]: those it keeps sort before [h]. *)
 Lemma follow_drop g h x r q : forall i kept,
-  kd F g h = true -> slabel x = Some h -> forallb (skd F h) kept = true -> Forall (sbefore h) q ->
+  kd F g h = true -> slabel x = Some h -> forallb (sbef F h) kept = true -> Forall (sbefore h) q ->
   follow F g i kept (q ++ x :: r) = follow F g i kept (q ++ r).
 Proof.
   induction q as [|s q IH]; intros i kept K Ex Hk Hq.
   - cbn [app]; assert (P : passes F g h kept = true) by (unfold passes; rewrite K, Hk; reflexivity).
     destruct x as [l v|l|a]; cbn in Ex; try discriminate; injection Ex as ->; cbn [follow]; rewrite P; reflexivity.
   - inversion Hq as [|? ? [l [El Bl]] Hq']; subst.
-    assert (Hs : skd F h s = true) by (unfold skd; rewrite El, kd_sym; apply before_kd, Bl).
-    assert (Hk' : forallb (skd F h) (s :: kept) = true) by (cbn [forallb]; rewrite Hs, Hk; reflexivity).
+    assert (Hs : sbef F h s = true) by (unfold sbef; rewrite El; exact Bl).
+    assert (Hk' : forallb (sbef F h) (s :: kept) = true) by (cbn [forallb]; rewrite Hs, Hk; reflexivity).
     destruct s as [l' v|l'|a]; cbn in El; try discriminate; injection El as ->; cbn [app follow].
     + destruct (passes F g l kept); [apply IH; assumption|].
       destruct kept as [|t kept']; [|apply IH; assumption].

@@ -192,11 +192,11 @@ Proof.
   apply sdist_cname; exists l; split; [exact Es|apply known_distinct_sym, kd_known, K].
 Qed.
 
-Lemma forallb_skd_sdist l kept : forallb (skd F l) kept = true -> Forall (sdist l) (rev kept).
+Lemma forallb_sbef_sdist l kept : forallb (sbef F l) kept = true -> Forall (sdist l) (rev kept).
 Proof.
   intros Hk; apply Forall_rev; rewrite forallb_forall in Hk; rewrite Forall_forall; intros t Ht.
-  specialize (Hk t Ht); unfold skd in Hk; destruct (slabel t) as [m|] eqn:Em; [|discriminate].
-  exists m; split; [exact Em|apply known_distinct_sym, kd_known, Hk].
+  specialize (Hk t Ht); unfold sbef in Hk; destruct (slabel t) as [m|] eqn:Em; [|discriminate].
+  exists m; split; [exact Em|apply before_known, Hk].
 Qed.
 
 Lemma follow_sound h w : forall i kept x,
@@ -208,7 +208,7 @@ Proof.
       vden (follow F h i kept w) x = cname h i (wden (rev kept ++ s :: w) x)).
     { intros l El P; unfold passes in P; apply andb_true_iff in P as [P1 P2].
       rewrite IH, !wden_app; cbn [wden]; symmetry; apply (pass_sound h i _ s l); [exact El|exact P1|].
-      apply forallb_skd_sdist, P2. }
+      apply forallb_sbef_sdist, P2. }
     assert (Keep : vden (follow F h i (s :: kept) w) x = cname h i (wden (rev kept ++ s :: w) x)).
     { rewrite IH; cbn [rev]; rewrite <- app_assoc; reflexivity. }
     destruct s as [g v|g|a]; cbn [follow].

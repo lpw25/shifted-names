@@ -110,16 +110,19 @@ Definition before (a b : lexp) : bool := match lcmp F a b with Some Lt => true |
     [follow h i kept w] follows [hᵢ] through [w], first step first, as
     [apply_var] follows a variable through an adjustment.  It passes a
     step that cannot affect [hᵢ]: one on a label known distinct from [h]
-    and from the label of every step kept so far, which can be moved in
-    front of the kept steps.  Until a step is kept, a step on [h] moves
-    the index, or, as an entry for [h₀], gives the value.  Any other step
-    is kept, and the value is then the variable [hᵢ] with the kept steps
-    as its payload; an atom is kept with everything after it.  [kept] is
-    in reverse order. *)
+    and sorting after the label of every step kept so far, so that it can
+    be moved in front of the kept steps.  (In a normal word this is the
+    same as known distinct from every kept label: a step known distinct
+    from them all always sorts after them.)  Until a step is kept, a step
+    on [h] moves the index, or, as an entry for [h₀], gives the value.
+    Any other step is kept, and the value is then the variable [hᵢ] with
+    the kept steps as its payload; an atom is kept with everything after
+    it.  [kept] is in reverse order. *)
 
-Definition skd (l : lexp) (t : cstep) : bool := match slabel t with Some m => kd l m | None => false end.
+(** The step [t] is kept on a label sorting before [l]. *)
+Definition sbef (l : lexp) (t : cstep) : bool := match slabel t with Some m => before m l | None => false end.
 
-Definition passes (h l : lexp) (kept : cword) : bool := kd h l && forallb (skd l) kept.
+Definition passes (h l : lexp) (kept : cword) : bool := kd h l && forallb (sbef l) kept.
 
 Fixpoint follow (h : lexp) (i : nat) (kept : cword) (w : cword) : cval :=
   match w with

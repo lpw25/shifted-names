@@ -13,24 +13,30 @@ class N:
                     if b==c and (a,d) not in s.LT: s.LT.add((a,d)); ch=True
     def before(s,a,b): return a!=b and ((a,b) in s.LT or (b==BOUND and a!=BOUND))
     def kd(s,a,b): return s.before(a,b) or s.before(b,a)
-    def passes(s,h,l,labs):
-        # labs: the labels of the kept steps, each once
-        return s.kd(h,l) and all(s.kd(l,m) for m in labs)
+    def passes(s,h,l,fr):
+        # fr: the maximal labels of the kept steps.  A step is passed when its label is known
+        # distinct from h and above every kept label, i.e. above every label of fr.
+        return s.kd(h,l) and all(s.before(m,l) for m in fr)
+    def addf(s,y,fr):
+        # y kept: drop the frontier labels below y; add y unless it is below or equal to one.
+        if any(y==m or s.before(y,m) for m in fr): return fr
+        return [m for m in fr if not s.before(m,y)]+[y]
     def lookup(s,h,i,w):
-        # CNorm.follow: pass what cannot affect h_i; until a step is kept, a step on h moves the
-        # index or gives the value; keep anything else, and the value is h_i with the kept steps
-        # as its payload.  With fix=False nothing is passed once a step is kept.
-        kept=[]; labs=set()
+        # CNorm.follow: pass a step whose label is known distinct from h and above every kept
+        # label; until a step is kept, a step on h moves the index or gives the value; keep
+        # anything else, and the value is h_i with the kept steps as its payload.  With
+        # fix=False nothing is passed once a step is kept.
+        kept=[]; fr=[]
         for j,st in enumerate(w):
             if st[0]=='A': return ('L',h,i,tuple(kept)+tuple(w[j:]))
             g=st[1]
-            if (s.fix or not kept) and s.passes(h,g,labs): continue
+            if (s.fix or not kept) and s.passes(h,g,fr): continue
             if not kept and g==h:
                 if st[0]=='E':
                     if i==0: return st[2]
                     i-=1
                 else: i+=1
-            else: kept.append(st); labs.add(g)
+            else: kept.append(st); fr=s.addf(g,fr)
         return ('L',h,i,tuple(kept)) if kept else ('V',h,i)
     def stop(s,h,w):
         j=0

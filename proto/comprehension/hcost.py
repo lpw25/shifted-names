@@ -11,7 +11,9 @@ values are interned, and every basic operation the Coq code does is counted:
   unbound cells visited by clean / has_unbound
 
 Lookup strategies (class attribute `follow`):
-  'coq'   HNorm.follow as in Coq: kept labels each once, merged lazily, checked by scanning.
+  'coq'   HNorm.follow as in Coq: a step is passed when its label is known distinct from h and
+          above every maximal kept label (the frontier).
+  'labs'  the previous HNorm.follow: kept labels each once, merged lazily, checked by scanning.
   'fast'  the same results, with summaries of cells computed once per cell: the labels present
           (labs), the next step a lookup of h must look at (nextstop, memoised per (h, cell)),
           a payload memoised per (h, stuck cell), and a trimming walk that stops once no label
@@ -199,6 +201,34 @@ class H:
         return getattr(s, 'follow_' + s.follow)(h, i, w)
 
     def follow_coq(s, h, i, w):
+        """HNorm.follow: a step is passed when its label is known distinct from h and above every
+        kept label, tested against the maximal kept labels (the frontier, an antichain)."""
+        kept = []; fr = []; n = 0; mark = w
+        for st, cur, nxt in s.steps(w):
+            s.C['walk'] += 1
+            if st[0] == 'A': return s.payload(h, i, kept, n, mark)
+            g = st[1]
+            p = False
+            if s.kd(h, g):
+                p = True
+                for m in fr:
+                    s.C['cmp'] += 1
+                    if not s.before(m, g): p = False; break
+            if p: n = 0; mark = nxt; continue
+            if not kept and g == h:
+                if st[0] == 'E':
+                    if i == 0: return st[2]
+                    i -= 1
+                else: i += 1
+                mark = nxt; continue
+            kept.insert(0, st); n += 1
+            if not any(g == m or s.before(g, m) for m in fr):      # g is a new maximal kept label
+                fr = [m for m in fr if not s.before(m, g)] + [g]
+            s.C['front'] += len(fr)
+        if not kept: return s.val(('V', h, i))
+        return s.payload(h, i, kept, n, mark)
+
+    def follow_labs(s, h, i, w):
         kept = []; labs = []; pend = []; n = 0; mark = w
         for st, cur, nxt in s.steps(w):
             s.C['walk'] += 1
@@ -376,7 +406,7 @@ class H:
             return s.pushE(e[1], v, s._norm(e[2], s.pushW(e[1], K)))
         raise ValueError(tag)
 
-def measure(fam, sizes, follow='coq', keys=('walk', 'cmp', 'dedup', 'stop', 'hcons', 'unbound', 'stuck', 'nstep', 'summ', 'live', 'memo')):
+def measure(fam, sizes, follow='coq', keys=('walk', 'cmp', 'front', 'dedup', 'stop', 'hcons', 'unbound', 'stuck', 'nstep', 'summ', 'live', 'memo')):
     mk, facts = FAMILIES[fam]
     rows = []
     for n in sizes:
@@ -403,12 +433,12 @@ if __name__ == '__main__':
     sys.setrecursionlimit(100000)
     args = sys.argv[1:]
     follow = 'coq'
-    if args and args[0] in ('coq', 'fast'): follow = args.pop(0)
+    if args and args[0] in ('coq', 'fast', 'labs'): follow = args.pop(0)
     fams = args or list(FAMILIES)
     sizes = [125, 250, 500, 1000]
     for f in fams:
         rows = measure(f, sizes, follow)
         print(f'{f} ({follow}):')
-        for key in ('walk', 'cmp', 'dedup', 'stop', 'hcons', 'unbound', 'stuck', 'nstep', 'summ', 'live', 'memo'):
+        for key in ('walk', 'cmp', 'front', 'dedup', 'stop', 'hcons', 'unbound', 'stuck', 'nstep', 'summ', 'live', 'memo'):
             vals = [r[1][key] for r in rows]
             if any(vals): print(f'   {key:8s} {vals}  growth x{" x".join(growth(rows, key))}')
