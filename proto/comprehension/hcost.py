@@ -202,14 +202,20 @@ class H:
 
     def follow_coq(s, h, i, w):
         """HNorm.follow: a step is passed when its label is known distinct from h and above every
-        kept label, tested against the maximal kept labels (the frontier, an antichain)."""
-        kept = []; fr = []; n = 0; mark = w
+        kept label, tested against the maximal kept labels (the frontier, an antichain).  Kept
+        labels wait in pend and are merged into the frontier only when a step is tested."""
+        kept = []; fr = []; pend = []; n = 0; mark = w
         for st, cur, nxt in s.steps(w):
             s.C['walk'] += 1
             if st[0] == 'A': return s.payload(h, i, kept, n, mark)
             g = st[1]
             p = False
             if s.kd(h, g):
+                for y in pend:                                       # merge the pending labels
+                    s.C['front'] += len(fr)
+                    if not any(y == m or s.before(y, m) for m in fr):
+                        fr = [m for m in fr if not s.before(m, y)] + [y]
+                pend = []
                 p = True
                 for m in fr:
                     s.C['cmp'] += 1
@@ -221,10 +227,7 @@ class H:
                     i -= 1
                 else: i += 1
                 mark = nxt; continue
-            kept.insert(0, st); n += 1
-            if not any(g == m or s.before(g, m) for m in fr):      # g is a new maximal kept label
-                fr = [m for m in fr if not s.before(m, g)] + [g]
-            s.C['front'] += len(fr)
+            kept.insert(0, st); n += 1; pend.append(g)
         if not kept: return s.val(('V', h, i))
         return s.payload(h, i, kept, n, mark)
 
