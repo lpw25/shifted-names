@@ -602,6 +602,14 @@ once it has been moved in front of the kept steps. An earlier rule in `rforms.py
 | copy chain with weakenings | 0.21 / 0.87 / 3.45 s | 0.025 / 0.049 / 0.10 s | 0.43 / 1.73 / 6.35 s |
 | a weakening through blocked forms, no facts | 0.022 / 0.090 / 0.30 s | 0.005 / 0.009 / 0.019 s | 0.029 / 0.096 / 0.41 s |
 
+**Labels and the order table.** Label atoms carry binary numbers (`N`),
+and the order's table is a function: for each atom, the atoms above it,
+as maps keyed by binary keys, found once by a search over the edges the
+facts give (`Normalise.order_of`, O(L (L + E))). With unary atoms and an
+L × L table of lists closed under transitivity, building the table took
+330 s for about 400 labels and each comparison cost O(L); now it takes
+about 1 s and a comparison two map lookups.
+
 `HNorm`'s lookups test a step against the maximal kept labels only (the
 frontier, an antichain, so never more than the width `w` of the order);
 labels kept since the last test wait in a pending list and are merged
