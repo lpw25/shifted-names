@@ -616,13 +616,13 @@ Proof. intros Hirr Htrans e1 e2; rewrite (hn_eq_cn F Hirr Htrans); apply cn_eq_c
 
 (** ** For an order built from facts
 
-    The facts are between label atoms and hold under some interpretation
-    of the labels; [order_of] then gives a strict order, so [hn_eq], and
-    [cn_eq], decide equality in comprehension models consistent with it. *)
-Theorem hn_eq_order_correct l lenv : lfacts_ok lenv l -> atom_facts l = true ->
+    When the facts hold under some interpretation of the labels,
+    [order_of] gives a strict order, so [hn_eq], and [cn_eq], decide
+    equality in comprehension models consistent with it. *)
+Theorem hn_eq_order_correct l lenv : lfacts_ok lenv l ->
   forall e1 e2, HNorm.hn_eq (order_of l) e1 e2 = true <-> cequal (order_of l) e1 e2.
-Proof. intros Hl Ha; apply hn_eq_correct; [apply (order_of_irrefl l lenv Hl)|apply (order_of_trans l Ha)]. Qed.
+Proof. intros Hl; apply hn_eq_correct; [apply (order_of_irrefl l lenv Hl)|apply order_of_trans]. Qed.
 
-Theorem cn_eq_order_correct l lenv : lfacts_ok lenv l -> atom_facts l = true ->
+Theorem cn_eq_order_correct l lenv : lfacts_ok lenv l ->
   forall e1 e2, CNorm.cn_eq (order_of l) e1 e2 = true <-> cequal (order_of l) e1 e2.
-Proof. intros Hl Ha; apply cn_eq_correct; [apply (order_of_irrefl l lenv Hl)|apply (order_of_trans l Ha)]. Qed.
+Proof. intros Hl; apply cn_eq_correct; [apply (order_of_irrefl l lenv Hl)|apply order_of_trans]. Qed.

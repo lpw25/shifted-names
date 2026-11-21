@@ -280,10 +280,7 @@ Qed.
 
 Lemma lt_known_bound g : g <> LNone -> lt_known F g LNone = true.
 Proof.
-  intros Hg; unfold lt_known, lt_list.
-  assert (E : forall n, lt_reach (ofacts F) n g LNone = true)
-    by (intros [|n]; cbn; destruct g; [contradiction|reflexivity|reflexivity|contradiction|reflexivity|reflexivity]).
-  destruct g; [contradiction|apply E|apply E].
+  intros Hg; unfold lt_known; destruct g; [contradiction|reflexivity|reflexivity].
 Qed.
 
 Lemma cterm_push u (y : U) t : cterm u None (cpush LNone y t) = cterm u None y.

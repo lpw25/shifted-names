@@ -734,7 +734,7 @@ Proof.
   assert (Hc : exists c, lcmp F LNone h = Some c).
   { unfold lcmp; destruct (lexp_eqb LNone h) eqn:E; [eexists; reflexivity|].
     destruct (lt_known F LNone h); [eexists; reflexivity|].
-    destruct h; [discriminate E| |]; unfold lt_known, lt_list; destruct (List.length (ofacts F)); cbn; eexists; reflexivity. }
+    destruct h; [discriminate E| |]; unfold lt_known; cbn; eexists; reflexivity. }
   destruct Hc as [c Ec]; rewrite Ec; pose proof (lcmp_sound lenv F HF _ _ _ Ec) as Hs.
   destruct c; cbn [cmp_holds] in Hs.
   - subst h; reflexivity.

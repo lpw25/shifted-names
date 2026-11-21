@@ -31,10 +31,7 @@ Definition f2 : aexp := gseq f1 (gseq (AInner ga (TVarE LNone 1) AId) (AOuter ga
 (** The bound label is ordered after every named label. *)
 Lemma lt_known_bound F h : h <> LNone -> lt_known F h LNone = true.
 Proof.
-  intros Hh; unfold lt_known, lt_list.
-  assert (E : forall n, lt_reach (ofacts F) n h LNone = true)
-    by (intros [|n]; cbn; destruct h; [contradiction|reflexivity|reflexivity|contradiction|reflexivity|reflexivity]).
-  destruct h; [contradiction|apply E|apply E].
+  intros Hh; unfold lt_known; destruct h; [contradiction|reflexivity|reflexivity].
 Qed.
 
 Lemma f1_f2 F : mequal F f1 f2.

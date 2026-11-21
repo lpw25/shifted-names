@@ -172,7 +172,7 @@ irreflexive and transitive.
 | `CSound.v` | `cn_sound`: equal normal forms imply equal in every comprehension model |
 | `CComplete.v` | the term model on normal words (`tmodel`); `cn_complete`; `cn_eq_correct : cn_eq F a b = true <-> cequal F a b` |
 | `HRefine.v` | hash-consed words read as `CNorm` words; `hn_eq_cn : hn_eq F a b = cn_eq F a b`; `hn_eq_correct : hn_eq F a b = true <-> cequal F a b`; `hn_eq_order_correct`, the same for `F = order_of l` with no hypothesis on the order |
-| `KnownOrder.v` | the order `order_of l` builds is irreflexive when the facts `l` hold under some interpretation of the labels (`order_of_irrefl`), and transitive when they are between label atoms (`order_of_trans`) |
+| `KnownOrder.v` | the order `order_of l` builds is transitive (`order_of_trans`), and irreflexive when the facts `l` hold under some interpretation of the labels (`order_of_irrefl`) |
 
 **The term model.** Environments are normal words, values are values:
 
@@ -603,23 +603,30 @@ once it has been moved in front of the kept steps. An earlier rule in `rforms.py
 | copy chain with weakenings | 0.21 / 0.87 / 3.45 s | 0.025 / 0.049 / 0.10 s | 0.43 / 1.73 / 6.35 s |
 | a weakening through blocked forms, no facts | 0.022 / 0.090 / 0.30 s | 0.005 / 0.009 / 0.019 s | 0.029 / 0.096 / 0.41 s |
 
-**Labels and the order table.** Label atoms carry binary numbers (`N`),
-and the order's table is a function: for each atom, the atoms above it,
-as maps keyed by binary keys, found once by a search over the edges the
-facts give (`Normalise.order_of`, O(L (L + E))). With unary atoms and an
-L × L table of lists closed under transitivity, building the table took
-330 s for about 400 labels and each comparison cost O(L); now it takes
-about 1 s and a comparison two map lookups. The search is depth-first,
-with the number of edges as its depth bound; it finds exactly the atoms
-reachable from its start (`KnownOrder.visit_complete`, `reach_inv`), so
-the table is transitive (`KnownOrder.order_of_tmem_trans`).
+**Labels and the order table.** Label atoms carry binary numbers (`N`).
+The known order (`Normalise.lt_known`) is the fixed order (concrete labels
+by the string order, the bound label last) and the facts, followed
+transitively. The facts are worked out once (`order_of`), as a graph: its
+nodes are the label atoms and the concrete labels the facts mention
+(sorted), its edges the facts and each mentioned concrete label to the
+next. For each node, the nodes reachable from it are found by a
+depth-first search, bounded by the number of edges, and kept as maps
+keyed by binary keys: O(L (L + E)). A label `a` is below `b` when the
+fixed order says so, or when there is a path from `a` (for a concrete
+label, the first mentioned one at or above it) to `b` (the last at or
+below it); two atoms, the common case, are two map lookups. With unary
+atoms and an L × L table of lists closed under transitivity, building the
+table took 330 s for about 400 labels and each comparison cost O(L); now
+it takes about 1 s.
 
-**End to end.** `HRefine.hn_eq_order_correct`: for facts `l` between
-label atoms that hold under some interpretation of the labels,
+**End to end.** `KnownOrder` proves the search finds exactly the nodes
+reachable from its start, so the known order is transitive
+(`order_of_trans`), whatever the facts; it is irreflexive when the facts
+hold under some interpretation of the labels (`order_of_irrefl`). Hence
+`HRefine.hn_eq_order_correct`: for such facts `l`,
 `hn_eq (order_of l) a b = true` exactly when `a` and `b` are equal in
 every comprehension model consistent with `order_of l`. Closed under the
-global context. (Facts mentioning concrete labels are used, but
-transitivity is only proved for facts between atoms.)
+global context.
 
 `HNorm`'s lookups test a step against the maximal kept labels only (the
 frontier, an antichain, so never more than the width `w` of the order);

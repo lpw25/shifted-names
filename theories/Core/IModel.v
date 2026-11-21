@@ -363,7 +363,7 @@ Definition ex_facts : order := order_of [].
 
 Lemma ex_lt_known a b : lt_known ex_facts a b = lt_base a b.
 Proof.
-  unfold lt_known, ex_facts; cbn.
+  unfold lt_known, lt_gen, ex_facts; cbn.
   destruct a as [| |i], b as [| |j]; cbn; try reflexivity.
   all: try (destruct i as [|[p|p|]]; reflexivity).
   all: try (destruct j; reflexivity).
