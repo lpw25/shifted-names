@@ -43,6 +43,7 @@ theories/Core/CNorm.v
 theories/Core/Comp.v
 theories/Core/CSound.v
 theories/Core/CComplete.v
+theories/Core/KnownOrder.v
 theories/Core/HRefine.v
 theories/Core/XRead.v
 theories/Core/CSpec.v

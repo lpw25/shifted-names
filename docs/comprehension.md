@@ -171,7 +171,8 @@ irreflexive and transitive.
 | `CNorm.v` | `HNorm`'s algorithm on plain lists; a lookup gives a variable with a payload when it cannot get past a step (`follow`, below) |
 | `CSound.v` | `cn_sound`: equal normal forms imply equal in every comprehension model |
 | `CComplete.v` | the term model on normal words (`tmodel`); `cn_complete`; `cn_eq_correct : cn_eq F a b = true <-> cequal F a b` |
-| `HRefine.v` | hash-consed words read as `CNorm` words; `hn_eq_cn : hn_eq F a b = cn_eq F a b`; `hn_eq_correct : hn_eq F a b = true <-> cequal F a b` |
+| `HRefine.v` | hash-consed words read as `CNorm` words; `hn_eq_cn : hn_eq F a b = cn_eq F a b`; `hn_eq_correct : hn_eq F a b = true <-> cequal F a b`; `hn_eq_order_correct`, the same for `F = order_of l` with no hypothesis on the order |
+| `KnownOrder.v` | the order `order_of l` builds is irreflexive when the facts `l` hold under some interpretation of the labels (`order_of_irrefl`), and transitive when they are between label atoms (`order_of_trans`) |
 
 **The term model.** Environments are normal words, values are values:
 
@@ -608,7 +609,18 @@ as maps keyed by binary keys, found once by a search over the edges the
 facts give (`Normalise.order_of`, O(L (L + E))). With unary atoms and an
 L × L table of lists closed under transitivity, building the table took
 330 s for about 400 labels and each comparison cost O(L); now it takes
-about 1 s and a comparison two map lookups.
+about 1 s and a comparison two map lookups. `order_of` also checks that
+each set it found is closed under the edges (if not, its table would know
+nothing: a weaker order, but still one), which with the search's
+soundness makes the table transitive (`KnownOrder.tmem_trans`); with the
+check, the table for about 400 labels takes 2-3 s.
+
+**End to end.** `HRefine.hn_eq_order_correct`: for facts `l` between
+label atoms that hold under some interpretation of the labels,
+`hn_eq (order_of l) a b = true` exactly when `a` and `b` are equal in
+every comprehension model consistent with `order_of l`. Closed under the
+global context. (Facts mentioning concrete labels are used, but
+transitivity is only proved for facts between atoms.)
 
 `HNorm`'s lookups test a step against the maximal kept labels only (the
 frontier, an antichain, so never more than the width `w` of the order);

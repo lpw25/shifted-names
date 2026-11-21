@@ -1,8 +1,11 @@
 # The simple hash-consed normaliser
 
-An experiment (`Core/HNorm.v`): the simplest version of the design in
+`Core/HNorm.v`: the simplest version of the design in
 `docs/nf-design.md`, checked for its bounds and timed against the
-existing normaliser. Nothing in it is proved yet.
+existing normaliser. It is proved sound and complete for comprehension
+models (`HRefine.hn_eq_correct`, `HRefine.hn_eq_order_correct`); see
+`docs/comprehension.md`, which also describes how it has changed since
+(stuck lookups, the frontier, binary label atoms).
 
 ## The form
 

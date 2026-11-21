@@ -8,7 +8,7 @@
     and decides equality in comprehension models ([hn_eq_correct]). *)
 
 From Stdlib Require Import String List PArith NArith Arith Bool FMapPositive Lia.
-From ShiftedNames.Core Require Import Label Normalise GEval.
+From ShiftedNames.Core Require Import Label Normalise GEval KnownOrder.
 From ShiftedNames.Core Require HNorm CNorm.
 From ShiftedNames.Core Require Import Comp CSound CComplete.
 Import ListNotations.
@@ -614,3 +614,15 @@ Theorem hn_eq_correct F :
   forall e1 e2, HNorm.hn_eq F e1 e2 = true <-> cequal F e1 e2.
 Proof. intros Hirr Htrans e1 e2; rewrite (hn_eq_cn F Hirr Htrans); apply cn_eq_correct; assumption. Qed.
 
+(** ** For an order built from facts
+
+    The facts are between label atoms and hold under some interpretation
+    of the labels; [order_of] then gives a strict order, so [hn_eq], and
+    [cn_eq], decide equality in comprehension models consistent with it. *)
+Theorem hn_eq_order_correct l lenv : lfacts_ok lenv l -> atom_facts l = true ->
+  forall e1 e2, HNorm.hn_eq (order_of l) e1 e2 = true <-> cequal (order_of l) e1 e2.
+Proof. intros Hl Ha; apply hn_eq_correct; [apply (order_of_irrefl l lenv Hl)|apply (order_of_trans l Ha)]. Qed.
+
+Theorem cn_eq_order_correct l lenv : lfacts_ok lenv l -> atom_facts l = true ->
+  forall e1 e2, CNorm.cn_eq (order_of l) e1 e2 = true <-> cequal (order_of l) e1 e2.
+Proof. intros Hl Ha; apply cn_eq_correct; [apply (order_of_irrefl l lenv Hl)|apply (order_of_trans l Ha)]. Qed.
