@@ -18,7 +18,7 @@
     outputs cannot be a normal form here: it must also say where each
     read sits among the outputs it does not commute with. *)
 
-From Stdlib Require Import NArith List String.
+From Stdlib Require Import NArith List String FMapPositive.
 Import ListNotations.
 From ShiftedNames.Core Require Import Label Normalise GEval CNorm Comp CSound CComplete.
 
@@ -28,7 +28,7 @@ Definition tabf (i j : N) : bool :=
   match i, j with 0, 2 | 0, 3 | 2, 3 => true | _, _ => false end%N.
 (** The table, by the keys of atoms ([atom_key]). *)
 Definition keyatom (k : positive) : N := match k with xI p => Npos p | _ => 0%N end.
-Definition F := mk_order [] [] (fun u v => tabf (keyatom u) (keyatom v)).
+Definition F := mk_order [] [] CLeaf (PositiveMap.empty _) (fun u v => tabf (keyatom u) (keyatom v)).
 
 Definition lt_spec (a b : lexp) : bool :=
   match a, b with
@@ -41,9 +41,9 @@ Definition lt_spec (a b : lexp) : bool :=
 
 Lemma lt_spec_eq a b : lt_known F a b = lt_spec a b.
 Proof.
-  destruct a as [|s|i], b as [|s'|j]; unfold lt_known, lt_gen; cbn [lt_base lt_spec olo ohi otab F idx_lo idx_hi option_map]; try reflexivity.
-  - destruct (is_less_than_label s s'); reflexivity.
-  - destruct i, j; reflexivity.
+  destruct a as [|s|i], b as [|s'|j]; unfold lt_known, lt_gen, olo, ohi, clo, chi, cnodes; cbn [lt_base lt_spec otab otree ckeys F tlo thi];
+    rewrite ?PositiveMap.gempty; try reflexivity.
+  destruct i, j; reflexivity.
 Qed.
 
 Lemma Hirr : forall a, lt_known F a a = false.

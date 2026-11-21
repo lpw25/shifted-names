@@ -12,7 +12,7 @@
     sequence ([std]), and there the meaning is the free meaning
     [GEval.fa] ([std_fa]). *)
 
-From Stdlib Require Import NArith String Arith List Lia Bool.
+From Stdlib Require Import NArith String Arith List Lia Bool FMapPositive.
 From ShiftedNames.Core Require Import Label Var Normalise Unique GEval.
 Import ListNotations.
 
@@ -363,11 +363,10 @@ Definition ex_facts : order := order_of [].
 
 Lemma ex_lt_known a b : lt_known ex_facts a b = lt_base a b.
 Proof.
-  unfold lt_known, lt_gen, ex_facts; cbn.
-  destruct a as [| |i], b as [| |j]; cbn; try reflexivity.
+  unfold lt_known, lt_gen, ex_facts, olo, ohi, clo, chi, cnodes; cbn [order_of ckeys otree otab fact_cons fold_left cmap ctree_of mk_tree List.length].
+  destruct a as [| |i], b as [| |j]; cbn; rewrite ?PositiveMap.gempty; try reflexivity.
   all: try (destruct i as [|[p|p|]]; reflexivity).
   all: try (destruct j; reflexivity).
-  all: destruct (is_less_than_label _ _); reflexivity.
 Qed.
 
 

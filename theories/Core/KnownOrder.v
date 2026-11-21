@@ -5,9 +5,9 @@
     Here: the search finds exactly the nodes reachable from its start
     ([visit_complete], [reach_inv]), so the table is reachability
     ([otab_path], [path_otab]); with the chain of mentioned concrete
-    labels, the known order is then transitive ([order_of_trans]), and it
-    is irreflexive when the facts hold under some interpretation of the
-    labels ([order_of_irrefl]).  Those are the hypotheses of
+    labels, the known order is then transitive and irreflexive when the
+    facts hold under some interpretation of the labels ([order_of_trans],
+    [order_of_irrefl]).  Those are the hypotheses of
     [HRefine.hn_eq_correct]. *)
 
 From Stdlib Require Import Arith List Bool NArith PArith FMapPositive String Lia.
@@ -138,6 +138,41 @@ Proof.
   apply (C u w IHp); [unfold inset; rewrite PositiveMap.gempty; reflexivity|exact Hw].
 Qed.
 
+(** A set closed under the edges holds everything reachable from a node whose successors it holds. *)
+Definition closed (s : PositiveMap.t unit) : Prop :=
+  forall x w, inset s x = true -> In w (succs adj x) -> inset s w = true.
+
+Lemma closed_path s a : closed s -> (forall w, In w (succs adj a) -> inset s w = true) -> forall v, path a v -> inset s v = true.
+Proof. intros C W v P; induction P as [w Hw|u w _ IH Hw]; [apply W, Hw|apply (C u w IH Hw)]. Qed.
+
+Lemma fold_closed n : List.length U <= n -> forall ws s, (forall w, In w ws -> In w U) -> closed s ->
+  closed (fold_left (fun s w => visit adj n w s) ws s) /\ forall w, In w ws -> inset (fold_left (fun s w => visit adj n w s) ws s) w = true.
+Proof.
+  intros Hn ws s Hws Cs.
+  assert (Hc : count s <= n) by (pose proof (count_le s); lia).
+  destruct (fold_complete n (visit_complete n) ws s Hws Hc) as [S [W C]]; split; [|exact W].
+  intros x w Hx Hw; destruct (inset s x) eqn:E; [apply S, (Cs x w E Hw)|apply (C x w Hx E Hw)].
+Qed.
+
+Lemma closed_empty : closed (PositiveMap.empty unit).
+Proof. intros x w H; unfold inset in H; rewrite PositiveMap.gempty in H; discriminate. Qed.
+
+(** The rows of [crows] are closed and hold their label's successors. *)
+Lemma crows_complete n : List.length U <= n -> forall r k,
+  closed (fst (crows adj n k r))
+  /\ forall j, j < List.length r -> exists row, PositiveMap.find (akey (cnode (k + j))) (snd (crows adj n k r)) = Some row
+       /\ closed row /\ forall w, In w (succs adj (cnode (k + j))) -> inset row w = true.
+Proof.
+  intros Hn; induction r as [|c r IH]; intros k; cbn [crows fst snd].
+  - split; [exact closed_empty|intros j Hj; cbn in Hj; lia].
+  - destruct (IH (S k)) as [Cr Ht]; destruct (crows adj n (S k) r) as [row t]; cbn [fst snd] in Cr, Ht |- *.
+    destruct (fold_closed n Hn (succs adj (cnode k)) row (succs_nodes (cnode k)) Cr) as [C' W'].
+    split; [exact C'|]; intros j Hj.
+    destruct j as [|j]; [rewrite Nat.add_0_r, PositiveMap.gss; eexists; split; [reflexivity|split; [exact C'|exact W']]|].
+    rewrite PositiveMap.gso; [|intros E; apply akey_inj, cnode_inj in E; lia].
+    replace (k + S j) with (S k + j) by lia; apply Ht; cbn [List.length] in Hj; lia.
+Qed.
+
 End Graph.
 
 (** Edges only grow. *)
@@ -153,36 +188,6 @@ Variable l : list (lexp * lexp).
 Let cs := fact_cons l.
 Let adj := edges l cs.
 Let n := List.length (nodes adj).
-
-Lemma otab_order_of u v : otab (order_of l) (akey u) (akey v) =
-  match PositiveMap.find (akey u) adj with
-  | Some _ => inset (fold_left (fun s w => visit adj n w s) (succs adj u) (PositiveMap.empty _)) v
-  | None => false
-  end.
-Proof.
-  unfold order_of; cbn [otab]; unfold tmem; rewrite PositiveMap.gmapi; unfold option_map.
-  fold cs adj n; destruct (PositiveMap.find (akey u) adj) as [st|] eqn:E; [|reflexivity].
-  unfold succs; rewrite E; reflexivity.
-Qed.
-
-(** The table is exactly reachability. *)
-Lemma otab_path u v : otab (order_of l) (akey u) (akey v) = true -> path adj u v.
-Proof.
-  rewrite otab_order_of; destruct (PositiveMap.find (akey u) adj); [|discriminate].
-  apply (reach_path adj u n v).
-Qed.
-
-Lemma path_otab u v : path adj u v -> otab (order_of l) (akey u) (akey v) = true.
-Proof.
-  intros P; rewrite otab_order_of.
-  destruct (PositiveMap.find (akey u) adj) eqn:E; [apply (reach_complete adj u n (le_n _)), P|].
-  exfalso; assert (Hf : exists w, In w (succs adj u)).
-  { induction P as [w Hw|x w _ IH _]; [exists w; exact Hw|exact IH]. }
-  destruct Hf as [w Hw]; unfold succs in Hw; rewrite E in Hw; destruct Hw.
-Qed.
-
-Lemma otab_trans u v w : otab (order_of l) (akey u) (akey v) = true -> otab (order_of l) (akey v) (akey w) = true -> otab (order_of l) (akey u) (akey w) = true.
-Proof. intros H1 H2; apply path_otab, (path_trans adj u v w); apply otab_path; assumption. Qed.
 
 (** *** The concrete labels *)
 
@@ -207,10 +212,11 @@ Qed.
 
 Lemma facts_succs k0 : forall a x w, In w (succs a x) ->
   In w (succs (fold_left (fun adj '(x, y) =>
-    match fnode cs x, fnode cs y with Some u, Some v => addedge u v adj | _, _ => adj end) k0 a) x).
+    match fnode (cmap 0 cs (PositiveMap.empty _)) x, fnode (cmap 0 cs (PositiveMap.empty _)) y with
+    | Some u, Some v => addedge u v adj | _, _ => adj end) k0 a) x).
 Proof.
   induction k0 as [|[x y] k0 IH]; intros a x0 w H; [exact H|]; cbn [fold_left]; apply IH.
-  destruct (fnode cs x), (fnode cs y); try exact H; apply succs_addedge, H.
+  destruct (fnode (cmap 0 cs (PositiveMap.empty N)) x), (fnode (cmap 0 cs (PositiveMap.empty N)) y); try exact H; apply succs_addedge, H.
 Qed.
 
 Lemma cs_path k m : k < m -> m < List.length cs -> path adj (cnode k) (cnode m).
@@ -222,72 +228,69 @@ Proof.
   apply (PNext adj _ (cnode m)); [apply IH; lia|exact E].
 Qed.
 
+Let ct := snd (crows adj n 0 cs).
+
+Lemma otab_order_of u v : otab (order_of l) (akey u) (akey v) =
+  match PositiveMap.find (akey u) adj with
+  | Some _ =>
+      match PositiveMap.find (akey u) ct with
+      | Some row => inset row v
+      | None => inset (fold_left (fun s w => visit adj n w s) (succs adj u) (PositiveMap.empty _)) v
+      end
+  | None => false
+  end.
+Proof.
+  unfold order_of; cbn [otab]; unfold tmem; rewrite PositiveMap.gmapi; unfold option_map.
+  fold cs adj n ct; destruct (PositiveMap.find (akey u) adj) as [st|] eqn:E; [|reflexivity].
+  destruct (PositiveMap.find (akey u) ct); [reflexivity|]; unfold succs; rewrite E; reflexivity.
+Qed.
+
+(** The table is exactly reachability. *)
+Lemma otab_path u v : otab (order_of l) (akey u) (akey v) = true -> path adj u v.
+Proof.
+  rewrite otab_order_of; destruct (PositiveMap.find (akey u) adj); [|discriminate].
+  destruct (PositiveMap.find (akey u) ct) as [row|] eqn:Er; [|apply (reach_path adj u n v)].
+  destruct (crows_inv (path adj) adj n (fun a x w Ha Hw => PNext adj a x w Ha Hw) (fun x w Hw => PStep adj x w Hw) cs 0)
+    as [_ Ht].
+  { intros j w Hj; cbn [Nat.add]; intros P; exact (path_trans adj _ _ _ (cs_path j (S j) (Nat.lt_succ_diag_r j) Hj) P). }
+  destruct (Ht _ _ Er) as [k [_ [Ek Hv]]]; apply akey_inj in Ek; subst u; exact (Hv v).
+Qed.
+
+Lemma path_otab u v : path adj u v -> otab (order_of l) (akey u) (akey v) = true.
+Proof.
+  intros P; rewrite otab_order_of.
+  destruct (PositiveMap.find (akey u) adj) eqn:E.
+  - destruct (PositiveMap.find (akey u) ct) as [row|] eqn:Er; [|apply (reach_complete adj u n (le_n _)), P].
+    destruct (crows_inv (fun _ _ => True) adj n (fun _ _ _ _ _ => I) (fun _ _ _ => I) cs 0 (fun _ _ _ _ => I)) as [_ Ht].
+    destruct (Ht _ _ Er) as [k [Hk [Ek _]]]; apply akey_inj in Ek; subst u.
+    destruct (proj2 (crows_complete adj n (le_n _) cs 0) k Hk) as [row' [Er' [C W]]].
+    unfold ct in Er; rewrite Er' in Er; injection Er as <-; exact (closed_path adj row' _ C W v P).
+  - exfalso; assert (Hf : exists w, In w (succs adj u)).
+    { induction P as [w Hw|x w _ IH _]; [exists w; exact Hw|exact IH]. }
+    destruct Hf as [w Hw]; unfold succs in Hw; rewrite E in Hw; destruct Hw.
+Qed.
+
+Lemma otab_trans u v w : otab (order_of l) (akey u) (akey v) = true -> otab (order_of l) (akey v) (akey w) = true -> otab (order_of l) (akey u) (akey w) = true.
+Proof. intros H1 H2; apply path_otab, (path_trans adj u v w); apply otab_path; assumption. Qed.
+
 Lemma cs_le k m : k <= m -> m < List.length cs -> cnode k = cnode m \/ otab (order_of l) (akey (cnode k)) (akey (cnode m)) = true.
 Proof.
   intros H Hm; destruct (Nat.eq_dec k m) as [->|Ne]; [left; reflexivity|right].
   apply path_otab, cs_path; lia.
 Qed.
 
-Lemma sorted_nth : forall r, sorted_lab r -> forall i j, i < j -> j < List.length r ->
-  label_lt (nth i r EmptyString) (nth j r EmptyString).
-Proof.
-  induction r as [|a r IH]; intros Hs i j Hij Hj; cbn [List.length] in Hj; [lia|].
-  destruct r as [|b r']; cbn [List.length] in Hj; [lia|]; destruct Hs as [Hab Hs].
-  destruct i as [|i]; destruct j as [|j]; try lia; cbn [nth].
-  - destruct j as [|j]; [exact Hab|]; apply (label_lt_trans _ b); [exact Hab|].
-    apply (IH Hs 0 (S j)); cbn [List.length]; lia.
-  - apply (IH Hs i j); cbn [List.length]; lia.
-Qed.
+(** The map and the tree find what the scans of the list find. *)
+Lemma olo_con s : olo (order_of l) (LCon s) = option_map cnode (idx_lo s cs).
+Proof. exact (proj1 (clo_chi_ok cs (fact_cons_sorted l) s)). Qed.
 
-Lemma leb_lab_iff s t : leb_lab s t = true <-> s = t \/ label_lt s t.
-Proof.
-  unfold leb_lab; destruct (String.eqb_spec s t) as [->|Ne]; [split; [left; reflexivity|reflexivity]|].
-  split; [intros H; right; exact H|intros [E|H]; [contradiction|exact H]].
-Qed.
-
-Lemma leb_lt_trans a b c : label_lt a b -> leb_lab b c = true -> leb_lab a c = true.
-Proof. intros H1 H2; apply leb_lab_iff in H2 as [<-|H2]; apply leb_lab_iff; right; [exact H1|exact (label_lt_trans _ _ _ H1 H2)]. Qed.
-
-Lemma leb_lt_trans' a b c : leb_lab a b = true -> label_lt b c -> leb_lab a c = true.
-Proof. intros H1 H2; apply leb_lab_iff in H1 as [->|H1]; apply leb_lab_iff; right; [exact H2|exact (label_lt_trans _ _ _ H1 H2)]. Qed.
-
-Lemma idx_lo_len s r k : idx_lo s r = Some k -> k < List.length r.
-Proof.
-  revert k; induction r as [|c r IH]; intros k; cbn [idx_lo]; [discriminate|].
-  destruct (leb_lab s c); [intros E; injection E as <-; cbn; lia|].
-  destruct (idx_lo s r) as [k'|]; [cbn; intros E; injection E as <-; cbn [List.length]; specialize (IH k' eq_refl); lia|discriminate].
-Qed.
-
-Lemma idx_lo_first s r j : j < List.length r -> leb_lab s (nth j r EmptyString) = true ->
-  exists k, idx_lo s r = Some k /\ k <= j.
-Proof.
-  revert j; induction r as [|c r IH]; intros j Hj H; cbn [List.length] in Hj; [lia|]; cbn [idx_lo].
-  destruct (leb_lab s c) eqn:L; [exists 0; split; [reflexivity|lia]|].
-  destruct j as [|j]; [cbn in H; congruence|].
-  destruct (IH j ltac:(lia) H) as [k [E Hk]]; rewrite E; exists (S k); split; [reflexivity|lia].
-Qed.
-
-Lemma idx_hi_len s r k : idx_hi s r = Some k -> k < List.length r.
-Proof.
-  revert k; induction r as [|c r IH]; intros k; cbn [idx_hi]; [discriminate|].
-  destruct (idx_hi s r) as [k'|]; [intros E; injection E as <-; cbn [List.length]; specialize (IH k' eq_refl); lia|].
-  destruct (leb_lab c s); [intros E; injection E as <-; cbn; lia|discriminate].
-Qed.
-
-Lemma idx_hi_last s r j : j < List.length r -> leb_lab (nth j r EmptyString) s = true ->
-  exists k, idx_hi s r = Some k /\ j <= k.
-Proof.
-  revert j; induction r as [|c r IH]; intros j Hj H; cbn [List.length] in Hj; [lia|]; cbn [idx_hi].
-  destruct j as [|j].
-  - cbn in H; destruct (idx_hi s r) as [k|]; [exists (S k); split; [reflexivity|lia]|rewrite H; exists 0; split; [reflexivity|lia]].
-  - destruct (IH j ltac:(lia) H) as [k [E Hk]]; rewrite E; exists (S k); split; [reflexivity|lia].
-Qed.
+Lemma ohi_con s : ohi (order_of l) (LCon s) = option_map cnode (idx_hi s cs).
+Proof. exact (proj2 (clo_chi_ok cs (fact_cons_sorted l) s)). Qed.
 
 (** [ohi b] is at or below [olo b], along the order. *)
 Lemma hi_lo b u v : ohi (order_of l) b = Some v -> olo (order_of l) b = Some u -> v = u \/ otab (order_of l) (akey v) (akey u) = true.
 Proof.
-  destruct b as [|s|j]; cbn [ohi olo]; [discriminate| |intros E1 E2; rewrite E1 in E2; injection E2 as ->; left; reflexivity].
-  unfold order_of at 1 2; cbn [ocs]; fold cs.
+  destruct b as [|s|j]; [discriminate| |cbn [ohi olo]; intros E1 E2; rewrite E1 in E2; injection E2 as ->; left; reflexivity].
+  rewrite olo_con, ohi_con.
   destruct (idx_hi s cs) as [kh|] eqn:Eh; [|discriminate]; destruct (idx_lo s cs) as [kl|] eqn:El; [|discriminate].
   cbn; intros E1 E2; injection E1 as <-; injection E2 as <-.
   apply cs_le; [|apply (idx_lo_len _ _ _ El)].
@@ -305,7 +308,7 @@ Qed.
 Lemma lo_down s t u : label_lt s t -> olo (order_of l) (LCon t) = Some u ->
   exists u', olo (order_of l) (LCon s) = Some u' /\ (u' = u \/ otab (order_of l) (akey u') (akey u) = true).
 Proof.
-  cbn [olo]; unfold order_of at 1 2; cbn [ocs]; fold cs.
+  rewrite !olo_con.
   intros Hst; destruct (idx_lo t cs) as [kt|] eqn:Et; [|discriminate]; cbn; intros E; injection E as <-.
   pose proof (idx_lo_len _ _ _ Et) as Lt.
   destruct (idx_lo_first s cs kt Lt (leb_lt_trans _ _ _ Hst (idx_lo_spec _ _ _ Et))) as [ks [Es Hk]].
@@ -316,7 +319,7 @@ Qed.
 Lemma hi_up s t v : label_lt s t -> ohi (order_of l) (LCon s) = Some v ->
   exists v', ohi (order_of l) (LCon t) = Some v' /\ (v = v' \/ otab (order_of l) (akey v) (akey v') = true).
 Proof.
-  cbn [ohi]; unfold order_of at 1 2; cbn [ocs]; fold cs.
+  rewrite !ohi_con.
   intros Hst; destruct (idx_hi s cs) as [ks|] eqn:Es; [|discriminate]; cbn; intros E; injection E as <-.
   pose proof (idx_hi_len _ _ _ Es) as Ls.
   destruct (idx_hi_last t cs ks Ls (leb_lt_trans' _ _ _ (idx_hi_spec _ _ _ Es) Hst)) as [kt [Et Hk]].
@@ -333,10 +336,10 @@ Qed.
 
 (** ** The known order is a strict order *)
 
-Lemma order_of_trans l a b c :
-  lt_known (order_of l) a b = true -> lt_known (order_of l) b c = true -> lt_known (order_of l) a c = true.
+Lemma gen_trans l a b c :
+  lt_gen (order_of l) a b = true -> lt_gen (order_of l) b c = true -> lt_gen (order_of l) a c = true.
 Proof.
-  set (F := order_of l); rewrite !lt_known_gen; unfold lt_gen.
+  set (F := order_of l); unfold lt_gen.
   destruct (lt_base a b) eqn:B1, (lt_base b c) eqn:B2; intros H1 H2.
   - rewrite (lt_base_trans a b c B1 B2); reflexivity.
   - destruct (olo F b) as [u2|] eqn:Eu2; [|discriminate]; destruct (ohi F c) as [v2|] eqn:Ev2; [|discriminate].
@@ -355,6 +358,24 @@ Proof.
     destruct (lt_base a c); [reflexivity|].
     destruct (hi_lo l b u2 v1 Ev1 Eu2) as [<-|R]; [exact (otab_trans l _ _ _ H1 H2)|].
     exact (otab_trans l _ _ _ (otab_trans l _ _ _ H1 R) H2).
+Qed.
+
+(** Unless both are concrete, [lt_known] is [lt_gen]. *)
+Lemma lt_known_eq_gen F a b : (forall s t, a = LCon s -> b = LCon t -> False) -> lt_known F a b = lt_gen F a b.
+Proof.
+  intros N; destruct a as [|s|i], b as [|t|j]; try reflexivity; [exfalso; exact (N s t eq_refl eq_refl)|].
+  unfold lt_known, lt_gen; cbn; rewrite !atom_key_akey; reflexivity.
+Qed.
+
+(** Transitive, given facts that hold: two concrete labels are compared by
+    the fixed order, which a path between them through other labels agrees
+    with when the facts hold. *)
+Lemma order_of_trans l lenv : lfacts_ok lenv l -> forall a b c,
+  lt_known (order_of l) a b = true -> lt_known (order_of l) b c = true -> lt_known (order_of l) a c = true.
+Proof.
+  intros Hl a b c H1 H2; apply lt_known_gen in H1, H2; pose proof (gen_trans l a b c H1 H2) as H.
+  destruct a as [|s|i], c as [|u|k]; try (rewrite lt_known_eq_gen; [exact H|intros ? ? E1 E2; discriminate]).
+  exact (lt_gen_sound lenv (order_of l) (order_of_ok lenv l Hl) _ _ H).
 Qed.
 
 Lemma order_of_irrefl l lenv : lfacts_ok lenv l -> forall a, lt_known (order_of l) a a = false.

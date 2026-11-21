@@ -172,7 +172,7 @@ irreflexive and transitive.
 | `CSound.v` | `cn_sound`: equal normal forms imply equal in every comprehension model |
 | `CComplete.v` | the term model on normal words (`tmodel`); `cn_complete`; `cn_eq_correct : cn_eq F a b = true <-> cequal F a b` |
 | `HRefine.v` | hash-consed words read as `CNorm` words; `hn_eq_cn : hn_eq F a b = cn_eq F a b`; `hn_eq_correct : hn_eq F a b = true <-> cequal F a b`; `hn_eq_order_correct`, the same for `F = order_of l` with no hypothesis on the order |
-| `KnownOrder.v` | the order `order_of l` builds is transitive (`order_of_trans`), and irreflexive when the facts `l` hold under some interpretation of the labels (`order_of_irrefl`) |
+| `KnownOrder.v` | the order `order_of l` builds is transitive and irreflexive when the facts `l` hold under some interpretation of the labels (`order_of_trans`, `order_of_irrefl`) |
 
 **The term model.** Environments are normal words, values are values:
 
@@ -608,21 +608,62 @@ The known order (`Normalise.lt_known`) is the fixed order (concrete labels
 by the string order, the bound label last) and the facts, followed
 transitively. The facts are worked out once (`order_of`), as a graph: its
 nodes are the label atoms and the concrete labels the facts mention
-(sorted), its edges the facts and each mentioned concrete label to the
-next. For each node, the nodes reachable from it are found by a
+(sorted by merge sort, O(C log C) string comparisons), its edges the
+facts and each mentioned concrete label to the next. For each node, the nodes reachable from it are found by a
 depth-first search, bounded by the number of edges, and kept as maps
-keyed by binary keys: O(L (L + E)). A label `a` is below `b` when the
-fixed order says so, or when there is a path from `a` (for a concrete
-label, the first mentioned one at or above it) to `b` (the last at or
-below it); two atoms, the common case, are two map lookups. With unary
+keyed by binary keys: O(L (L + E)). The mentioned concrete labels are
+done last to first, each search starting from the next label's row (the
+chain edge makes it part of the answer), so their rows share structure
+and together cost O(L + E) (`Normalise.crows`). Two atoms, the common case, are
+compared by two map lookups, and two concrete labels by the string order
+alone (facts that hold cannot order them otherwise). Otherwise `a` is
+below `b` when the fixed order says so, or when there is a path from `a`
+(for a concrete label, the first mentioned one at or above it) to `b`
+(the last at or below it). A mentioned concrete label is its own
+representative, found in a map keyed by the string's bits; any other is
+found in a balanced search tree of the mentioned labels, in O(log C)
+string comparisons. Both are proved to agree with a scan of the sorted
+list (`Normalise.clo_chi_ok`). `lcmp` looks a concrete label compared
+with an atom up once for both directions (`lcmp_eq` relates it to the
+plain definition). With unary
 atoms and an L × L table of lists closed under transitivity, building the
 table took 330 s for about 400 labels and each comparison cost O(L); now
 it takes about 1 s.
 
+**Many labels, atoms and concrete.** `order_of` and the whole decision
+(`hn_eq`'s normalisation with the order built in the same `vm_compute`),
+for the many-label families of `hcost.py` at `m` = 10 / 33 / 133 (about
+`3m` labels and up to `5m` facts). "Atoms": every label an atom.
+"Concrete, facts": every label concrete, strings chosen so the facts hold.
+"Mixed": about two thirds of the labels concrete, the rest atoms.
+
+Each cell: the whole decision at `m` = 33 / 133, and in brackets
+`order_of` alone at 133.
+
+| Family | Atoms | Concrete, facts | Mixed |
+|---|---|---|---|
+| `manyB` | 0.009 / 0.11 s (0.001) | 0.029 / 0.44 s (0.001) | 0.024 / 0.35 s (0.001) |
+| `advL` | 0.071 / 5.3 s (0.26) | 0.020 / 0.20 s (0.06) | 0.17 / 11.4 s (0.08) |
+| `advC` | 0.036 / 2.5 s (0.26) | 0.020 / 0.21 s (0.05) | 0.091 / 5.7 s (0.10) |
+| `advR` | 0.053 / 3.3 s (0.28) | 0.033 / 0.43 s (0.06) | 0.12 / 6.7 s (0.09) |
+| `advN` | 0.031 / 1.9 s (0.61) | 0.022 / 0.25 s (0.09) | 0.029 / 0.77 s (0.38) |
+
+All are under 0.01 s at 10. Before the tree, the
+map and the string-order rule for concrete pairs, the mixed `advL` took
+478 s at 133 and the concrete one 10 s: every comparison of a concrete
+label scanned the mentioned labels. A comparison now costs about 0.5 µs
+for two atoms, 1 µs for two concrete labels and 2.5 µs for an atom and a
+concrete label (the string's key), which is the remaining factor between
+the mixed and the atom columns. Timing `order_of` as a separate
+definition overstates it: reading the table back as a term loses the
+sharing between rows (2.3 s rather than 0.06 s for concrete `advL`).
+
 **End to end.** `KnownOrder` proves the search finds exactly the nodes
-reachable from its start, so the known order is transitive
-(`order_of_trans`), whatever the facts; it is irreflexive when the facts
-hold under some interpretation of the labels (`order_of_irrefl`). Hence
+reachable from its start, so the known order is transitive and
+irreflexive when the facts hold under some interpretation of the labels
+(`order_of_trans`, `order_of_irrefl`); transitivity needs that only when
+both ends are concrete, where a path through other labels must agree with
+the string order. Hence
 `HRefine.hn_eq_order_correct`: for such facts `l`,
 `hn_eq (order_of l) a b = true` exactly when `a` and `b` are equal in
 every comprehension model consistent with `order_of l`. Closed under the
@@ -651,9 +692,6 @@ antichain of about `n` labels are still cubic (`hcost.py`: `advL`,
 
 ## Still open
 
-- **The order hypotheses.** Irreflexivity and transitivity of
-  `lt_known F` are assumed. They should follow from consistent facts,
-  but are not proved for `order_of`.
 - **`TNorm` has the same stuck-lookup problem** and is not fixed.
 - **The eta pass of `HEta` is not sound** for comprehension models and
   should not be used with `HNorm`.
@@ -667,4 +705,3 @@ antichain of about `n` labels are still cubic (`hcost.py`: `advL`,
   - `CRun2.v`.
 
   Nothing in `CSpec` or `CRunN` depends on them.
-- **Label atoms are unary** (`LAtom n`), across the codebase.

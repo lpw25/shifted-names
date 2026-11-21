@@ -301,7 +301,7 @@ Proof. intros l; reflexivity. Qed.
 
 Lemma before_trans a b c : CNorm.before F a b = true -> CNorm.before F b c = true -> CNorm.before F a c = true.
 Proof.
-  unfold CNorm.before, lcmp.
+  unfold CNorm.before; rewrite !lcmp_eq; unfold lcmp_spec.
   destruct (lexp_eqb a b) eqn:Eab; [discriminate|]; destruct (lt_known F a b) eqn:Lab; [|destruct (lt_known F b a); discriminate].
   destruct (lexp_eqb b c) eqn:Ebc; [discriminate|]; destruct (lt_known F b c) eqn:Lbc; [|destruct (lt_known F c b); discriminate].
   intros _ _; pose proof (Htrans a b c Lab Lbc) as Lac.
@@ -318,7 +318,7 @@ Proof.
   induction fr as [|m r IH]; cbn [HNorm.addf_go]; [discriminate|].
   destruct (lcmp F y m) as [[| |]|] eqn:C; intros E.
   - exists m; split; [left; reflexivity|left].
-    unfold lcmp in C; destruct (lexp_eqb y m) eqn:Q; [apply lexp_eqb_eq, Q|].
+    rewrite lcmp_eq in C; unfold lcmp_spec in C; destruct (lexp_eqb y m) eqn:Q; [apply lexp_eqb_eq, Q|].
     destruct (lt_known F y m); [discriminate|destruct (lt_known F m y); discriminate].
   - exists m; split; [left; reflexivity|right; unfold CNorm.before; rewrite C; reflexivity].
   - destruct (IH E) as [m' [I' H']]; exists m'; split; [right; exact I'|exact H'].
@@ -332,7 +332,7 @@ Proof.
   induction fr as [|m fr IH]; intros r E l By; cbn [HNorm.addf_go] in E; [injection E as <-; reflexivity|].
   destruct (lcmp F y m) as [[| |]|] eqn:C; [discriminate|discriminate| |].
   - assert (Bm : CNorm.before F m y = true).
-    { unfold lcmp in C; unfold CNorm.before, lcmp.
+    { rewrite lcmp_eq in C; unfold lcmp_spec in C; unfold CNorm.before; rewrite !lcmp_eq; unfold lcmp_spec.
       destruct (lexp_eqb y m) eqn:Q; [discriminate|]; destruct (lt_known F y m); [discriminate|].
       destruct (lt_known F m y) eqn:L; [|discriminate].
       assert (Q' : lexp_eqb m y = false) by (apply lexp_eqb_false_iff; intros ->; rewrite lexp_eqb_refl' in Q; discriminate).
@@ -621,8 +621,8 @@ Proof. intros Hirr Htrans e1 e2; rewrite (hn_eq_cn F Hirr Htrans); apply cn_eq_c
     equality in comprehension models consistent with it. *)
 Theorem hn_eq_order_correct l lenv : lfacts_ok lenv l ->
   forall e1 e2, HNorm.hn_eq (order_of l) e1 e2 = true <-> cequal (order_of l) e1 e2.
-Proof. intros Hl; apply hn_eq_correct; [apply (order_of_irrefl l lenv Hl)|apply order_of_trans]. Qed.
+Proof. intros Hl; apply hn_eq_correct; [apply (order_of_irrefl l lenv Hl)|apply (order_of_trans l lenv Hl)]. Qed.
 
 Theorem cn_eq_order_correct l lenv : lfacts_ok lenv l ->
   forall e1 e2, CNorm.cn_eq (order_of l) e1 e2 = true <-> cequal (order_of l) e1 e2.
-Proof. intros Hl; apply cn_eq_correct; [apply (order_of_irrefl l lenv Hl)|apply order_of_trans]. Qed.
+Proof. intros Hl; apply cn_eq_correct; [apply (order_of_irrefl l lenv Hl)|apply (order_of_trans l lenv Hl)]. Qed.

@@ -97,8 +97,17 @@ Definition lt_base (a b : lexp) : bool :=
     label to the next.  [otab F u v]: [v] is reachable from [u].  A label
     is below another when the fixed order says so, or when there is a path
     from [olo a] (an atom itself; for a concrete label, the first
-    mentioned one at or above it) to [ohi b] (the last at or below). *)
-Record order := mk_order { ofacts : list (lexp * lexp); ocs : list label; otab : positive -> positive -> bool }.
+    mentioned one at or above it) to [ohi b] (the last at or below).  The
+    mentioned concrete labels are also kept as a balanced search tree
+    ([otree]), so that finding [olo] and [ohi] takes O(log C) comparisons,
+    and in a map keyed by their bits ([ckeys]), so that a mentioned label
+    finds its own node in one lookup; two concrete labels are compared by the fixed order alone, since facts
+    that hold cannot order them otherwise. *)
+Inductive ctree := CLeaf | CNode (l : ctree) (u : N) (c : label) (r : ctree).
+
+Record order := mk_order {
+  ofacts : list (lexp * lexp); ocs : list label; otree : ctree; ckeys : PositiveMap.t N;
+  otab : positive -> positive -> bool }.
 
 (** Positions in a list of concrete labels: of [s]; of the first label at
     or above [s]; of the last at or below. *)
@@ -119,11 +128,60 @@ Fixpoint idx_hi (s : label) (cs : list label) : option nat :=
 (** Nodes: atom [i] is [2 i], the [k]-th mentioned concrete label [2 k + 1]. *)
 Definition cnode (k : nat) : N := N.succ_double (N.of_nat k).
 
+(** The search tree: each mentioned concrete label with its node.  [tlo s]
+    finds the node of the first label at or above [s], [thi s] of the last
+    at or below. *)
+Fixpoint tlo (s : label) (t : ctree) : option N :=
+  match t with
+  | CLeaf => None
+  | CNode l u c r => if leb_lab s c then match tlo s l with Some v => Some v | None => Some u end else tlo s r
+  end.
+
+Fixpoint thi (s : label) (t : ctree) : option N :=
+  match t with
+  | CLeaf => None
+  | CNode l u c r => if leb_lab c s then match thi s r with Some v => Some v | None => Some u end else thi s l
+  end.
+
+(** The balanced tree of the labels [cs], from position [k]; [f] bounds the depth. *)
+Fixpoint mk_tree (f k : nat) (cs : list label) : ctree :=
+  match f with
+  | O => CLeaf
+  | S f =>
+      let h := Nat.div2 (List.length cs) in
+      match skipn h cs with
+      | [] => CLeaf
+      | c :: r => CNode (mk_tree f k (firstn h cs)) (cnode (k + h)) c (mk_tree f (S (k + h)) r)
+      end
+  end.
+
+Definition ctree_of (cs : list label) : ctree := mk_tree (List.length cs) 0 cs.
+
+(** A string's bits, as a key. *)
+Definition bit (b : bool) (p : positive) : positive := if b then xI p else xO p.
+
+Definition abits (a : Ascii.ascii) (p : positive) : positive :=
+  let 'Ascii.Ascii b0 b1 b2 b3 b4 b5 b6 b7 := a in bit b0 (bit b1 (bit b2 (bit b3 (bit b4 (bit b5 (bit b6 (bit b7 p))))))).
+
+Fixpoint skey (s : string) : positive := match s with EmptyString => xH | String a r => abits a (skey r) end.
+
+(** Each label of [cs], from position [k], to its node. *)
+Fixpoint cmap (k : nat) (cs : list label) (m : PositiveMap.t N) : PositiveMap.t N :=
+  match cs with [] => m | c :: r => cmap (S k) r (PositiveMap.add (skey c) (cnode k) m) end.
+
+(** The nodes [olo] and [ohi] of a concrete label, with one key computed. *)
+Definition cnodes (F : order) (s : label) : option N * option N :=
+  match PositiveMap.find (skey s) (ckeys F) with Some u => (Some u, Some u) | None => (tlo s (otree F), thi s (otree F)) end.
+
+Definition clo (F : order) (s : label) : option N := fst (cnodes F s).
+
+Definition chi (F : order) (s : label) : option N := snd (cnodes F s).
+
 Definition olo (F : order) (a : lexp) : option N :=
-  match a with LAtom i => Some (N.double i) | LCon s => option_map cnode (idx_lo s (ocs F)) | LNone => None end.
+  match a with LAtom i => Some (N.double i) | LCon s => clo F s | LNone => None end.
 
 Definition ohi (F : order) (b : lexp) : option N :=
-  match b with LAtom j => Some (N.double j) | LCon s => option_map cnode (idx_hi s (ocs F)) | LNone => None end.
+  match b with LAtom j => Some (N.double j) | LCon s => chi F s | LNone => None end.
 
 (** The table is keyed by [akey] of the nodes. *)
 Definition akey (n : N) : positive := N.succ_pos n.
@@ -138,12 +196,21 @@ Definition atom_key (i : N) : positive := match i with N0 => xH | Npos p => xI p
 Lemma atom_key_akey i : atom_key i = akey (N.double i).
 Proof. destruct i; reflexivity. Qed.
 
-(** Two atoms, the common case, go straight to the table. *)
+(** Two atoms, the common case, go straight to the table; two concrete
+    labels by the fixed order. *)
 Definition lt_known (F : order) (a b : lexp) : bool :=
-  match a, b with LAtom i, LAtom j => otab F (atom_key i) (atom_key j) | _, _ => lt_gen F a b end.
+  match a, b with
+  | LAtom i, LAtom j => otab F (atom_key i) (atom_key j)
+  | LCon s, LCon t => is_less_than_label s t
+  | _, _ => lt_gen F a b
+  end.
 
-Lemma lt_known_gen F a b : lt_known F a b = lt_gen F a b.
-Proof. destruct a as [| |i], b as [| |j]; try reflexivity; unfold lt_known, lt_gen; cbn; rewrite !atom_key_akey; reflexivity. Qed.
+Lemma lt_known_gen F a b : lt_known F a b = true -> lt_gen F a b = true.
+Proof.
+  destruct a as [|s|i], b as [|t|j]; unfold lt_known, lt_gen; cbn [lt_base]; try (intros H; exact H).
+  - intros H; rewrite H; reflexivity.
+  - rewrite !atom_key_akey; cbn; intros H; exact H.
+Qed.
 
 (** *** The table
 
@@ -157,20 +224,48 @@ Definition succs (adj : PositiveMap.t (list N)) (i : N) : list N :=
 Definition addedge (i j : N) (adj : PositiveMap.t (list N)) : PositiveMap.t (list N) :=
   PositiveMap.add (akey i) (j :: succs adj i) adj.
 
-(** The concrete labels of the facts, sorted. *)
-Fixpoint insert_lab (s : label) (l : list label) : list label :=
-  match l with
-  | [] => [s]
-  | t :: r => if String.eqb s t then l else if is_less_than_label s t then s :: l else t :: insert_lab s r
+(** The concrete labels of the facts, sorted without repeats, by merge
+    sort: O(C log C) comparisons for C occurrences. *)
+Fixpoint merge_lab (a : list label) : list label -> list label :=
+  match a with
+  | [] => fun b => b
+  | x :: a' =>
+      fix mb (b : list label) : list label :=
+        match b with
+        | [] => a
+        | y :: b' =>
+            if String.eqb x y then x :: merge_lab a' b'
+            else if is_less_than_label x y then x :: merge_lab a' b
+            else y :: mb b'
+        end
   end.
 
-Definition fact_cons (l : list (lexp * lexp)) : list label :=
-  fold_left (fun acc '(x, y) =>
-    let acc := match x with LCon s => insert_lab s acc | _ => acc end in
-    match y with LCon s => insert_lab s acc | _ => acc end) l [].
+Fixpoint merge_pairs (ls : list (list label)) : list (list label) :=
+  match ls with a :: b :: r => merge_lab a b :: merge_pairs r | _ => ls end.
 
-Definition fnode (cs : list label) (x : lexp) : option N :=
-  match x with LAtom i => Some (N.double i) | LCon s => option_map cnode (idx_eq s cs) | LNone => None end.
+(** [f] passes are enough when [2 ^ f] is at least the number of lists. *)
+Fixpoint merge_all (f : nat) (ls : list (list label)) : list label :=
+  match ls with
+  | [] => []
+  | [a] => a
+  | _ => match f with O => fold_left merge_lab ls [] | S f => merge_all f (merge_pairs ls) end
+  end.
+
+Definition fact_labs (l : list (lexp * lexp)) : list (list label) :=
+  flat_map (fun '(x, y) =>
+    match x, y with
+    | LCon s, LCon t => [[s]; [t]]
+    | LCon s, _ | _, LCon s => [[s]]
+    | _, _ => []
+    end) l.
+
+Definition fact_cons (l : list (lexp * lexp)) : list label :=
+  let ls := fact_labs l in merge_all (List.length ls) ls.
+
+(** A fact's label as a node: an atom's directly, a concrete label's from
+    the map [cmap] of the mentioned ones. *)
+Definition fnode (m : PositiveMap.t N) (x : lexp) : option N :=
+  match x with LAtom i => Some (N.double i) | LCon s => PositiveMap.find (skey s) m | LNone => None end.
 
 (** Each mentioned concrete label to the next, from position [k]. *)
 Fixpoint chain (k : nat) (cs : list label) (adj : PositiveMap.t (list N)) : PositiveMap.t (list N) :=
@@ -180,8 +275,9 @@ Fixpoint chain (k : nat) (cs : list label) (adj : PositiveMap.t (list N)) : Posi
   end.
 
 Definition edges (l : list (lexp * lexp)) (cs : list label) : PositiveMap.t (list N) :=
+  let m := cmap 0 cs (PositiveMap.empty _) in
   fold_left (fun adj '(x, y) =>
-    match fnode cs x, fnode cs y with Some u, Some v => addedge u v adj | _, _ => adj end)
+    match fnode m x, fnode m y with Some u, Some v => addedge u v adj | _, _ => adj end)
     l (chain 0 cs (PositiveMap.empty _)).
 
 (** A depth-first search: [visit n v seen] marks [v] and everything
@@ -207,18 +303,60 @@ Definition inset (T : PositiveMap.t unit) (j : N) : bool :=
 Definition tmem (t : PositiveMap.t (PositiveMap.t unit)) (ki kj : positive) : bool :=
   match PositiveMap.find ki t with Some T => match PositiveMap.find kj T with Some _ => true | None => false end | None => false end.
 
+(** The rows of the mentioned concrete labels, from position [k], the last
+    first: each label's search starts from the next label's row, since the
+    chain edge between them makes it part of the answer.  The rows share
+    their maps, and the searches together cost O(L + E) rather than
+    O(C (L + E)). *)
+Fixpoint crows (adj : PositiveMap.t (list N)) (n k : nat) (cs : list label) :
+    PositiveMap.t unit * PositiveMap.t (PositiveMap.t unit) :=
+  match cs with
+  | [] => (PositiveMap.empty _, PositiveMap.empty _)
+  | _ :: r =>
+      let '(row, t) := crows adj n (S k) r in
+      let row' := fold_left (fun s w => visit adj n w s) (succs adj (cnode k)) row in
+      (row', PositiveMap.add (akey (cnode k)) row' t)
+  end.
+
 Definition order_of (l : list (lexp * lexp)) : order :=
   let cs := fact_cons l in
   let adj := edges l cs in
   let n := List.length (nodes adj) in
-  let t := PositiveMap.mapi (fun _ st => fold_left (fun s w => visit adj n w s) st (PositiveMap.empty _)) adj in
-  mk_order l cs (tmem t).
+  let ct := snd (crows adj n 0 cs) in
+  let t := PositiveMap.mapi (fun k st =>
+    match PositiveMap.find k ct with
+    | Some row => row
+    | None => fold_left (fun s w => visit adj n w s) st (PositiveMap.empty _)
+    end) adj in
+  mk_order l cs (ctree_of cs) (cmap 0 cs (PositiveMap.empty _)) (tmem t).
 
-Definition lcmp (F : order) (a b : lexp) : option comparison :=
+Definition lcmp_spec (F : order) (a b : lexp) : option comparison :=
   if lexp_eqb a b then Some Eq
   else if lt_known F a b then Some Lt
   else if lt_known F b a then Some Gt
   else None.
+
+(** [lcmp_spec], finding the nodes of a concrete label compared with an
+    atom once rather than once each way. *)
+Definition lcmp (F : order) (a b : lexp) : option comparison :=
+  match a, b with
+  | LAtom i, LCon s =>
+      let '(lo, hi) := cnodes F s in let k := atom_key i in
+      if match hi with Some v => otab F k (akey v) | None => false end then Some Lt
+      else if match lo with Some u => otab F (akey u) k | None => false end then Some Gt else None
+  | LCon s, LAtom i =>
+      let '(lo, hi) := cnodes F s in let k := atom_key i in
+      if match lo with Some u => otab F (akey u) k | None => false end then Some Lt
+      else if match hi with Some v => otab F k (akey v) | None => false end then Some Gt else None
+  | _, _ => lcmp_spec F a b
+  end.
+
+Lemma lcmp_eq F a b : lcmp F a b = lcmp_spec F a b.
+Proof.
+  destruct a as [|s|i], b as [|t|j]; try reflexivity;
+    unfold lcmp, lcmp_spec, lt_known, lt_gen, olo, ohi, clo, chi; cbn [lexp_eqb lt_base];
+    destruct (cnodes F _) as [lo hi]; cbn [fst snd]; rewrite atom_key_akey; reflexivity.
+Qed.
 
 Section Labels.
 
@@ -240,6 +378,7 @@ Definition nlab (cs : list label) (u : N) : lexp :=
 
 Definition facts_ok (F : order) : Prop :=
   lfacts_ok (ofacts F)
+  /\ (forall s, clo F s = option_map cnode (idx_lo s (ocs F)) /\ chi F s = option_map cnode (idx_hi s (ocs F)))
   /\ forall u v, otab F (akey u) (akey v) = true -> olabel_lt (lden (nlab (ocs F) u)) (lden (nlab (ocs F) v)).
 
 Lemma lt_base_sound a b : lt_base a b = true -> olabel_lt (lden a) (lden b).
@@ -288,24 +427,20 @@ Proof.
   destruct (leb_lab c s) eqn:L; [intros E; injection E as <-; exact L|discriminate].
 Qed.
 
-Lemma fnode_nlab cs x u : fnode cs x = Some u -> nlab cs u = x.
-Proof.
-  destruct x as [|s|i]; cbn [fnode]; [discriminate| |intros E; injection E as <-; apply nlab_double].
-  destruct (idx_eq s cs) as [k|] eqn:E; [|discriminate]; cbn; intros E'; injection E' as <-.
-  rewrite nlab_cnode, (idx_eq_spec s cs k E); reflexivity.
-Qed.
 
-Lemma olo_ole F a u : olo F a = Some u -> ole (lden a) (lden (nlab (ocs F) u)).
+Lemma olo_ole F a u : (forall s, clo F s = option_map cnode (idx_lo s (ocs F))) ->
+  olo F a = Some u -> ole (lden a) (lden (nlab (ocs F) u)).
 Proof.
-  destruct a as [|s|i]; cbn [olo]; [discriminate| |intros E; injection E as <-; rewrite nlab_double; left; reflexivity].
-  destruct (idx_lo s (ocs F)) as [k|] eqn:E; [|discriminate]; cbn; intros E'; injection E' as <-.
+  intros HT; destruct a as [|s|i]; cbn [olo]; [discriminate| |intros E; injection E as <-; rewrite nlab_double; left; reflexivity].
+  rewrite HT; destruct (idx_lo s (ocs F)) as [k|] eqn:E; [|discriminate]; cbn; intros E'; injection E' as <-.
   rewrite nlab_cnode; apply leb_lab_ole, (idx_lo_spec _ _ _ E).
 Qed.
 
-Lemma ohi_ole F b v : ohi F b = Some v -> ole (lden (nlab (ocs F) v)) (lden b).
+Lemma ohi_ole F b v : (forall s, chi F s = option_map cnode (idx_hi s (ocs F))) ->
+  ohi F b = Some v -> ole (lden (nlab (ocs F) v)) (lden b).
 Proof.
-  destruct b as [|s|j]; cbn [ohi]; [discriminate| |intros E; injection E as <-; rewrite nlab_double; left; reflexivity].
-  destruct (idx_hi s (ocs F)) as [k|] eqn:E; [|discriminate]; cbn; intros E'; injection E' as <-.
+  intros HT; destruct b as [|s|j]; cbn [ohi]; [discriminate| |intros E; injection E as <-; rewrite nlab_double; left; reflexivity].
+  rewrite HT; destruct (idx_hi s (ocs F)) as [k|] eqn:E; [|discriminate]; cbn; intros E'; injection E' as <-.
   rewrite nlab_cnode; apply leb_lab_ole, (idx_hi_spec _ _ _ E).
 Qed.
 
@@ -313,31 +448,274 @@ Qed.
 Fixpoint sorted_lab (cs : list label) : Prop :=
   match cs with a :: ((b :: _) as r) => label_lt a b /\ sorted_lab r | _ => True end.
 
-Lemma insert_lab_head s t r : label_lt t s -> sorted_lab (t :: r) -> sorted_lab (t :: insert_lab s r).
+(** A label below the head of a list. *)
+Definition lower (x : label) (l : list label) : Prop := match l with [] => True | y :: _ => label_lt x y end.
+
+Lemma sorted_cons_iff x l : sorted_lab (x :: l) <-> lower x l /\ sorted_lab l.
+Proof. destruct l; cbn; [tauto|tauto]. Qed.
+
+Lemma merge_lab_cons x a y b : merge_lab (x :: a) (y :: b) =
+  if String.eqb x y then x :: merge_lab a b
+  else if is_less_than_label x y then x :: merge_lab a (y :: b)
+  else y :: merge_lab (x :: a) b.
+Proof. reflexivity. Qed.
+
+Lemma merge_lab_ok : forall a b, sorted_lab a -> sorted_lab b ->
+  sorted_lab (merge_lab a b) /\ forall z, lower z a -> lower z b -> lower z (merge_lab a b).
 Proof.
-  revert t; induction r as [|u r IH]; intros t Hts Hr; cbn [insert_lab]; [split; [exact Hts|exact I]|].
-  destruct Hr as [Htu Hr].
-  destruct (String.eqb_spec s u) as [->|Nsu]; [split; assumption|].
-  destruct (is_less_than_label s u) eqn:L; [split; [exact Hts|split; [exact L|exact Hr]]|].
-  split; [exact Htu|]; apply IH; [|exact Hr].
-  destruct (label_trichotomy s u) as [H|[H|H]]; [unfold label_lt, label_ltb in H; congruence|contradiction|exact H].
+  induction a as [|x a IH]; intros b Ha Hb; [split; [exact Hb|intros z _ H; exact H]|].
+  apply sorted_cons_iff in Ha as [Lx Sa].
+  induction b as [|y b IHb]; [split; [apply sorted_cons_iff; split; assumption|intros z H _; exact H]|].
+  apply sorted_cons_iff in Hb as [Ly Sb]; rewrite merge_lab_cons.
+  destruct (String.eqb_spec x y) as [<-|Nxy].
+  - destruct (IH b Sa Sb) as [S1 L1]; split; [apply sorted_cons_iff; split; [apply L1; assumption|exact S1]|].
+    intros z H _; exact H.
+  - destruct (is_less_than_label x y) eqn:Lt.
+    + destruct (IH (y :: b) Sa (proj2 (sorted_cons_iff y b) (conj Ly Sb))) as [S1 L1].
+      split; [apply sorted_cons_iff; split; [apply L1; [exact Lx|exact Lt]|exact S1]|intros z H _; exact H].
+    + assert (Hyx : label_lt y x)
+        by (destruct (label_trichotomy x y) as [H|[H|H]]; [unfold label_lt, label_ltb in H; congruence|contradiction|exact H]).
+      destruct (IHb Sb) as [S1 L1].
+      split; [apply sorted_cons_iff; split; [apply L1; [exact Hyx|exact Ly]|exact S1]|intros z _ H; exact H].
 Qed.
 
-Lemma insert_lab_sorted s l : sorted_lab l -> sorted_lab (insert_lab s l).
+Lemma merge_pairs_ok : forall ls, Forall sorted_lab ls -> Forall sorted_lab (merge_pairs ls).
 Proof.
-  destruct l as [|t r]; intros H; cbn [insert_lab]; [exact I|].
-  destruct (String.eqb_spec s t) as [->|Nst]; [exact H|].
-  destruct (is_less_than_label s t) eqn:L; [split; [exact L|exact H]|].
-  apply insert_lab_head; [|exact H].
-  destruct (label_trichotomy s t) as [H'|[H'|H']]; [unfold label_lt, label_ltb in H'; congruence|contradiction|exact H'].
+  assert (H : forall ls, (Forall sorted_lab ls -> Forall sorted_lab (merge_pairs ls))
+            /\ forall a, Forall sorted_lab (a :: ls) -> Forall sorted_lab (merge_pairs (a :: ls))).
+  { induction ls as [|b ls [IH1 IH2]]; [split; intros; assumption|split; [apply IH2|]].
+    intros a Hab; inversion Hab as [|? ? Ha Hb']; inversion Hb' as [|? ? Hb Hls]; subst.
+    cbn [merge_pairs]; constructor; [apply merge_lab_ok; assumption|apply IH1, Hls]. }
+  intros ls; apply (proj1 (H ls)).
+Qed.
+
+Lemma merge_all_ok : forall f ls, Forall sorted_lab ls -> sorted_lab (merge_all f ls).
+Proof.
+  induction f as [|f IH]; intros ls Hls; (destruct ls as [|a [|b r]]; [exact I|inversion Hls; assumption|]).
+  - cbn [merge_all]; assert (H0 : sorted_lab []) by exact I; revert H0 Hls; generalize (@nil label) as acc; generalize (a :: b :: r) as ls.
+    induction ls as [|c ls IHl]; intros acc Hacc Hls; [exact Hacc|]; cbn [fold_left].
+    inversion Hls as [|? ? Hc Hls']; subst; apply IHl; [apply merge_lab_ok; assumption|exact Hls'].
+  - apply IH, merge_pairs_ok, Hls.
+Qed.
+
+Lemma fact_labs_ok l : Forall sorted_lab (fact_labs l).
+Proof.
+  unfold fact_labs; apply Forall_forall; intros c Hc; apply in_flat_map in Hc as [[x y] [_ Hc]].
+  destruct x, y; cbn in Hc; repeat (destruct Hc as [<-|Hc]; [exact I|]); destruct Hc.
 Qed.
 
 Lemma fact_cons_sorted l : sorted_lab (fact_cons l).
+Proof. apply merge_all_ok, fact_labs_ok. Qed.
+
+(** *** The search tree finds what the scans of the list find *)
+
+Lemma sorted_lab_tail c r : sorted_lab (c :: r) -> sorted_lab r.
+Proof. destruct r; [intros _; exact I|intros [_ H]; exact H]. Qed.
+
+Lemma sorted_lab_gt : forall r c, sorted_lab (c :: r) -> Forall (fun x => label_lt c x) r.
 Proof.
-  unfold fact_cons; assert (H0 : sorted_lab []) by exact I; revert H0; generalize (@nil label) as acc.
-  induction l as [|[x y] l IH]; intros acc H; [exact H|]; cbn [fold_left]; apply IH.
-  destruct y as [|t|j]; [| apply insert_lab_sorted|];
-    (destruct x as [|s|i]; [exact H|apply insert_lab_sorted, H|exact H]).
+  induction r as [|d r IH]; intros c H; [constructor|]; destruct H as [Hcd H].
+  constructor; [exact Hcd|]; specialize (IH d H); rewrite Forall_forall in *.
+  intros x Hx; exact (label_lt_trans _ _ _ Hcd (IH x Hx)).
+Qed.
+
+Lemma sorted_lab_app : forall A c r, sorted_lab (A ++ c :: r) ->
+  sorted_lab A /\ sorted_lab (c :: r) /\ Forall (fun x => label_lt x c) A.
+Proof.
+  induction A as [|a A IH]; intros c r H; [split; [exact I|split; [exact H|constructor]]|].
+  destruct (IH c r (sorted_lab_tail a _ H)) as [HA [Hr Hc]]; split; [|split; [exact Hr|constructor; [|exact Hc]]].
+  - destruct A as [|b A]; [exact I|destruct H as [Hab _]; split; [exact Hab|exact HA]].
+  - destruct A as [|b A]; [destruct H as [Hac _]; exact Hac|].
+    destruct H as [Hab _]; inversion Hc; subst; exact (label_lt_trans _ _ _ Hab H1).
+Qed.
+
+Lemma leb_lab_gt s t : label_lt t s -> leb_lab s t = false.
+Proof.
+  unfold leb_lab; intros H; destruct (String.eqb_spec s t) as [->|_]; [exfalso; exact (label_lt_irrefl _ H)|].
+  destruct (is_less_than_label s t) eqn:E; [exfalso; exact (label_lt_asym _ _ H E)|reflexivity].
+Qed.
+
+Lemma leb_lab_false s t : leb_lab s t = false -> label_lt t s.
+Proof.
+  unfold leb_lab; destruct (String.eqb_spec s t) as [_|Ne]; [discriminate|]; intros H.
+  destruct (label_trichotomy s t) as [L|[E|L]]; [unfold label_lt, label_ltb in L; congruence|contradiction|exact L].
+Qed.
+
+Lemma idx_lo_app s A c r : idx_lo s (A ++ c :: r) =
+  match idx_lo s A with
+  | Some j => Some j
+  | None => if leb_lab s c then Some (List.length A) else option_map (fun j => S (List.length A + j)) (idx_lo s r)
+  end.
+Proof.
+  induction A as [|a A IH]; cbn [app idx_lo List.length].
+  - destruct (leb_lab s c); [reflexivity|destruct (idx_lo s r); reflexivity].
+  - rewrite IH; destruct (leb_lab s a); [reflexivity|].
+    destruct (idx_lo s A); [reflexivity|]; destruct (leb_lab s c); [reflexivity|destruct (idx_lo s r); reflexivity].
+Qed.
+
+Lemma idx_hi_app s A c r : idx_hi s (A ++ c :: r) =
+  match idx_hi s r with
+  | Some j => Some (S (List.length A + j))
+  | None => if leb_lab c s then Some (List.length A) else idx_hi s A
+  end.
+Proof.
+  induction A as [|a A IH]; cbn [app idx_hi List.length].
+  - destruct (idx_hi s r); reflexivity.
+  - rewrite IH; destruct (idx_hi s r); [reflexivity|]; destruct (leb_lab c s); reflexivity.
+Qed.
+
+Lemma idx_lo_none s A : Forall (fun x => leb_lab s x = false) A -> idx_lo s A = None.
+Proof. induction 1 as [|x A Hx _ IH]; [reflexivity|]; cbn [idx_lo]; rewrite Hx, IH; reflexivity. Qed.
+
+Lemma idx_hi_none s A : Forall (fun x => leb_lab x s = false) A -> idx_hi s A = None.
+Proof. induction 1 as [|x A Hx _ IH]; [reflexivity|]; cbn [idx_hi]; rewrite IH, Hx; reflexivity. Qed.
+
+Lemma mk_tree_ok s : forall f k cs, List.length cs <= f -> sorted_lab cs ->
+  tlo s (mk_tree f k cs) = option_map (fun j => cnode (k + j)) (idx_lo s cs)
+  /\ thi s (mk_tree f k cs) = option_map (fun j => cnode (k + j)) (idx_hi s cs).
+Proof.
+  induction f as [|f IH]; intros k cs Hf Hs.
+  - destruct cs; [split; reflexivity|cbn in Hf; lia].
+  - cbn [mk_tree]; set (h := Nat.div2 (List.length cs)).
+    assert (Hd : List.length cs = 2 * h \/ List.length cs = S (2 * h))
+      by (pose proof (Nat.div2_odd (List.length cs)) as Hd; fold h in Hd; destruct (Nat.odd (List.length cs)); cbn [Nat.b2n] in Hd; lia).
+    assert (Ecs := firstn_skipn h cs); set (A := firstn h cs) in *.
+    assert (HA : List.length A = h) by (unfold A; rewrite length_firstn; lia).
+    clearbody A h; destruct (skipn h cs) as [|c r] eqn:Es.
+    + rewrite app_nil_r in Ecs; subst cs; destruct A; [split; reflexivity|cbn [List.length] in *; lia].
+    + rewrite <- Ecs in Hs; destruct (sorted_lab_app A c r Hs) as [SA [Sr Hc]].
+      assert (Lc := f_equal (@List.length _) Ecs); rewrite app_length in Lc; cbn [List.length] in Lc.
+      destruct (IH k A ltac:(lia) SA) as [IA1 IA2].
+      destruct (IH (S (k + h)) r ltac:(lia) (sorted_lab_tail c r Sr)) as [IR1 IR2].
+      pose proof (sorted_lab_gt r c Sr) as Hr.
+      rewrite <- Ecs, idx_lo_app, idx_hi_app, HA; cbn [tlo thi]; rewrite IA1, IA2, IR1, IR2; split.
+      * destruct (leb_lab s c) eqn:L; [destruct (idx_lo s A); reflexivity|].
+        rewrite (idx_lo_none s A); [destruct (idx_lo s r); cbn [option_map]; [do 2 f_equal; lia|reflexivity]|].
+        apply leb_lab_false in L; rewrite Forall_forall in Hc |- *; intros x Hx.
+        exact (leb_lab_gt _ _ (label_lt_trans _ _ _ (Hc x Hx) L)).
+      * destruct (leb_lab c s) eqn:L; [destruct (idx_hi s r); cbn [option_map]; [do 2 f_equal; lia|reflexivity]|].
+        rewrite (idx_hi_none s r); [reflexivity|].
+        apply leb_lab_false in L; rewrite Forall_forall in Hr |- *; intros x Hx.
+        exact (leb_lab_gt _ _ (label_lt_trans _ _ _ L (Hr x Hx))).
+Qed.
+
+Lemma ctree_of_ok cs : sorted_lab cs -> forall s,
+  tlo s (ctree_of cs) = option_map cnode (idx_lo s cs) /\ thi s (ctree_of cs) = option_map cnode (idx_hi s cs).
+Proof.
+  intros Hs s; destruct (mk_tree_ok s (List.length cs) 0 cs (le_n _) Hs) as [E1 E2]; unfold ctree_of; rewrite E1, E2.
+  split; [destruct (idx_lo s cs)|destruct (idx_hi s cs)]; reflexivity.
+Qed.
+
+Lemma sorted_nth : forall r, sorted_lab r -> forall i j, i < j -> j < List.length r ->
+  label_lt (nth i r EmptyString) (nth j r EmptyString).
+Proof.
+  induction r as [|a r IH]; intros Hs i j Hij Hj; cbn [List.length] in Hj; [lia|].
+  destruct r as [|b r']; cbn [List.length] in Hj; [lia|]; destruct Hs as [Hab Hs].
+  destruct i as [|i]; destruct j as [|j]; try lia; cbn [nth].
+  - destruct j as [|j]; [exact Hab|]; apply (label_lt_trans _ b); [exact Hab|].
+    apply (IH Hs 0 (S j)); cbn [List.length]; lia.
+  - apply (IH Hs i j); cbn [List.length]; lia.
+Qed.
+
+Lemma leb_lab_iff s t : leb_lab s t = true <-> s = t \/ label_lt s t.
+Proof.
+  unfold leb_lab; destruct (String.eqb_spec s t) as [->|Ne]; [split; [left; reflexivity|reflexivity]|].
+  split; [intros H; right; exact H|intros [E|H]; [contradiction|exact H]].
+Qed.
+
+Lemma leb_lt_trans a b c : label_lt a b -> leb_lab b c = true -> leb_lab a c = true.
+Proof. intros H1 H2; apply leb_lab_iff in H2 as [<-|H2]; apply leb_lab_iff; right; [exact H1|exact (label_lt_trans _ _ _ H1 H2)]. Qed.
+
+Lemma leb_lt_trans' a b c : leb_lab a b = true -> label_lt b c -> leb_lab a c = true.
+Proof. intros H1 H2; apply leb_lab_iff in H1 as [->|H1]; apply leb_lab_iff; right; [exact H2|exact (label_lt_trans _ _ _ H1 H2)]. Qed.
+
+Lemma idx_lo_len s r k : idx_lo s r = Some k -> k < List.length r.
+Proof.
+  revert k; induction r as [|c r IH]; intros k; cbn [idx_lo]; [discriminate|].
+  destruct (leb_lab s c); [intros E; injection E as <-; cbn; lia|].
+  destruct (idx_lo s r) as [k'|]; [cbn; intros E; injection E as <-; cbn [List.length]; specialize (IH k' eq_refl); lia|discriminate].
+Qed.
+
+Lemma idx_lo_first s r j : j < List.length r -> leb_lab s (nth j r EmptyString) = true ->
+  exists k, idx_lo s r = Some k /\ k <= j.
+Proof.
+  revert j; induction r as [|c r IH]; intros j Hj H; cbn [List.length] in Hj; [lia|]; cbn [idx_lo].
+  destruct (leb_lab s c) eqn:L; [exists 0; split; [reflexivity|lia]|].
+  destruct j as [|j]; [cbn in H; congruence|].
+  destruct (IH j ltac:(lia) H) as [k [E Hk]]; rewrite E; exists (S k); split; [reflexivity|lia].
+Qed.
+
+Lemma idx_hi_len s r k : idx_hi s r = Some k -> k < List.length r.
+Proof.
+  revert k; induction r as [|c r IH]; intros k; cbn [idx_hi]; [discriminate|].
+  destruct (idx_hi s r) as [k'|]; [intros E; injection E as <-; cbn [List.length]; specialize (IH k' eq_refl); lia|].
+  destruct (leb_lab c s); [intros E; injection E as <-; cbn; lia|discriminate].
+Qed.
+
+Lemma idx_hi_last s r j : j < List.length r -> leb_lab (nth j r EmptyString) s = true ->
+  exists k, idx_hi s r = Some k /\ j <= k.
+Proof.
+  revert j; induction r as [|c r IH]; intros j Hj H; cbn [List.length] in Hj; [lia|]; cbn [idx_hi].
+  destruct j as [|j].
+  - cbn in H; destruct (idx_hi s r) as [k|]; [exists (S k); split; [reflexivity|lia]|rewrite H; exists 0; split; [reflexivity|lia]].
+  - destruct (IH j ltac:(lia) H) as [k [E Hk]]; rewrite E; exists (S k); split; [reflexivity|lia].
+Qed.
+
+(** A mentioned label is its own first label at or above, and last at or below. *)
+Lemma idx_at s cs k : sorted_lab cs -> k < List.length cs -> nth k cs EmptyString = s ->
+  idx_lo s cs = Some k /\ idx_hi s cs = Some k.
+Proof.
+  intros Hs Hk Ek; assert (L : leb_lab s s = true) by (apply leb_lab_iff; left; reflexivity).
+  split.
+  - rewrite <- Ek in L at 2; destruct (idx_lo_first s cs k Hk L) as [k' [E Le]]; rewrite E; f_equal.
+    destruct (Nat.eq_dec k' k) as [->|Ne]; [reflexivity|exfalso].
+    pose proof (sorted_nth cs Hs k' k ltac:(lia) Hk) as H; rewrite Ek in H.
+    pose proof (idx_lo_spec _ _ _ E) as L'; apply leb_lab_iff in L' as [E'|H']; [rewrite <- E' in H; exact (label_lt_irrefl _ H)|].
+    exact (label_lt_asym _ _ H H').
+  - rewrite <- Ek in L at 1; destruct (idx_hi_last s cs k Hk L) as [k' [E Le]]; rewrite E; f_equal.
+    destruct (Nat.eq_dec k' k) as [->|Ne]; [reflexivity|exfalso].
+    pose proof (sorted_nth cs Hs k k' ltac:(lia) (idx_hi_len _ _ _ E)) as H; rewrite Ek in H.
+    pose proof (idx_hi_spec _ _ _ E) as L'; apply leb_lab_iff in L' as [E'|H']; [rewrite E' in H; exact (label_lt_irrefl _ H)|].
+    exact (label_lt_asym _ _ H H').
+Qed.
+
+Lemma bit_inj b c p q : bit b p = bit c q -> b = c /\ p = q.
+Proof. destruct b, c; cbn; intros H; try discriminate; injection H as ->; split; reflexivity. Qed.
+
+Lemma abits_inj a b p q : abits a p = abits b q -> a = b /\ p = q.
+Proof.
+  destruct a as [a0 a1 a2 a3 a4 a5 a6 a7], b as [b0 b1 b2 b3 b4 b5 b6 b7]; cbn [abits]; intros H.
+  apply bit_inj in H as [-> H]; apply bit_inj in H as [-> H]; apply bit_inj in H as [-> H]; apply bit_inj in H as [-> H].
+  apply bit_inj in H as [-> H]; apply bit_inj in H as [-> H]; apply bit_inj in H as [-> H]; apply bit_inj in H as [-> H].
+  split; [reflexivity|exact H].
+Qed.
+
+Lemma skey_inj : forall s t, skey s = skey t -> s = t.
+Proof.
+  induction s as [|a s IH]; intros [|b t]; cbn [skey]; intros H; [reflexivity| | |].
+  - destruct b as [[] ? ? ? ? ? ? ?]; discriminate.
+  - destruct a as [[] ? ? ? ? ? ? ?]; discriminate.
+  - apply abits_inj in H as [-> H]; f_equal; apply IH, H.
+Qed.
+
+Lemma cmap_find s : forall cs k m u, PositiveMap.find (skey s) (cmap k cs m) = Some u ->
+  PositiveMap.find (skey s) m = Some u \/ exists j, j < List.length cs /\ nth j cs EmptyString = s /\ u = cnode (k + j).
+Proof.
+  induction cs as [|c r IH]; intros k m u H; cbn [cmap] in H; [left; exact H|].
+  destruct (IH (S k) _ u H) as [H1|[j [Hj [Ej Eu]]]].
+  - destruct (Pos.eq_dec (skey s) (skey c)) as [E|Ne]; [|rewrite PositiveMap.gso in H1; [left; exact H1|exact Ne]].
+    rewrite E, PositiveMap.gss in H1; apply skey_inj in E; injection H1 as <-; right; exists 0; cbn [List.length nth]; split; [lia|split; [symmetry; exact E|f_equal; lia]].
+  - right; exists (S j); cbn [List.length nth]; split; [lia|split; [exact Ej|rewrite Eu; f_equal; lia]].
+Qed.
+
+Lemma clo_chi_ok cs : sorted_lab cs -> forall s,
+  let F := mk_order [] cs (ctree_of cs) (cmap 0 cs (PositiveMap.empty _)) (fun _ _ => false) in
+  clo F s = option_map cnode (idx_lo s cs) /\ chi F s = option_map cnode (idx_hi s cs).
+Proof.
+  intros Hs s F; unfold clo, chi, cnodes; cbn [ckeys otree F].
+  destruct (PositiveMap.find (skey s) (cmap 0 cs (PositiveMap.empty N))) as [u|] eqn:E; [|apply ctree_of_ok, Hs].
+  destruct (cmap_find s cs 0 _ u E) as [H|[j [Hj [Ej ->]]]]; [rewrite PositiveMap.gempty in H; discriminate|].
+  destruct (idx_at s cs j Hs Hj Ej) as [-> ->]; split; reflexivity.
 Qed.
 
 (** The edges are sound: every edge goes up. *)
@@ -377,12 +755,20 @@ Proof.
     cbn [nth] in H0, H1; rewrite H0, H1; exact Hab.
 Qed.
 
+Lemma fnode_nlab cs x u : fnode (cmap 0 cs (PositiveMap.empty _)) x = Some u -> nlab cs u = x.
+Proof.
+  destruct x as [|s|i]; cbn [fnode]; [discriminate| |intros E; injection E as <-; apply nlab_double].
+  intros E; destruct (cmap_find s cs 0 _ u E) as [H|[j [_ [Ej ->]]]]; [rewrite PositiveMap.gempty in H; discriminate|].
+  rewrite Nat.add_0_l, nlab_cnode, Ej; reflexivity.
+Qed.
+
 Lemma facts_edges_ok (cs : list label) k : lfacts_ok k -> forall adj, adj_ok cs adj ->
   adj_ok cs (fold_left (fun adj '(x, y) =>
-    match fnode cs x, fnode cs y with Some u, Some v => addedge u v adj | _, _ => adj end) k adj).
+    match fnode (cmap 0 cs (PositiveMap.empty _)) x, fnode (cmap 0 cs (PositiveMap.empty _)) y with
+    | Some u, Some v => addedge u v adj | _, _ => adj end) k adj).
 Proof.
   unfold lfacts_ok; intros Hk; induction Hk as [|[x y] k Hxy Hk IH]; intros adj Ha; [exact Ha|]; cbn [fold_left]; apply IH.
-  destruct (fnode cs x) as [u|] eqn:Ex; [|exact Ha]; destruct (fnode cs y) as [v|] eqn:Ey; [|exact Ha].
+  destruct (fnode _ x) as [u|] eqn:Ex; [|exact Ha]; destruct (fnode _ y) as [v|] eqn:Ey; [|exact Ha].
   apply addedge_ok; [exact Ha|]; unfold ord; rewrite (fnode_nlab _ _ _ Ex), (fnode_nlab _ _ _ Ey); exact Hxy.
 Qed.
 
@@ -420,20 +806,68 @@ Proof.
   apply IHw; [apply IH; [apply Hws; left; reflexivity|exact H0]|intros x Hx; apply Hws; right; exact Hx].
 Qed.
 
-Lemma reach_inv n st : Forall P st -> seen_ok (fold_left (fun s w => visit adj n w s) st (PositiveMap.empty _)).
+Lemma fold_inv n st : Forall P st -> forall s0, seen_ok s0 -> seen_ok (fold_left (fun s w => visit adj n w s) st s0).
 Proof.
-  intros Hst; assert (H0 : seen_ok (PositiveMap.empty unit)) by (intros v; unfold inset; rewrite PositiveMap.gempty; discriminate).
-  revert H0; generalize (PositiveMap.empty unit) as s0.
-  induction Hst as [|w ws Hw Hws IHw]; intros s0 H0; [exact H0|]; cbn [fold_left]; apply IHw, visit_inv; assumption.
+  intros Hst; induction Hst as [|w ws Hw Hws IHw]; intros s0 H0; [exact H0|]; cbn [fold_left]; apply IHw, visit_inv; assumption.
 Qed.
+
+Lemma seen_ok_empty : seen_ok (PositiveMap.empty unit).
+Proof. intros v; unfold inset; rewrite PositiveMap.gempty; discriminate. Qed.
+
+Lemma reach_inv n st : Forall P st -> seen_ok (fold_left (fun s w => visit adj n w s) st (PositiveMap.empty _)).
+Proof. intros Hst; apply fold_inv, seen_ok_empty; exact Hst. Qed.
 End Inv.
+
+Lemma cnode_inj i j : cnode i = cnode j -> i = j.
+Proof. unfold cnode; intros E; apply Nat2N.inj; destruct (N.of_nat i), (N.of_nat j); cbn in E; congruence. Qed.
+
+(** What the rows of [crows] hold, for any relation [R] that edges give,
+    that grows along edges, and that passes down the chain. *)
+Lemma crows_inv (R : N -> N -> Prop) adj n
+  (Hgrow : forall u x w, R u x -> In w (succs adj x) -> R u w)
+  (Hedge : forall x w, In w (succs adj x) -> R x w) :
+  forall r k, (forall j w, S j < List.length r -> R (cnode (k + S j)) w -> R (cnode (k + j)) w) ->
+  (forall v, inset (fst (crows adj n k r)) v = true -> R (cnode k) v)
+  /\ forall key row, PositiveMap.find key (snd (crows adj n k r)) = Some row ->
+       exists j, j < List.length r /\ key = akey (cnode (k + j)) /\ forall v, inset row v = true -> R (cnode (k + j)) v.
+Proof.
+  induction r as [|c r IH]; intros k Hch; cbn [crows fst snd].
+  - split; [intros v H; unfold inset in H; rewrite PositiveMap.gempty in H; discriminate|].
+    intros key row H; rewrite PositiveMap.gempty in H; discriminate.
+  - destruct (IH (S k)) as [Hrow Ht].
+    { intros j w Hj; replace (S k + S j) with (k + S (S j)) by lia; replace (S k + j) with (k + S j) by lia.
+      apply Hch; cbn [List.length]; lia. }
+    assert (He : r = [] -> forall v, inset (fst (crows adj n (S k) r)) v = false)
+      by (intros -> v; cbn [crows fst]; unfold inset; rewrite PositiveMap.gempty; reflexivity).
+    destruct (crows adj n (S k) r) as [row t]; cbn [fst snd] in Hrow, Ht, He |- *.
+    assert (Hr : forall v, inset (fold_left (fun s w => visit adj n w s) (succs adj (cnode k)) row) v = true -> R (cnode k) v).
+    { apply (fold_inv adj (R (cnode k))); [intros u w Hu Hw; exact (Hgrow _ _ _ Hu Hw)| |].
+      - rewrite Forall_forall; intros w Hw; exact (Hedge _ _ Hw).
+      - intros v Hv; destruct r as [|d r'].
+        + rewrite (He eq_refl) in Hv; discriminate.
+        + specialize (Hch 0 v ltac:(cbn [List.length]; lia)); rewrite Nat.add_0_r, Nat.add_1_r in Hch; exact (Hch (Hrow v Hv)). }
+    split; [exact Hr|]; intros key row' H.
+    destruct (Pos.eq_dec key (akey (cnode k))) as [->|Ne].
+    + rewrite PositiveMap.gss in H; injection H as <-; exists 0; rewrite Nat.add_0_r; split; [cbn; lia|split; [reflexivity|exact Hr]].
+    + rewrite PositiveMap.gso in H by exact Ne; destruct (Ht key row' H) as [j [Hj [-> Hv]]].
+      exists (S j); replace (k + S j) with (S k + j) by lia; split; [cbn [List.length]; lia|split; [reflexivity|exact Hv]].
+Qed.
 
 Lemma order_of_ok l : lfacts_ok l -> facts_ok (order_of l).
 Proof.
-  intros Hl; split; [exact Hl|]; unfold order_of; cbn [otab ocs]; intros i j; unfold tmem.
+  intros Hl; split; [exact Hl|split; [apply (clo_chi_ok (fact_cons l) (fact_cons_sorted l))|]].
+  unfold order_of; cbn [otab ocs]; intros i j; unfold tmem.
   rewrite PositiveMap.gmapi; unfold option_map.
   destruct (PositiveMap.find (akey i) (edges l (fact_cons l))) as [st|] eqn:Ei; [|discriminate].
-  assert (Hst : st = succs (edges l (fact_cons l)) i) by (unfold succs; rewrite Ei; reflexivity).
+  set (adj := edges l (fact_cons l)) in *; set (n := List.length (nodes adj)).
+  destruct (PositiveMap.find (akey i) (snd (crows adj n 0 (fact_cons l)))) as [row|] eqn:Er.
+  { assert (Hcr := crows_inv (ord (fact_cons l)) adj n (fun u x w Hu Hw => olabel_lt_trans _ _ _ Hu (edges_ok l Hl x w Hw))
+      (edges_ok l Hl) (fact_cons l) 0).
+    destruct Hcr as [_ Ht].
+    { intros k w Hk; cbn [Nat.add]; unfold ord; rewrite !nlab_cnode; intros H; refine (olabel_lt_trans _ _ _ _ H).
+      exact (sorted_nth _ (fact_cons_sorted l) k (S k) (Nat.lt_succ_diag_r k) Hk). }
+    destruct (Ht _ _ Er) as [k [_ [Ek Hv]]]; apply akey_inj in Ek; subst i; exact (Hv j). }
+  assert (Hst : st = succs adj i) by (unfold succs; rewrite Ei; reflexivity).
   rewrite Hst; apply (reach_inv _ (ord (fact_cons l) i)).
   - intros u w Hu Hw; exact (olabel_lt_trans _ _ _ Hu (edges_ok l Hl u w Hw)).
   - rewrite Forall_forall; intros w Hw; exact (edges_ok l Hl i w Hw).
@@ -442,12 +876,17 @@ Qed.
 Variable F : order.
 Hypothesis HF : facts_ok F.
 
-Lemma lt_known_sound a b : lt_known F a b = true -> olabel_lt (lden a) (lden b).
+Lemma lt_gen_sound a b : lt_gen F a b = true -> olabel_lt (lden a) (lden b).
 Proof.
-  rewrite lt_known_gen; unfold lt_gen; destruct (lt_base a b) eqn:Eb; [intros _; apply lt_base_sound, Eb|].
+  unfold lt_gen; destruct (lt_base a b) eqn:Eb; [intros _; apply lt_base_sound, Eb|].
+  destruct HF as [_ [HT Htab]].
   destruct (olo F a) as [u|] eqn:Eu; [|discriminate]; destruct (ohi F b) as [v|] eqn:Ev; [|discriminate].
-  intros H; apply (ole_lt_trans _ _ _ (olo_ole F a u Eu)), (lt_ole_trans _ _ _ ((proj2 HF) u v H)), (ohi_ole F b v Ev).
+  intros H; apply (ole_lt_trans _ _ _ (olo_ole F a u (fun s => proj1 (HT s)) Eu)), (lt_ole_trans _ _ _ (Htab u v H)),
+    (ohi_ole F b v (fun s => proj2 (HT s)) Ev).
 Qed.
+
+Lemma lt_known_sound a b : lt_known F a b = true -> olabel_lt (lden a) (lden b).
+Proof. intros H; apply lt_gen_sound, lt_known_gen, H. Qed.
 
 (** What a comparison tells about the labels. *)
 Definition cmp_holds (c : comparison) (a b : lexp) : Prop :=
@@ -459,7 +898,7 @@ Definition cmp_holds (c : comparison) (a b : lexp) : Prop :=
 
 Lemma lcmp_sound a b c : lcmp F a b = Some c -> cmp_holds c a b.
 Proof.
-  unfold lcmp; destruct (lexp_eqb a b) eqn:E.
+  rewrite lcmp_eq; unfold lcmp_spec; destruct (lexp_eqb a b) eqn:E.
   - intros H; injection H as <-; apply lexp_eqb_eq, E.
   - destruct (lt_known F a b) eqn:L1; [intros H; injection H as <-; apply lt_known_sound, L1|].
     destruct (lt_known F b a) eqn:L2; [intros H; injection H as <-; apply lt_known_sound, L2|discriminate].
@@ -2078,7 +2517,7 @@ Proof.
       (destruct (lins F h r) as [r'|] eqn:Er; [|discriminate]; intros H; injection H as <-; intros Hn;
        inversion Hn as [|x l Hx Hr]; subst; constructor; [|apply IH; [reflexivity|exact Hr]];
        intros Hi; apply (proj1 (proj1 (lins_spec _ _ _ Er) h')) in Hi as [Hi|Hi]; [subst h'|contradiction];
-       unfold lcmp in Ec; rewrite (proj2 (lexp_eqb_eq h h) eq_refl) in Ec; discriminate).
+       rewrite lcmp_eq in Ec; unfold lcmp_spec in Ec; rewrite (proj2 (lexp_eqb_eq h h) eq_refl) in Ec; discriminate).
 Qed.
 
 Lemma linss_nodup hs acc hs' : linss F hs acc = Some hs' -> NoDup acc -> NoDup hs'.
@@ -2093,7 +2532,7 @@ Definition lknown (hs : list lexp) : Prop := forall x y, In x hs -> In y hs -> e
 
 Lemma lcmp_known_sym x y c : lcmp F x y = Some c -> exists c', lcmp F y x = Some c'.
 Proof.
-  unfold lcmp; destruct (lexp_eqb x y) eqn:E1.
+  rewrite !lcmp_eq; unfold lcmp_spec; destruct (lexp_eqb x y) eqn:E1.
   - apply lexp_eqb_eq in E1; subst y; rewrite (proj2 (lexp_eqb_eq x x) eq_refl); eexists; reflexivity.
   - assert (E1' : lexp_eqb y x = false)
       by (destruct (lexp_eqb y x) eqn:E; [apply lexp_eqb_eq in E; subst y; rewrite (proj2 (lexp_eqb_eq x x) eq_refl) in E1; discriminate|reflexivity]).
@@ -2116,7 +2555,7 @@ Lemma lins_known h hs hs' : lins F h hs = Some hs' -> lknown hs -> lknown hs'.
 Proof.
   intros E Hk; destruct (lins_spec _ _ _ E) as [Hi _].
   assert (Hrefl : forall x, exists c, lcmp F x x = Some c)
-    by (intros x; unfold lcmp; rewrite (proj2 (lexp_eqb_eq x x) eq_refl); eexists; reflexivity).
+    by (intros x; rewrite lcmp_eq; unfold lcmp_spec; rewrite (proj2 (lexp_eqb_eq x x) eq_refl); eexists; reflexivity).
   assert (Hh : forall z, In z hs -> exists c, lcmp F h z = Some c).
   { destruct (lins_cmp _ _ _ E) as [H|H]; [exact H|intros z Hz; exact (Hk h z H Hz)]. }
   intros x y Hx Hy; apply Hi in Hx as [->|Hx]; apply Hi in Hy as [->|Hy].
