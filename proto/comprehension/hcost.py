@@ -211,10 +211,13 @@ class H:
             g = st[1]
             p = False
             if s.kd(h, g):
-                for y in pend:                                       # merge the pending labels
-                    s.C['front'] += len(fr)
-                    if not any(y == m or s.before(y, m) for m in fr):
-                        fr = [m for m in fr if not s.before(m, y)] + [y]
+                for y in pend:                                       # merge: one pass per label
+                    out = []; absorbed = False
+                    for m in fr:
+                        s.C['front'] += 1
+                        if y == m or s.before(y, m): absorbed = True; break
+                        if not s.before(m, y): out.append(m)
+                    if not absorbed: fr = out + [y]
                 pend = []
                 p = True
                 for m in fr:

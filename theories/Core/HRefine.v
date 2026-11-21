@@ -283,6 +283,15 @@ Proof.
   apply Forall2_app; [exact IH|constructor; [exact Hs|constructor]].
 Qed.
 
+Lemma lexp_eqb_refl' a : lexp_eqb a a = true.
+Proof. apply lexp_eqb_eq; reflexivity. Qed.
+
+Lemma lexp_eqb_false_iff a b : lexp_eqb a b = false <-> a <> b.
+Proof.
+  split; intros H. - intros E; apply lexp_eqb_eq in E; congruence.
+  - destruct (lexp_eqb a b) eqn:E; [apply lexp_eqb_eq in E; contradiction|reflexivity].
+Qed.
+
 (** The frontier passes or fails a label as the kept steps do. *)
 Definition FrOf (fr : list lexp) (ckept : CNorm.cword) : Prop :=
   forall l, forallb (fun m => CNorm.before F m l) fr = forallb (CNorm.sbef F l) ckept.
@@ -303,22 +312,46 @@ Qed.
 Lemma FrOf_cons L ckept g cs : FrOf L ckept -> CNorm.slabel cs = Some g -> FrOf (g :: L) (cs :: ckept).
 Proof. intros H Eg l; cbn [forallb]; unfold CNorm.sbef at 1; rewrite Eg, H; reflexivity. Qed.
 
+Lemma addf_go_none y fr : HNorm.addf_go F y fr = None ->
+  exists m, In m fr /\ (y = m \/ CNorm.before F y m = true).
+Proof.
+  induction fr as [|m r IH]; cbn [HNorm.addf_go]; [discriminate|].
+  destruct (lcmp F y m) as [[| |]|] eqn:C; intros E.
+  - exists m; split; [left; reflexivity|left].
+    unfold lcmp in C; destruct (lexp_eqb y m) eqn:Q; [apply lexp_eqb_eq, Q|].
+    destruct (lt_known F y m); [discriminate|destruct (lt_known F m y); discriminate].
+  - exists m; split; [left; reflexivity|right; unfold CNorm.before; rewrite C; reflexivity].
+  - destruct (IH E) as [m' [I' H']]; exists m'; split; [right; exact I'|exact H'].
+  - destruct (HNorm.addf_go F y r) eqn:E'; [discriminate|].
+    destruct (IH eq_refl) as [m' [I' H']]; exists m'; split; [right; exact I'|exact H'].
+Qed.
+
+Lemma addf_go_some y fr : forall r, HNorm.addf_go F y fr = Some r -> forall l, CNorm.before F y l = true ->
+  forallb (fun m => CNorm.before F m l) r = forallb (fun m => CNorm.before F m l) fr.
+Proof.
+  induction fr as [|m fr IH]; intros r E l By; cbn [HNorm.addf_go] in E; [injection E as <-; reflexivity|].
+  destruct (lcmp F y m) as [[| |]|] eqn:C; [discriminate|discriminate| |].
+  - assert (Bm : CNorm.before F m y = true).
+    { unfold lcmp in C; unfold CNorm.before, lcmp.
+      destruct (lexp_eqb y m) eqn:Q; [discriminate|]; destruct (lt_known F y m); [discriminate|].
+      destruct (lt_known F m y) eqn:L; [|discriminate].
+      assert (Q' : lexp_eqb m y = false) by (apply lexp_eqb_false_iff; intros ->; rewrite lexp_eqb_refl' in Q; discriminate).
+      rewrite Q'; reflexivity. }
+    cbn [forallb]; rewrite (before_trans m y l Bm By), (IH r E l By); reflexivity.
+  - destruct (HNorm.addf_go F y fr) as [r'|] eqn:E'; [|discriminate]; injection E as <-.
+    cbn [forallb]; rewrite (IH r' eq_refl l By); reflexivity.
+Qed.
+
 Lemma addf_ok y fr l :
   forallb (fun m => CNorm.before F m l) (HNorm.addf F y fr) = CNorm.before F y l && forallb (fun m => CNorm.before F m l) fr.
 Proof.
-  unfold HNorm.addf; change (HNorm.before F) with (CNorm.before F).
-  destruct (existsb (fun m => if lexp_eqb y m then true else CNorm.before F y m) fr) eqn:E.
-  - apply existsb_exists in E as [m [Im Em]].
+  unfold HNorm.addf; destruct (HNorm.addf_go F y fr) as [r|] eqn:E.
+  - cbn [forallb]; destruct (CNorm.before F y l) eqn:By; [|reflexivity].
+    rewrite (addf_go_some y fr r E l By); reflexivity.
+  - destruct (addf_go_none y fr E) as [m [Im Hm]].
     destruct (forallb (fun m => CNorm.before F m l) fr) eqn:A; [|rewrite andb_false_r; reflexivity].
     rewrite forallb_forall in A; pose proof (A m Im) as Am; rewrite andb_true_r; symmetry.
-    destruct (lexp_eqb y m) eqn:Eym; [apply lexp_eqb_eq in Eym; subst m; exact Am|].
-    apply (before_trans y m l Em Am).
-  - cbn [forallb]; destruct (CNorm.before F y l) eqn:By; cbn [andb]; [|reflexivity].
-    induction fr as [|m fr IH]; [reflexivity|]; cbn [filter forallb] in *.
-    apply orb_false_iff in E as [_ E].
-    destruct (CNorm.before F m y) eqn:Bm; cbn [negb].
-    + rewrite (before_trans m y l Bm By); cbn [andb]; apply IH, E.
-    + cbn [forallb]; rewrite IH by exact E; reflexivity.
+    destruct Hm as [->|Hm]; [exact Am|apply (before_trans y m l Hm Am)].
 Qed.
 
 Lemma mergef_ok pend : forall fr l,

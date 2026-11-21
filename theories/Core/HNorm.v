@@ -112,10 +112,21 @@ Definition before (a b : lexp) : bool := match lcmp F a b with Some Lt => true |
     Written with [if]: [vm_compute] evaluates both sides of [&&]. *)
 
 (** [y] kept: the frontier labels below [y] go, and [y] joins unless it
-    is below or equal to one of them. *)
+    is below or equal to one of them; one comparison per frontier label
+    ([None]: [y] is absorbed). *)
+Fixpoint addf_go (y : lexp) (fr : list lexp) : option (list lexp) :=
+  match fr with
+  | [] => Some []
+  | m :: r =>
+      match lcmp F y m with
+      | Some Eq | Some Lt => None
+      | Some Gt => addf_go y r
+      | None => match addf_go y r with Some r' => Some (m :: r') | None => None end
+      end
+  end.
+
 Definition addf (y : lexp) (fr : list lexp) : list lexp :=
-  if existsb (fun m => if lexp_eqb y m then true else before y m) fr then fr
-  else y :: filter (fun m => negb (before m y)) fr.
+  match addf_go y fr with Some r => y :: r | None => fr end.
 
 Fixpoint mergef (pend fr : list lexp) : list lexp :=
   match pend with [] => fr | y :: p => mergef p (addf y fr) end.
