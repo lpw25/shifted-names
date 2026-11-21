@@ -609,11 +609,10 @@ as maps keyed by binary keys, found once by a search over the edges the
 facts give (`Normalise.order_of`, O(L (L + E))). With unary atoms and an
 L × L table of lists closed under transitivity, building the table took
 330 s for about 400 labels and each comparison cost O(L); now it takes
-about 1 s and a comparison two map lookups. `order_of` also checks that
-each set it found is closed under the edges (if not, its table would know
-nothing: a weaker order, but still one), which with the search's
-soundness makes the table transitive (`KnownOrder.tmem_trans`); with the
-check, the table for about 400 labels takes 2-3 s.
+about 1 s and a comparison two map lookups. The search is depth-first,
+with the number of edges as its depth bound; it finds exactly the atoms
+reachable from its start (`KnownOrder.visit_complete`, `reach_inv`), so
+the table is transitive (`KnownOrder.order_of_tmem_trans`).
 
 **End to end.** `HRefine.hn_eq_order_correct`: for facts `l` between
 label atoms that hold under some interpretation of the labels,

@@ -147,54 +147,34 @@ Definition edges_from (l0 k : list (lexp * lexp)) (adj : PositiveMap.t (list N))
 
 Definition edges (l : list (lexp * lexp)) : PositiveMap.t (list N) := edges_from l l (PositiveMap.empty _).
 
-(** A search: the atoms reachable from [stack], with [seen] already
-    found (each under its key).  [fuel] bounds the steps (each pops one
-    atom); [order_of] gives enough for every search to finish. *)
-Fixpoint search (adj : PositiveMap.t (list N)) (fuel : nat) (stack : list N) (seen : PositiveMap.t N) :
-    PositiveMap.t N :=
-  match fuel with
+(** A depth-first search: [visit n v seen] marks [v] and everything
+    reachable from it that is not in [seen].  Each nested call marks a new
+    atom, so [n], the number of edges, is enough depth. *)
+Fixpoint visit (adj : PositiveMap.t (list N)) (n : nat) (v : N) (seen : PositiveMap.t unit) {struct n} :
+    PositiveMap.t unit :=
+  match n with
   | O => seen
-  | S f =>
-      match stack with
-      | [] => seen
-      | v :: st =>
-          match PositiveMap.find (akey v) seen with
-          | Some _ => search adj f st seen
-          | None => search adj f (succs adj v ++ st) (PositiveMap.add (akey v) v seen)
-          end
+  | S n' =>
+      match PositiveMap.find (akey v) seen with
+      | Some _ => seen
+      | None => fold_left (fun s w => visit adj n' w s) (succs adj v) (PositiveMap.add (akey v) tt seen)
       end
   end.
 
-Definition nedges (adj : PositiveMap.t (list N)) : nat :=
-  PositiveMap.fold (fun _ l n => List.length l + n) adj 1.
+(** Every edge's target, so its length is the number of edges. *)
+Definition nodes (adj : PositiveMap.t (list N)) : list N := List.concat (List.map snd (PositiveMap.elements adj)).
 
-Definition inset (T : PositiveMap.t N) (j : N) : bool :=
+Definition inset (T : PositiveMap.t unit) (j : N) : bool :=
   match PositiveMap.find (akey j) T with Some _ => true | None => false end.
 
-Definition tmem (t : PositiveMap.t (PositiveMap.t N)) (i j : N) : bool :=
+Definition tmem (t : PositiveMap.t (PositiveMap.t unit)) (i j : N) : bool :=
   match PositiveMap.find (akey i) t with Some T => inset T j | None => false end.
 
-(** The atoms found from the atom with key [p] are closed under the
-    edges: the successors of [p], and of every atom found, are found. *)
-Definition psuccs (adj : PositiveMap.t (list N)) (p : positive) : list N :=
-  match PositiveMap.find p adj with Some l => l | None => [] end.
-
-Definition closed_at (adj : PositiveMap.t (list N)) (p : positive) (T : PositiveMap.t N) : bool :=
-  if forallb (inset T) (psuccs adj p)
-  then forallb (fun '(_, v) => forallb (inset T) (succs adj v)) (PositiveMap.elements T)
-  else false.
-
-Definition closed (adj : PositiveMap.t (list N)) (t : PositiveMap.t (PositiveMap.t N)) : bool :=
-  forallb (fun '(p, T) => closed_at adj p T) (PositiveMap.elements t).
-
-(** Every search finishes within twice the number of edges, so the sets
-    are closed; this is checked, and if it ever failed the table would
-    know nothing (a weaker order, but still one). *)
 Definition order_of (l : list (lexp * lexp)) : order :=
   let adj := edges l in
-  let fuel := nedges adj + nedges adj in
-  let t := PositiveMap.mapi (fun _ st => search adj fuel st (PositiveMap.empty _)) adj in
-  mk_order l (if closed adj t then tmem t else fun _ _ => false).
+  let n := List.length (nodes adj) in
+  let t := PositiveMap.mapi (fun _ st => fold_left (fun s w => visit adj n w s) st (PositiveMap.empty _)) adj in
+  mk_order l (tmem t).
 
 Definition lcmp (F : order) (a b : lexp) : option comparison :=
   if lexp_eqb a b then Some Eq
@@ -294,33 +274,49 @@ Proof.
   intros i j; unfold succs; rewrite PositiveMap.gempty; intros [].
 Qed.
 
-Lemma search_inv (P : N -> Prop) adj : (forall u w, P u -> In w (succs adj u) -> P w) ->
-  forall fuel stack seen, Forall P stack -> (forall v, PositiveMap.find (akey v) seen <> None -> P v) ->
-  forall v, PositiveMap.find (akey v) (search adj fuel stack seen) <> None -> P v.
+(** What a search marks satisfies any property of its starting atoms
+    that edges preserve. *)
+Section Inv.
+Variable adj : PositiveMap.t (list N).
+Variable P : N -> Prop.
+Hypothesis HP : forall u w, P u -> In w (succs adj u) -> P w.
+
+Definition seen_ok (s : PositiveMap.t unit) : Prop := forall v, inset s v = true -> P v.
+
+Lemma inset_add v s x : inset (PositiveMap.add (akey v) tt s) x = if N.eqb x v then true else inset s x.
 Proof.
-  intros HP; induction fuel as [|f IH]; intros stack seen Hs Hseen; [exact Hseen|].
-  destruct stack as [|u st]; cbn [search]; [exact Hseen|].
-  inversion Hs as [|? ? Hu Hst]; subst.
-  destruct (PositiveMap.find (akey u) seen); [apply IH; assumption|].
-  apply IH.
-  - apply Forall_app; split; [|exact Hst].
-    rewrite Forall_forall; intros w Hw; exact (HP u w Hu Hw).
-  - intros v; destruct (N.eqb_spec v u) as [->|Ne]; [intros _; exact Hu|].
-    rewrite PositiveMap.gso by (intros E; apply Ne, akey_inj, E); apply Hseen.
+  unfold inset; destruct (N.eqb_spec x v) as [->|Ne]; [rewrite PositiveMap.gss; reflexivity|].
+  rewrite PositiveMap.gso; [reflexivity|intros E; apply Ne, akey_inj, E].
 Qed.
+
+Lemma visit_inv n : forall v s, P v -> seen_ok s -> seen_ok (visit adj n v s).
+Proof.
+  induction n as [|n IH]; intros v s Hv Hs; cbn [visit]; [exact Hs|].
+  destruct (PositiveMap.find (akey v) s); [exact Hs|].
+  assert (Hws : forall w, In w (succs adj v) -> P w) by (intros w Hw; exact (HP v w Hv Hw)).
+  assert (H0 : seen_ok (PositiveMap.add (akey v) tt s)).
+  { intros x; rewrite inset_add; destruct (N.eqb_spec x v) as [->|_]; [intros _; exact Hv|apply Hs]. }
+  revert H0 Hws; generalize (PositiveMap.add (akey v) tt s) as s0; generalize (succs adj v) as ws.
+  induction ws as [|w ws IHw]; intros s0 H0 Hws; [exact H0|]; cbn [fold_left].
+  apply IHw; [apply IH; [apply Hws; left; reflexivity|exact H0]|intros x Hx; apply Hws; right; exact Hx].
+Qed.
+
+Lemma reach_inv n st : Forall P st -> seen_ok (fold_left (fun s w => visit adj n w s) st (PositiveMap.empty _)).
+Proof.
+  intros Hst; assert (H0 : seen_ok (PositiveMap.empty unit)) by (intros v; unfold inset; rewrite PositiveMap.gempty; discriminate).
+  revert H0; generalize (PositiveMap.empty unit) as s0.
+  induction Hst as [|w ws Hw Hws IHw]; intros s0 H0; [exact H0|]; cbn [fold_left]; apply IHw, visit_inv; assumption.
+Qed.
+End Inv.
 
 Lemma order_of_ok l : lfacts_ok l -> facts_ok (order_of l).
 Proof.
-  intros Hl; split; [exact Hl|]; unfold order_of; cbn [otab]; intros i j.
-  destruct (closed _ _); [|discriminate]; unfold tmem, inset.
+  intros Hl; split; [exact Hl|]; unfold order_of; cbn [otab]; intros i j; unfold tmem.
   rewrite PositiveMap.gmapi; unfold option_map.
   destruct (PositiveMap.find (akey i) (edges l)) as [st|] eqn:Ei; [|discriminate].
-  destruct (PositiveMap.find (akey j) _) eqn:Ej; [intros _|discriminate].
-  refine (search_inv (ord i) (edges l) _ _ st (PositiveMap.empty _) _ _ j _).
+  apply (reach_inv (edges l) (ord i)).
   - intros u w Hu Hw; exact (olabel_lt_trans _ _ _ Hu (edges_ok l Hl u w Hw)).
   - rewrite Forall_forall; intros w Hw; apply (edges_ok l Hl i w); unfold succs; rewrite Ei; exact Hw.
-  - intros v; rewrite PositiveMap.gempty; intros H; contradiction.
-  - rewrite Ej; discriminate.
 Qed.
 
 Variable F : order.
