@@ -9,7 +9,7 @@
     the rest of the word ([reroute_g]), and numbering the bound variables
     between two segments in the order they are first used ([renum]). *)
 
-From Stdlib Require Import Arith List Lia Bool.
+From Stdlib Require Import NArith Arith List Lia Bool.
 From ShiftedNames.Core Require Import Label Var Adjustment Laws Normalise Layered Canon Keys.
 Import ListNotations.
 
@@ -678,7 +678,7 @@ Proof.
 Qed.
 
 Lemma lexp_eqb_refl g : lexp_eqb g g = true.
-Proof. destruct g as [|s|n]; cbn; [reflexivity|apply String.eqb_refl|apply Nat.eqb_refl]. Qed.
+Proof. destruct g as [|s|n]; cbn; [reflexivity|apply String.eqb_refl|apply N.eqb_refl]. Qed.
 
 Lemma veqb_refl a : veqb a a = true.
 Proof. destruct a as [g i]; unfold veqb; cbn [fst snd]; rewrite lexp_eqb_refl, Nat.eqb_refl; reflexivity. Qed.

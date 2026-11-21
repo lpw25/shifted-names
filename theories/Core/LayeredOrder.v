@@ -14,7 +14,7 @@
     the same size are compared by a serialisation, which is an arbitrary
     but fixed choice. *)
 
-From Stdlib Require Import Arith List Lia Bool String Ascii.
+From Stdlib Require Import NArith Arith List Lia Bool String Ascii.
 From ShiftedNames.Core Require Import Label Var Adjustment Normalise Unique Layered LayeredUnique.
 Import ListNotations.
 
@@ -91,7 +91,7 @@ Fixpoint ccode (s : string) : list nat :=
   match s with EmptyString => [0] | String a s => S (nat_of_ascii a) :: ccode s end.
 
 Definition lcode (h : lexp) : list nat :=
-  match h with LNone => [0] | LCon s => 1 :: ccode s | LAtom n => [2; n] end.
+  match h with LNone => [0] | LCon s => 1 :: ccode s | LAtom n => [2; N.to_nat n] end.
 
 Definition bcode (b : option nat) : list nat := match b with None => [0] | Some n => [1; n] end.
 
@@ -127,7 +127,7 @@ Proof.
   destruct h as [|s|n]; intros [|s'|n'] l l' E; cbn in E; try discriminate E.
   - injection E as E; split; [reflexivity|exact E].
   - injection E as E; destruct (ccode_inj _ _ _ _ E) as [-> ->]; split; reflexivity.
-  - injection E as -> E; split; [reflexivity|exact E].
+  - injection E as En E; split; [f_equal; apply N2Nat.inj, En|exact E].
 Qed.
 
 Lemma bcode_inj b : forall b' l l', bcode b ++ l = bcode b' ++ l' -> b = b' /\ l = l'.

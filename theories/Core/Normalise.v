@@ -48,7 +48,7 @@
     unique by design, and when two expressions normalise differently the
     tactic leaves the goal. *)
 
-From Stdlib Require Import Arith List Lia Bool String.
+From Stdlib Require Import Arith List Lia Bool String NArith PArith FMapPositive.
 From ShiftedNames.Core Require Import Label Var Adjustment Laws.
 Import ListNotations.
 
@@ -57,13 +57,15 @@ Import ListNotations.
 Inductive lexp : Type :=
 | LNone
 | LCon (s : label)
-| LAtom (n : nat).
+| LAtom (n : N).
+
+Arguments LAtom n%_N_scope.
 
 Definition lexp_eqb (a b : lexp) : bool :=
   match a, b with
   | LNone, LNone => true
   | LCon s, LCon s' => String.eqb s s'
-  | LAtom n, LAtom n' => Nat.eqb n n'
+  | LAtom n, LAtom n' => N.eqb n n'
   | _, _ => false
   end.
 
@@ -72,8 +74,8 @@ Proof.
   destruct a, b; cbn; split; intro H; try discriminate; try reflexivity.
   - apply String.eqb_eq in H; subst; reflexivity.
   - injection H as ->; apply String.eqb_refl.
-  - apply Nat.eqb_eq in H; subst; reflexivity.
-  - injection H as ->; apply Nat.eqb_refl.
+  - apply N.eqb_eq in H; subst; reflexivity.
+  - injection H as ->; apply N.eqb_refl.
 Qed.
 
 (** Known strict order: the concrete order, the bound label last, and the
@@ -101,46 +103,81 @@ Fixpoint lt_reach (F : list (lexp * lexp)) (fuel : nat) (a b : lexp) : bool :=
     step, exponentially in the number of facts. *)
 Definition lt_list (F : list (lexp * lexp)) (a b : lexp) : bool := lt_reach F (List.length F) a b.
 
-(** The known order as the normaliser uses it: the facts, and what they
-    say about each pair of label atoms, worked out once.  Following the
-    facts at every comparison is what a normalisation over many label
+(** The known order as the normaliser uses it: the facts, and which
+    label atoms they put below which, worked out once ([otab]).  Following
+    the facts at every comparison is what a normalisation over many label
     variables would otherwise spend its time on. *)
-Record order := mk_order { ofacts : list (lexp * lexp); otab : list (list bool) }.
-
-Definition tab_get (tab : list (list bool)) (i j : nat) : option bool :=
-  match nth_error tab i with Some row => nth_error row j | None => None end.
+Record order := mk_order { ofacts : list (lexp * lexp); otab : N -> N -> bool }.
 
 Definition lt_known (F : order) (a b : lexp) : bool :=
   match a, b with
-  | LAtom i, LAtom j => match tab_get (otab F) i j with Some r => r | None => lt_list (ofacts F) a b end
+  | LAtom i, LAtom j => otab F i j
   | _, _ => lt_list (ofacts F) a b
   end.
 
-(** One more than the label atoms of the facts. *)
-Definition asucc (a : lexp) : nat := match a with LAtom n => S n | _ => 0 end.
+(** *** The table
 
-Fixpoint amax (l : list (lexp * lexp)) : nat :=
-  match l with [] => 0 | (x, y) :: r => Nat.max (asucc x) (Nat.max (asucc y) (amax r)) end.
+    For each label atom, the atoms above it, as maps keyed by [akey]:
+    found by a search from it over the edges between atoms that the facts
+    give (one fact between two atoms, or two facts joined by one step of
+    the concrete order).  O(L (L + E)) for L atoms and E edges. *)
+Definition akey (n : N) : positive := N.succ_pos n.
 
-(** The table: what one or two facts say about each pair of label atoms
-    (two, for a step between concrete labels), closed under transitivity
-    one atom at a time. *)
-Fixpoint zipor (a b : list bool) : list bool :=
-  match a, b with
-  | x :: a', y :: b' => (if x then true else y) :: zipor a' b'
-  | _, _ => a
+Definition succs (adj : PositiveMap.t (list N)) (i : N) : list N :=
+  match PositiveMap.find (akey i) adj with Some l => l | None => [] end.
+
+Definition addedge (i j : N) (adj : PositiveMap.t (list N)) : PositiveMap.t (list N) :=
+  PositiveMap.add (akey i) (j :: succs adj i) adj.
+
+Definition edges_into (l : list (lexp * lexp)) (i : N) (s : label) (adj : PositiveMap.t (list N)) :
+    PositiveMap.t (list N) :=
+  fold_left (fun adj '(x, y) =>
+    match x, y with
+    | LCon s', LAtom j => if (if String.eqb s s' then true else is_less_than_label s s') then addedge i j adj else adj
+    | _, _ => adj
+    end) l adj.
+
+Definition edges_from (l0 k : list (lexp * lexp)) (adj : PositiveMap.t (list N)) : PositiveMap.t (list N) :=
+  fold_left (fun adj '(x, y) =>
+    match x, y with
+    | LAtom i, LAtom j => addedge i j adj
+    | LAtom i, LCon s => edges_into l0 i s adj
+    | _, _ => adj
+    end) k adj.
+
+Definition edges (l : list (lexp * lexp)) : PositiveMap.t (list N) := edges_from l l (PositiveMap.empty _).
+
+(** A search: the atoms reachable from [stack], with [seen] already
+    found.  [fuel] bounds the steps (each pops one atom). *)
+Fixpoint search (adj : PositiveMap.t (list N)) (fuel : nat) (stack : list N) (seen : PositiveMap.t unit) :
+    PositiveMap.t unit :=
+  match fuel with
+  | O => seen
+  | S f =>
+      match stack with
+      | [] => seen
+      | v :: st =>
+          match PositiveMap.find (akey v) seen with
+          | Some _ => search adj f st seen
+          | None => search adj f (succs adj v ++ st) (PositiveMap.add (akey v) tt seen)
+          end
+      end
   end.
 
-Definition wstep (tab : list (list bool)) (k : nat) : list (list bool) :=
-  match nth_error tab k with
-  | Some rk => map (fun ri => match nth_error ri k with Some true => zipor ri rk | _ => ri end) tab
-  | None => tab
+Definition nedges (adj : PositiveMap.t (list N)) : nat :=
+  PositiveMap.fold (fun _ l n => List.length l + n) adj 1.
+
+Definition tmem (t : PositiveMap.t (PositiveMap.t unit)) (i j : N) : bool :=
+  match PositiveMap.find (akey i) t with
+  | Some r => match PositiveMap.find (akey j) r with Some _ => true | None => false end
+  | None => false
   end.
 
 Definition order_of (l : list (lexp * lexp)) : order :=
-  let n := amax l in
-  let t0 := map (fun i => map (fun j => lt_reach l 2 (LAtom i) (LAtom j)) (seq 0 n)) (seq 0 n) in
-  mk_order l (fold_left wstep (seq 0 n) t0).
+  let adj := edges l in
+  let fuel := nedges adj in
+  let t := PositiveMap.mapi (fun _ st => search adj fuel st (PositiveMap.empty _)) adj in
+  mk_order l (tmem t).
 
 Definition lcmp (F : order) (a b : lexp) : option comparison :=
   if lexp_eqb a b then Some Eq
@@ -156,7 +193,7 @@ Definition lden (a : lexp) : option label :=
   match a with
   | LNone => None
   | LCon s => Some s
-  | LAtom n => Some (nth n lenv EmptyString)
+  | LAtom n => Some (nth (N.to_nat n) lenv EmptyString)
   end.
 
 Definition lfacts_ok (l : list (lexp * lexp)) : Prop :=
@@ -164,7 +201,7 @@ Definition lfacts_ok (l : list (lexp * lexp)) : Prop :=
 
 Definition facts_ok (F : order) : Prop :=
   lfacts_ok (ofacts F)
-  /\ forall i j, tab_get (otab F) i j = Some true -> olabel_lt (lden (LAtom i)) (lden (LAtom j)).
+  /\ forall i j, otab F i j = true -> olabel_lt (lden (LAtom i)) (lden (LAtom j)).
 
 Lemma lt_base_sound a b : lt_base a b = true -> olabel_lt (lden a) (lden b).
 Proof. destruct a, b; cbn; try discriminate; unfold olabel_lt; cbn; auto. Qed.
@@ -187,52 +224,84 @@ Proof.
   - rewrite <- Hyb; exact (olabel_lt_trans _ _ _ Hax Hxy).
 Qed.
 
-Lemma nth_error_seq0 n i x : nth_error (seq 0 n) i = Some x -> x = i.
+(** The table is sound: every edge, and so every atom found by the
+    search, is above by facts that hold. *)
+Definition ord (i j : N) : Prop := olabel_lt (lden (LAtom i)) (lden (LAtom j)).
+
+Definition adj_ok (adj : PositiveMap.t (list N)) : Prop := forall i j, In j (succs adj i) -> ord i j.
+
+Lemma akey_inj i j : akey i = akey j -> i = j.
 Proof.
-  intros H; assert (Hi : i < n).
-  { rewrite <- (length_seq n 0); apply nth_error_Some; rewrite H; discriminate. }
-  apply (nth_error_nth _ _ 0) in H; rewrite seq_nth in H by exact Hi; symmetry; exact H.
+  unfold akey; intros E; apply N.succ_inj.
+  rewrite <- !N.succ_pos_spec, E; reflexivity.
 Qed.
 
-(** The order worked out from facts that hold. *)
-Definition tab_ok (tab : list (list bool)) : Prop :=
-  forall i j, tab_get tab i j = Some true -> olabel_lt (lden (LAtom i)) (lden (LAtom j)).
-
-Lemma zipor_nth a : forall b j, nth_error (zipor a b) j = Some true ->
-  nth_error a j = Some true \/ nth_error b j = Some true.
+Lemma succs_add adj i j k : succs (addedge i j adj) k = if N.eqb k i then j :: succs adj i else succs adj k.
 Proof.
-  induction a as [|x a IH]; intros b j; cbn [zipor]; [auto|].
-  destruct b as [|y b]; [auto|]; destruct j as [|j]; cbn [nth_error].
-  - destruct x; [auto|intros H; right; exact H].
-  - apply IH.
+  unfold addedge, succs at 1; destruct (N.eqb_spec k i) as [->|Ne].
+  - rewrite PositiveMap.gss; reflexivity.
+  - rewrite PositiveMap.gso; [reflexivity|intros E; apply Ne, akey_inj, E].
 Qed.
 
-Lemma wstep_ok tab k : tab_ok tab -> tab_ok (wstep tab k).
+Lemma addedge_ok adj i j : adj_ok adj -> ord i j -> adj_ok (addedge i j adj).
 Proof.
-  intros H; unfold wstep; destruct (nth_error tab k) as [rk|] eqn:Ek; [|exact H].
-  intros i j; unfold tab_get; rewrite nth_error_map.
-  destruct (nth_error tab i) as [ri|] eqn:Ei; [|discriminate]; cbn [option_map].
-  destruct (nth_error ri k) as [[|]|] eqn:Eik;
-    try (intros E; apply (H i j); unfold tab_get; rewrite Ei; exact E).
-  intros E; apply zipor_nth in E; destruct E as [E|E].
-  - apply (H i j); unfold tab_get; rewrite Ei; exact E.
-  - refine (olabel_lt_trans _ (lden (LAtom k)) _ _ _).
-    + apply (H i k); unfold tab_get; rewrite Ei; exact Eik.
-    + apply (H k j); unfold tab_get; rewrite Ek; exact E.
+  intros H Hij k m; rewrite succs_add; destruct (N.eqb_spec k i) as [->|_]; [|apply H].
+  intros [<-|Hm]; [exact Hij|apply H, Hm].
+Qed.
+
+Lemma edges_into_ok l i s : lfacts_ok l -> olabel_lt (lden (LAtom i)) (Some s) ->
+  forall adj, adj_ok adj -> adj_ok (edges_into l i s adj).
+Proof.
+  intros Hl Hi; unfold edges_into, lfacts_ok in *.
+  induction Hl as [|[x y] l Hxy Hl IH]; intros adj Ha; [exact Ha|]; cbn [fold_left]; apply IH.
+  destruct x as [|s'|x], y as [|t|j]; try exact Ha.
+  destruct (if String.eqb s s' then true else is_less_than_label s s') eqn:E; [|exact Ha].
+  apply addedge_ok; [exact Ha|]; unfold ord.
+  assert (Hss : Some s = Some s' \/ olabel_lt (Some s) (Some s')).
+  { destruct (String.eqb_spec s s') as [->|_]; [left; reflexivity|right; apply (lt_base_sound (LCon s) (LCon s')), E]. }
+  cbn [lden] in Hxy; destruct Hss as [Hss|Hss]; [rewrite Hss in Hi|]; eauto using olabel_lt_trans.
+Qed.
+
+Lemma edges_from_ok l0 k : lfacts_ok l0 -> lfacts_ok k -> forall adj, adj_ok adj -> adj_ok (edges_from l0 k adj).
+Proof.
+  intros Hl0 Hk; unfold edges_from, lfacts_ok in Hk.
+  induction Hk as [|[x y] k Hxy Hk IH]; intros adj Ha; [exact Ha|]; cbn [fold_left]; apply IH.
+  destruct x as [|s|i], y as [|t|j]; try exact Ha.
+  - apply (edges_into_ok l0 i t Hl0 Hxy adj Ha).
+  - apply addedge_ok; [exact Ha|exact Hxy].
+Qed.
+
+Lemma edges_ok l : lfacts_ok l -> adj_ok (edges l).
+Proof.
+  intros Hl; apply (edges_from_ok l l Hl Hl).
+  intros i j; unfold succs; rewrite PositiveMap.gempty; intros [].
+Qed.
+
+Lemma search_ok adj a : adj_ok adj -> forall fuel stack seen,
+  Forall (ord a) stack -> (forall v, PositiveMap.find (akey v) seen <> None -> ord a v) ->
+  forall v, PositiveMap.find (akey v) (search adj fuel stack seen) <> None -> ord a v.
+Proof.
+  intros Ha; induction fuel as [|f IH]; intros stack seen Hs Hseen; [exact Hseen|].
+  destruct stack as [|u st]; cbn [search]; [exact Hseen|].
+  inversion Hs as [|? ? Hu Hst]; subst.
+  destruct (PositiveMap.find (akey u) seen); [apply IH; assumption|].
+  apply IH.
+  - apply Forall_app; split; [|exact Hst].
+    rewrite Forall_forall; intros w Hw; exact (olabel_lt_trans _ _ _ Hu (Ha u w Hw)).
+  - intros v; destruct (N.eqb_spec v u) as [->|Ne]; [intros _; exact Hu|].
+    rewrite PositiveMap.gso by (intros E; apply Ne, akey_inj, E); apply Hseen.
 Qed.
 
 Lemma order_of_ok l : lfacts_ok l -> facts_ok (order_of l).
 Proof.
-  intros Hl; split; [exact Hl|]; unfold order_of; cbn [otab].
-  set (t0 := map _ _).
-  assert (H0 : tab_ok t0).
-  { intros i j; unfold t0, tab_get.
-    rewrite nth_error_map; destruct (nth_error (seq 0 (amax l)) i) as [i'|] eqn:Ei; [|discriminate]; cbn [option_map].
-    rewrite nth_error_map; destruct (nth_error (seq 0 (amax l)) j) as [j'|] eqn:Ej; [|discriminate]; cbn [option_map].
-    apply nth_error_seq0 in Ei, Ej; subst; intros H.
-    exact (lt_reach_sound l Hl 2 _ _ (f_equal (fun o => match o with Some b => b | None => false end) H)). }
-  clearbody t0; revert t0 H0; generalize (seq 0 (amax l)) as ks.
-  induction ks as [|k ks IH]; intros t0 H0; [exact H0|]; cbn [fold_left]; apply IH, wstep_ok, H0.
+  intros Hl; split; [exact Hl|]; unfold order_of; cbn [otab]; intros i j; unfold tmem.
+  rewrite PositiveMap.gmapi; unfold option_map.
+  destruct (PositiveMap.find (akey i) (edges l)) as [st|] eqn:Ei; [|discriminate].
+  destruct (PositiveMap.find (akey j) _) eqn:Ej; [intros _|discriminate].
+  apply (search_ok (edges l) i (edges_ok l Hl) (nedges (edges l)) st (PositiveMap.empty _)).
+  - rewrite Forall_forall; intros w Hw; apply (edges_ok l Hl i w); unfold succs; rewrite Ei; exact Hw.
+  - intros v; rewrite PositiveMap.gempty; intros H; contradiction.
+  - rewrite Ej; discriminate.
 Qed.
 
 Variable F : order.
@@ -243,7 +312,7 @@ Proof.
   assert (Hl : forall a b, lt_list (ofacts F) a b = true -> olabel_lt (lden a) (lden b))
     by (intros x y; apply (lt_reach_sound _ (proj1 HF))).
   unfold lt_known; destruct a as [|s|i]; try apply Hl; destruct b as [|s|j]; try apply Hl.
-  destruct (tab_get (otab F) i j) as [[|]|] eqn:E; [intros _; exact (proj2 HF i j E)|discriminate|apply Hl].
+  apply (proj2 HF i j).
 Qed.
 
 (** What a comparison tells about the labels. *)

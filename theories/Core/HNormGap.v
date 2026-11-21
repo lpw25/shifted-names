@@ -15,7 +15,7 @@
     with the weakening after it it does nothing.  [HNorm] keeps it
     ([hn_f1_f2]). *)
 
-From Stdlib Require Import String List.
+From Stdlib Require Import NArith String List.
 From ShiftedNames.Core Require Import Normalise IModel HNorm.
 Import ListNotations.
 

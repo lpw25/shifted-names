@@ -12,7 +12,7 @@
     sequence ([std]), and there the meaning is the free meaning
     [GEval.fa] ([std_fa]). *)
 
-From Stdlib Require Import String Arith List Lia Bool.
+From Stdlib Require Import NArith String Arith List Lia Bool.
 From ShiftedNames.Core Require Import Label Var Normalise Unique GEval.
 Import ListNotations.
 
@@ -340,7 +340,7 @@ Definition ex_canon (h : lexp) : lexp := match h with LAtom 1 => LAtom 0 | _ => 
 Definition ex_idx (h : lexp) (i : nat) : nat := match h with LAtom 1 => swap01 i | _ => i end.
 
 Lemma ex_idx_inv h i : ex_idx h (ex_idx h i) = i.
-Proof. destruct h as [| |[|[|n]]]; cbn; try reflexivity; destruct i as [|[|i]]; reflexivity. Qed.
+Proof. destruct h as [| |[|[p|p|]]]; cbn; try reflexivity; destruct i as [|[|i]]; reflexivity. Qed.
 
 Definition ex_pos (h : lexp) (v : lexp * nat) : option nat :=
   if lexp_eqb (ex_canon h) (fst v) then Some (ex_idx h (snd v)) else None.
@@ -365,7 +365,7 @@ Lemma ex_lt_known a b : lt_known ex_facts a b = lt_base a b.
 Proof.
   unfold lt_known, ex_facts; cbn.
   destruct a as [| |i], b as [| |j]; cbn; try reflexivity.
-  all: try (unfold tab_get; destruct i; reflexivity).
+  all: try (destruct i as [|[p|p|]]; reflexivity).
   all: try (destruct j; reflexivity).
   all: destruct (is_less_than_label _ _); reflexivity.
 Qed.
@@ -376,7 +376,7 @@ Proof.
   intros a b i H; rewrite ex_lt_known in H; cbn [mpos mseq ex_model]; unfold ex_pos; cbn [fst].
   destruct (lexp_eqb (ex_canon b) (ex_canon a)) eqn:E; [|reflexivity]; exfalso.
   apply lexp_eqb_eq in E.
-  destruct a as [|s|[|[|n]]], b as [|s'|[|[|n']]]; cbn in E, H; try discriminate; try congruence.
+  destruct a as [|s|[|[p|p|]]], b as [|s'|[|[p'|p'|]]]; cbn in E, H; try discriminate; try congruence.
   all: injection E as ->; exact (label_lt_irrefl _ H).
 Qed.
 

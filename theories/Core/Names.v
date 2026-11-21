@@ -14,7 +14,7 @@
     needed the order between two labels and no hypothesis gave it, or when
     the words differ and are too large to multiply out. *)
 
-From Stdlib Require Import List String Arith Bool StrictProp.
+From Stdlib Require Import NArith List String Arith Bool StrictProp.
 Open Scope bool_scope.
 From ShiftedNames.Core Require Import Label Var Adjustment Indexed Syntax Normalise Layered Canon Keys Retarget Canonical LEval.
 Import ListNotations.
@@ -73,7 +73,7 @@ Ltac reify_label h env :=
           match constr:(tt) with
           | _ => let _ := is_string_lit s in constr:((LCon s, env))
           | _ => lazymatch lookup_add s le with
-                 | (?n, ?le') => constr:((LAtom n, (le', te, ae, pe)))
+                 | (?n, ?le') => let n' := eval vm_compute in (N.of_nat n) in constr:((LAtom n', (le', te, ae, pe)))
                  end
           end
       end
@@ -750,7 +750,7 @@ Ltac lnth l n :=
 Ltac lab le h :=
   lazymatch h with
   | LCon ?s => s
-  | LAtom ?n => lnth le n
+  | LAtom ?n => let k := eval vm_compute in (N.to_nat n) in lnth le k
   end.
 
 Ltac atom ae n := lazymatch lnth ae n with adj_raw ?s => s end.
@@ -863,7 +863,7 @@ Ltac names_decide :=
                   change (aeden le te ae pe e1 = aeden le te ae pe e2);
                   refine (nf_eq_t_sound le te ae pe F _ (List.length te) (le_n _) e1 e2 _);
                   [ lazymatch goal with
-                    | |- facts_ok _ _ => apply order_of_ok; unfold lfacts_ok; repeat constructor; cbn [lden nth]; assumption
+                    | |- facts_ok _ _ => apply order_of_ok; unfold lfacts_ok; repeat constructor; cbn [lden N.to_nat Pos.to_nat Pos.iter_op Nat.add nth]; assumption
                     | |- nf_eq_t _ _ _ _ = true =>
                         vm_compute; first
                           [ reflexivity
@@ -987,7 +987,7 @@ Ltac names_var_eq t E :=
                                 change (rapply (aeden le te ae pe e) (mk_rvar (lden le eh) i)
                                         = inl (mk_rvar (lden le h') j));
                                 refine (lapply_result_sound le te ae pe F _ (List.length te) (le_n _) e eh i h' j _);
-                                [ apply order_of_ok; unfold lfacts_ok; repeat constructor; cbn [lden nth]; assumption
+                                [ apply order_of_ok; unfold lfacts_ok; repeat constructor; cbn [lden N.to_nat Pos.to_nat Pos.iter_op Nat.add nth]; assumption
                                 | vm_compute; reflexivity ])
                       | None =>
                           let pr := eval vm_compute in (lapply_rest F (List.length te) e eh i) in
@@ -1018,7 +1018,7 @@ Ltac names_var_eq t E :=
                                                 change (rapply (aeden le3 te3 ae3 pe3 e) (mk_rvar (lden le3 eh) i)
                                                         = inr (x, rpcompose (aeden le3 te3 ae3 pe3 eb) rpidentity));
                                                 refine (lapply_bind_sound le3 te3 ae3 pe3 F3 _ (List.length te3) (le_n _) e eh i eb u x _ _);
-                                                [ apply order_of_ok; unfold lfacts_ok; repeat constructor; cbn [lden nth]; assumption
+                                                [ apply order_of_ok; unfold lfacts_ok; repeat constructor; cbn [lden N.to_nat Pos.to_nat Pos.iter_op Nat.add nth]; assumption
                                                 | vm_compute; reflexivity
                                                 | reflexivity ])
                                       end
@@ -1255,7 +1255,7 @@ Ltac names_mat_one A :=
                                       [ intros v;
                                         change (mrel (@sm_g _ inst) (rapply (aeden le4 te4 ae4 pe4 e) (var_raw v)) (rapply (aeden le4 te4 ae4 pe4 e') (var_raw v)));
                                         let HF := fresh "HF" in
-                                        assert (HF : facts_ok le4 F4) by (apply order_of_ok; unfold lfacts_ok; repeat constructor; cbn [lden nth]; assumption);
+                                        assert (HF : facts_ok le4 F4) by (apply order_of_ok; unfold lfacts_ok; repeat constructor; cbn [lden N.to_nat Pos.to_nat Pos.iter_op Nat.add nth]; assumption);
                                         let HM := fresh "HM" in
                                         assert (HM : Forall (fun f => let '(k, u, eb) := f in forall y, nth_error te4 u = Some y -> nth_error te4 k = Some (@sm_g _ inst (rpcompose (aeden le4 te4 ae4 pe4 eb) rpidentity) y)) facts)
                                           by (mat_prove_facts inst te4 ts bs);

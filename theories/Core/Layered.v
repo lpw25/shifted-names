@@ -20,7 +20,7 @@
     ([lnorm_sound]).  Not covered yet: an atom or a lift by the bound
     label inside a payload, and shifted targets. *)
 
-From Stdlib Require Import Arith List Lia Bool.
+From Stdlib Require Import NArith Arith List Lia Bool.
 From ShiftedNames.Core Require Import Label Var Adjustment Laws Normalise Unique Normal.
 Import ListNotations.
 

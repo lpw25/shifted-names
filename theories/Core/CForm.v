@@ -20,7 +20,7 @@
     it ([absorb]).  Every operation is sound in every comprehension model
     consistent with the facts ([run_sound]). *)
 
-From Stdlib Require Import List Bool Arith Lia.
+From Stdlib Require Import NArith List Bool Arith Lia.
 From ShiftedNames.Core Require Import Label Normalise GEval CNorm Comp CSound CComplete.
 From ShiftedNames.Core Require Export CSpec.
 Import ListNotations.

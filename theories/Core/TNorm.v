@@ -86,7 +86,7 @@ Definition hstr (s : string) : N :=
   (fix go s acc := match s with EmptyString => acc | String c s' => go s' (mix acc (N_of_ascii c)) end) s 7%N.
 
 Definition hlexp (h : lexp) : N :=
-  match h with LNone => 1 | LCon s => mix 2 (hstr s) | LAtom n => mix 3 (N.of_nat n) end.
+  match h with LNone => 1 | LCon s => mix 2 (hstr s) | LAtom n => mix 3 n end.
 
 Definition hval (v : val) : N :=
   match v with

@@ -10,7 +10,7 @@
     model, so that two with the same meaning are equal in the free model
     (adequacy) and so equal (uniqueness). *)
 
-From Stdlib Require Import Arith List Lia Bool Ascii String.
+From Stdlib Require Import NArith Arith List Lia Bool Ascii String.
 From ShiftedNames.Core Require Import Label Var Adjustment Laws Normalise Unique Normal.
 Import ListNotations.
 
@@ -62,22 +62,26 @@ Hypothesis HFS : forall x y, In (x, y) F -> In x S /\ In y S.
 Definition fresh (lenv : list label) (h : lexp) : Prop :=
   forall h', In h' S -> lden lenv h' = lden lenv h -> h' = h.
 
+Lemma to_nat_eqb m n : Nat.eqb (N.to_nat m) (N.to_nat n) = N.eqb m n.
+Proof. apply eq_iff_eq_true; rewrite Nat.eqb_eq, N.eqb_eq; split; [apply N2Nat.inj|intros ->; reflexivity]. Qed.
+
 Lemma lden_set lenv n w h :
-  lden (set_nth lenv n w) h = match h with LAtom m => if Nat.eqb m n then Some w else lden lenv h | _ => lden lenv h end.
-Proof. destruct h as [|s|m]; [reflexivity|reflexivity|cbn; rewrite nth_set_nth; destruct (Nat.eqb m n); reflexivity]. Qed.
+  lden (set_nth lenv (N.to_nat n) w) h = match h with LAtom m => if N.eqb m n then Some w else lden lenv h | _ => lden lenv h end.
+Proof. destruct h as [|s|m]; [reflexivity|reflexivity|cbn; rewrite nth_set_nth, to_nat_eqb; destruct (N.eqb m n); reflexivity]. Qed.
 
 Lemma move lenv n : lfacts_ok lenv F ->
-  exists lenv', lfacts_ok lenv' F /\ fresh lenv' (LAtom n) /\ forall m, m <> n -> nth m lenv' EmptyString = nth m lenv EmptyString.
+  exists lenv', lfacts_ok lenv' F /\ fresh lenv' (LAtom n) /\
+    forall m, m <> n -> nth (N.to_nat m) lenv' EmptyString = nth (N.to_nat m) lenv EmptyString.
 Proof.
-  intros HF; set (sv := nth n lenv EmptyString).
+  intros HF; set (sv := nth (N.to_nat n) lenv EmptyString).
   destruct (gap (map (lden lenv) S) sv) as [w [Hw Hall]].
   assert (Hv : forall h, In h S -> lden lenv h = Some w -> False).
   { intros h Hh E; pose proof (Hall _ (in_map _ _ _ Hh)) as H; rewrite E in H.
     exact (olabel_lt_irrefl _ (H Hw)). }
-  exists (set_nth lenv n w); split; [|split].
+  exists (set_nth lenv (N.to_nat n) w); split; [|split].
   - unfold lfacts_ok in *; rewrite Forall_forall in *; intros [x y] Hxy; pose proof (HF _ Hxy) as Hl; cbn in Hl |- *.
     destruct (HFS x y Hxy) as [Hx Hy]; rewrite !lden_set.
-    assert (Hn : forall h, (match h with LAtom m => if Nat.eqb m n then Some w else lden lenv h | _ => lden lenv h end)
+    assert (Hn : forall h, (match h with LAtom m => if N.eqb m n then Some w else lden lenv h | _ => lden lenv h end)
                            = if lexp_eqb h (LAtom n) then Some w else lden lenv h).
     { intros [|s|m]; [reflexivity|reflexivity|cbn; reflexivity]. }
     rewrite !Hn.
@@ -87,13 +91,14 @@ Proof.
     + apply Hall; [apply in_map, Hy|exact Hl].
     + exact (olabel_lt_trans _ _ _ Hl Hw).
     + exact Hl.
-  - intros h' Hh' E; rewrite !lden_set, Nat.eqb_refl in E.
+  - intros h' Hh' E; rewrite !lden_set, N.eqb_refl in E.
     destruct h' as [|s|m]; [discriminate|exfalso; exact (Hv _ Hh' E)|].
-    destruct (Nat.eqb_spec m n) as [->|_]; [reflexivity|exfalso; exact (Hv _ Hh' E)].
-  - intros m Hm; rewrite nth_set_nth; destruct (Nat.eqb_spec m n); [contradiction|reflexivity].
+    destruct (N.eqb_spec m n) as [->|_]; [reflexivity|exfalso; exact (Hv _ Hh' E)].
+  - intros m Hm; rewrite nth_set_nth, to_nat_eqb; destruct (N.eqb_spec m n); [contradiction|reflexivity].
 Qed.
 
-Lemma lden_same l0 l1 n h : (forall m, m <> n -> nth m l1 EmptyString = nth m l0 EmptyString) -> h <> LAtom n ->
+Lemma lden_same l0 l1 n h : (forall m, m <> n -> nth (N.to_nat m) l1 EmptyString = nth (N.to_nat m) l0 EmptyString) ->
+  h <> LAtom n ->
   lden l1 h = lden l0 h.
 Proof. intros H Hh; destruct h as [|s|m]; [reflexivity|reflexivity|cbn; rewrite H; [reflexivity|congruence]]. Qed.
 
@@ -104,7 +109,7 @@ Proof.
   destruct (IH lenv HF (fun m Hm => Hns m (or_intror Hm))) as [l0 [HF0 Hf0]].
   destruct (move l0 n HF0) as [l1 [HF1 [Hf1 Hsame]]]; exists l1; split; [exact HF1|].
   intros m [<-|Hm]; [exact Hf1|].
-  destruct (Nat.eq_dec m n) as [->|Hmn]; [exact Hf1|].
+  destruct (N.eq_dec m n) as [->|Hmn]; [exact Hf1|].
   assert (Em : lden l1 (LAtom m) = lden l0 (LAtom m)) by (apply (lden_same l0 l1 n); [exact Hsame|congruence]).
   intros h' Hh' E; rewrite Em in E.
   destruct (lexp_eqb h' (LAtom n)) eqn:Eh; [apply lexp_eqb_eq in Eh; subst h'|].
@@ -115,7 +120,7 @@ Proof.
     rewrite (lden_same l0 l1 n h' Hsame Hne) in E; exact (Hf0 m Hm h' Hh' E).
 Qed.
 
-Fixpoint atoms (hs : list lexp) : list nat :=
+Fixpoint atoms (hs : list lexp) : list N :=
   match hs with [] => [] | LAtom n :: r => n :: atoms r | _ :: r => atoms r end.
 
 Lemma atoms_in n hs : In n (atoms hs) -> In (LAtom n) hs.

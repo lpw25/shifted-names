@@ -18,18 +18,15 @@
     outputs cannot be a normal form here: it must also say where each
     read sits among the outputs it does not commute with. *)
 
-From Stdlib Require Import List String.
+From Stdlib Require Import NArith List String.
 Import ListNotations.
 From ShiftedNames.Core Require Import Label Normalise GEval CNorm Comp CSound CComplete.
 
 (* g = 0, h = 1, k = 2, l = 3; facts g < k, g < l, k < l; h unordered. *)
 Definition g := LAtom 0. Definition h := LAtom 1. Definition k := LAtom 2. Definition l := LAtom 3.
-Definition tab : list (list bool) :=
-  [[false; false; true; true]; [false; false; false; false]; [false; false; false; true]; [false; false; false; false]].
-Definition F := mk_order [] tab.
-
-Definition tabf (i j : nat) : bool :=
-  match i, j with 0, 2 | 0, 3 | 2, 3 => true | _, _ => false end.
+Definition tabf (i j : N) : bool :=
+  match i, j with 0, 2 | 0, 3 | 2, 3 => true | _, _ => false end%N.
+Definition F := mk_order [] tabf.
 
 Definition lt_spec (a b : lexp) : bool :=
   match a, b with
@@ -43,15 +40,12 @@ Definition lt_spec (a b : lexp) : bool :=
 Lemma lt_spec_eq a b : lt_known F a b = lt_spec a b.
 Proof.
   destruct a as [|s|i], b as [|s'|j]; try reflexivity.
-  { cbn; destruct (is_less_than_label s s'); reflexivity. }
-  unfold lt_known, tab_get.
-  destruct i as [|[|[|[|i]]]]; [| | | |cbn; destruct i; reflexivity];
-  (destruct j as [|[|[|[|j]]]]; [reflexivity|reflexivity|reflexivity|reflexivity|cbn; destruct j; reflexivity]).
+  cbn; destruct (is_less_than_label s s'); reflexivity.
 Qed.
 
 Lemma Hirr : forall a, lt_known F a a = false.
 Proof.
-  intros a; rewrite lt_spec_eq; destruct a as [|s|[|[|[|[|n]]]]]; try reflexivity.
+  intros a; rewrite lt_spec_eq; destruct a as [|s|[|[[p|p|]|[p|p|]|]]]; try reflexivity.
   cbn; destruct (is_less_than_label s s) eqn:E; [|reflexivity].
   pose proof (is_less_than_label_asymmetric _ _ E); congruence.
 Qed.
@@ -61,7 +55,7 @@ Proof.
   intros a b c; rewrite !lt_spec_eq.
   destruct a as [|s|i], b as [|s'|j], c as [|s''|m]; cbn; try discriminate; try reflexivity.
   - apply is_less_than_label_transitive.
-  - destruct i as [|[|[|[|i]]]], j as [|[|[|[|j]]]], m as [|[|[|[|m]]]]; cbn; congruence.
+  - destruct i as [|[[i|i|]|[i|i|]|]], j as [|[[j|j|]|[j|j|]|]], m as [|[[m|m|]|[m|m|]|]]; cbn; congruence.
 Qed.
 
 Definition W (x : lexp) : aexp := AOuter x AId.
