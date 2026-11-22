@@ -631,7 +631,9 @@ never closes a goal. Display is computed in Gallina (expansion so every
 target is a slot, positional entries where the order allows, merging a
 segment with the following lifted atom into a tailed form, short forms)
 and rendered by refinement in Ltac; each rewrite is proved by deciding
-the equation, so the display code needs no proof.
+the equation, so the display code needs no proof. (Since superseded: the
+display is proved sound and the rendering is built as a term directly;
+see `docs/design.md`.)
 
 Not yet done: uniqueness of normal forms; `apply_var` only reduces when
 the normal form is a single context form and the result is a variable;

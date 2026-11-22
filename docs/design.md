@@ -107,8 +107,8 @@ databases. One pass of `names`:
 2. rewrites with `names_var`: substituting into a variable is the core
    node `eval tvar psubst a v` (`(tvar v) [a]`, and `apply a ext_here
    v` as `cbn` leaves it);
-3. rewrites every adjustment built from context forms, `⨾`, `⟦⟧` and
-   `at_scope` (anything else is an atom) to its normal form
+3. rewrites every adjustment built from context forms, `⨾`, `⟦⟧`,
+   `at_scope` and `share` (anything else is an atom) to its normal form
    (`docs/hnorm.md`), shown as context forms;
 4. evaluates `apply_var a v` and `eval` nodes whose variable `v` is
    concrete and whose result the normal form of `a` determines: a
@@ -122,16 +122,23 @@ databases. One pass of `names`:
 finds work in the terms that step 4 put in the goal.
 
 For each adjustment, step 3 unfolds it to the core's raw constructors
-and reifies it (label, adjustment and term atoms, and the order facts
-`label_lt x y` in the context), computes its normal form with `HNorm`,
-turns that into a display description (`hdisplay`), renders it as
-context forms (term atoms as they were written), and proves the rewrite
-by checking that both sides have the same `HNorm` normal form
-(`HConcrete.hn_eq_t_sound`). An adjustment whose normal form cannot be
-shown (for example a payload with a payload atom, or one too large) is
-left as it is. Step 4 reads the result off `HNorm`'s lookup
-(`hlook_var_sound`, `hbind_sound`), and materialising payloads compares
-`HNorm` words (`hmat_sound`).
+and reifies it (label, adjustment and term atoms, `share`d definitions as
+atoms with their definitions, and the order facts `label_lt x y` in the
+context) as an expression with binary indices (`HShow.aexpN`). It then
+computes its normal form with `HNorm` and turns it into an expression
+with shared definitions (`HShow.hshowD`, proved sound: `hshowD_sound`),
+all in the VM. The result is built as a term directly: its scope indices
+are found by unification over index variables, definitions are bound by
+`share`, and term atoms appear as they were written. The rewrite's proof
+binds each definition once (`Names.chain_intro`) and checks the
+expressions against both sides by conversion. In what the kernel checks,
+the environments are Braun trees indexed by the binary indices
+(`HShowB`), so that looking up an atom is logarithmic, and lists of
+facts are proved as balanced trees. An adjustment whose normal form
+cannot be shown (for example a payload with a payload atom) is left as
+it is. Step 4 reads the result off `HNorm`'s lookup
+(`hlook_varB_sound`, `hbindB_show_sound`), and materialising payloads
+compares `HNorm` words (`hmatB_show_sound`).
 
 Every comparison between labels goes through `lcmp`, which knows concrete
 labels, the bound label (the greatest), and the context's facts closed
