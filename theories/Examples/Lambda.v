@@ -97,3 +97,18 @@ Example inst_open :
   (tlam (tapp (tvar (@bvar 3 1 stt)) (tvar bvar0)) : tm 2) [⟦ · := (tapp (tvar bvar0) (tconst 1)) ⟧]
   = (tlam (tapp (tapp (tvar (@bvar 2 1 stt)) (tconst 1)) (tvar bvar0)) : tm 1).
 Proof. reflexivity. Qed.
+
+(** The laws, with terms of any scope in substitutions. *)
+Example subst_fuse {N M K} (a : sub M K) (b : sub N M) (t : tm N) : t [b] [a] = t [b ⨾ a].
+Proof. apply subst_compose. Qed.
+
+Example subst_under {N M} (a : sub N M) (b : tm (S N)) : (tlam b) [a] = tlam (b [lift a]).
+Proof. cbn; rewrite kleisli_apply_under; reflexivity. Qed.
+
+Example subst_id {N} (t : tm N) : t [⟦⟧] = t.
+Proof. apply subst_identity. Qed.
+
+(** Instantiating with an open term, as a law: the variable gets the term
+    with the identity payload. *)
+Example inst_var {N} (u : tm N) : (tvar bvar0 : tm (S N)) [⟦ · := u ⟧] = u.
+Proof. rewrite subst_tvar_eval; exact (subst_identity u). Qed.
