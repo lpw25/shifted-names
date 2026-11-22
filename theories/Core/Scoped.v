@@ -1,12 +1,13 @@
 (** * Scoped adjustments
 
-    An adjustment from [N] to [M] bound variables.  Payload terms are closed,
-    so scoping is a property of adjustments alone:
+    An adjustment from [N] to [M] bound variables.  A payload term [u] has
+    a scope of its own ([tscope u], from the [TermScope] instance of the
+    term type; terms are closed unless an instance says otherwise):
 
     - bound inputs [None₍ᵢ₎] with [i ≥ N] are outside the scope; they pass
       through to [None₍ᵢ₋N₊M₎] (a fixed tail, so the data stays canonical);
     - every other input is sent to a variable well scoped in [M], or to a
-      payload whose adjustment sends its free variables into scope [M]
+      payload [(u, ρ)] whose adjustment is scoped from [tscope u] to [M]
       (recursively).
 
     [scoped N M a] checks this on the data: the bound label's entry, and
@@ -34,8 +35,23 @@ Definition wf_var (M : nat) (v : rvar) : bool :=
   | Some _ => true
   end.
 
+(** The scope of a payload term. *)
+Class TermScope (T : Type) := tscope : T -> nat.
+
+(** The bound label of an adjustment: its entry [(len, p)] keeps within
+    [N] inputs, and its tail lands on [None₍ᵢ₋N₊M₎]. *)
+Definition scoped_tail (N M : nat) (x : nadj) : bool :=
+  match x with
+  | NAdj r es =>
+      let kN := label_key None in
+      let '(len, p) := match aget kN es with Some (Entry _ _ len p) => (len, p) | None => (0, 0) end in
+      Nat.leb len N && Nat.eqb (dval r kN + p + N) (M + len)
+  end.
+
+Context {TS : TermScope T}.
+
 (** Every target, made absolute (by the base [B] it is stored under), is in
-    scope [M]; payloads recursively. *)
+    scope [M]; payloads recursively, with their tails. *)
 Fixpoint pscopedc (M : nat) (rt : counts -> counts) (x : nadj) {struct x} : bool :=
   match x with
   | NAdj r es =>
@@ -45,61 +61,55 @@ Fixpoint pscopedc (M : nat) (rt : counts -> counts) (x : nadj) {struct x} : bool
                    kallF (fun B' t => match t with
                                       | TVar None j => Nat.ltb (dval B' (label_key None) + j) M
                                       | TVar (Some _) _ => true
-                                      | TBind _ rho => pscopedc M (cadd B') rho
+                                      | TBind u rho =>
+                                          match rho with
+                                          | NAdj r0 es0 => scoped_tail (tscope u) M (NAdj (cadd B' r0) es0)
+                                          end && pscopedc M (cadd B') rho
                                       end) B ts
                end) (rt r) es
   end.
 
-Definition tscope (M : nat) (B : counts) (t : target) : bool :=
+Definition tscope_t (M : nat) (B : counts) (t : target) : bool :=
   match t with
   | TVar None j => Nat.ltb (dval B (label_key None) + j) M
   | TVar (Some _) _ => true
-  | TBind _ rho => pscopedc M (cadd B) rho
+  | TBind u rho => match rho with NAdj r0 es0 => scoped_tail (tscope u) M (NAdj (cadd B r0) es0) end
+                   && pscopedc M (cadd B) rho
   end.
 
 Lemma pscopedc_eq M rt r (es : atrie entry) :
-  pscopedc M rt (NAdj r es) = aallF (fun B e => match e with Entry _ ts _ _ => kallF (tscope M) B ts end) (rt r) es.
+  pscopedc M rt (NAdj r es) = aallF (fun B e => match e with Entry _ ts _ _ => kallF (tscope_t M) B ts end) (rt r) es.
 Proof. reflexivity. Qed.
 
-Lemma tscope_unshift M B t : tscope M B t = tscope M cnone (unshift B t).
+Lemma tscope_unshift M B t : tscope_t M B t = tscope_t M cnone (unshift B t).
 Proof.
-  destruct t as [[y|] j|u [r es]]; try reflexivity; cbn [tscope unshift target_based tunshift].
+  destruct t as [[y|] j|u [r es]]; try reflexivity; cbn [tscope_t unshift target_based tunshift].
   rewrite !pscopedc_eq, (cadd_cnone (cadd B r)); reflexivity.
 Qed.
-
-Definition rwf (M : nat) (r : rresult T) : bool :=
-  match r with inl w => wf_var M w | inr (_, ρ) => pscopedc M (fun r => r) (rpadj_n ρ) end.
-
-Definition result_wf := rwf.
-
-Definition pscoped (M : nat) (ρ : rpadj T) : bool := pscopedc M (fun r => r) (rpadj_n ρ).
-
-(** The bound label of a top-level adjustment: its entry [(len, p)] keeps
-    within [N] inputs, and its tail lands on [None₍ᵢ₋N₊M₎]. *)
-Definition scoped_tail (N M : nat) (x : nadj) : bool :=
-  match x with
-  | NAdj r es =>
-      let kN := label_key None in
-      let '(len, p) := match aget kN es with Some (Entry _ _ len p) => (len, p) | None => (0, 0) end in
-      Nat.leb len N && Nat.eqb (dval r kN + p + N) (M + len)
-  end.
 
 Definition scoped (N M : nat) (a : radj T) : bool :=
   scoped_tail N M (radj_n a) && pscopedc M (fun r => r) (radj_n a).
 
+(** A result is in scope [M]: a variable is, or a payload's adjustment is
+    scoped from its term's scope to [M]. *)
+Definition rwf (M : nat) (r : rresult T) : bool :=
+  match r with inl w => wf_var M w | inr (u, ρ) => scoped (tscope u) M ρ end.
+
+Definition result_wf := rwf.
+
 Lemma result_wf_inl M w : result_wf M (inl w : rresult T) = wf_var M w.
 Proof. reflexivity. Qed.
 
-Lemma result_wf_inr M (u : T) ρ : result_wf M (inr (u, ρ)) = pscoped M ρ.
+Lemma result_wf_inr M (u : T) ρ : result_wf M (inr (u, ρ)) = scoped (tscope u) M ρ.
 Proof. reflexivity. Qed.
 
 (** What a target check says about the result it gives. *)
 Lemma tscope_result M t :
-  (forall u rho, t = TBind u rho -> nwf true rho) -> tscope M cnone t = rwf M (rpack (tresult t)).
+  (forall u rho, t = TBind u rho -> nwf false rho) -> tscope_t M cnone t = rwf M (rpack (tresult t)).
 Proof.
   destruct t as [[y|] j|u [r es]]; intros Hw; try reflexivity.
-  cbn [tscope tresult rpack rwf]; rewrite rpadj_n_to_padj by apply (Hw u _ eq_refl).
-  rewrite !pscopedc_eq, cadd_cnone; reflexivity.
+  cbn [tscope_t tresult rpack rwf]; unfold scoped; rewrite radj_n_to_adj by apply (Hw u _ eq_refl).
+  rewrite !pscopedc_eq, !cadd_cnone; reflexivity.
 Qed.
 
 (** The absolute targets of an entry, and their results. *)
@@ -136,29 +146,6 @@ Proof.
   rewrite klist_klift by apply kgood_inv, G; apply in_map, (knth_in _ _ _ G Et).
 Qed.
 
-Theorem pscoped_spec M ρ :
-  pscoped M ρ = true <-> (forall v, v_label v <> None -> result_wf M (rpapply ρ v) = true).
-Proof.
-  unfold pscoped, rpapply; pose proof (rpadj_local ρ) as Hl; pose proof (rpadj_wf ρ) as Hw.
-  destruct (rpadj_n ρ) as [r es]; rewrite pscopedc_eq; cbv beta.
-  rewrite (targets_check (tscope M) (tscope_unshift M) Qnamed r es Hl).
-  assert (Hpay : forall v t u rho, v_label v <> None -> napply (NAdj r es) v = tresult t -> t = TBind u rho -> nwf true rho).
-  { intros v t u rho Hv E ->; apply (nwf_payload true _ v u rho Hw); [destruct (v_label v); [reflexivity|contradiction]|exact E]. }
-  split.
-  - intros H v Hv.
-    destruct (napply_cases Qnamed r es v Hl) as [[_ En]|[ts [len [p [E [[_ [t [Ht En]]]|[_ En]]]]]]];
-      rewrite En.
-    + cbn; destruct (v_label v); [reflexivity|contradiction].
-    + rewrite <- tscope_result; [apply (H _ _ E t Ht)|].
-      intros u rho Et; apply (Hpay v t u rho Hv En Et).
-    + cbn; destruct (v_label v); [reflexivity|contradiction].
-  - intros H k [h ts len p] E t Ht.
-    destruct (entry_target_result Qnamed r es k h ts len p t Hl E Ht) as [i [_ [En HQ]]].
-    assert (Hh : v_label (mk_rvar h i) <> None) by (cbn; destruct h; [discriminate|discriminate]).
-    pose proof (H _ Hh) as Hr; rewrite En in Hr.
-    rewrite tscope_result; [exact Hr|intros u rho Et; apply (Hpay _ t u rho Hh En Et)].
-Qed.
-
 Theorem scoped_spec N M a :
   scoped N M a = true
   <-> (forall i, N <= i -> rapply a (mk_rvar None i) = inl (mk_rvar None (i - N + M)))
@@ -166,9 +153,9 @@ Theorem scoped_spec N M a :
 Proof.
   unfold scoped, rapply; pose proof (radj_local a) as Hl; pose proof (radj_wf a) as Hw.
   destruct (radj_n a) as [r es]; rewrite pscopedc_eq; cbv beta.
-  rewrite andb_true_iff, (targets_check (tscope M) (tscope_unshift M) Qall r es Hl).
+  rewrite andb_true_iff, (targets_check (tscope_t M) (tscope_unshift M) Qall r es Hl).
   set (kN := label_key None).
-  assert (Hpay : forall v t u rho, napply (NAdj r es) v = tresult t -> t = TBind u rho -> nwf true rho)
+  assert (Hpay : forall v t u rho, napply (NAdj r es) v = tresult t -> t = TBind u rho -> nwf false rho)
     by (intros v t u rho E ->; apply (nwf_payload false _ v u rho Hw eq_refl E)).
   (* the bound label's entry, as a pair *)
   assert (Hcase : forall i, napply (NAdj r es) (mk_rvar None i)
@@ -238,7 +225,7 @@ Qed.
 
 (** ** Scoping is preserved by the constructors *)
 
-Implicit Types (a b : radj T) (ρ : rpadj T).
+Implicit Types (a b ρ : radj T).
 
 Lemma wf_var_none M i : wf_var M (mk_rvar None i) = Nat.ltb i M.
 Proof. reflexivity. Qed.
@@ -253,37 +240,25 @@ Proof.
   - intros v Hv; rewrite rapply_identity; exact Hv.
 Qed.
 
-Lemma pscoped_pcompose_depth M K a n :
-  scoped M K a = true ->
-  forall ρ, rpdepth ρ < n -> pscoped M ρ = true -> pscoped K (rpcompose a ρ) = true.
+Lemma scoped_compose_depth N M K a n : scoped M K a = true ->
+  forall b, rdepth b < n -> scoped N M b = true -> scoped N K (rcompose a b) = true.
 Proof.
-  intros Ha; apply scoped_spec in Ha as [_ Ha].
-  induction n as [|n IH]; intros ρ Hd Hρ; [lia|].
-  apply pscoped_spec; intros v Hv; rewrite rpapply_pcompose by exact Hv.
-  pose proof (proj1 (pscoped_spec M ρ) Hρ v Hv) as Hr.
-  destruct (rpapply ρ v) as [w|[u ρ']] eqn:E.
-  - apply Ha, Hr.
-  - cbn [fst snd]; rewrite result_wf_inr; rewrite result_wf_inr in Hr.
-    pose proof (rpdepth_payload _ _ _ _ Hv E); apply IH; [lia|exact Hr].
-Qed.
-
-Theorem pscoped_pcompose M K a ρ :
-  scoped M K a = true -> pscoped M ρ = true -> pscoped K (rpcompose a ρ) = true.
-Proof. intros Ha; apply (pscoped_pcompose_depth M K a (S (rpdepth ρ)) Ha); lia. Qed.
-
-Theorem scoped_compose N M K a b :
-  scoped M K a = true -> scoped N M b = true -> scoped N K (rcompose a b) = true.
-Proof.
-  intros Ha Hb; pose proof Ha as Ha'.
-  apply scoped_spec in Ha as [Hat Har]; apply scoped_spec in Hb as [Hbt Hbr].
+  intros Ha; pose proof Ha as Ha'; apply scoped_spec in Ha as [Hat Har].
+  revert N; induction n as [|n IH]; intros N b Hd Hb; [lia|].
+  apply scoped_spec in Hb as [Hbt Hbr].
   apply scoped_spec; split.
   - intros i Hi; rewrite rapply_compose, Hbt by exact Hi.
     rewrite Hat by lia; do 2 f_equal; lia.
   - intros v Hv; rewrite rapply_compose; specialize (Hbr v Hv).
-    destruct (rapply b v) as [w|[u ρ]].
+    destruct (rapply b v) as [w|[u ρ]] eqn:E.
     + apply Har, Hbr.
-    + cbn [fst snd]; rewrite result_wf_inr in *; apply (pscoped_pcompose M); assumption.
+    + cbn [fst snd]; rewrite result_wf_inr in *; pose proof (rdepth_payload _ _ _ _ E).
+      apply IH; [lia|exact Hbr].
 Qed.
+
+Theorem scoped_compose N M K a b :
+  scoped M K a = true -> scoped N M b = true -> scoped N K (rcompose a b) = true.
+Proof. intros Ha; apply (scoped_compose_depth N M K a (S (rdepth b)) Ha); lia. Qed.
 
 Theorem scoped_shift_none M : scoped M (S M) (@rshift T None) = true.
 Proof.
@@ -358,68 +333,13 @@ Proof.
   - rewrite Hat, Hbt by exact Hi; reflexivity.
 Qed.
 
-(** ** Closed adjustments work at every scope, and lifting them is free *)
-
 Lemma wf_var_mono M M' v : M <= M' -> wf_var M v = true -> wf_var M' v = true.
 Proof.
   destruct v as [[x|] i]; cbn; [reflexivity|].
   intros H1 H2; apply Nat.ltb_lt in H2; apply Nat.ltb_lt; lia.
 Qed.
 
-Lemma pscoped_mono_depth M M' n :
-  M <= M' -> forall ρ, rpdepth ρ < n -> pscoped M ρ = true -> pscoped M' ρ = true.
-Proof.
-  intros Hle; induction n as [|n IH]; intros ρ Hd H; [lia|].
-  apply pscoped_spec; intros v Hv; pose proof (proj1 (pscoped_spec M ρ) H v Hv) as Hr.
-  destruct (rpapply ρ v) as [w|[u ρ']] eqn:E.
-  - rewrite result_wf_inl in *; apply (wf_var_mono M); assumption.
-  - rewrite result_wf_inr in *; pose proof (rpdepth_payload _ _ _ _ Hv E); apply IH; [lia|exact Hr].
-Qed.
-
-Lemma pscoped_mono M M' ρ : M <= M' -> pscoped M ρ = true -> pscoped M' ρ = true.
-Proof. intros Hle; apply (pscoped_mono_depth M M' (S (rpdepth ρ)) Hle); lia. Qed.
-
-Lemma result_wf_mono M M' r : M <= M' -> result_wf M r = true -> result_wf M' r = true.
-Proof.
-  destruct r as [w|[u ρ]]; intros Hle; [apply wf_var_mono, Hle|apply pscoped_mono, Hle].
-Qed.
-
-Theorem scoped_closed N a : scoped 0 0 a = true -> scoped N N a = true.
-Proof.
-  intros H; apply scoped_spec in H as [Ht Hr]; apply scoped_spec; split.
-  - intros i Hi; rewrite Ht by lia; do 2 f_equal; lia.
-  - intros [[x|] i] Hv.
-    + apply (result_wf_mono 0); [lia|apply Hr; reflexivity].
-    + rewrite Ht by lia; cbn in *; replace (i - 0 + 0) with i by lia; exact Hv.
-Qed.
-
-Lemma pshift_closed_depth n :
-  forall ρ, rpdepth ρ < n -> pscoped 0 ρ = true -> rpshift None ρ = ρ.
-Proof.
-  induction n as [|n IH]; intros ρ Hd H; [lia|].
-  apply rpextensionality; intros v Hv; rewrite rpapply_pshift by exact Hv.
-  pose proof (proj1 (pscoped_spec 0 ρ) H v Hv) as Hr.
-  destruct (rpapply ρ v) as [[[x|] i]|[u ρ']] eqn:E.
-  - reflexivity.
-  - cbn in Hr; discriminate.
-  - rewrite result_wf_inr in Hr; pose proof (rpdepth_payload _ _ _ _ Hv E).
-    cbn [fst snd]; rewrite IH by (lia || exact Hr); reflexivity.
-Qed.
-
-Theorem pshift_closed ρ : pscoped 0 ρ = true -> rpshift None ρ = ρ.
-Proof. apply (pshift_closed_depth (S (rpdepth ρ))); lia. Qed.
-
-Theorem lift_closed a : scoped 0 0 a = true -> rlift None a = a.
-Proof.
-  intros H; apply scoped_spec in H as [Ht Hr]; apply rlift_free.
-  - intros i; rewrite Ht by lia; do 2 f_equal; lia.
-  - intros [[x|] i] w Hv E; [|contradiction].
-    pose proof (Hr (mk_rvar (Some x) i) eq_refl) as Hw; rewrite E in Hw.
-    destruct w as [[y|] j]; cbn in Hw; [discriminate|discriminate].
-  - intros [[x|] i] [u ρ] E.
-    + pose proof (Hr (mk_rvar (Some x) i) eq_refl) as Hw; rewrite E in Hw.
-      apply pshift_closed, Hw.
-    + rewrite Ht in E by lia; discriminate.
-Qed.
-
 End Scoped.
+
+(** Terms are closed unless an instance says otherwise. *)
+#[global] Instance closed_terms {T : Type} : TermScope T | 100 := fun _ => 0.

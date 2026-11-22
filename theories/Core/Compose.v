@@ -180,7 +180,7 @@ Fixpoint ncomp_with (thc tauc : counts) (bl : tree nat) (pay : bool) (b : nadj) 
       let tc := fun (B' : counts) (t : target) =>
                   match t with
                   | TVar y j => rtarget (napply a (mk_rvar y (dval B' (label_key y) + j)))
-                  | TBind u rho => TBind u (ncomp_with thc tauc bl true rho B')
+                  | TBind u rho => TBind u (ncomp_with thc tauc bl false rho B')
                   end in
       let ec := fun (B' : counts) (e : entry) =>
                   match e with
@@ -199,7 +199,7 @@ Definition compose (b : nadj) : nadj := ncomp false b cnone.
 Definition tcF (B : counts) (t : target) : target :=
   match t with
   | TVar y j => rtarget (napply a (mk_rvar y (dval B (label_key y) + j)))
-  | TBind u rho => TBind u (ncomp true rho B)
+  | TBind u rho => TBind u (ncomp false rho B)
   end.
 
 Definition ecF (B : counts) (e : entry) : entry :=
@@ -1342,7 +1342,7 @@ End Finish.
 
 (** What composition does to a result of [b]. *)
 Definition rcomp (r : result) : result :=
-  match r with inl y => napply a y | inr (u, rho) => inr (u, ncomp true rho cnone) end.
+  match r with inl y => napply a y | inr (u, rho) => inr (u, ncomp false rho cnone) end.
 
 Lemma tresult_rtarget r : tresult (rtarget r) = r.
 Proof. destruct r as [[l i]|[u rho]]; reflexivity. Qed.
@@ -1725,15 +1725,15 @@ Hypothesis Hb : nwf pay b.
 
 (** What is known of payload targets one level down. *)
 Definition Pd_t (t : target) : Prop :=
-  match t with TVar _ _ => True | TBind _ rho => nwf true rho /\ nnest rho < nnest b end.
+  match t with TVar _ _ => True | TBind _ rho => nwf false rho /\ nnest rho < nnest b end.
 
 Definition Pd_e (z : entry) : Prop :=
   match z with
   | Entry h ts len p => kgood ts /\ klength ts = len /\ strip_ok z /\ forall t, In t (klist ts) -> Pd_t t
   end.
 
-Hypothesis IH3 : forall rho, nnest rho < nnest b -> nwf true rho -> cle th (nroot rho) ->
-                 ncomp true rho cnone = nmove rho.
+Hypothesis IH3 : forall rho, nnest rho < nnest b -> nwf false rho -> cle th (nroot rho) ->
+                 ncomp false rho cnone = nmove rho.
 
 Lemma Hloc : nlocal (Qof pay) b.
 Proof. apply nwf_local with (1 := Hb). Qed.
@@ -1885,7 +1885,7 @@ Proof.
   cbn [andb]; apply Pos.eqb_neq; intro E; apply label_key_inj in E; discriminate.
 Qed.
 
-Hypothesis IH4 : forall rho, nnest rho < nnest b -> nwf true rho -> cle wa (nroot (ncomp true rho cnone)).
+Hypothesis IH4 : forall rho, nnest rho < nnest b -> nwf false rho -> cle wa (nroot (ncomp false rho cnone)).
 
 Lemma tcF_ge t : Pd_t t -> cle wa (uses (tcF cnone t)).
 Proof.
@@ -1948,13 +1948,13 @@ Qed.
 (** *** Keyedness *)
 
 Hypothesis Hwa : nwf false a.
-Hypothesis IH1 : forall rho, nnest rho < nnest b -> nwf true rho -> nlocal Qnamed (ncomp true rho cnone).
+Hypothesis IH1 : forall rho, nnest rho < nnest b -> nwf false rho -> nlocal Qall (ncomp false rho cnone).
 
 Lemma keyed_root Q (c : nadj) : nlocal Q c -> keyed (nroot c).
 Proof. destruct c as [w es']; intros [_ [Hk _]]; exact Hk. Qed.
 
 Lemma keyed_a_result v u rho : napply a v = inr (u, rho) -> keyed (nroot rho).
-Proof. intros E; apply (keyed_root Qnamed), (nwf_local true), (nwf_payload false a v u rho Hwa eq_refl E). Qed.
+Proof. intros E; apply (keyed_root Qall), (nwf_local false), (nwf_payload false a v u rho Hwa eq_refl E). Qed.
 
 Lemma keyed_a_target k e t :
   aget k esa = Some e -> In t (klist (etargets e)) -> keyed (tuses (tunshift wa t)).
@@ -1981,7 +1981,7 @@ Lemma keyed_tcF t : Pd_t t -> keyed (tuses (tcF cnone t)).
 Proof.
   intros HP; destruct t as [y j|u rho]; cbn [tcF].
   - rewrite tuses_rtarget; destruct (napply a _) as [v|[u rho]] eqn:E; [apply keyed_cone|apply (keyed_a_result _ _ _ E)].
-  - destruct HP as [Hw Hn]; apply (keyed_root Qnamed), IH1; assumption.
+  - destruct HP as [Hw Hn]; apply (keyed_root Qall), IH1; assumption.
 Qed.
 
 Lemma keyed_esC k e : aget k esC = Some e -> keyed (uses e).
@@ -2034,9 +2034,9 @@ Qed.
 
 (** *** Labels [a] does not move are not pushed up too far *)
 
-Hypothesis IH5 : forall rho, nnest rho < nnest b -> nwf true rho ->
+Hypothesis IH5 : forall rho, nnest rho < nnest b -> nwf false rho ->
                  forall k m, aget k esa = None -> cget (nroot rho) k = Some m ->
-                 exists m', cget (nroot (ncomp true rho cnone)) k = Some m' /\ m' <= dval wa k + m.
+                 exists m', cget (nroot (ncomp false rho cnone)) k = Some m' /\ m' <= dval wa k + m.
 
 Lemma tcF_bound t k m :
   Pd_t t -> aget k esa = None -> cget (uses t) k = Some m ->
@@ -2211,7 +2211,7 @@ Qed.
 
 (** *** Deep well-formedness *)
 
-Hypothesis IH0 : forall rho, nnest rho < nnest b -> nwf true rho -> nwf true (ncomp true rho cnone).
+Hypothesis IH0 : forall rho, nnest rho < nnest b -> nwf false rho -> nwf false (ncomp false rho cnone).
 
 Theorem nwf_ncomp : nwf pay (ncomp pay b cnone).
 Proof.
@@ -2243,20 +2243,20 @@ Definition comp_ok (pay : bool) (b : nadj) : Prop :=
 Lemma comp_ok_lt n : forall pay b, nnest b < n -> nwf pay b -> comp_ok pay b.
 Proof.
   induction n as [|n IHn]; intros pay [r es] Hn Hb; [lia|].
-  assert (IH : forall rho, nnest rho < nnest (NAdj r es) -> nwf true rho -> comp_ok true rho)
+  assert (IH : forall rho, nnest rho < nnest (NAdj r es) -> nwf false rho -> comp_ok false rho)
     by (intros rho Hr Hw; apply IHn; [lia|exact Hw]).
-  assert (IH0 : forall rho, nnest rho < nnest (NAdj r es) -> nwf true rho -> nwf true (ncomp true rho cnone))
+  assert (IH0 : forall rho, nnest rho < nnest (NAdj r es) -> nwf false rho -> nwf false (ncomp false rho cnone))
     by (intros rho Hr Hw; apply (IH rho Hr Hw)).
-  assert (IH1 : forall rho, nnest rho < nnest (NAdj r es) -> nwf true rho -> nlocal Qnamed (ncomp true rho cnone))
-    by (intros rho Hr Hw; apply (nwf_local true), (IH rho Hr Hw)).
-  assert (IH3 : forall rho, nnest rho < nnest (NAdj r es) -> nwf true rho -> cle th (nroot rho) ->
-                ncomp true rho cnone = nmove rho)
+  assert (IH1 : forall rho, nnest rho < nnest (NAdj r es) -> nwf false rho -> nlocal Qall (ncomp false rho cnone))
+    by (intros rho Hr Hw; apply (nwf_local false), (IH rho Hr Hw)).
+  assert (IH3 : forall rho, nnest rho < nnest (NAdj r es) -> nwf false rho -> cle th (nroot rho) ->
+                ncomp false rho cnone = nmove rho)
     by (intros rho Hr Hw; apply (IH rho Hr Hw)).
-  assert (IH4 : forall rho, nnest rho < nnest (NAdj r es) -> nwf true rho -> cle wa (nroot (ncomp true rho cnone)))
+  assert (IH4 : forall rho, nnest rho < nnest (NAdj r es) -> nwf false rho -> cle wa (nroot (ncomp false rho cnone)))
     by (intros rho Hr Hw; apply (IH rho Hr Hw)).
-  assert (IH5 : forall rho, nnest rho < nnest (NAdj r es) -> nwf true rho ->
+  assert (IH5 : forall rho, nnest rho < nnest (NAdj r es) -> nwf false rho ->
                 forall k m, aget k esa = None -> cget (nroot rho) k = Some m ->
-                exists m', cget (nroot (ncomp true rho cnone)) k = Some m' /\ m' <= dval wa k + m)
+                exists m', cget (nroot (ncomp false rho cnone)) k = Some m' /\ m' <= dval wa k + m)
     by (intros rho Hr Hw; apply (IH rho Hr Hw)).
   split; [apply (nwf_ncomp pay r es Hb IH3 IH4 Hwa IH1 IH5 IH0)|].
   split; [intros v Hv; apply (napply_ncomp pay r es Hb IH3 IH4 v Hv)|].
@@ -2361,7 +2361,7 @@ Qed.
 (** A target is deeply well formed: a payload's adjustment is a named-only
     normal form. *)
 Definition twf (t : target) : Prop :=
-  match t with TVar _ _ => True | TBind _ rho => nwf true rho end.
+  match t with TVar _ _ => True | TBind _ rho => nwf false rho end.
 
 Theorem nwf_extend h (t : target) (a : nadj) :
   nwf false a -> twf t -> nwf false (extend h t a).

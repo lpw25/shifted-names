@@ -237,7 +237,7 @@ Fixpoint nwfc (pay : bool) (rt : counts -> counts) (b : nadj) {struct b} : bool 
                   | Entry _ ts _ _ =>
                       kallF (fun B' t => match t with
                                          | TVar _ _ => true
-                                         | TBind _ rho => nwfc true (cadd B') rho
+                                         | TBind _ rho => nwfc false (cadd B') rho
                                          end) B ts
                   end) R es
   end.
@@ -246,7 +246,7 @@ Fixpoint nwfc (pay : bool) (rt : counts -> counts) (b : nadj) {struct b} : bool 
 Definition nwf (pay : bool) (b : nadj) : Prop := nwfc pay (fun r => r) b = true.
 
 Definition tcheck (B : counts) (t : target) : bool :=
-  match t with TVar _ _ => true | TBind _ rho => nwfc true (cadd B) rho end.
+  match t with TVar _ _ => true | TBind _ rho => nwfc false (cadd B) rho end.
 
 Definition echeck (B : counts) (e : entry) : bool :=
   match e with Entry _ ts _ _ => kallF tcheck B ts end.
@@ -268,7 +268,7 @@ Proof.
   rewrite (cadd_cnone (cadd B a)); reflexivity.
 Qed.
 
-Lemma tcheck_payload u r es : tcheck cnone (TBind u (NAdj r es)) = true <-> nwf true (NAdj r es).
+Lemma tcheck_payload u r es : tcheck cnone (TBind u (NAdj r es)) = true <-> nwf false (NAdj r es).
 Proof. cbn [tcheck]; unfold nwf; rewrite !nwfc_eq, cadd_cnone; reflexivity. Qed.
 
 (** ** What [nwf] means *)
@@ -324,7 +324,7 @@ Lemma nwf_targets pay r (es : atrie entry) :
 Proof. apply (targets_check tcheck tcheck_unshift). Qed.
 
 Lemma nwf_payload pay b v u rho :
-  nwf pay b -> Qof pay (v_label v) = true -> napply b v = inr (u, rho) -> nwf true rho.
+  nwf pay b -> Qof pay (v_label v) = true -> napply b v = inr (u, rho) -> nwf false rho.
 Proof.
   intros Hw _ E; pose proof (nwf_local pay b Hw) as Hl.
   destruct b as [r es]; unfold nwf in Hw; rewrite nwfc_eq in Hw; cbv beta in Hw; apply andb_prop in Hw as [_ Hw].
@@ -341,7 +341,7 @@ Qed.
 
 Lemma nwf_intro pay b :
   nlocal (Qof pay) b -> nfin b ->
-  (forall v u rho, Qof pay (v_label v) = true -> napply b v = inr (u, rho) -> nwf true rho) ->
+  (forall v u rho, Qof pay (v_label v) = true -> napply b v = inr (u, rho) -> nwf false rho) ->
   nwf pay b.
 Proof.
   intros Hl Hf Hp; destruct b as [r es]; unfold nwf; rewrite nwfc_eq; cbv beta.

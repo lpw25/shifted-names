@@ -29,29 +29,21 @@ Definition rshift l : radj T := rpush_outer l ridentity.
 Lemma rapply_shift l v : rapply (rshift l) v = inl (shift_rvar (mk_rvar l 0) v).
 Proof. unfold rshift; rewrite rapply_push_outer, rapply_identity; reflexivity. Qed.
 
-Lemma rpshift_as_pcompose_depth h n :
-  forall ρ, rpdepth ρ < n -> rpshift h ρ = rpcompose (rshift h) ρ.
+Lemma rpush_outer_as_compose_depth h n :
+  forall a, rdepth a < n -> rpush_outer h a = rcompose (rshift h) a.
 Proof.
-  induction n as [|n IH]; intros ρ Hd; [lia|].
-  apply rpextensionality; intros v Hv.
-  rewrite rpapply_pshift, rpapply_pcompose by exact Hv.
-  destruct (rpapply ρ v) as [w|[u ρ']] eqn:E.
+  induction n as [|n IH]; intros a Hd; [lia|].
+  apply rextensionality; intros v; rewrite rapply_push_outer, rapply_compose.
+  destruct (rapply a v) as [w|[u ρ]] eqn:E.
   - rewrite rapply_shift; reflexivity.
-  - pose proof (rpdepth_payload _ _ _ _ Hv E).
-    rewrite (IH ρ') by lia; reflexivity.
+  - pose proof (rdepth_payload _ _ _ _ E); rewrite (IH ρ) by lia; reflexivity.
 Qed.
-
-Theorem rpshift_as_pcompose h ρ : rpshift h ρ = rpcompose (rshift h) ρ.
-Proof. apply (rpshift_as_pcompose_depth h (S (rpdepth ρ))); lia. Qed.
 
 Theorem rpush_outer_as_compose h a : rpush_outer h a = rcompose (rshift h) a.
-Proof.
-  apply rextensionality; intro v.
-  rewrite rapply_push_outer, rapply_compose.
-  destruct (rapply a v) as [w|[u ρ]].
-  - rewrite rapply_shift; reflexivity.
-  - rewrite rpshift_as_pcompose; reflexivity.
-Qed.
+Proof. apply (rpush_outer_as_compose_depth h (S (rdepth a))); lia. Qed.
+
+Theorem rpshift_as_pcompose h ρ : rpshift h ρ = rpcompose (rshift h) ρ.
+Proof. apply rpush_outer_as_compose. Qed.
 
 (** ** Reordering entries *)
 
