@@ -897,6 +897,68 @@ with texp_mind := Induction for texp Sort Prop
 with pexp_mind := Induction for pexp Sort Prop.
 Combined Scheme exp_mind from aexp_mind, texp_mind, pexp_mind.
 
+(** ** Shared definitions
+
+    An atom may stand for a definition ([defs], aligned with the atoms):
+    [Exp e e'] is [e] with each such atom replaced by (the expansion of)
+    its definition.  [HNorm.normD] normalises [e] as if it were [e'],
+    each definition once per word it is followed by. *)
+Section Expand.
+
+Variable defs : list (option aexp).
+
+Inductive Exp : aexp -> aexp -> Prop :=
+| ExId : Exp AId AId
+| ExAtom n : nth n defs None = None -> Exp (AAtom n) (AAtom n)
+| ExRef n d e' : nth n defs None = Some d -> Exp d e' -> Exp (AAtom n) e'
+| ExCompose a b a' b' : Exp a a' -> Exp b b' -> Exp (ACompose a b) (ACompose a' b')
+| ExOuter h a a' : Exp a a' -> Exp (AOuter h a) (AOuter h a')
+| ExInner h t a t' a' : TExp t t' -> Exp a a' -> Exp (AInner h t a) (AInner h t' a')
+| ExLift h a a' : Exp a a' -> Exp (ALift h a) (ALift h a')
+with TExp : texp -> texp -> Prop :=
+| ExVar h i : TExp (TVarE h i) (TVarE h i)
+| ExBind u p p' : PExp p p' -> TExp (TBindE u p) (TBindE u p')
+| ExShift h t t' : TExp t t' -> TExp (TShiftE h t) (TShiftE h t')
+| ExLook h i a a' : Exp a a' -> TExp (TLookE h i a) (TLookE h i a')
+with PExp : pexp -> pexp -> Prop :=
+| ExPId : PExp PId PId
+| ExPAtom n : PExp (PAtom n) (PAtom n)
+| ExPComp a p a' p' : Exp a a' -> PExp p p' -> PExp (PComp a p) (PComp a' p')
+| ExPShift h p p' : PExp p p' -> PExp (PShift h p) (PShift h p').
+
+Scheme Exp_mind := Induction for Exp Sort Prop
+with TExp_mind := Induction for TExp Sort Prop
+with PExp_mind := Induction for PExp Sort Prop.
+Combined Scheme ex_mind from Exp_mind, TExp_mind, PExp_mind.
+
+Lemma PExp_fpb p p' : PExp p p' -> fpb p = fpb p'.
+Proof. induction 1; cbn; auto. Qed.
+
+(** The expansion is unique. *)
+Lemma Exp_func :
+  (forall e x, Exp e x -> forall y, Exp e y -> x = y)
+  /\ (forall t x, TExp t x -> forall y, TExp t y -> x = y)
+  /\ (forall p x, PExp p x -> forall y, PExp p y -> x = y).
+Proof.
+  apply ex_mind; intros;
+    lazymatch goal with |- _ = ?y => match goal with Hy : _ _ y |- _ => inversion Hy; subst end end;
+    try congruence; try (f_equal; auto; fail).
+  match goal with H1 : nth _ _ _ = Some _, H2 : nth _ _ _ = Some _ |- _ => rewrite H1 in H2; injection H2 as <- end; auto.
+Qed.
+
+End Expand.
+
+(** An atom standing for a definition means the definition. *)
+Lemma Exp_meaning defs :
+  (forall k d, nth k defs None = Some d -> aden k = aeden d) ->
+  (forall e e', Exp defs e e' -> aeden e = aeden e')
+  /\ (forall t t', TExp defs t t' -> teden t = teden t')
+  /\ (forall p p', PExp defs p p' -> peden p = peden p').
+Proof.
+  intros Hd; apply ex_mind; intros; cbn [aeden teden peden]; rewrite ?H, ?H0; try reflexivity.
+  rewrite <- H; apply Hd, e.
+Qed.
+
 (** Materialising: a result, and the same with a payload applied to its
     term (by [g]). *)
 Section Mat.

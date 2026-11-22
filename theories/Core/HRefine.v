@@ -600,6 +600,217 @@ Proof.
     split; [exact I2|split; [apply (Ext_trans _ _ _ X1 X2)|exact R2]].
 Qed.
 
+(** ** With shared definitions *)
+
+Section Defs.
+
+Variable defs : list (option aexp).
+
+(** What the memo keeps: the definition followed by the word [i]. *)
+Definition MInv (S : HNorm.st) (m : HNorm.dmemo) : Prop :=
+  forall k i w, HNorm.mget m k i = Some w ->
+    exists n d cK, k = Pos.of_succ_nat n /\ nth n defs None = Some d /\ RId S i cK /\
+      forall e', Exp defs d e' -> RWord S w (CNorm.norm F e' cK).
+
+Lemma MInv_mono S S' m : Ext S S' -> MInv S m -> MInv S' m.
+Proof.
+  intros X Hm k i w E; destruct (Hm k i w E) as [n [d [cK [Ek [Ed [Hi Hw]]]]]].
+  exists n, d, cK; split; [exact Ek|split; [exact Ed|split; [apply (proj1 (R_mono S S' X)), Hi|]]].
+  intros e' He; apply (RWord_mono S S' X), Hw, He.
+Qed.
+
+Lemma MInv_empty S : MInv S (PositiveMap.empty _).
+Proof. intros k i w E; unfold HNorm.mget in E; rewrite PositiveMap.gempty in E; discriminate. Qed.
+
+Lemma MInv_put S m n d i cK w : MInv S m -> nth n defs None = Some d -> RId S i cK ->
+  (forall e', Exp defs d e' -> RWord S w (CNorm.norm F e' cK)) -> MInv S (HNorm.mput m (Pos.of_succ_nat n) i w).
+Proof.
+  intros Hm Ed Hi Hw k j w' E; unfold HNorm.mget, HNorm.mput in E.
+  destruct (Pos.eq_dec k (Pos.of_succ_nat n)) as [->|Nk].
+  - rewrite PositiveMap.gss in E; destruct (Pos.eq_dec j i) as [->|Nj].
+    + rewrite PositiveMap.gss in E; injection E as <-; exists n, d, cK; auto.
+    + rewrite PositiveMap.gso in E by exact Nj; apply Hm; unfold HNorm.mget.
+      destruct (PositiveMap.find (Pos.of_succ_nat n) m); [exact E|rewrite PositiveMap.gempty in E; discriminate].
+  - rewrite PositiveMap.gso in E by exact Nk; apply Hm, E.
+Qed.
+
+Lemma TExp_is_bind t t' : TExp defs t t' -> CNorm.is_bind t = CNorm.is_bind t'.
+Proof. induction 1; cbn; auto. Qed.
+
+Lemma normD_S f e K S m : HNorm.normD F defs (Datatypes.S f) e K S m =
+
+      match e with
+      | AId => Some (K, S, m)
+      | AAtom n =>
+          match nth n defs None with
+          | Some d =>
+              let k := Pos.of_succ_nat n in
+              match HNorm.mget m k (HNorm.wid K) with
+              | Some w => Some (w, S, m)
+              | None =>
+                  match HNorm.normD F defs f d K S m with
+                  | Some (w, S1, m1) => Some (w, S1, HNorm.mput m1 k (HNorm.wid K) w)
+                  | None => None
+                  end
+              end
+          | None => let '(w, S1) := HNorm.hcons (HNorm.SA n) K S in Some (w, S1, m)
+          end
+      | ACompose a b =>
+          match HNorm.normD F defs f a K S m with Some (K1, S1, m1) => HNorm.normD F defs f b K1 S1 m1 | None => None end
+      | AOuter h a => let '(K1, S1) := HNorm.pushW F h K S in HNorm.normD F defs f a K1 S1 m
+      | AInner h t a =>
+          match HNorm.tvalD F defs f t K S m with
+          | Some (v, S1, m1) =>
+              match HNorm.normD F defs f a K S1 m1 with
+              | Some (K1, S2, m2) => let '(w, S3) := HNorm.pushE F h v K1 S2 in Some (w, S3, m2)
+              | None => None
+              end
+          | None => None
+          end
+      | ALift h a =>
+          let '(v, S0) := HNorm.lookup F h 0 K S in
+          let '(K1, S1) := HNorm.pushW F h K S0 in
+          match HNorm.normD F defs f a K1 S1 m with
+          | Some (K2, S2, m2) => let '(w, S3) := HNorm.pushE F h v K2 S2 in Some (w, S3, m2)
+          | None => None
+          end
+      end.
+Proof. reflexivity. Qed.
+
+Lemma tvalD_S f t K S m : HNorm.tvalD F defs (Datatypes.S f) t K S m =
+
+      match t with
+      | TVarE h i => let '(v, S1) := HNorm.lookup F h i K S in Some (v, S1, m)
+      | TBindE u p =>
+          match HNorm.pnormD F defs f p K S m with
+          | Some (P, S1, m1) => let '(P', S2) := HNorm.clean (fpb p) P S1 in Some (HNorm.VTerm u (fpb p) (HNorm.wid P'), S2, m1)
+          | None => None
+          end
+      | TShiftE h t' =>
+          if HNorm.is_bind t' then HNorm.tvalD F defs f t' K S m
+          else let '(K1, S1) := HNorm.pushW F h K S in HNorm.tvalD F defs f t' K1 S1 m
+      | TLookE h i a =>
+          match HNorm.normD F defs f a K S m with
+          | Some (K1, S1, m1) => let '(v, S2) := HNorm.lookup F h i K1 S1 in Some (v, S2, m1)
+          | None => None
+          end
+      end.
+Proof. reflexivity. Qed.
+
+Lemma pnormD_S f p K S m : HNorm.pnormD F defs (Datatypes.S f) p K S m =
+
+      match p with
+      | PId | PAtom _ => Some (K, S, m)
+      | PComp a p' => match HNorm.normD F defs f a K S m with Some (K1, S1, m1) => HNorm.pnormD F defs f p' K1 S1 m1 | None => None end
+      | PShift h p' => let '(K1, S1) := HNorm.pushW F h K S in HNorm.pnormD F defs f p' K1 S1 m
+      end.
+Proof. reflexivity. Qed.
+
+Theorem normD_spec : forall fuel,
+  (forall e e', Exp defs e e' -> forall K S m cK w' S' m', Inv S -> RWord S K cK -> MInv S m ->
+     HNorm.normD F defs fuel e K S m = Some (w', S', m') ->
+     Inv S' /\ Ext S S' /\ MInv S' m' /\ RWord S' w' (CNorm.norm F e' cK))
+  /\ (forall t t', TExp defs t t' -> forall K S m cK v S' m', Inv S -> RWord S K cK -> MInv S m ->
+     HNorm.tvalD F defs fuel t K S m = Some (v, S', m') ->
+     Inv S' /\ Ext S S' /\ MInv S' m' /\ RVal S' v (CNorm.tval F t' cK))
+  /\ (forall p p', PExp defs p p' -> forall K S m cK w' S' m', Inv S -> RWord S K cK -> MInv S m ->
+     HNorm.pnormD F defs fuel p K S m = Some (w', S', m') ->
+     Inv S' /\ Ext S S' /\ MInv S' m' /\ RWord S' w' (CNorm.pnorm F p' cK)).
+Proof.
+  induction fuel as [|f IH]; [repeat split; intros; discriminate|].
+  destruct IH as [IHa [IHt IHp]].
+  apply ex_mind; intros; rewrite ?normD_S, ?tvalD_S, ?pnormD_S in *; cbv beta iota zeta in *;
+    cbn [CNorm.norm CNorm.tval CNorm.pnorm] in *.
+  - (* AId *)
+    injection H2 as <- <- <-; split; [exact H|split; [apply Ext_refl|split; [exact H1|exact H0]]].
+  - (* an atom *)
+    rewrite e in H2.
+    destruct (HNorm.hcons (HNorm.SA n) K S) as [w S1] eqn:Eh; injection H2 as <- <- <-.
+    destruct (hcons_spec S _ K _ cK w S1 H (RSA S n) H0 Eh) as [I1 [X1 R1]].
+    split; [exact I1|split; [exact X1|split; [apply (MInv_mono S S1 m X1 H1)|exact R1]]].
+  - (* a definition *)
+    rewrite e in H3.
+    destruct (HNorm.mget m (Pos.of_succ_nat n) (HNorm.wid K)) as [w|] eqn:Em.
+    + injection H3 as <- <- <-; split; [exact H0|split; [apply Ext_refl|split; [exact H2|]]].
+      destruct (H2 _ _ _ Em) as [n0 [d0 [cK0 [Ek [Ed0 [Hi Hw]]]]]].
+      apply SuccNat2Pos.inj in Ek; subst n0; rewrite e in Ed0; injection Ed0 as <-.
+      rewrite <- ((proj1 (R_func S H0)) _ _ (RWord_RId _ _ _ H1) _ Hi) in Hw; apply Hw, e0.
+    + destruct (HNorm.normD F defs f d K S m) as [[[w S1] m1]|] eqn:E1; [|discriminate]; injection H3 as <- <- <-.
+      destruct (IHa d e' e0 K S m cK w S1 m1 H0 H1 H2 E1) as [I1 [X1 [M1 R1]]].
+      split; [exact I1|split; [exact X1|split; [|exact R1]]].
+      apply (MInv_put S1 m1 n d _ cK w M1 e); [apply (proj1 (R_mono S S1 X1)), RWord_RId, H1|].
+      intros e2 He2; rewrite (proj1 (Exp_func defs) d e2 He2 e' e0); exact R1.
+  - (* composition *)
+    destruct (HNorm.normD F defs f a K S m) as [[[K1 S1] m1]|] eqn:E1; [|discriminate].
+    destruct (IHa a a' e K S m cK K1 S1 m1 H1 H2 H3 E1) as [I1 [X1 [M1 R1]]].
+    destruct (IHa b b' e0 K1 S1 m1 _ w' S' m' I1 R1 M1 H4) as [I2 [X2 [M2 R2]]].
+    split; [exact I2|split; [apply (Ext_trans _ _ _ X1 X2)|split; [exact M2|exact R2]]].
+  - (* an output *)
+    destruct (HNorm.pushW F h K S) as [K1 S1] eqn:E1.
+    destruct (pushW_spec S h K cK K1 S1 H0 H1 E1) as [I1 [X1 R1]].
+    destruct (IHa a a' e K1 S1 m _ w' S' m' I1 R1 (MInv_mono S S1 m X1 H2) H3) as [I2 [X2 [M2 R2]]].
+    split; [exact I2|split; [apply (Ext_trans _ _ _ X1 X2)|split; [exact M2|exact R2]]].
+  - (* an input entry *)
+    destruct (HNorm.tvalD F defs f t K S m) as [[[v S1] m1]|] eqn:E1; [|discriminate].
+    destruct (IHt t t' t0 K S m cK v S1 m1 H1 H2 H3 E1) as [I1 [X1 [M1 R1]]].
+    destruct (HNorm.normD F defs f a K S1 m1) as [[[K1 S2] m2]|] eqn:E2; [|discriminate].
+    destruct (IHa a a' e K S1 m1 cK K1 S2 m2 I1 (RWord_mono _ _ X1 _ _ H2) M1 E2) as [I2 [X2 [M2 R2]]].
+    destruct (HNorm.pushE F h v K1 S2) as [w S3] eqn:E3; injection H4 as <- <- <-.
+    destruct (pushE_spec S2 h v _ K1 _ w S3 I2 (proj2 (proj2 (R_mono _ _ X2)) _ _ R1) R2 E3) as [I3 [X3 R3]].
+    split; [exact I3|split; [apply (Ext_trans _ _ _ X1 (Ext_trans _ _ _ X2 X3))|split; [|exact R3]]].
+    apply (MInv_mono S2 S3 m2 X3 M2).
+  - (* a lift *)
+    destruct (HNorm.lookup F h 0 K S) as [v S0] eqn:E0.
+    destruct (lookup_spec S h K cK H0 H1 0 v S0 E0) as [I0 [X0 R0]].
+    destruct (HNorm.pushW F h K S0) as [K1 S1] eqn:E1.
+    destruct (pushW_spec S0 h K cK K1 S1 I0 (RWord_mono _ _ X0 _ _ H1) E1) as [I1 [X1 R1]].
+    destruct (HNorm.normD F defs f a K1 S1 m) as [[[K2 S2] m2]|] eqn:E2; [|discriminate].
+    pose proof (MInv_mono S S1 m (Ext_trans _ _ _ X0 X1) H2) as M1.
+    destruct (IHa a a' e K1 S1 m _ K2 S2 m2 I1 R1 M1 E2) as [I2 [X2 [M2 R2]]].
+    pose proof (Ext_trans _ _ _ X1 X2) as X12.
+    destruct (HNorm.pushE F h v K2 S2) as [w S3] eqn:E3; injection H3 as <- <- <-.
+    destruct (pushE_spec S2 h v _ K2 _ w S3 I2 (proj2 (proj2 (R_mono _ _ X12)) _ _ R0) R2 E3) as [I3 [X3 R3]].
+    split; [exact I3|split; [apply (Ext_trans _ _ _ X0 (Ext_trans _ _ _ X12 X3))|split; [|exact R3]]].
+    apply (MInv_mono S2 S3 m2 X3 M2).
+  - (* a variable *)
+    destruct (HNorm.lookup F h i K S) as [v1 S1] eqn:E1; injection H2 as <- <- <-.
+    destruct (lookup_spec S h K cK H H0 i v1 S1 E1) as [I1 [X1 R1]].
+    split; [exact I1|split; [exact X1|split; [apply (MInv_mono S S1 m X1 H1)|exact R1]]].
+  - (* a term *)
+    destruct (HNorm.pnormD F defs f p K S m) as [[[P S1] m1]|] eqn:E1; [|discriminate].
+    destruct (IHp p p' p0 K S m cK P S1 m1 H0 H1 H2 E1) as [I1 [X1 [M1 R1]]].
+    destruct (HNorm.clean (fpb p) P S1) as [P' S2] eqn:E2; injection H3 as <- <- <-.
+    rewrite (PExp_fpb defs p p' p0) in E2 |- *.
+    destruct (clean_spec S1 (fpb p') P _ P' S2 I1 R1 E2) as [I2 [X2 R2]].
+    split; [exact I2|split; [apply (Ext_trans _ _ _ X1 X2)|split; [apply (MInv_mono S1 S2 m1 X2 M1)|]]].
+    constructor; apply RWord_RId, R2.
+  - (* a shift *)
+    rewrite is_bind_same, (TExp_is_bind t t' t0) in H3; destruct (CNorm.is_bind t').
+    + apply (IHt t t' t0 K S m cK v S' m' H0 H1 H2 H3).
+    + destruct (HNorm.pushW F h K S) as [K1 S1] eqn:E1.
+      destruct (pushW_spec S h K cK K1 S1 H0 H1 E1) as [I1 [X1 R1]].
+      destruct (IHt t t' t0 K1 S1 m _ v S' m' I1 R1 (MInv_mono S S1 m X1 H2) H3) as [I2 [X2 [M2 R2]]].
+      split; [exact I2|split; [apply (Ext_trans _ _ _ X1 X2)|split; [exact M2|exact R2]]].
+  - (* a lookup *)
+    destruct (HNorm.normD F defs f a K S m) as [[[K1 S1] m1]|] eqn:E1; [|discriminate].
+    destruct (IHa a a' e K S m cK K1 S1 m1 H0 H1 H2 E1) as [I1 [X1 [M1 R1]]].
+    destruct (HNorm.lookup F h i K1 S1) as [v1 S2] eqn:E2; injection H3 as <- <- <-.
+    destruct (lookup_spec S1 h K1 _ I1 R1 i v1 S2 E2) as [I2 [X2 R2]].
+    split; [exact I2|split; [apply (Ext_trans _ _ _ X1 X2)|split; [apply (MInv_mono S1 S2 m1 X2 M1)|exact R2]]].
+  - injection H2 as <- <- <-; split; [exact H|split; [apply Ext_refl|split; [exact H1|exact H0]]].
+  - injection H2 as <- <- <-; split; [exact H|split; [apply Ext_refl|split; [exact H1|exact H0]]].
+  - destruct (HNorm.normD F defs f a K S m) as [[[K1 S1] m1]|] eqn:E1; [|discriminate].
+    destruct (IHa a a' e K S m cK K1 S1 m1 H1 H2 H3 E1) as [I1 [X1 [M1 R1]]].
+    destruct (IHp p p' p0 K1 S1 m1 _ w' S' m' I1 R1 M1 H4) as [I2 [X2 [M2 R2]]].
+    split; [exact I2|split; [apply (Ext_trans _ _ _ X1 X2)|split; [exact M2|exact R2]]].
+  - destruct (HNorm.pushW F h K S) as [K1 S1] eqn:E1.
+    destruct (pushW_spec S h K cK K1 S1 H0 H1 E1) as [I1 [X1 R1]].
+    destruct (IHp p p' p0 K1 S1 m _ w' S' m' I1 R1 (MInv_mono S S1 m X1 H2) H3) as [I2 [X2 [M2 R2]]].
+    split; [exact I2|split; [apply (Ext_trans _ _ _ X1 X2)|split; [exact M2|exact R2]]].
+Qed.
+
+End Defs.
+
 (** The shared decision is the unshared one. *)
 Theorem hn_eq_cn e1 e2 : HNorm.hn_eq F e1 e2 = CNorm.cn_eq F e1 e2.
 Proof.

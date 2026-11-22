@@ -46,11 +46,34 @@ with pinrange (p : pexp) : bool :=
   | PShift _ p => pinrange p
   end.
 
+End Range.
+
+(** A larger bound on atoms. *)
+Lemma inrange_mono n b b' : b <= b' ->
+  (forall e, inrange n b e = true -> inrange n b' e = true)
+  /\ (forall t, tinrange n b t = true -> tinrange n b' t = true)
+  /\ (forall p, pinrange n b p = true -> pinrange n b' p = true).
+Proof.
+  intros L; apply exp_mind; intros; cbn [inrange tinrange pinrange] in *; rewrite ?andb_true_iff in *; try tauto.
+  apply Nat.ltb_lt in H; apply Nat.ltb_lt; lia.
+Qed.
+
+Section Range2.
+
+Variables (n b : nat).
+
 Lemma Forall_rev_append {A} (P : A -> Prop) l r : Forall P l -> Forall P r -> Forall P (rev_append l r).
 Proof.
   revert r; induction l as [|x l IH]; intros r Hl Hr; cbn; [exact Hr|].
   inversion Hl; subst; apply IH; [assumption|constructor; assumption].
 Qed.
+
+Local Notation VOk := (VOk n b).
+Local Notation SOk := (SOk n b).
+Local Notation WOk := (WOk n b).
+Local Notation inrange := (inrange n b).
+Local Notation tinrange := (tinrange n b).
+Local Notation pinrange := (pinrange n b).
 
 Variable F : order.
 
@@ -139,4 +162,4 @@ Proof.
   - apply H; [exact H0|apply pushW_ok, H1].
 Qed.
 
-End Range.
+End Range2.

@@ -295,6 +295,99 @@ with pnorm (p : pexp) (K : word) (S : st) {struct p} : word * st :=
   | PShift h p' => let '(K1, S1) := pushW h K S in pnorm p' K1 S1
   end.
 
+(** ** With shared definitions
+
+    [normD]: [norm], with the atoms that [defs] defines standing for
+    their definitions (as [Normalise.Exp] expands them).  A definition
+    followed by a word [K] is normalised once: the result is kept by
+    the definition and [K]'s cell. *)
+Section Defs.
+
+Variable defs : list (option aexp).
+
+Definition dmemo := PositiveMap.t (PositiveMap.t word).
+
+Definition mget (m : dmemo) (k i : positive) : option word :=
+  match PositiveMap.find k m with Some mk => PositiveMap.find i mk | None => None end.
+
+Definition mput (m : dmemo) (k i : positive) (w : word) : dmemo :=
+  PositiveMap.add k (PositiveMap.add i w (match PositiveMap.find k m with Some mk => mk | None => PositiveMap.empty _ end)) m.
+
+Fixpoint normD (fuel : nat) (e : aexp) (K : word) (S : st) (m : dmemo) {struct fuel} : option (word * st * dmemo) :=
+  match fuel with
+  | 0 => None
+  | S f =>
+      match e with
+      | AId => Some (K, S, m)
+      | AAtom n =>
+          match nth n defs None with
+          | Some d =>
+              let k := Pos.of_succ_nat n in
+              match mget m k (wid K) with
+              | Some w => Some (w, S, m)
+              | None =>
+                  match normD f d K S m with
+                  | Some (w, S1, m1) => Some (w, S1, mput m1 k (wid K) w)
+                  | None => None
+                  end
+              end
+          | None => let '(w, S1) := hcons (SA n) K S in Some (w, S1, m)
+          end
+      | ACompose a b =>
+          match normD f a K S m with Some (K1, S1, m1) => normD f b K1 S1 m1 | None => None end
+      | AOuter h a => let '(K1, S1) := pushW h K S in normD f a K1 S1 m
+      | AInner h t a =>
+          match tvalD f t K S m with
+          | Some (v, S1, m1) =>
+              match normD f a K S1 m1 with
+              | Some (K1, S2, m2) => let '(w, S3) := pushE h v K1 S2 in Some (w, S3, m2)
+              | None => None
+              end
+          | None => None
+          end
+      | ALift h a =>
+          let '(v, S0) := lookup h 0 K S in
+          let '(K1, S1) := pushW h K S0 in
+          match normD f a K1 S1 m with
+          | Some (K2, S2, m2) => let '(w, S3) := pushE h v K2 S2 in Some (w, S3, m2)
+          | None => None
+          end
+      end
+  end
+with tvalD (fuel : nat) (t : texp) (K : word) (S : st) (m : dmemo) {struct fuel} : option (val * st * dmemo) :=
+  match fuel with
+  | 0 => None
+  | S f =>
+      match t with
+      | TVarE h i => let '(v, S1) := lookup h i K S in Some (v, S1, m)
+      | TBindE u p =>
+          match pnormD f p K S m with
+          | Some (P, S1, m1) => let '(P', S2) := clean (fpb p) P S1 in Some (VTerm u (fpb p) (wid P'), S2, m1)
+          | None => None
+          end
+      | TShiftE h t' =>
+          if is_bind t' then tvalD f t' K S m
+          else let '(K1, S1) := pushW h K S in tvalD f t' K1 S1 m
+      | TLookE h i a =>
+          match normD f a K S m with
+          | Some (K1, S1, m1) => let '(v, S2) := lookup h i K1 S1 in Some (v, S2, m1)
+          | None => None
+          end
+      end
+  end
+with pnormD (fuel : nat) (p : pexp) (K : word) (S : st) (m : dmemo) {struct fuel} : option (word * st * dmemo) :=
+  match fuel with
+  | 0 => None
+  | S f =>
+      match p with
+      | PId | PAtom _ => Some (K, S, m)
+      | PComp a p' => match normD f a K S m with Some (K1, S1, m1) => pnormD f p' K1 S1 m1 | None => None end
+      | PShift h p' => let '(K1, S1) := pushW h K S in pnormD f p' K1 S1 m
+      end
+  end.
+
+End Defs.
+
 (** The decision: both sides normalised against one table. *)
 Definition hn_eq (e1 e2 : aexp) : bool :=
   let '(w1, S1) := norm e1 [] st0 in

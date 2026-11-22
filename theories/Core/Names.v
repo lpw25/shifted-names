@@ -67,6 +67,10 @@ Lemma share_intro_p {T N M K L} (A : adj T K L) (f : adj T K L -> adj T N M) (P 
   (forall r, adj_raw r = adj_raw A -> P (f r)) -> P (Indexed.share A f).
 Proof. intros H; rewrite share_eq; apply H; reflexivity. Qed.
 
+(** A use of a shared definition, as the reifier marks it: [A] itself,
+    with the atom [k] that stands for it. *)
+Definition sref {T K L} (A : adj T K L) (k : nat) : adj T K L := A.
+
 Lemma lfacts_nil le : lfacts_ok le [].
 Proof. constructor. Qed.
 
@@ -269,8 +273,11 @@ Ltac2 raw_refs () : Std.reference list := [reference:(adj_raw); reference:(ident
 Ltac2 idx (ns : nats) (k : int) : constr :=
   if Int.lt k 16 then nat_lit ns k else app constr:(N.to_nat) [n_lit k].
 
+Ltac2 adj_args (ty : constr) (xs : constr list) : constr list :=
+  lazy_match! ty with adj ?t ?k ?l => t :: k :: l :: xs end.
+
 Ltac2 Type st := { labs : tbl; terms : tbl; atoms : tbl; patoms : tbl; ns : nats; lets : ident FSet.t;
-                   wfl : Std.red_flags; nfl : Std.red_flags }.
+                   wfl : Std.red_flags; nfl : Std.red_flags; mutable sdefs : (int, constr) FMap.t }.
 
 Ltac2 new_st () : st :=
   let refs := raw_refs () in
@@ -280,7 +287,8 @@ Ltac2 new_st () : st :=
     wfl := { Std.rStrength := Std.Head; Std.rBeta := true; Std.rMatch := true; Std.rFix := true;
              Std.rCofix := true; Std.rZeta := true; Std.rDelta := false; Std.rConst := refs };
     nfl := { Std.rStrength := Std.Norm; Std.rBeta := true; Std.rMatch := true; Std.rFix := true;
-             Std.rCofix := true; Std.rZeta := true; Std.rDelta := false; Std.rConst := refs } }.
+             Std.rCofix := true; Std.rZeta := true; Std.rDelta := false; Std.rConst := refs };
+    sdefs := FMap.empty FSet.Tags.int_tag }.
 
 Ltac2 whd_s (s : st) (c : constr) : constr := Std.eval_cbn (s.(wfl)) c.
 
@@ -315,6 +323,24 @@ Ltac2 rec reify_adj (s : st) (a : constr) : constr :=
       end
   | rlift ?h ?x =>
       let eh := reify_label s h in let ex := reify_adj s x in app constr:(ALift) [eh; ex]
+  | adj_raw ?sh =>
+      lazy_match! sh with
+      | Indexed.share ?aa ?f =>
+          (* the definition, as a new atom standing for it, and the body with a
+             marked use of it for the bound variable *)
+          let araw := app constr:(@adj_raw) (adj_args (Constr.type aa) [aa]) in
+          let d := reify_adj s araw in
+          let k := tbl_push (s.(atoms)) araw in
+          s.(sdefs) := FMap.add k d (s.(sdefs));
+          let marker := app constr:(@sref) (adj_args (Constr.type aa) [aa; idx (s.(ns)) k]) in
+          let body := match Constr.Unsafe.kind f with
+                      | Constr.Unsafe.Lambda _ b => Constr.Unsafe.substnl [marker] 0 b
+                      | _ => app f [marker]
+                      end in
+          reify_adj s (app constr:(@adj_raw) (adj_args (Constr.type sh) [body]))
+      | sref _ ?k => app constr:(AAtom) [k]
+      | _ => reify_atom s a
+      end
   | _ => reify_atom s a
   end
 with reify_var (s : st) (w : constr) : constr option :=
@@ -647,7 +673,8 @@ Ltac2 render_term (t : constr) (ty : constr) (labs : constr array) (terms : cons
     with a proof [hl] of [lfacts_ok le l], and the environments' entries. *)
 Ltac2 Type env := {
   e_le : constr; e_te : constr; e_ae : constr; e_pe : constr; e_l : constr; e_hl : constr;
-  e_labs : constr array; e_terms : constr list; e_atoms : constr array; e_nt : int; e_nb : int; e_ns : nats }.
+  e_labs : constr array; e_terms : constr list; e_atoms : constr array; e_nt : int; e_nb : int; e_ns : nats;
+  e_defs : constr; e_defl : constr option list }.
 
 Ltac2 finish (s : st) (ty : constr) : env :=
   let fs := collect_facts s in
@@ -658,6 +685,11 @@ Ltac2 finish (s : st) (ty : constr) : env :=
   let te := list_of ty terms in
   let ae := list_of constr:(radj $ty) atoms in
   let pe := list_of constr:(rpadj $ty) (List.rev ((s.(patoms)).(items))) in
+  let defl := List.init ((s.(atoms)).(size)) (fun k => FMap.find_opt k (s.(sdefs))) in
+  let defl_c := List.map (fun od => match od with
+                                   | Some d => app constr:(@Some aexp) [d]
+                                   | None => constr:(@None aexp)
+                                   end) defl in
   let lt := constr:((lexp * lexp)%type) in
   let pair := constr:(@pair lexp lexp) in
   let cons := constr:(@cons) in
@@ -669,7 +701,8 @@ Ltac2 finish (s : st) (ty : constr) : env :=
       fs (app constr:(lfacts_nil) [le], app constr:(@nil) [lt]) in
   { e_le := le; e_te := te; e_ae := ae; e_pe := pe; e_l := l; e_hl := hl;
     e_labs := Array.of_list labs; e_terms := terms; e_atoms := Array.of_list atoms;
-    e_nt := (s.(terms)).(size); e_nb := (s.(atoms)).(size); e_ns := s.(ns) }.
+    e_nt := (s.(terms)).(size); e_nb := (s.(atoms)).(size); e_ns := s.(ns);
+    e_defs := list_of constr:(option aexp) defl_c; e_defl := defl }.
 
 (** [eq_refl : lhs = rhs], checked by the VM (when the proof is checked). *)
 Ltac2 vm_eq (ty : constr) (lhs : constr) (rhs : constr) : constr :=
@@ -831,6 +864,24 @@ Ltac2 vm_pay (ns : nats) (c : constr) : (constr * shown) option :=
 
 Ltac2 some (ty : constr) (x : constr) : constr := app constr:(@Some) [ty; x].
 
+(** [Forall2 (fun x od => od = Some d -> x = aeden d) atoms defs]: each
+    defined atom is (convertibly) its definition. *)
+Ltac2 defs_proof (t : constr) (rel : constr) (atoms : constr list) (defl : constr option list) : constr :=
+  let rt := constr:(@radj) in
+  let aty := app rt [t] in
+  let oty := constr:(option aexp) in
+  let rec go xs ds :=
+    match xs, ds with
+    | x :: xs2, od :: ds2 =>
+        let (pf, l, lt2) := go xs2 ds2 in
+        let odc := match od with Some d => app constr:(@Some aexp) [d] | None => constr:(@None aexp) end in
+        let h := match od with Some _ => app constr:(@eq_refl) [aty; x] | None => constr:(I) end in
+        (app constr:(@Forall2_cons) [aty; oty; rel; x; odc; l; lt2; h; pf],
+         app constr:(@cons) [aty; x; l], app constr:(@cons) [oty; odc; lt2])
+    | _, _ => (app constr:(@Forall2_nil) [aty; oty; rel], app constr:(@nil) [aty], app constr:(@nil) [oty])
+    end in
+  let (pf, _, _) := go atoms defl in pf.
+
 (** ** Rewriting an adjustment to its normal form *)
 
 Ltac2 Type outcome := [ Shown (constr list) | NotShown ].
@@ -852,7 +903,8 @@ Ltac2 show_adj (memo : memo) (a : constr) : outcome :=
       let nt := nat_lit (en.(e_ns)) (en.(e_nt)) in
       let nb := nat_lit (en.(e_ns)) (en.(e_nb)) in
       let l := en.(e_l) in
-      let d := (vm_show (en.(e_ns)) '(hshow (order_of $l) $nt $nb $e)) in
+      let defs := en.(e_defs) in
+      let d := (vm_show (en.(e_ns)) '(hshowD (order_of $l) $nt $nb $defs $e)) in
       match d with
       | Some sh =>
           let (shd, root) := (sh.(sh_c), sh.(sh_root)) in
@@ -871,8 +923,10 @@ Ltac2 show_adj (memo : memo) (a : constr) : outcome :=
                (fun () => shares_ok hs);
              let hsp := Control.hyp hsid in
              let ty := constr:((list aexp * aexp)%type) in
-             let ht := vm_eq '(option $ty) '(hshow (order_of $l) (List.length $te) (List.length $ae) $e) (some ty (sh.(sh_val))) in
-             Std.exact_no_check '(hshow_sound $le $te $ae $rs $pe $l $e $shd $root $hl $ht $hsp)));
+             let ht := vm_eq '(option $ty) '(hshowD (order_of $l) (List.length $te) (List.length $ae) $defs $e) (some ty (sh.(sh_val))) in
+             let rel := '(fun (x : radj $t) (od : option aexp) => match od with Some d => x = aeden $le $te ($ae ++ $rs) $pe d | None => True end) in
+             let hd := defs_proof t rel (Array.to_list (en.(e_atoms))) (en.(e_defl)) in
+             Std.exact_no_check '(hshowD_sound $le $te $ae $rs $pe $l $defs $e $shd $root $hl $ht $hd $hsp)));
            (rewrite_with (Control.hyp id)); Std.clear [id]);
           Shown terms
       | None => NotShown
