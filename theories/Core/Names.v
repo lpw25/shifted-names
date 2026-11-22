@@ -35,7 +35,7 @@
 
 From Stdlib Require Import NArith List String Arith Bool StrictProp.
 Open Scope bool_scope.
-From ShiftedNames.Core Require Import Label Var Adjustment Laws Indexed Syntax Normalise HConcrete HShow.
+From ShiftedNames.Core Require Import Label Var Adjustment Laws Indexed Syntax Normalise HConcrete HShow Braun HShowB.
 From ShiftedNames.Core Require HNorm.
 Import ListNotations.
 
@@ -88,9 +88,24 @@ Proof.
   intros H; rewrite share_eq; apply IH, H; reflexivity.
 Qed.
 
+(** [Forall] and [Forall2] proofs built as balanced trees, so that a
+    proof for a list of [n] entries has size [O(n log n)] (one built by
+    [cons] mentions each suffix of the list). *)
+Lemma F_one {A} (P : A -> Prop) x : P x -> Forall P [x].
+Proof. intros H; constructor; [exact H|constructor]. Qed.
+
+Lemma F_app {A} (P : A -> Prop) l1 l2 : Forall P l1 -> Forall P l2 -> Forall P (l1 ++ l2).
+Proof. intros H1 H2; apply Forall_app; split; assumption. Qed.
+
+Lemma F2_one {A B} (R : A -> B -> Prop) x y : R x y -> Forall2 R [x] [y].
+Proof. intros H; constructor; [exact H|constructor]. Qed.
+
+Lemma F2_app {A B} (R : A -> B -> Prop) l1 l2 m1 m2 : Forall2 R l1 m1 -> Forall2 R l2 m2 -> Forall2 R (l1 ++ l2) (m1 ++ m2).
+Proof. apply Forall2_app. Qed.
+
 (** A use of a shared definition, as the reifier marks it: [A] itself,
     with the atom [k] that stands for it. *)
-Definition sref {T K L} (A : adj T K L) (k : nat) : adj T K L := A.
+Definition sref {T K L} (A : adj T K L) (k : N) : adj T K L := A.
 
 Lemma lfacts_nil le : lfacts_ok le [].
 Proof. constructor. Qed.
@@ -99,9 +114,9 @@ Lemma lfacts_cons le x y l : olabel_lt (lden le x) (lden le y) -> lfacts_ok le l
 Proof. intros H Hl; constructor; assumption. Qed.
 
 (** The term [k] is the term [u] with the payload [b] materialised. *)
-Lemma mat_k {T} {inst : SubstMat T} (l : list T) u k ut (b : adj T 0 0) (d : radj T) :
-  nth_error l u = Some ut -> nth_error l k = Some (sm_back (sm_subst b (sm_of ut))) -> adj_raw b = d ->
-  forall y, nth_error l u = Some y -> nth_error l k = Some (sm_g (rpcompose d rpidentity) y).
+Lemma mat_kB {T} {inst : SubstMat T} (l : braun T) u k ut (b : adj T 0 0) (d : radj T) :
+  bnth l u = Some ut -> bnth l k = Some (sm_back (sm_subst b (sm_of ut))) -> adj_raw b = d ->
+  forall y, bnth l u = Some y -> bnth l k = Some (sm_g (rpcompose d rpidentity) y).
 Proof. intros H1 H2 <- y Hy; rewrite H1 in Hy; injection Hy as <-; rewrite H2, sm_g_spec; reflexivity. Qed.
 
 (** ** Ltac2 *)
@@ -328,24 +343,24 @@ Ltac2 reify_label (s : st) (h : constr) : constr :=
   end.
 
 Ltac2 reify_atom (s : st) (a : constr) : constr :=
-  let n := idx (s.(ns)) (tbl_add (s.(lets)) (s.(atoms)) a) in app constr:(AAtom) [n].
+  let n := n_lit (tbl_add (s.(lets)) (s.(atoms)) a) in app constr:(NAtom) [n].
 
 Ltac2 rec reify_adj (s : st) (a : constr) : constr :=
   let a := whd_s s a in
   lazy_match! a with
-  | ridentity => constr:(AId)
+  | ridentity => constr:(NId)
   | rcompose ?x ?y =>
-      let ex := reify_adj s x in let ey := reify_adj s y in app constr:(ACompose) [ex; ey]
+      let ex := reify_adj s x in let ey := reify_adj s y in app constr:(NCompose) [ex; ey]
   | rpush_outer ?h ?x =>
-      let eh := reify_label s h in let ex := reify_adj s x in app constr:(AOuter) [eh; ex]
+      let eh := reify_label s h in let ex := reify_adj s x in app constr:(NOuter) [eh; ex]
   | rpush_inner ?h ?t ?x =>
       let eh := reify_label s h in
       match reify_target s t with
-      | Some et => let ex := reify_adj s x in app constr:(AInner) [eh; et; ex]
+      | Some et => let ex := reify_adj s x in app constr:(NInner) [eh; et; ex]
       | None => reify_atom s a
       end
   | rlift ?h ?x =>
-      let eh := reify_label s h in let ex := reify_adj s x in app constr:(ALift) [eh; ex]
+      let eh := reify_label s h in let ex := reify_adj s x in app constr:(NLift) [eh; ex]
   | adj_raw ?sh =>
       lazy_match! sh with
       | Indexed.share ?aa ?f =>
@@ -355,13 +370,13 @@ Ltac2 rec reify_adj (s : st) (a : constr) : constr :=
           let d := reify_adj s araw in
           let k := tbl_push (s.(atoms)) araw in
           s.(sdefs) := FMap.add k d (s.(sdefs));
-          let marker := app constr:(@sref) (adj_args (Constr.type aa) [aa; idx (s.(ns)) k]) in
+          let marker := app constr:(@sref) (adj_args (Constr.type aa) [aa; n_lit k]) in
           let body := match Constr.Unsafe.kind f with
                       | Constr.Unsafe.Lambda _ b => Constr.Unsafe.substnl [marker] 0 b
                       | _ => app f [marker]
                       end in
           reify_adj s (app constr:(@adj_raw) (adj_args (Constr.type sh) [body]))
-      | sref _ ?k => app constr:(AAtom) [k]
+      | sref _ ?k => app constr:(NAtom) [k]
       | _ => reify_atom s a
       end
   | _ => reify_atom s a
@@ -370,13 +385,13 @@ with reify_var (s : st) (w : constr) : constr option :=
   lazy_match! whd_s s w with
   | mk_rvar ?h ?i =>
       let i := nf_s s i in
-      if is_nat_lit i then let eh := reify_label s h in Some (app constr:(TVarE) [eh; i]) else None
+      if is_nat_lit i then let eh := reify_label s h in Some (app constr:(NVarE) [eh; n_lit (int_of_nat i)]) else None
   | shift_rvar ?w0 ?w' =>
       lazy_match! nf_s s w0 with mk_rvar ?h 0 => () | _ => Control.zero Not_found end;
       let h := lazy_match! nf_s s w0 with mk_rvar ?h _ => h end in
       let eh := reify_label s h in
       match reify_var s w' with
-      | Some ew => Some (app constr:(TShiftE) [eh; ew])
+      | Some ew => Some (app constr:(NShiftE) [eh; ew])
       | None => None
       end
   | _ => None
@@ -387,26 +402,26 @@ with reify_target (s : st) (t : constr) : constr option :=
       lazy_match! nf_s s w with
       | RRename (mk_rvar ?h ?i) =>
       if is_nat_lit i then
-        let eh := reify_label s h in let ea := reify_adj s a in Some (app constr:(TLookE) [eh; i; ea])
+        let eh := reify_label s h in let ea := reify_adj s a in Some (app constr:(NLookE) [eh; n_lit (int_of_nat i); ea])
       else None
       | _ => None
       end
   | RRename ?w => reify_var s w
   | RBind ?u ?p =>
-      let n := idx (s.(ns)) (tbl_add (s.(lets)) (s.(terms)) u) in
-      let ep := reify_padj s p in Some (app constr:(TBindE) [n; ep])
+      let n := n_lit (tbl_add (s.(lets)) (s.(terms)) u) in
+      let ep := reify_padj s p in Some (app constr:(NBindE) [n; ep])
   | _ => None
   end
 with reify_padj (s : st) (p : constr) : constr :=
   let p := whd_s s p in
   lazy_match! p with
-  | rpidentity => constr:(PId)
+  | rpidentity => constr:(NPId)
   | rpcompose ?x ?q =>
-      let ex := reify_adj s x in let eq := reify_padj s q in app constr:(PComp) [ex; eq]
+      let ex := reify_adj s x in let eq := reify_padj s q in app constr:(NPComp) [ex; eq]
   | rpshift ?h ?q =>
-      let eh := reify_label s h in let eq := reify_padj s q in app constr:(PShift) [eh; eq]
+      let eh := reify_label s h in let eq := reify_padj s q in app constr:(NPShift) [eh; eq]
   | _ =>
-      let n := idx (s.(ns)) (tbl_add (s.(lets)) (s.(patoms)) p) in app constr:(PAtom) [n]
+      let n := n_lit (tbl_add (s.(lets)) (s.(patoms)) p) in app constr:(NPAtom) [n]
   end.
 
 (** The label order facts in the context, and their proofs, in order. *)
@@ -504,7 +519,7 @@ Ltac2 ix_eq (a : ix) (b : ix) (k : int) : unit :=
 
 (** The constructors, looked up once. *)
 Ltac2 Type kc := {
-  kO : constr; kS : constr; kAId : constr; kAAtom : constr; kACompose : constr; kAOuter : constr; kAInner : constr;
+  kO : constr; kS : constr; kN0 : constr; kAId : constr; kAAtom : constr; kACompose : constr; kAOuter : constr; kAInner : constr;
   kTVarE : constr; kTBindE : constr; kTLookE : constr; kPComp : constr; kPId : constr; kLNone : constr; kLCon : constr;
   kidentity : constr; kcompose : constr; kcform : constr; kcform_id : constr; kshare : constr; kadj : constr;
   kONamF : constr; kONamB : constr; kOEnd : constr; kOEndT : constr; kOPosF : constr; kOPosB : constr;
@@ -514,9 +529,9 @@ Ltac2 Type kc := {
   kbvar : constr; kfvar : constr; kstt : constr; kslot : constr; ktname : constr; kSome : constr; kNone : constr }.
 
 Ltac2 mk_kc () : kc := {
-  kO := constr:(O); kS := constr:(S); kAId := constr:(AId); kAAtom := constr:(AAtom); kACompose := constr:(ACompose);
-  kAOuter := constr:(AOuter); kAInner := constr:(AInner); kTVarE := constr:(TVarE); kTBindE := constr:(TBindE);
-  kTLookE := constr:(TLookE); kPComp := constr:(PComp); kPId := constr:(PId); kLNone := constr:(LNone); kLCon := constr:(LCon);
+  kO := constr:(O); kS := constr:(S); kN0 := constr:(N0); kAId := constr:(NId); kAAtom := constr:(NAtom); kACompose := constr:(NCompose);
+  kAOuter := constr:(NOuter); kAInner := constr:(NInner); kTVarE := constr:(NVarE); kTBindE := constr:(NBindE);
+  kTLookE := constr:(NLookE); kPComp := constr:(NPComp); kPId := constr:(NPId); kLNone := constr:(LNone); kLCon := constr:(LCon);
   kidentity := constr:(@identity); kcompose := constr:(@compose); kcform := constr:(@cform); kcform_id := constr:(@cform_id);
   kshare := constr:(@Indexed.share); kadj := constr:(@adj);
   kONamF := constr:(@ONamF); kONamB := constr:(@ONamB); kOEnd := constr:(@OEnd); kOEndT := constr:(@OEndT);
@@ -541,6 +556,9 @@ Ltac2 univs (t : constr) : unit :=
   let _ := '(@SLookB $t) in let _ := '(@PEmpty $t) in let _ := '(@share_intro_p $t) in let _ := '(@adj_raw $t) in
   let _ := '(@Adjustment.radj $t) in let _ := '(@adj_eq $t) in let _ := '(@apply_var_bind $t) in
   let _ := '(@CRoot $t) in let _ := '(@CShare $t) in let _ := '(@chain_intro $t) in
+  let _ := '(@hshowDB_sound $t) in let _ := '(@hbindB_show_sound $t) in let _ := '(@hlook_varB_sound $t) in
+  let _ := '(@aedenB $t) in let _ := '(@braun $t) in let _ := '(@BN $t) in let _ := '(@BE $t) in
+  let _ := '(@F2_one (radj $t)) in let _ := '(@F2_app (radj $t)) in let _ := '(@F_one (radj $t)) in let _ := '(@F_app (radj $t)) in
   ().
 
 (** A builder: given the index of each shared definition at its root and
@@ -612,7 +630,7 @@ Ltac2 rlab (r : rnd) (h : constr) : constr :=
 (** The variable [gⱼ] in scope [m]. *)
 Ltac2 rvar (r : rnd) (g : constr) (j : constr) (m : constr) : constr :=
   let k := r.(rk) in
-  let jn := nat_lit (r.(rns)) (int_of_idx j) in
+  let jn := nat_lit (r.(rns)) (int_of_n j) in
   if is_lnone' r g then app (k.(kbvar)) [m; jn; k.(kstt)] else app (k.(kfvar)) [m; rlab r g; jn].
 
 (** [x ↦ g₀] over a pop of [g], [x] not [g]: [(x, g, b)], [b] under the pop. *)
@@ -624,7 +642,7 @@ Ltac2 is_ren (r : rnd) (a : constr array) : (constr * constr * constr) option :=
   if Constr.equal th (k.(kTVarE)) then
     if Constr.equal bh (k.(kAOuter)) then
       let g := Array.get ta 0 in
-      if Constr.equal (Array.get ta 1) (k.(kO)) then
+      if Constr.equal (Array.get ta 1) (k.(kN0)) then
         if Constr.equal g (Array.get ba 0) then
           if Constr.equal x g then None else Some (x, g, Array.get ba 1)
         else None
@@ -646,7 +664,7 @@ Ltac2 rec collect_short (r : rnd) (e : constr) (lifts : bool) (acc : (constr * c
     let pop :=
       if Constr.equal th (k.(kTVarE)) then
         if Constr.equal bh (k.(kAOuter)) then
-          if Constr.equal (Array.get ta 1) (k.(kO)) then Constr.equal (Array.get ta 0) (Array.get ba 0) else false
+          if Constr.equal (Array.get ta 1) (k.(kN0)) then Constr.equal (Array.get ta 0) (Array.get ba 0) else false
         else false
       else false in
     if pop then
@@ -662,7 +680,7 @@ Ltac2 rec render_a (r : rnd) (e : constr) : (ix * int) * (ix * int) * ((int -> i
   if Constr.equal h (k.(kAId)) then
     let n := new_ix r in (n, n, (fun _ _ => app (k.(kidentity)) [t; ie_nat r n]))
   else if Constr.equal h (k.(kAAtom)) then
-    let i := int_of_idx (Array.get a 0) in
+    let i := int_of_n (Array.get a 0) in
     if Int.lt i (r.(rnb)) then
       let (s, an, am) := Array.get (r.(ratoms)) i in (an, am, (fun _ _ => s))
     else
@@ -798,7 +816,7 @@ with render_short (r : rnd) (e : constr) :=
                  if xb then app (k.(kSRenB)) (List.append (hd sb d) [s; w])
                  else app (k.(kSRenF)) (List.append (hd sb d) [s; rlab r x; w]))
             else if Constr.equal th (k.(kTBindE)) then
-              let u := int_of_idx (Array.get ta 0) in
+              let u := int_of_n (Array.get ta 0) in
               let (ph, pa) := hd_args (Array.get ta 1) in
               (if Constr.equal ph (k.(kPComp)) then (if Constr.equal (Array.get pa 1) (k.(kPId)) then () else Control.zero Not_found)
                else Control.zero Not_found);
@@ -943,23 +961,83 @@ Ltac2 share_proof (t : constr) (n : constr) (m : constr) (p : constr) (rd : rend
   app constr:(@chain_intro) [t; n; m; p; rd.(rd_chain); lvl 0].
 
 (** [Forall2 rel xs ys] from proofs [hs] of [rel x y]. *)
+(** [let _ : ty := v in b]. *)
+Ltac2 let_in (ty : constr) (v : constr) (b : constr) : constr :=
+  Constr.Unsafe.make (Constr.Unsafe.LetIn (Constr.Binder.unsafe_make None Constr.Binder.Relevant ty) v b).
+
+(** [Forall2 rl xs ys] from proofs [hs] of [rl x y], as a balanced tree of
+    [F2_app]s, with [rl] bound once. *)
 Ltac2 forall2_proof (aty : constr) (bty : constr) (rl : constr) (xs : constr list) (ys : constr list) (hs : constr list) : constr :=
-  let rec go xs ys hs :=
-    match xs, ys, hs with
-    | x :: xs', y :: ys', h :: hs' =>
-        let (pf, l, l') := go xs' ys' hs' in
-        (app constr:(@Forall2_cons) [aty; bty; rl; x; y; l; l'; h; pf],
-         app constr:(@cons) [aty; x; l], app constr:(@cons) [bty; y; l'])
-    | _, _, _ => (app constr:(@Forall2_nil) [aty; bty; rl], app constr:(@nil) [aty], app constr:(@nil) [bty])
-    end in
-  let (pf, _, _) := go xs ys hs in pf.
+  match xs with
+  | [] => app constr:(@Forall2_nil) [aty; bty; rl]
+  | _ =>
+      let lift c := Constr.Unsafe.liftn 1 1 c in
+      let xa := Array.of_list (List.map lift xs) in
+      let ya := Array.of_list (List.map lift ys) in
+      let ha := Array.of_list (List.map lift hs) in
+      let r := rel 1 in
+      let nil_a := app constr:(@nil) [aty] in
+      let nil_b := app constr:(@nil) [bty] in
+      let rec go i j :=
+        if Int.equal (Int.sub j i) 1 then
+          let (x, y) := (Array.get xa i, Array.get ya i) in
+          (app constr:(@F2_one) [aty; bty; r; x; y; Array.get ha i],
+           app constr:(@cons) [aty; x; nil_a], app constr:(@cons) [bty; y; nil_b])
+        else
+          let mid := Int.div (Int.add i j) 2 in
+          let (p1, l1, m1) := go i mid in
+          let (p2, l2, m2) := go mid j in
+          (app constr:(@F2_app) [aty; bty; r; l1; l2; m1; m2; p1; p2],
+           app constr:(@List.app) [aty; l1; l2], app constr:(@List.app) [bty; m1; m2]) in
+      let (pf, _, _) := go 0 (Array.length xa) in
+      let_in '($aty -> $bty -> Prop) rl pf
+  end.
+
+(** [Forall pr xs] from proofs [hs] of [pr x], the same way. *)
+Ltac2 forall_proof (aty : constr) (pr : constr) (xs : constr list) (hs : constr list) : constr :=
+  match xs with
+  | [] => app constr:(@Forall_nil) [aty; pr]
+  | _ =>
+      let lift c := Constr.Unsafe.liftn 1 1 c in
+      let xa := Array.of_list (List.map lift xs) in
+      let ha := Array.of_list (List.map lift hs) in
+      let r := rel 1 in
+      let nil_a := app constr:(@nil) [aty] in
+      let rec go i j :=
+        if Int.equal (Int.sub j i) 1 then
+          let x := Array.get xa i in
+          (app constr:(@F_one) [aty; r; x; Array.get ha i], app constr:(@cons) [aty; x; nil_a])
+        else
+          let mid := Int.div (Int.add i j) 2 in
+          let (p1, l1) := go i mid in
+          let (p2, l2) := go mid j in
+          (app constr:(@F_app) [aty; r; l1; l2; p1; p2], app constr:(@List.app) [aty; l1; l2]) in
+      let (pf, _) := go 0 (Array.length xa) in
+      let_in '($aty -> Prop) pr pf
+  end.
 
 (** ** Environments *)
 
-(** What reification gives: the environments as lists, the facts [l]
-    with a proof [hl] of [lfacts_ok le l], and the environments' entries. *)
+(** [xs] as a Braun tree: [bof xs]. *)
+Ltac2 rec btree (ty : constr) (xs : constr list) : constr :=
+  match xs with
+  | [] => app constr:(@BE) [ty]
+  | x :: rest =>
+      let rec halves l :=
+        match l with
+        | [] => ([], [])
+        | y :: l' => let (a, b) := halves l' in (y :: b, a)
+        end in
+      let (od, ev) := halves rest in
+      app constr:(@BN) [ty; x; btree ty od; btree ty ev]
+  end.
+
+(** What reification gives: the environments as lists and as trees, the
+    facts [l] with a proof [hl] of [lfacts_okB lt l], and the
+    environments' entries. *)
 Ltac2 Type env := {
   e_le : constr; e_te : constr; e_ae : constr; e_pe : constr; e_l : constr; e_hl : constr;
+  e_lt : constr; e_tt : constr; e_pt : constr;
   e_labs : constr array; e_terms : constr list; e_atoms : constr array; e_nt : int; e_nb : int; e_ns : nats;
   e_defs : constr; e_defl : constr option list }.
 
@@ -968,28 +1046,28 @@ Ltac2 finish (s : st) (ty : constr) : env :=
   let labs := List.rev ((s.(labs)).(items)) in
   let terms := List.rev ((s.(terms)).(items)) in
   let atoms := List.rev ((s.(atoms)).(items)) in
+  let patoms := List.rev ((s.(patoms)).(items)) in
   let le := list_of constr:(label) labs in
   let te := list_of ty terms in
   let ae := list_of constr:(radj $ty) atoms in
-  let pe := list_of constr:(rpadj $ty) (List.rev ((s.(patoms)).(items))) in
+  let pe := list_of constr:(rpadj $ty) patoms in
+  let lt := btree constr:(label) labs in
   let defl := List.init ((s.(atoms)).(size)) (fun k => FMap.find_opt k (s.(sdefs))) in
   let defl_c := List.map (fun od => match od with
-                                   | Some d => app constr:(@Some aexp) [d]
-                                   | None => constr:(@None aexp)
+                                   | Some d => app constr:(@Some aexpN) [d]
+                                   | None => constr:(@None aexpN)
                                    end) defl in
-  let lt := constr:((lexp * lexp)%type) in
+  let lty := constr:((lexp * lexp)%type) in
   let pair := constr:(@pair lexp lexp) in
   let cons := constr:(@cons) in
-  let lcons := constr:(lfacts_cons) in
-  let (hl, l) :=
-    List.fold_right
-      (fun (x, y, id) (acc, tl) =>
-         (app lcons [le; x; y; tl; Control.hyp id; acc], app cons [lt; app pair [x; y]; tl]))
-      fs (app constr:(lfacts_nil) [le], app constr:(@nil) [lt]) in
+  let l := List.fold_right (fun (x, y, _) tl => app cons [lty; app pair [x; y]; tl]) fs (app constr:(@nil) [lty]) in
+  let pr := '(fun pr : lexp * lexp => let '(x, y) := pr in olabel_lt (ldenB $lt x) (ldenB $lt y)) in
+  let hl := forall_proof lty pr (List.map (fun (x, y, _) => app pair [x; y]) fs) (List.map (fun (_, _, id) => Control.hyp id) fs) in
   { e_le := le; e_te := te; e_ae := ae; e_pe := pe; e_l := l; e_hl := hl;
+    e_lt := lt; e_tt := btree ty terms; e_pt := btree constr:(rpadj $ty) patoms;
     e_labs := Array.of_list labs; e_terms := terms; e_atoms := Array.of_list atoms;
     e_nt := (s.(terms)).(size); e_nb := (s.(atoms)).(size); e_ns := s.(ns);
-    e_defs := list_of constr:(option aexp) defl_c; e_defl := defl }.
+    e_defs := list_of constr:(option aexpN) defl_c; e_defl := defl }.
 
 (** [eq_refl : lhs = rhs], checked by the VM (when the proof is checked). *)
 Ltac2 vm_eq (ty : constr) (lhs : constr) (rhs : constr) : constr :=
@@ -1060,52 +1138,24 @@ Ltac2 rewrite_all_instances (pf : constr) : unit :=
 
 (** ** Reading results back *)
 
-Ltac2 rec dec_a (ns : nats) (e : constr) : constr :=
-  lazy_match! e with
-  | NId => constr:(AId)
-  | NAtom ?n => app constr:(AAtom) [idx ns (int_of_n n)]
-  | NCompose ?a ?b => let a := dec_a ns a in let b := dec_a ns b in app constr:(ACompose) [a; b]
-  | NOuter ?h ?a => app constr:(AOuter) [h; dec_a ns a]
-  | NInner ?h ?t ?a => let t := dec_t ns t in let a := dec_a ns a in app constr:(AInner) [h; t; a]
-  | NLift ?h ?a => app constr:(ALift) [h; dec_a ns a]
-  end
-with dec_t (ns : nats) (t : constr) : constr :=
-  lazy_match! t with
-  | NVarE ?h ?i => app constr:(TVarE) [h; idx ns (int_of_n i)]
-  | NBindE ?u ?p => app constr:(TBindE) [idx ns (int_of_n u); dec_p ns p]
-  | NShiftE ?h ?t => app constr:(TShiftE) [h; dec_t ns t]
-  | NLookE ?h ?i ?a => app constr:(TLookE) [h; idx ns (int_of_n i); dec_a ns a]
-  end
-with dec_p (ns : nats) (p : constr) : constr :=
-  lazy_match! p with
-  | NPId => constr:(PId)
-  | NPAtom ?n => app constr:(PAtom) [idx ns (int_of_n n)]
-  | NPComp ?a ?p => let a := dec_a ns a in let p := dec_p ns p in app constr:(PComp) [a; p]
-  | NPShift ?h ?p => app constr:(PShift) [h; dec_p ns p]
-  end.
-
 (** A shown normal form: the shared definitions (as a list and as a
     Gallina list) and the expression. *)
 Ltac2 Type shown := { sh_l : constr list; sh_c : constr; sh_root : constr; sh_val : constr }.
 
-Ltac2 dec_shown (ns : nats) (sh : constr) (r : constr) : shown :=
-  let l := List.map (dec_a ns) (of_list sh) in
-  let c := list_of constr:(aexp) l in
-  let root := dec_a ns r in
-  { sh_l := l; sh_c := c; sh_root := root;
-    sh_val := app constr:(@pair (list aexp) aexp) [c; root] }.
+Ltac2 mk_shown (sh : constr) (r : constr) : shown :=
+  { sh_l := of_list sh; sh_c := sh; sh_root := r; sh_val := app constr:(@pair (list aexpN) aexpN) [sh; r] }.
 
-(** [c : option (list aexp * aexp)], computed. *)
-Ltac2 vm_show (ns : nats) (c : constr) : shown option :=
-  lazy_match! (Std.eval_vm None '(option_map enc_show $c)) with
-  | Some (?sh, ?r) => Some ((dec_shown ns sh r))
+(** [c : option (list aexpN * aexpN)], computed. *)
+Ltac2 vm_show (c : constr) : shown option :=
+  lazy_match! Std.eval_vm None c with
+  | Some (?sh, ?r) => Some (mk_shown sh r)
   | None => None
   end.
 
-(** [c : option (nat * (list aexp * aexp))], computed. *)
-Ltac2 vm_pay (ns : nats) (c : constr) : (constr * shown) option :=
-  lazy_match! Std.eval_vm None '(option_map (fun p : nat * (list aexp * aexp) => (N.of_nat (fst p), enc_show (snd p))) $c) with
-  | Some (?u, (?sh, ?r)) => Some (idx ns (int_of_n u), dec_shown ns sh r)
+(** [c : option (N * (list aexpN * aexpN))], computed. *)
+Ltac2 vm_pay (c : constr) : (constr * shown) option :=
+  lazy_match! Std.eval_vm None c with
+  | Some (?u, (?sh, ?r)) => Some (u, mk_shown sh r)
   | None => None
   end.
 
@@ -1114,20 +1164,11 @@ Ltac2 some (ty : constr) (x : constr) : constr := app constr:(@Some) [ty; x].
 (** [Forall2 (fun x od => od = Some d -> x = aeden d) atoms defs]: each
     defined atom is (convertibly) its definition. *)
 Ltac2 defs_proof (t : constr) (rel : constr) (atoms : constr list) (defl : constr option list) : constr :=
-  let rt := constr:(@radj) in
-  let aty := app rt [t] in
-  let oty := constr:(option aexp) in
-  let rec go xs ds :=
-    match xs, ds with
-    | x :: xs2, od :: ds2 =>
-        let (pf, l, lt2) := go xs2 ds2 in
-        let odc := match od with Some d => app constr:(@Some aexp) [d] | None => constr:(@None aexp) end in
-        let h := match od with Some _ => app constr:(@eq_refl) [aty; x] | None => constr:(I) end in
-        (app constr:(@Forall2_cons) [aty; oty; rel; x; odc; l; lt2; h; pf],
-         app constr:(@cons) [aty; x; l], app constr:(@cons) [oty; odc; lt2])
-    | _, _ => (app constr:(@Forall2_nil) [aty; oty; rel], app constr:(@nil) [aty], app constr:(@nil) [oty])
-    end in
-  let (pf, _, _) := go atoms defl in pf.
+  let aty := app constr:(@radj) [t] in
+  let oty := constr:(option aexpN) in
+  let ys := List.map (fun od => match od with Some d => app constr:(@Some aexpN) [d] | None => constr:(@None aexpN) end) defl in
+  let hs := List.map2 (fun x od => match od with Some _ => app constr:(@eq_refl) [aty; x] | None => constr:(I) end) atoms defl in
+  forall2_proof aty oty rel atoms ys hs.
 
 (** ** Rewriting an adjustment to its normal form *)
 
@@ -1139,6 +1180,9 @@ Ltac2 Type memo := { mutable seen : constr list }.
 
 (** [a = b], [b] the rendering of the normal form of [a], rewritten in the
     goal; the terms of [b]. *)
+(** [eq_refl x : x = y], [y] a computation the kernel does. *)
+Ltac2 refl (ty : constr) (x : constr) : constr := app constr:(@eq_refl) [ty; x].
+
 Ltac2 show_adj (memo : memo) (a : constr) : outcome :=
   lazy_match! Constr.type a with
   | adj ?t ?n ?m =>
@@ -1152,7 +1196,7 @@ Ltac2 show_adj (memo : memo) (a : constr) : outcome :=
       let nb := nat_lit ns (en.(e_nb)) in
       let l := en.(e_l) in
       let defs := en.(e_defs) in
-      let d := (vm_show ns '(hshowD (order_of $l) $nt $nb $defs $e)) in
+      let d := vm_show '(hshowDN (order_of $l) $nt $nb $defs $e) in
       match d with
       | Some sh =>
           let (shd, root) := (sh.(sh_c), sh.(sh_root)) in
@@ -1163,22 +1207,28 @@ Ltac2 show_adj (memo : memo) (a : constr) : outcome :=
           (if Constr.equal a b then () else
            let id := fresh @E in
            let (le, te, ae, pe, hl) := (en.(e_le), en.(e_te), en.(e_ae), en.(e_pe), en.(e_hl)) in
-           let sty := constr:((list aexp * aexp)%type) in
-           let ht := vm_eq '(option $sty) '(hshowD (order_of $l) (List.length $te) (List.length $ae) $defs $e) (some sty (sh.(sh_val))) in
+           let (lt, tt, pt) := (en.(e_lt), en.(e_tt), en.(e_pt)) in
+           let sty := constr:((list aexpN * aexpN)%type) in
+           let ht := vm_eq '(option $sty) '(hshowDN (order_of $l) (List.length $te) (List.length $ae) $defs $e) (some sty (sh.(sh_val))) in
            let rty := '(radj $t) in
-           let q := '(fun (rs : list (radj $t))
-                          (hd : Forall2 (fun x od => match od with Some d => x = aeden $le $te ($ae ++ rs) $pe d | None => True end) $ae $defs)
-                          (hs : Forall2 (fun z0 d0 => z0 = aeden $le $te ($ae ++ rs) $pe d0) rs $shd) =>
-                        hshowD_sound $le $te $ae rs $pe $l $defs $e $shd $root $hl $ht hd hs) in
-           let hrel := '(fun (rs : list (radj $t)) (x : radj $t) (od : option aexp) =>
-                           match od with Some d => x = aeden $le $te ($ae ++ rs) $pe d | None => True end) in
-           let srel := '(fun (rs : list (radj $t)) (z0 : radj $t) (d0 : aexp) => z0 = aeden $le $te ($ae ++ rs) $pe d0) in
+           let q := '(fun (rs : list (radj $t)) (Ae : braun (radj $t))
+                          (hLe : $lt = bof $le) (hTe : $tt = bof $te) (hAe : Ae = bof ($ae ++ rs)) (hPe : $pt = bof $pe)
+                          (hd : Forall2 (fun x od => match od with Some d => x = aedenB $lt $tt Ae $pt d | None => True end) $ae $defs)
+                          (hs : Forall2 (fun z0 d0 => z0 = aedenB $lt $tt Ae $pt d0) rs $shd) =>
+                        hshowDB_sound $le $te $ae rs $pe $lt $tt Ae $pt hLe hTe hAe hPe $l $defs $e $shd $root $hl $ht hd hs) in
+           let hrel := '(fun (Ae : braun (radj $t)) (x : radj $t) (od : option aexpN) =>
+                           match od with Some d => x = aedenB $lt $tt Ae $pt d | None => True end) in
+           let srel := '(fun (Ae : braun (radj $t)) (z0 : radj $t) (d0 : aexpN) => z0 = aedenB $lt $tt Ae $pt d0) in
            let p := '(fun x : $ty => $a = x) in
+           let atoms := Array.to_list (en.(e_atoms)) in
            let pf := share_proof t n m p rd (fun rs hs root' =>
              let rsl := list_of rty rs in
-             let hd := defs_proof t (app hrel [rsl]) (Array.to_list (en.(e_atoms))) (en.(e_defl)) in
-             let hsp := forall2_proof rty constr:(aexp) (app srel [rsl]) rs (sh.(sh_l)) hs in
-             app constr:(@adj_eq) [t; n; m; a; root'; app q [rsl; hd; hsp]]) in
+             let at_ := btree rty (List.append atoms rs) in
+             let hd := defs_proof t (app hrel [at_]) atoms (en.(e_defl)) in
+             let hsp := forall2_proof rty constr:(aexpN) (app srel [at_]) rs (sh.(sh_l)) hs in
+             app constr:(@adj_eq) [t; n; m; a; root';
+               app q [rsl; at_; refl constr:(braun label) lt; refl '(braun $t) tt; refl '(braun (radj $t)) at_;
+                      refl '(braun (rpadj $t)) pt; hd; hsp]]) in
            assert_by id '($a = $b) (fun () => Std.exact_no_check pf);
            (rewrite_with (Control.hyp id)); Std.clear [id]);
           Shown terms
@@ -1269,36 +1319,49 @@ Ltac2 var_eq (t : constr) (id : ident) : unit :=
           let nt := nat_lit (en.(e_ns)) (en.(e_nt)) in
           let nb := nat_lit (en.(e_ns)) (en.(e_nb)) in
           let (le, te, ae, pe, l, hl) := (en.(e_le), en.(e_te), en.(e_ae), en.(e_pe), en.(e_l), en.(e_hl)) in
-          let res := Std.eval_vm None '(hlook_var (order_of $l) $nt $e $eh $i) in
+          let (lt, tt, pt) := (en.(e_lt), en.(e_tt), en.(e_pt)) in
+          let rty := '(radj $ty) in
+          let atoms := Array.to_list (en.(e_atoms)) in
+          univs ty;
+          let res := Std.eval_vm None '(hlook_varN (order_of $l) $nt $e $eh $i) in
           lazy_match! res with
           | Some (?h', ?j) =>
               let w := if is_lnone h' then '(@bvar $m $j stt)
                        else let x := lab_env (en.(e_labs)) h' in '(@fvar $m $x $j) in
               assert_by id '(apply_var $a $v = Rename $w) (fun () =>
                 refine_c (fun () => '(apply_var_rename _ _ _ _));
-                let hv := vm_eq '(option (lexp * nat)) '(hlook_var (order_of $l) (List.length $te) $e $eh $i) res in
-                Std.exact_no_check '(hlook_var_sound $le $te $ae $pe $l $e $eh $i $h' $j $hl $hv))
+                let hv := vm_eq '(option (lexp * nat)) '(hlook_varN (order_of $l) (List.length $te) $e $eh $i) res in
+                let at_ := btree rty atoms in
+                Std.exact_no_check
+                  (app constr:(@hlook_varB_sound)
+                     [ty; le; te; ae; pe; lt; tt; at_; pt; l; e; eh; i; h'; j;
+                      refl constr:(braun label) lt; refl '(braun $ty) tt; refl '(braun (radj $ty)) at_;
+                      refl '(braun (rpadj $ty)) pt; hl; hv]))
           | None =>
-              match vm_pay (en.(e_ns)) '(hlook_pay (order_of $l) $nt $nb $e $eh $i) with
+              match vm_pay '(hlook_payN (order_of $l) $nt $nb $e $eh $i) with
               | Some (u, sh) =>
                   let (shd, root) := (sh.(sh_c), sh.(sh_root)) in
                   let terms := en.(e_terms) in
                   let rd := render_term ty '(adj $ty 0 $m) (en.(e_ns)) (en.(e_labs)) (Array.of_list terms) (en.(e_atoms)) (en.(e_nb)) (sh.(sh_l)) root in
                   let b := rd.(rd_term) in
-                  let x := nth_c terms (int_of_idx u) in
+                  let x := nth_c terms (int_of_n u) in
                   let n := lazy_match! Constr.type a with adj _ ?n _ => n end in
-                  let pty := constr:((nat * (list aexp * aexp))%type) in
+                  let pty := constr:((N * (list aexpN * aexpN))%type) in
                   let hp := vm_eq '(option $pty)
-                              '(hlook_pay (order_of $l) (List.length $te) (List.length $ae) $e $eh $i)
-                              (some pty (app constr:(@pair nat (list aexp * aexp)) [u; sh.(sh_val)])) in
-                  let rty := '(radj $ty) in
-                  let q := '(fun (rs : list (radj $ty)) (hs : Forall2 (fun z0 d0 => z0 = aeden $le $te ($ae ++ rs) $pe d0) rs $shd) =>
-                               hbind_show_sound $le $te $ae rs $pe $l $e $eh $i $u $shd $root $x $hl $hp hs eq_refl) in
-                  let srel := '(fun (rs : list (radj $ty)) (z0 : radj $ty) (d0 : aexp) => z0 = aeden $le $te ($ae ++ rs) $pe d0) in
+                              '(hlook_payN (order_of $l) (List.length $te) (List.length $ae) $e $eh $i)
+                              (some pty (app constr:(@pair N (list aexpN * aexpN)) [u; sh.(sh_val)])) in
+                  let q := '(fun (rs : list (radj $ty)) (Ae : braun (radj $ty))
+                                 (hLe : $lt = bof $le) (hTe : $tt = bof $te) (hAe : Ae = bof ($ae ++ rs)) (hPe : $pt = bof $pe)
+                                 (hs : Forall2 (fun z0 d0 => z0 = aedenB $lt $tt Ae $pt d0) rs $shd) =>
+                               hbindB_show_sound $le $te $ae rs $pe $lt $tt Ae $pt hLe hTe hAe hPe $l $e $eh $i $u $shd $root $x
+                                 $hl $hp hs eq_refl) in
+                  let srel := '(fun (Ae : braun (radj $ty)) (z0 : radj $ty) (d0 : aexpN) => z0 = aedenB $lt $tt Ae $pt d0) in
                   let p := '(fun y : adj $ty 0 $m => rapply (adj_raw $a) (var_raw $v) = inr ($x, rpcompose (adj_raw y) (padj_raw (@pid $ty 0)))) in
                   let pf := share_proof ty constr:(O) m p rd (fun rs hs _ =>
                     let rsl := list_of rty rs in
-                    app q [rsl; forall2_proof rty constr:(aexp) (app srel [rsl]) rs (sh.(sh_l)) hs]) in
+                    let at_ := btree rty (List.append atoms rs) in
+                    app q [rsl; at_; refl constr:(braun label) lt; refl '(braun $ty) tt; refl '(braun (radj $ty)) at_;
+                           refl '(braun (rpadj $ty)) pt; forall2_proof rty constr:(aexpN) (app srel [at_]) rs (sh.(sh_l)) hs]) in
                   let fin := app constr:(@apply_var_bind) [ty; n; m; constr:(O); a; v; x; b; '(@pid $ty 0); pf] in
                   assert_by id '(apply_var $a $v = Bind $x (pcompose $b pid)) (fun () => Std.exact_no_check fin)
               | None => Control.zero Not_found
@@ -1360,17 +1423,17 @@ Ltac2 mat_one (a : constr) : unit :=
       let n1 := nat_lit ns (en.(e_nt)) in
       let n2 := nat_lit ns (Int.add (en.(e_nt)) 1) in
       let nb := nat_lit ns (en.(e_nb)) in
-      match vm_show ns '(hmat_display (order_of $l) $n2 $nb $e $n1) with
+      match vm_show '(hmat_displayN (order_of $l) $n2 $nb $e $n1) with
       | Some dsh =>
           let (sh', r') := (dsh.(sh_c), dsh.(sh_root)) in
           let shl := dsh.(sh_l) in
           let nbbi := Int.add (en.(e_nb)) (List.length shl) in
           let nbb := nat_lit ns nbbi in
-          match vm_pay ns '(hmat_target (order_of $l) $n1 $nbb $e) with
+          match vm_pay '(hmat_targetN (order_of $l) $n1 $nbb $e) with
           | Some (u, bsh) =>
               let (shb, rb) := (bsh.(sh_c), bsh.(sh_root)) in
               let terms := en.(e_terms) in
-              let ut := nth_c terms (int_of_idx u) in
+              let ut := nth_c terms (int_of_n u) in
               let fb := Std.eval_hnf '(@sm_back _ $inst) in
               let fs := Std.eval_hnf '(@sm_subst _ $inst 0 0) in
               let fo := Std.eval_hnf '(@sm_of _ $inst) in
@@ -1393,24 +1456,28 @@ Ltac2 mat_one (a : constr) : unit :=
               let a' := rd.(rd_term) in
               let hid := fresh @H in
               let g := '(@sm_g _ $inst) in
-              let pty := constr:((nat * (list aexp * aexp))%type) in
-              let sty := constr:((list aexp * aexp)%type) in
-              let ht := vm_eq '(option $pty) '(hmat_target (order_of $l) $n1 $nbb $e)
-                          (some pty (app constr:(@pair nat (list aexp * aexp)) [u; bsh.(sh_val)])) in
-              let hd := vm_eq '(option $sty) '(hmat_display (order_of $l) $n2 (List.length $ae) $e $n1) (some sty (dsh.(sh_val))) in
+              let pty := constr:((N * (list aexpN * aexpN))%type) in
+              let sty := constr:((list aexpN * aexpN)%type) in
+              let ht := vm_eq '(option $pty) '(hmat_targetN (order_of $l) $n1 $nbb $e)
+                          (some pty (app constr:(@pair N (list aexpN * aexpN)) [u; bsh.(sh_val)])) in
+              let hd := vm_eq '(option $sty) '(hmat_displayN (order_of $l) $n2 (List.length $ae) $e $n1) (some sty (dsh.(sh_val))) in
               let rty := '(radj $ty) in
-              let q := '(fun (rs : list (radj $ty)) (b : adj $ty 0 0)
-                             (hs : Forall2 (fun z0 d0 => z0 = aeden $le ($te ++ [$xf b]) ($ae ++ rs) $pe d0) rs ($sh' ++ $shb))
-                             (hx : nth_error ($te ++ [$xf b]) $n1 = Some (@sm_back _ $inst (@sm_subst _ $inst 0 0 b (@sm_of _ $inst $ut))))
-                             (hb : adj_raw b = aeden $le ($te ++ [$xf b]) ($ae ++ rs) $pe $rb)
+              let (lt, pt) := (en.(e_lt), en.(e_pt)) in
+              let q := '(fun (rs : list (radj $ty)) (b : adj $ty 0 0) (Ae : braun (radj $ty)) (Te : braun $ty)
+                             (hLe : $lt = bof $le) (hTe : Te = bof ($te ++ [$xf b])) (hAe : Ae = bof ($ae ++ rs)) (hPe : $pt = bof $pe)
+                             (hs : Forall2 (fun z0 d0 => z0 = aedenB $lt Te Ae $pt d0) rs ($sh' ++ $shb))
+                             (hu : bnth Te $u = Some $ut)
+                             (hx : bnth Te (N.of_nat $n1) = Some (@sm_back _ $inst (@sm_subst _ $inst 0 0 b (@sm_of _ $inst $ut))))
+                             (hb : adj_raw b = aedenB $lt Te Ae $pt $rb)
                              (v : var $n) =>
-                           hmat_show_sound $le ($te ++ [$xf b]) $ae rs $pe $g $l $e $n1 $u $shb $rb $sh' $r' $nbb $n1 $n2 $hl
-                             (le_S _ _ (le_n _)) (le_n _) $ht $hd eq_refl hs
-                             (@mat_k $ty $inst ($te ++ [$xf b]) $u $n1 $ut b _ eq_refl hx hb) (var_raw v)) in
-              let srel := '(fun (rs : list (radj $ty)) (b : adj $ty 0 0) (z0 : radj $ty) (d0 : aexp) =>
-                              z0 = aeden $le ($te ++ [$xf b]) ($ae ++ rs) $pe d0) in
+                           hmatB_show_sound $le ($te ++ [$xf b]) $ae rs $pe $lt Te Ae $pt hLe hTe hAe hPe $g $l $e $n1 $u
+                             $shb $rb $sh' $r' $nbb $n1 $n2 $hl (le_S _ _ (le_n _)) (le_n _) $ht $hd eq_refl hs
+                             (@mat_kB $ty $inst Te $u (N.of_nat $n1) $ut b _ hu hx hb) (var_raw v)) in
+              let srel := '(fun (Te : braun $ty) (Ae : braun (radj $ty)) (z0 : radj $ty) (d0 : aexpN) =>
+                              z0 = aedenB $lt Te Ae $pt d0) in
               let hxf := '(fun b : adj $ty 0 0 => @eq_refl (option $ty) (Some (@sm_back _ $inst (@sm_subst _ $inst 0 0 b (@sm_of _ $inst $ut))))) in
               let p := '(fun y : adj $ty $n 0 => forall v : var $n, mrel $g (rapply (adj_raw $a) (var_raw v)) (rapply (adj_raw y) (var_raw v))) in
+              let atoms := Array.to_list (en.(e_atoms)) in
               let pf := share_proof ty n constr:(O) p rd (fun rs hs _ =>
                 let k := rd.(rd_k) in
                 let bt := Constr.Unsafe.substnl (List.init k (fun j => rel (Int.mul 2 (Int.add j 1)))) 0
@@ -1418,8 +1485,12 @@ Ltac2 mat_one (a : constr) : unit :=
                 let ord l := List.append (List.skipn nsb l) (List.firstn nsb l) in
                 let rs := ord rs in
                 let rsl := list_of rty rs in
-                let hsp := forall2_proof rty constr:(aexp) (app srel [rsl; bt]) rs (List.append shl (bsh.(sh_l))) (ord hs) in
-                app q [rsl; bt; hsp; app hxf [bt]; app constr:(@eq_refl) [rty; app constr:(@adj_raw) [ty; constr:(O); constr:(O); bt]]]) in
+                let at_ := btree rty (List.append atoms rs) in
+                let tt := btree ty (List.append terms [mk_x bt]) in
+                let hsp := forall2_proof rty constr:(aexpN) (app srel [tt; at_]) rs (List.append shl (bsh.(sh_l))) (ord hs) in
+                app q [rsl; bt; at_; tt; refl constr:(braun label) lt; refl '(braun $ty) tt; refl '(braun (radj $ty)) at_;
+                       refl '(braun (rpadj $ty)) pt; hsp; refl '(option $ty) (app constr:(@Some) [ty; ut]); app hxf [bt];
+                       refl rty (app constr:(@adj_raw) [ty; constr:(O); constr:(O); bt])]) in
               assert_by hid '(forall v : var $n, mrel $g (rapply (adj_raw $a) (var_raw v)) (rapply (adj_raw $a') (var_raw v)))
                 (fun () => Std.exact_no_check pf);
               let eid := fresh @E in

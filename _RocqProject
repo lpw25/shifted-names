@@ -30,7 +30,9 @@ theories/Core/HRefine.v
 theories/Core/HConcrete.v
 theories/Core/HDisplay.v
 theories/Core/HDisplaySound.v
+theories/Core/Braun.v
 theories/Core/HShow.v
+theories/Core/HShowB.v
 theories/Core/Names.v
 theories/Core/Context.v
 theories/Core/Syntax.v
