@@ -112,13 +112,63 @@ Definition akey (n : N) : positive := match n with N0 => xH | Npos p => xI p end
 
 Definition nkey (k : positive) : N := match k with xI p => Npos p | _ => N0 end.
 
-Definition leb_lab (s t : label) : bool := if String.eqb s t then true else is_less_than_label s t.
+(** Labels compared in one pass: each character once, its bits from the
+    top (as [is_less_than_label], which compares each character twice). *)
+Definition acmp (x y : Ascii.ascii) : comparison :=
+  let '(Ascii.Ascii a1 a2 a3 a4 a5 a6 a7 a8) := x in
+  let '(Ascii.Ascii c1 c2 c3 c4 c5 c6 c7 c8) := y in
+  match a8, c8 with
+    | true, false => Gt
+    | false, true => Lt
+    | _, _ => match a7, c7 with
+      | true, false => Gt
+      | false, true => Lt
+      | _, _ => match a6, c6 with
+        | true, false => Gt
+        | false, true => Lt
+        | _, _ => match a5, c5 with
+          | true, false => Gt
+          | false, true => Lt
+          | _, _ => match a4, c4 with
+            | true, false => Gt
+            | false, true => Lt
+            | _, _ => match a3, c3 with
+              | true, false => Gt
+              | false, true => Lt
+              | _, _ => match a2, c2 with
+                | true, false => Gt
+                | false, true => Lt
+                | _, _ => match a1, c1 with
+                  | true, false => Gt
+                  | false, true => Lt
+                  | _, _ => Eq
+                  end
+                end
+              end
+            end
+          end
+        end
+      end
+    end.
+
+Fixpoint lab_cmp (s t : label) : comparison :=
+  match s, t with
+  | EmptyString, EmptyString => Eq
+  | String a _, EmptyString => if is_nul a then Lt else Gt
+  | EmptyString, String b _ => if is_nul b then Gt else Lt
+  | String a s', String b t' => match acmp a b with Eq => lab_cmp s' t' | c => c end
+  end.
+
+Definition lab_lt (s t : label) : bool := match lab_cmp s t with Lt => true | _ => false end.
+
+Definition leb_lab (s t : label) : bool := match lab_cmp s t with Gt => false | _ => true end.
 
 Definition lt_known (F : order) (a b : lexp) : bool :=
   match a, b with
   | LAtom i, LAtom j => otab F (akey i) (akey j)
   | LAtom i, LCon s => match oup F (akey i) with Some u => leb_lab u s | None => false end
   | LCon s, LAtom j => match odown F (akey j) with Some d => leb_lab s d | None => false end
+  | LCon s, LCon t => lab_lt s t
   | _, _ => lt_base a b
   end.
 
@@ -271,9 +321,45 @@ Qed.
 Lemma elements_key {A} (m : PositiveMap.t A) kt : akeyed m -> In kt (PositiveMap.elements m) -> akey (nkey (fst kt)) = fst kt.
 Proof. destruct kt as [k x]; intros H E; apply PositiveMap.elements_complete in E; exact (H k x E). Qed.
 
+Lemma acmp_spec a b : acmp a b =
+  if is_less_than_ascii a b then Lt else if is_less_than_ascii b a then Gt else Eq.
+Proof.
+  destruct a as [a1 a2 a3 a4 a5 a6 a7 a8], b as [c1 c2 c3 c4 c5 c6 c7 c8].
+  destruct a8, c8; cbn; try reflexivity.
+  all: destruct a7, c7; cbn; try reflexivity.
+  all: destruct a6, c6; cbn; try reflexivity.
+  all: destruct a5, c5; cbn; try reflexivity.
+  all: destruct a4, c4; cbn; try reflexivity.
+  all: destruct a3, c3; cbn; try reflexivity.
+  all: destruct a2, c2; cbn; try reflexivity.
+  all: destruct a1, c1; cbn; reflexivity.
+Qed.
+
+Lemma lab_cmp_spec s t : lab_cmp s t =
+  if is_less_than_label s t then Lt else if is_less_than_label t s then Gt else Eq.
+Proof.
+  revert t; induction s as [|a s IH]; intros [|b t]; cbn [lab_cmp is_less_than_label].
+  - reflexivity.
+  - destruct (is_nul b); reflexivity.
+  - destruct (is_nul a); reflexivity.
+  - rewrite acmp_spec; destruct (is_less_than_ascii a b) eqn:E1; [reflexivity|].
+    destruct (is_less_than_ascii b a); [reflexivity|apply IH].
+Qed.
+
+Lemma lab_lt_eq s t : lab_lt s t = is_less_than_label s t.
+Proof. unfold lab_lt; rewrite lab_cmp_spec; destruct (is_less_than_label s t); [reflexivity|destruct (is_less_than_label t s); reflexivity]. Qed.
+
+Lemma leb_lab_eq s t : leb_lab s t = if String.eqb s t then true else is_less_than_label s t.
+Proof.
+  unfold leb_lab; rewrite lab_cmp_spec; destruct (String.eqb_spec s t) as [->|Ne].
+  - destruct (is_less_than_label t t) eqn:E; [exfalso; exact (label_lt_irrefl t E)|reflexivity].
+  - destruct (is_less_than_label s t) eqn:E1; [reflexivity|].
+    destruct (is_less_than_label t s) eqn:E2; [reflexivity|exfalso; exact (Ne (is_less_than_label_total _ _ E1 E2))].
+Qed.
+
 Lemma leb_lab_iff s t : leb_lab s t = true <-> s = t \/ label_lt s t.
 Proof.
-  unfold leb_lab; destruct (String.eqb_spec s t) as [->|Ne]; [split; [left; reflexivity|reflexivity]|].
+  rewrite leb_lab_eq; destruct (String.eqb_spec s t) as [->|Ne]; [split; [left; reflexivity|reflexivity]|].
   split; [intros H; right; exact H|intros [E|H]; [contradiction|exact H]].
 Qed.
 
@@ -282,7 +368,7 @@ Proof. apply leb_lab_iff; left; reflexivity. Qed.
 
 Lemma leb_lab_false s t : leb_lab s t = false -> label_lt t s.
 Proof.
-  unfold leb_lab; destruct (String.eqb_spec s t) as [_|Ne]; [discriminate|]; intros H.
+  rewrite leb_lab_eq; destruct (String.eqb_spec s t) as [_|Ne]; [discriminate|]; intros H.
   destruct (label_trichotomy s t) as [L|[E|L]]; [unfold label_lt, label_ltb in L; congruence|contradiction|exact L].
 Qed.
 
@@ -541,7 +627,7 @@ Proof. intros H [<-|H2]; [exact H|exact (olabel_lt_trans _ _ _ H H2)]. Qed.
 
 Lemma leb_lab_ole s t : leb_lab s t = true -> ole (Some s) (Some t).
 Proof.
-  unfold leb_lab; destruct (String.eqb_spec s t) as [->|_]; [left; reflexivity|intros H; right; exact H].
+  rewrite leb_lab_eq; destruct (String.eqb_spec s t) as [->|_]; [left; reflexivity|intros H; right; exact H].
 Qed.
 
 (** The edges are sound: every edge goes up. *)
@@ -648,7 +734,8 @@ Hypothesis HF : facts_ok F.
 Lemma lt_known_sound a b : lt_known F a b = true -> olabel_lt (lden a) (lden b).
 Proof.
   destruct HF as [_ [Ht [Hu Hd]]].
-  destruct a as [|s|i], b as [|t|j]; unfold lt_known; try apply lt_base_sound; [| |apply Ht].
+  destruct a as [|s|i], b as [|t|j]; unfold lt_known; try apply lt_base_sound;
+    [rewrite lab_lt_eq; exact (lt_base_sound (LCon s) (LCon t))| | |apply Ht].
   - destruct (odown F (akey j)) as [d|] eqn:E; [|discriminate]; intros H.
     exact (ole_lt_trans _ _ _ (leb_lab_ole _ _ H) (Hd j d E)).
   - destruct (oup F (akey i)) as [u|] eqn:E; [|discriminate]; intros H.

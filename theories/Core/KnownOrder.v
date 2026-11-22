@@ -274,7 +274,7 @@ Proof.
   intros Hl a b c; set (F := order_of l).
   assert (DU := down_up l lenv Hl); fold F in DU.
   destruct a as [|s|i], b as [|t|j], c as [|r|k]; unfold lt_known; cbn [lt_base]; intros H1 H2;
-    try discriminate; try reflexivity.
+    rewrite ?lab_lt_eq in *; try discriminate; try reflexivity.
   - (* C C C *) exact (is_less_than_label_transitive _ _ _ H1 H2).
   - (* C C A *) destruct (odown F (akey k)) as [d|]; [|discriminate]; exact (lt_leb _ _ (lt_leb_trans _ _ _ H1 H2)).
   - (* C A C *) destruct (odown F (akey j)) as [d|] eqn:Ed; [|discriminate]; destruct (oup F (akey j)) as [u|] eqn:Eu; [|discriminate].

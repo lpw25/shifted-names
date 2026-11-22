@@ -630,7 +630,14 @@ with edges, or with a concrete label directly above them, get a row (a
 row for every atom of a fact made `advN` 50% slower, the extra hits
 walking deeper than early misses); and the rows and the `up` bounds are
 separate maps rather than a map of pairs (10% on `absorbL` and the copy
-chain). With unary
+chain). Strings are compared in one pass (`lab_cmp`: each character
+once, its bits from the top, proved to agree with `is_less_than_label`,
+which compares each character twice, and with `String.eqb` first in
+`leb_lab`): that took the mixed `advL` from 8.6 s to 3.9 s at 133. With
+the same knowledge as atoms (the formerly concrete labels chained by
+facts) the work is identical, so what remained was the cost of each
+comparison: 4.6 µs for an atom and a concrete label before, 1.9 µs
+after, against 1.1 µs for two atoms. With unary
 atoms and an L × L table of lists closed under transitivity, building the
 table took 330 s for about 400 labels and each comparison cost O(L).
 
@@ -646,11 +653,11 @@ Each cell: the whole decision at `m` = 33 / 133, and in brackets
 
 | Family | Atoms | Concrete, facts | Mixed |
 |---|---|---|---|
-| `manyB` | 0.009 / 0.11 s (0.001) | 0.026 / 0.44 s (0.001) | 0.021 / 0.31 s (0.001) |
-| `advL` | 0.071 / 5.2 s (0.33) | 0.011 / 0.14 s (0.006) | 0.17 / 8.6 s (0.08) |
-| `advC` | 0.043 / 2.5 s (0.33) | 0.012 / 0.16 s (0.007) | 0.082 / 4.4 s (0.07) |
-| `advR` | 0.053 / 3.3 s (0.34) | 0.024 / 0.39 s (0.007) | 0.12 / 5.0 s (0.07) |
-| `advN` | 0.033 / 2.0 s (0.83) | 0.013 / 0.16 s (0.011) | 0.054 / 1.1 s (0.72) |
+| `manyB` | 0.008 / 0.10 s (0.001) | 0.018 / 0.36 s (0.001) | 0.012 / 0.18 s (0.001) |
+| `advL` | 0.066 / 4.7 s (0.19) | 0.010 / 0.11 s (0.005) | 0.067 / 3.9 s (0.03) |
+| `advC` | 0.034 / 2.1 s (0.25) | 0.010 / 0.13 s (0.006) | 0.057 / 1.9 s (0.03) |
+| `advR` | 0.046 / 3.0 s (0.22) | 0.017 / 0.30 s (0.006) | 0.049 / 2.7 s (0.03) |
+| `advN` | 0.030 / 1.6 s (0.38) | 0.009 / 0.13 s (0.010) | 0.030 / 0.62 s (0.33) |
 
 All are under 0.01 s at 10. An earlier version kept the mentioned
 concrete labels as nodes of the graph, chained in string order, and had

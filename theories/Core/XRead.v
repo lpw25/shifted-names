@@ -41,7 +41,8 @@ Definition lt_spec (a b : lexp) : bool :=
 Lemma lt_spec_eq a b : lt_known F a b = lt_spec a b.
 Proof.
   destruct a as [|s|i], b as [|s'|j]; unfold lt_known; cbn [lt_base lt_spec otab oup odown F]; try reflexivity.
-  rewrite !nkey_akey; reflexivity.
+  - rewrite lab_lt_eq; reflexivity.
+  - rewrite !nkey_akey; reflexivity.
 Qed.
 
 Lemma Hirr : forall a, lt_known F a a = false.
