@@ -865,6 +865,14 @@ Definition hdisplay (F : order) (T : HNorm.st) (w : HNorm.word) : option (list d
   | None => None
   end.
 
+(** Where [e]'s normal form sends [hᵢ], when it is a term: the term and
+    its payload, shown. *)
+Definition hlook_pay (F : order) (n : nat) (e : aexp) (h : lexp) (i : nat) : option (nat * list dpiece) :=
+  match hlook F n e h i with
+  | Some (HNorm.VTerm u None p, T1) => option_map (pair u) (hdisplay F T1 (hcells T1 (hfuel T1) p))
+  | _ => None
+  end.
+
 (** Normalise and show. *)
 Definition hshow (F : order) (ntm : nat) (e : aexp) : option (list dpiece) :=
   if aok ntm e then let '(w, T) := HNorm.norm F e [] HNorm.st0 in hdisplay F T w else None.
@@ -1283,8 +1291,9 @@ Ltac names_var_eq t E :=
               lazymatch reify_label hv env1 with
               | (?eh, ?env2) =>
                   lazymatch collect_facts env2 (@nil (lexp * lexp)) with
-                  | ((?le, ?te, ?ae, ?pe), ?F) =>
-                      let res := eval vm_compute in (lapply_result F (List.length te) e eh i) in
+                  | ((?le, ?te, ?ae, ?pe), order_of ?l) =>
+                      let F := constr:(order_of l) in
+                      let res := eval vm_compute in (hlook_var F (List.length te) e eh i) in
                       lazymatch res with
                       | Some (?h', ?j) =>
                           let w := lazymatch h' with
@@ -1295,15 +1304,14 @@ Ltac names_var_eq t E :=
                             by (apply apply_var_rename; names_unfold;
                                 change (rapply (aeden le te ae pe e) (mk_rvar (lden le eh) i)
                                         = inl (mk_rvar (lden le h') j));
-                                refine (lapply_result_sound le te ae pe F _ (List.length te) (le_n _) e eh i h' j _);
-                                [ apply order_of_ok; unfold lfacts_ok; repeat constructor; cbn [lden N.to_nat Pos.to_nat Pos.iter_op Nat.add nth]; assumption
+                                refine (hlook_var_sound le te ae pe l e eh i h' j _ _);
+                                [ unfold lfacts_ok; repeat constructor; cbn [lden N.to_nat Pos.to_nat Pos.iter_op Nat.add nth]; assumption
                                 | vm_compute; reflexivity ])
                       | None =>
-                          let pr := eval vm_compute in (lapply_rest F (List.length te) e eh i) in
+                          let pr := eval vm_compute in (hlook_pay F (List.length te) e eh i) in
                           lazymatch pr with
-                          | Some (?u, ?wp) =>
-                              let d := eval vm_compute in (ldisplay F (List.length te) wp) in
-                              lazymatch d with
+                          | Some (?u, ?ps) =>
+                              lazymatch constr:(Some ps) with
                               | Some ?ps =>
                                   let te' := restore_terms te a in
                                   let bb := fresh "b" in
@@ -1320,14 +1328,14 @@ Ltac names_var_eq t E :=
                                   lazymatch reify_adj_top rb (le, te, ae, pe) with
                                   | (?eb, ?env3) =>
                                       lazymatch collect_facts env3 (@nil (lexp * lexp)) with
-                                      | ((?le3, ?te3, ?ae3, ?pe3), ?F3) =>
+                                      | ((?le3, ?te3, ?ae3, ?pe3), order_of ?l3) =>
                                           let x := lnth te' u in
                                           assert (E : apply_var a v = Bind x (pcompose b pid))
                                             by (apply apply_var_bind; names_unfold;
                                                 change (rapply (aeden le3 te3 ae3 pe3 e) (mk_rvar (lden le3 eh) i)
                                                         = inr (x, rpcompose (aeden le3 te3 ae3 pe3 eb) rpidentity));
-                                                refine (lapply_bind_sound le3 te3 ae3 pe3 F3 _ (List.length te3) (le_n _) e eh i eb u x _ _);
-                                                [ apply order_of_ok; unfold lfacts_ok; repeat constructor; cbn [lden N.to_nat Pos.to_nat Pos.iter_op Nat.add nth]; assumption
+                                                refine (hbind_sound le3 te3 ae3 pe3 l3 e eh i eb u x _ _ _);
+                                                [ unfold lfacts_ok; repeat constructor; cbn [lden N.to_nat Pos.to_nat Pos.iter_op Nat.add nth]; assumption
                                                 | vm_compute; reflexivity
                                                 | reflexivity ])
                                       end
