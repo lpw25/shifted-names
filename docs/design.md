@@ -97,8 +97,8 @@ compute, so closed equations hold by `vm_compute` (`Tests/CoreTests.v`).
 `names; easy` does). It knows nothing about any term language: `subst` is
 an abbreviation for the Kleisli extension of the library's `apply` at the
 top, users push it through their own constructors with `cbn`, and a
-syntax's `Subst` functor contributes only monad laws, in three rewrite
-databases. One pass of `names`:
+syntax's `Subst` functor contributes monad laws and its substitution law,
+in four rewrite databases. One pass of `names`:
 
 1. rewrites with `names_pre` to a fixpoint: going under a binder lifts
    the adjustment (`kleisli (apply a) (ext_under e) = kleisli (apply (lift
@@ -106,20 +106,29 @@ databases. One pass of `names`:
    substitutions fuse (`t [a] [b] = t [a ⨾ b]`);
 2. rewrites with `names_var`: substituting into a variable is the core
    node `eval tvar psubst a v` (`(tvar v) [a]`, and `apply a ext_here
-   v` as `cbn` leaves it);
+   v` as `cbn` leaves it); then with `names_node`: a substitution
+   `t [a]` is the core node `csubst L a t`, which carries the syntax's
+   law `L` (`Names.SubstLaw`), and a closed variable `tvar w` is the node
+   `cvar L w`;
 3. rewrites every adjustment built from context forms, `⨾`, `⟦⟧`,
    `at_scope` and `share` (anything else is an atom) to its normal form
    (`docs/hnorm.md`), shown as context forms;
-4. evaluates `apply_var a v` and `eval` nodes whose variable `v` is
+4. in each substitution node `csubst L a t`: an entry of `a`'s normal
+   form sending a name to a variable term `cvar L w` with a payload `r`
+   becomes `x as w⟨| r ⟩` (where `r` sends `w`; the law's `sl_var`); and,
+   into the closed scope, the first term with a payload `u⟨| b ⟩` becomes
+   the term `csubst L b u` (the law's `sl_mat`);
+5. evaluates `apply_var a v` and `eval` nodes whose variable `v` is
    concrete and whose result the normal form of `a` determines: a
    variable `w` gives `tvar w`; a term `u` with payload adjustment `ρ`
    gives `psubst ρ u`, with `ρ` shown as `pcompose b pid`;
-5. rewrites with `names_post`: `t [⟦⟧] = t`, `psubst (pcompose b ρ) u
-   = (psubst ρ u) [b]`, `psubst pid u = u`, and an `eval` node left
-   is shown as `(tvar v) [a]` again.
+6. rewrites with `names_post`: the nodes back to `t [a]` and `tvar w`,
+   `t [⟦⟧] = t`, `psubst (pcompose b ρ) u = (psubst ρ u) [b]`,
+   `psubst pid u = u`, and an `eval` node left is shown as
+   `(tvar v) [a]` again.
 
 `names` repeats passes until nothing changes; a pass after the first only
-finds work in the terms that step 4 put in the goal.
+finds work in the terms that steps 4 and 5 put in the goal.
 
 For each adjustment, step 3 reifies the syntax as it is written, with no
 reduction (label, adjustment and term atoms, `share`d definitions as
@@ -140,9 +149,11 @@ the environments are Braun trees indexed by the binary indices
 (`HShowB`), so that looking up an atom is logarithmic, and lists of
 facts are proved as balanced trees. An adjustment whose normal form
 cannot be shown (for example a payload with a payload atom) is left as
-it is. Step 4 reads the result off `HNorm`'s lookup
-(`hlook_varB_sound`, `hbindB_show_sound`), and materialising payloads
-compares `HNorm` words (`hmatB_show_sound`).
+it is. Step 5 reads the result off `HNorm`'s lookup
+(`hlook_varB_sound`, `hbindB_show_sound`); step 4 changes entries of
+`HNorm` words, proved to relate the two adjustments variable by variable
+(`hvarB_show_sound`, `hmatB_show_sound`), which the law turns into equal
+substitutions.
 
 Every comparison between labels goes through `lcmp`, which knows concrete
 labels, the bound label (the greatest), and the context's facts closed

@@ -156,6 +156,9 @@ Definition hmat_targetN (F : order) (n base : nat) (e : aexpN) : option (N * (li
 Definition hmat_displayN (F : order) (n base : nat) (e : aexpN) (k : nat) : option (list aexpN * aexpN) :=
   option_map enc_show (hmat_display F n base (adec e) k).
 
+Definition hvar_displayN (F : order) (n base : nat) (e : aexpN) (vt : list (nat * (lexp * nat))) : option (list aexpN * aexpN) :=
+  option_map enc_show (hvar_display F n base (adec e) vt).
+
 Section Sound.
 
 Context {T : Type}.
@@ -204,6 +207,25 @@ Proof.
   rewrite den_dec, den_enc, HLe, ldenB_bof.
   apply (hbind_show_sound le te ae rs pe l _ _ _ u0 sh r x (lfacts_den l Hl) E0 (shares_den _ Hs)).
   rewrite HTe, bnth_bof, Nat2N.id in Hx; exact Hx.
+Qed.
+
+Theorem hvarB_show_sound l e vt shN rN : lfacts_okB Le l ->
+  (forall u x, vlook u vt = Some x -> exists y, bnth Te (N.of_nat u) = Some y) ->
+  hvar_displayN (order_of l) (List.length te) (List.length ae) e vt = Some (shN, rN) ->
+  Forall2 (fun x d => x = den d) rs shN ->
+  forall v, rapply (den e) v = rapply (den rN) v \/
+    exists u h i y W, vlook u vt = Some (h, i) /\ bnth Te (N.of_nat u) = Some y /\
+      rapply (den e) v = inr (y, rpcompose W rpidentity) /\ rapply (den rN) v = rapply W (mk_rvar (ldenB Le h) i).
+Proof.
+  intros Hl Hvt E Hs; unfold hvar_displayN in E.
+  destruct (hvar_display _ _ _ _ _) as [[sh r]|] eqn:E0; [|discriminate]; injection E as <- <-.
+  assert (B : forall m, bnth Te (N.of_nat m) = nth_error te m) by (intros m; rewrite HTe, bnth_bof, Nat2N.id; reflexivity).
+  assert (Hvt' : forall u x, vlook u vt = Some x -> u < List.length te).
+  { intros u x Hu; destruct (Hvt u x Hu) as [y Hy]; rewrite B in Hy; apply nth_error_Some; rewrite Hy; discriminate. }
+  intros v; rewrite den_dec, den_enc.
+  destruct (hvar_show_sound le te ae rs pe vt l _ sh r (lfacts_den l Hl) Hvt' E0 (shares_den _ Hs) v)
+    as [Eq|[u [h [i [y [W [E1 [E2 [E3 E4]]]]]]]]]; [left; exact Eq|right].
+  exists u, h, i, y, W; rewrite B, HLe, ldenB_bof; repeat split; assumption.
 Qed.
 
 Section MatB.

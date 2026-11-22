@@ -1452,8 +1452,53 @@ Proof.
   rewrite psubst_pid, (pg_ok _ _ (inr_scoped _ _ _ _ E1)); reflexivity.
 Qed.
 
+(** A variable with a payload [W ∘ id] substituted is the variable [W]
+    sends it to. *)
+Lemma tvar_var_label (w : var 0) : v_label (var_raw w) <> None.
+Proof. destruct w as [[[y|] i] Hw]; cbn; [discriminate|exact (match Hw with end)]. Qed.
+
+Theorem subst_var_bind {N M} (a a' : adj P N M) :
+  (forall v : var N, vrel (@tvar 0) (rapply (adj_raw a) (var_raw v)) (rapply (adj_raw a') (var_raw v))) ->
+  forall t, t [a] = t [a'].
+Proof.
+  intros H; apply subst_ext_var; intros v; rewrite !subst_tvar_eval; unfold Indexed.eval.
+  destruct (H v) as [E|[w [W [E1 E2]]]]; [rewrite (apply_var_same _ _ _ E); reflexivity|].
+  rewrite (apply_var_inr _ _ _ _ (inr_scoped _ _ _ _ E1) E1).
+  unfold psubst; cbn [padj_raw]; rewrite kleisli_var.
+  assert (Hlw := tvar_var_label w).
+  assert (Hnx : napply (rpadj_n (rpcompose W rpidentity)) (var_raw w) = napply (radj_n W) (var_raw w)).
+  { cbn [rpadj_n rpcompose]; rewrite napply_pcompose by (apply rpadj_wf || exact Hlw).
+    destruct w as [[[y|] i] Hw]; [reflexivity|contradiction]. }
+  destruct (napply (radj_n W) (var_raw w)) as [w0|[u x]] eqn:Ew.
+  - assert (Hr : rapply (adj_raw a') (var_raw v) = inl w0) by (rewrite E2; unfold rapply; rewrite Ew; reflexivity).
+    pose proof (apply_wf a' v) as Wf; unfold Indexed.apply in Wf; rewrite Hr in Wf.
+    rewrite (apply_var_rename a' v (mk_var w0 (Is_true_s_intro Wf)) Hr).
+    assert (Hwf0 : Is_true_s (wf_var M (up (0 + ext_depth (@ext_here 0 M)) w0))).
+    { apply Is_true_s_intro; clear -Wf; destruct w0 as [[y|] i]; exact Wf. }
+    assert (Ew' : napply (rpadj_n (rpcompose W rpidentity)) (var_raw w) = inl w0) by exact Hnx.
+    rewrite (papply_var _ M 0 M _ _ ext_here w w0 Hwf0 Hlw Ew').
+    f_equal; apply var_eq; cbn [var_raw]; clear; destruct w0 as [[y|] i]; reflexivity.
+  - assert (Hr : rapply (adj_raw a') (var_raw v) = inr (u, rto_padj x)) by (rewrite E2; unfold rapply; rewrite Ew; reflexivity).
+    rewrite (apply_var_inr _ _ _ _ (inr_scoped _ _ _ _ Hr) Hr).
+    assert (Hwf : nwf true x)
+      by (apply (nwf_payload false _ (var_raw w) u x (radj_wf W) eq_refl Ew)).
+    assert (Hx : pok M x = true).
+    { pose proof (Is_true_s_elim (inr_scoped _ _ _ _ Hr)) as S0.
+      unfold pok; apply andb_true_iff; split; [exact Hwf|].
+      rewrite <- (rpadj_n_to_padj x Hwf); exact S0. }
+    assert (Ew' : napply (rpadj_n (rpcompose W rpidentity)) (var_raw w) = inr (u, x)) by exact Hnx.
+    rewrite (papply_pay _ M 0 M _ _ ext_here w u x (Is_true_s_intro (Nat.eqb_refl M)) (Is_true_s_intro Hx) Hlw Ew').
+    unfold psubst; cbn [padj_raw].
+    assert (PE : forall (y y' : nadj) (E : y = y') (p : Is_true_s (pok M y)) (p' : Is_true_s (pok M y')),
+               kleisli (papply y M 0 M (Is_true_s_intro (Nat.eqb_refl M)) p) ext_here u
+               = kleisli (papply y' M 0 M (Is_true_s_intro (Nat.eqb_refl M)) p') ext_here u)
+      by (intros y y' -> p p'; reflexivity).
+    apply PE; symmetry; apply rpadj_n_to_padj, Hwf.
+Qed.
+
 (** Substitution as the node [names] works on. *)
-Definition subst_law : SubstLaw term (fun N M a t => t [a]) pg := {| sl_g := pg_spec; sl_mat := @subst_mat |}.
+Definition subst_law : SubstLaw term (@tvar 0) (fun N M a t => t [a]) pg :=
+  {| sl_g := pg_spec; sl_mat := @subst_mat; sl_var := @subst_var_bind |}.
 
 Lemma subst_csubst {N M} (a : adj P N M) (t : term N) : t [a] = csubst subst_law a t.
 Proof. reflexivity. Qed.
@@ -1461,8 +1506,14 @@ Proof. reflexivity. Qed.
 Lemma csubst_subst {N M} (a : adj P N M) (t : term N) : csubst subst_law a t = t [a].
 Proof. reflexivity. Qed.
 
-Global Hint Rewrite @subst_csubst : names_node.
-Global Hint Rewrite @csubst_subst : names_post.
+Lemma tvar_cvar (w : var 0) : tvar w = cvar subst_law w.
+Proof. reflexivity. Qed.
+
+Lemma cvar_tvar (w : var 0) : cvar subst_law w = tvar w.
+Proof. reflexivity. Qed.
+
+Global Hint Rewrite @subst_csubst @tvar_cvar : names_node.
+Global Hint Rewrite @csubst_subst @cvar_tvar : names_post.
 Global Hint Rewrite @subst_identity @eval_fold @psubst_pcompose @psubst_pid : names_post.
 
 End Subst.
