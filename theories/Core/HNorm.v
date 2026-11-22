@@ -21,7 +21,7 @@
     ([Comp]). *)
 
 From Stdlib Require Import String List PArith NArith Bool FMapPositive.
-From ShiftedNames.Core Require Import Label Normalise GEval.
+From ShiftedNames.Core Require Import Label Normalise.
 Import ListNotations.
 
 Inductive val : Type :=

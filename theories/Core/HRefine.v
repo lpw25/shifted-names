@@ -8,7 +8,7 @@
     and decides equality in comprehension models ([hn_eq_correct]). *)
 
 From Stdlib Require Import String List PArith NArith Arith Bool FMapPositive Lia.
-From ShiftedNames.Core Require Import Label Normalise GEval KnownOrder.
+From ShiftedNames.Core Require Import Label Normalise KnownOrder.
 From ShiftedNames.Core Require HNorm CNorm.
 From ShiftedNames.Core Require Import Comp CSound CComplete.
 Import ListNotations.

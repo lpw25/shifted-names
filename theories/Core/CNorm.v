@@ -14,7 +14,7 @@
     through. *)
 
 From Stdlib Require Import String List Bool Arith.
-From ShiftedNames.Core Require Import Label Normalise GEval.
+From ShiftedNames.Core Require Import Label Normalise.
 Import ListNotations.
 
 Inductive cval : Type :=

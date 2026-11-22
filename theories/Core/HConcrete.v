@@ -14,7 +14,7 @@
     may still be distinct here. *)
 
 From Stdlib Require Import List Arith Lia Bool PArith.
-From ShiftedNames.Core Require Import Label Var Adjustment Laws Normalise GEval CNorm Comp HNorm KnownOrder HRefine CSound.
+From ShiftedNames.Core Require Import Label Var Adjustment Laws Normalise CNorm Comp HNorm KnownOrder HRefine CSound.
 Import ListNotations.
 
 (** Term atoms below [n]. *)

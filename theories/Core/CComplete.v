@@ -12,7 +12,7 @@
     transitive. *)
 
 From Stdlib Require Import List Bool Arith Eqdep_dec Lia.
-From ShiftedNames.Core Require Import Label Normalise GEval CNorm Comp CSound.
+From ShiftedNames.Core Require Import Label Normalise CNorm Comp CSound.
 Import ListNotations.
 
 Section Complete.

@@ -6,7 +6,7 @@
     consistent with the facts ([cn_sound]). *)
 
 From Stdlib Require Import List Bool.
-From ShiftedNames.Core Require Import Label Normalise GEval CNorm Comp.
+From ShiftedNames.Core Require Import Label Normalise CNorm Comp.
 Import ListNotations.
 
 Section Sem.

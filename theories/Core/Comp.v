@@ -17,7 +17,7 @@
     variable) is [a]'s action followed by [b]'s. *)
 
 From Stdlib Require Import List.
-From ShiftedNames.Core Require Import Label Normalise GEval CNorm.
+From ShiftedNames.Core Require Import Label Normalise CNorm.
 Import ListNotations.
 
 Record cmodel : Type := mk_cmodel {
