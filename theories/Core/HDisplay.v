@@ -137,7 +137,7 @@ Fixpoint unw (fuel : nat) (w : word) (T : st) (m : memo) {struct fuel} : option 
       match w with
       | [] => None
       | (x, _) :: w' =>
-          if match x with SW h => lexp_eqb h g && all_sw_kd w' | _ => false end then Some (w', T, m)
+          if match x with SW h => if lexp_eqb h g then all_sw_kd w' else false | _ => false end then Some (w', T, m)
           else match unst f x T m with
                | Some (x', T1, m1) =>
                    match unw f w' T1 m1 with
@@ -198,7 +198,7 @@ with unv (fuel : nat) (v : val) (T : st) (m : memo) {struct fuel} : option (val 
               let w := hw T p in
               let r := match unw f w T m with
                        | Some r => Some r
-                       | None => if lexp_eqb g LNone && named_only w then unall f w T m else None
+                       | None => if (if lexp_eqb g LNone then named_only w else false) then unall f w T m else None
                        end in
               match r with
               | Some (w', T1, m1) => Some (VTerm u None (wid w'), T1, PositiveMap.add (xI p) (wid w') m1)
@@ -229,7 +229,7 @@ Fixpoint split_pay (p : positive) (seen : list lexp) (es : list (lexp * val)) : 
   | [] => ([], [])
   | (h, v) :: r =>
       let take := match tpay v with
-                  | Some (u, q) => if Pos.eqb p q && forallb (fun k => kd F k h) seen then Some u else None
+                  | Some (u, q) => if (if Pos.eqb p q then forallb (fun k => kd F k h) seen else false) then Some u else None
                   | None => None
                   end in
       match take with
@@ -268,6 +268,27 @@ Fixpoint find_factor (T : st) (a1 : positive) (es l : list (lexp * val)) : optio
           end
       | None => find_factor T a1 es r
       end
+  end.
+
+(** [factor] when the entries taken lead the word (as [find_factor]
+    would find them): the leading entries whose payload is the cell just
+    after them, found cell by cell without reading the word. *)
+Fixpoint lead_pay (T : st) (fuel : nat) (j p : positive) : option (list (lexp * nat)) :=
+  match fuel with
+  | 0 => None
+  | S f =>
+      if Pos.eqb j p then Some []
+      else match cell T j with
+           | Some (SE h (VTerm u None q), t) => if Pos.eqb q p then option_map (cons (h, u)) (lead_pay T f t p) else None
+           | _ => None
+           end
+  end.
+
+Definition fast_factor (T : st) (fuel : nat) (i : positive) : option (list (lexp * nat) * positive) :=
+  match cell T i with
+  | Some (SE _ (VTerm _ None p), _) =>
+      match lead_pay T fuel i p with Some ((_ :: _) as ts) => Some (ts, p) | _ => None end
+  | _ => None
   end.
 
 Fixpoint wids (w : word) : list positive := match w with [] => [] | (_, i) :: w' => i :: wids w' end.
@@ -376,6 +397,9 @@ with dbody (fuel : nat) (i : positive) (D : dstate) {struct fuel} : option (aexp
   | 0 => None
   | S f =>
       let T := dT D in
+      match fast_factor T f i with
+      | Some (ts, p) => match dref f p D with Some (r, D1) => Some (acomp r (sform ts), D1) | None => None end
+      | None =>
       let W := hw T i in
       match W with
       | [] => Some (AId, D)
@@ -407,6 +431,7 @@ with dbody (fuel : nat) (i : positive) (D : dstate) {struct fuel} : option (aexp
                   end
               end
           end
+      end
       end
   end
 (** The entries with their absolute values, over the rest. *)

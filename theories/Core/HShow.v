@@ -5,7 +5,7 @@
     shown as, given that each shared definition's atom is the
     definition. *)
 
-From Stdlib Require Import List Arith Lia Bool PArith.
+From Stdlib Require Import List Arith Lia Bool PArith NArith.
 From ShiftedNames.Core Require Import Label Var Adjustment Laws Normalise Comp KnownOrder HRefine CSound HConcrete.
 From ShiftedNames.Core Require HNorm CNorm HDisplay HDisplaySound CRange.
 Import ListNotations.
@@ -313,3 +313,51 @@ Qed.
 End MatShow.
 
 End Show.
+
+(** ** Results with binary indices
+
+    What the tactic reads back from [vm_compute]: a normal form with its
+    indices as binary numerals, so that reading it back is linear. *)
+Inductive aexpN : Type :=
+| NId
+| NAtom (n : N)
+| NCompose (a b : aexpN)
+| NOuter (h : lexp) (a : aexpN)
+| NInner (h : lexp) (t : texpN) (a : aexpN)
+| NLift (h : lexp) (a : aexpN)
+with texpN : Type :=
+| NVarE (h : lexp) (i : N)
+| NBindE (u : N) (p : pexpN)
+| NShiftE (h : lexp) (t : texpN)
+| NLookE (h : lexp) (i : N) (a : aexpN)
+with pexpN : Type :=
+| NPId
+| NPAtom (n : N)
+| NPComp (a : aexpN) (p : pexpN)
+| NPShift (h : lexp) (p : pexpN).
+
+Fixpoint aenc (e : aexp) : aexpN :=
+  match e with
+  | AId => NId
+  | AAtom n => NAtom (N.of_nat n)
+  | ACompose a b => NCompose (aenc a) (aenc b)
+  | AOuter h a => NOuter h (aenc a)
+  | AInner h t a => NInner h (tenc t) (aenc a)
+  | ALift h a => NLift h (aenc a)
+  end
+with tenc (t : texp) : texpN :=
+  match t with
+  | TVarE h i => NVarE h (N.of_nat i)
+  | TBindE u p => NBindE (N.of_nat u) (penc p)
+  | TShiftE h t => NShiftE h (tenc t)
+  | TLookE h i a => NLookE h (N.of_nat i) (aenc a)
+  end
+with penc (p : pexp) : pexpN :=
+  match p with
+  | PId => NPId
+  | PAtom n => NPAtom (N.of_nat n)
+  | PComp a p => NPComp (aenc a) (penc p)
+  | PShift h p => NPShift h (penc p)
+  end.
+
+Definition enc_show (x : list aexp * aexp) : list aexpN * aexpN := (map aenc (fst x), aenc (snd x)).
