@@ -3,7 +3,7 @@
     An adjustment is represented by what it does to each variable in the
     free model ([Unique.fres]), stored per label as a list with a uniform
     tail, with sharing kept by references that carry a shift on their
-    outputs (see [docs/canonical-graph.md]).
+    outputs.
 
     This file defines the encoding, its meaning in the free model, the
     canonicity conditions (all local), and proves that canonical

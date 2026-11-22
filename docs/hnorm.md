@@ -472,8 +472,7 @@ generalisation, not yet checked.
 ### Bound labels as the interface
 
 **Later finding:** this works only for targets that cannot see the
-bound label, and the new constructor above is needed after all. See
-`docs/tnorm.md`, "Printing a trie".
+bound label, and the new constructor above is needed after all.
 
 The bound label `·` is known distinct from every named label, so it
 can carry the interface between pieces. (Below, `a ⨾ b` runs `a` first. `ACompose a b` runs `b` first,

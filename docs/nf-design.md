@@ -128,7 +128,7 @@ This is very close to the *tree* normal form of `docs/normal-forms.md`
   `tnorm_complete`, in one interpretation with distinct labels. Its
   problem was size. Unshared, a chain of `n` substitutions has a tree
   of size `2ⁿ`.
-- **What `docs/literature-review.md` found.** It looked at exactly
+- **What a review of the literature found.** It looked at exactly
   "the tree form plus maximal sharing" ("Correction: the proposal is
   not linear") and found that it is not linear. Your memory is right:
   canonical, but the wrong asymptotics. The reason is next.
@@ -231,8 +231,7 @@ identity renaming, valid in every model.
    blocks the match. Say `N`'s first entry is on `y`, not known to be
    distinct from `x`. In models where `y` shares variables with `x`
    only away from `x₀`, inputs reach that entry by routes other than
-   `x₀`. The same holds for later entries reached through it. This is
-   the "escape" argument from `docs/interleaved-layered.md`. It should
+   `x₀`. The same holds for later entries reached through it. It should
    be simpler here: targets are absolute, and matching has already
    removed every entry that could cancel.
 2. **Completeness of the rules.** Is every identity that holds in all
@@ -251,7 +250,7 @@ identity renaming, valid in every model.
   a well-behaved `share` (the same continuation at every use) from
   being recomputed. A `share` used with different continuations gets
   one composite per continuation. The spec makes no promise there, and
-  `docs/literature-review.md` shows the size can then be exponential.
+  the literature review showed the size can then be exponential.
 - **The bound label** is one more label, known distinct from every
   named one.
 - **Readable output.** The printer has to show contexts with payloads
@@ -359,8 +358,7 @@ A normal form is a **sorted, reduced word of steps**.
 - `W_h`: a weakening on `h`.
 - `A(σ)`: an adjustment atom.
 
-Runs of equal consecutive steps are kept as one step with a count, as
-in `docs/design-nf2.md`. A lift around an atom is
+Runs of equal consecutive steps are kept as one step with a count. A lift around an atom is
 `E_x(x₀) · A(σ) · W_x`, where the value `x₀` is the variable `W_x`
 creates.
 
