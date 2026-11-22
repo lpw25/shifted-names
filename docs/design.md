@@ -110,27 +110,43 @@ in four rewrite databases. One pass of `names`:
    `t [a]` is the core node `csubst L a t`, which carries the syntax's
    law `L` (`Names.SubstLaw`), and a closed variable `tvar w` is the node
    `cvar L w`;
-3. rewrites every adjustment built from context forms, `⨾`, `⟦⟧`,
+3. in each substitution node `csubst L a t`, outer ones first, converts
+   `a` before normalising it (`Conv.aconv`): a term that is a variable
+   `cvar L w` with a payload `W ∘ id` becomes a look-up of `w` through `W`
+   (`x as w⟨| W ⟩`), and, when `a` is into the closed scope, a term that
+   is a substitution `csubst L c u` into the closed scope becomes `u`
+   with `c` in its payload (`u⟨W ∘ (c ∘ id)⟩`); the result is normalised
+   and shown, and the law's `sl_rel` makes the rewrite;
+4. rewrites every other adjustment built from context forms, `⨾`, `⟦⟧`,
    `at_scope` and `share` (anything else is an atom) to its normal form
    (`docs/hnorm.md`), shown as context forms;
-4. in each substitution node `csubst L a t`: an entry of `a`'s normal
-   form sending a name to a variable term `cvar L w` with a payload `r`
-   becomes `x as w⟨| r ⟩` (where `r` sends `w`; the law's `sl_var`); and,
-   into the closed scope, the first term with a payload `u⟨| b ⟩` becomes
-   the term `csubst L b u` (the law's `sl_mat`);
-5. evaluates `apply_var a v` and `eval` nodes whose variable `v` is
+5. in each substitution node into the closed scope, outer ones first and
+   then those inside them, turns each term with a payload `u⟨| b ⟩` into
+   the term `csubst L b u` (the law's `sl_rel` again), so that the
+   payloads the normaliser worked on are substitutions again, which
+   reductions outside `names` can work on;
+6. evaluates `apply_var a v` and `eval` nodes whose variable `v` is
    concrete and whose result the normal form of `a` determines: a
    variable `w` gives `tvar w`; a term `u` with payload adjustment `ρ`
    gives `psubst ρ u`, with `ρ` shown as `pcompose b pid`;
-6. rewrites with `names_post`: the nodes back to `t [a]` and `tvar w`,
+7. rewrites with `names_post`: the nodes back to `t [a]` and `tvar w`,
    `t [⟦⟧] = t`, `psubst (pcompose b ρ) u = (psubst ρ u) [b]`,
    `psubst pid u = u`, and an `eval` node left is shown as
    `(tvar v) [a]` again.
 
 `names` repeats passes until nothing changes; a pass after the first only
-finds work in the terms that steps 4 and 5 put in the goal.
+finds work in the terms that steps 5 and 6 put in the goal.
 
-For each adjustment, step 3 reifies the syntax as it is written, with no
+The law `sl_rel` is about adjustments whose results on each variable are
+related by `drel (lawbase var g)` (`Conv`): a variable with a payload
+`W ∘ id` against where `W` sends it, `u [c]` with a payload `W ∘ id`
+against `u` with `W ∘ (c ∘ id)`, and `u` with `c ∘ id` against `u [c]`,
+also inside payloads (an entry changed after an atom changes the
+payloads of the atom's terms) and in steps. The `Subst` functor proves it
+by showing that each step keeps the term a well-scoped result gives
+(`Subst.rv_le`).
+
+For each adjustment, steps 3 and 4 reify the syntax as it is written, with no
 reduction (label, adjustment and term atoms, `share`d definitions as
 atoms with their definitions, and the order facts `label_lt x y` in the
 context), as an expression with binary indices (`HShow.aexpN`): the
@@ -149,11 +165,11 @@ the environments are Braun trees indexed by the binary indices
 (`HShowB`), so that looking up an atom is logarithmic, and lists of
 facts are proved as balanced trees. An adjustment whose normal form
 cannot be shown (for example a payload with a payload atom) is left as
-it is. Step 5 reads the result off `HNorm`'s lookup
-(`hlook_varB_sound`, `hbindB_show_sound`); step 4 changes entries of
-`HNorm` words, proved to relate the two adjustments variable by variable
-(`hvarB_show_sound`, `hmatB_show_sound`), which the law turns into equal
-substitutions.
+it is. Step 6 reads the result off `HNorm`'s lookup
+(`hlook_varB_sound`, `hbindB_show_sound`); step 3's conversion is proved
+to relate the two adjustments variable by variable (`Conv.conv_sound`),
+and step 5 changes entries of `HNorm` words, proved the same way
+(`hmatB_show_sound`); the law turns these into equal substitutions.
 
 Every comparison between labels goes through `lcmp`, which knows concrete
 labels, the bound label (the greatest), and the context's facts closed

@@ -156,9 +156,6 @@ Definition hmat_targetN (F : order) (n base : nat) (e : aexpN) : option (N * (li
 Definition hmat_displayN (F : order) (n base : nat) (e : aexpN) (k : nat) : option (list aexpN * aexpN) :=
   option_map enc_show (hmat_display F n base (adec e) k).
 
-Definition hvar_displayN (F : order) (n base : nat) (e : aexpN) (vt : list (nat * (lexp * nat))) : option (list aexpN * aexpN) :=
-  option_map enc_show (hvar_display F n base (adec e) vt).
-
 Section Sound.
 
 Context {T : Type}.
@@ -209,24 +206,6 @@ Proof.
   rewrite HTe, bnth_bof, Nat2N.id in Hx; exact Hx.
 Qed.
 
-Theorem hvarB_show_sound l e vt shN rN : lfacts_okB Le l ->
-  (forall u x, vlook u vt = Some x -> exists y, bnth Te (N.of_nat u) = Some y) ->
-  hvar_displayN (order_of l) (List.length te) (List.length ae) e vt = Some (shN, rN) ->
-  Forall2 (fun x d => x = den d) rs shN ->
-  forall v, drel (fun r r' => exists u h i y W, vlook u vt = Some (h, i) /\ bnth Te (N.of_nat u) = Some y /\
-      r = inr (y, rpcompose W rpidentity) /\ r' = rapply W (mk_rvar (ldenB Le h) i))
-    (rapply (den e) v) (rapply (den rN) v).
-Proof.
-  intros Hl Hvt E Hs; unfold hvar_displayN in E.
-  destruct (hvar_display _ _ _ _ _) as [[sh r]|] eqn:E0; [|discriminate]; injection E as <- <-.
-  assert (B : forall m, bnth Te (N.of_nat m) = nth_error te m) by (intros m; rewrite HTe, bnth_bof, Nat2N.id; reflexivity).
-  assert (Hvt' : forall u x, vlook u vt = Some x -> u < List.length te).
-  { intros u x Hu; destruct (Hvt u x Hu) as [y Hy]; rewrite B in Hy; apply nth_error_Some; rewrite Hy; discriminate. }
-  intros v; rewrite den_dec, den_enc.
-  refine (drel_mono _ _ _ _ _ (hvar_show_sound le te ae rs pe vt l _ sh r (lfacts_den l Hl) Hvt' E0 (shares_den _ Hs) v)).
-  intros r0 r0' [u [h [i [y [W [E1 [E2 [E3 E4]]]]]]]].
-  exists u, h, i, y, W; rewrite B, HLe, ldenB_bof; repeat split; assumption.
-Qed.
 
 Section MatB.
 
@@ -239,13 +218,13 @@ Theorem hmatB_show_sound l e k u shbN rbN shN rN nb n1 n2 : lfacts_okB Le l ->
   nb = List.length ae + List.length shN ->
   Forall2 (fun x d => x = den d) rs (shN ++ shbN) ->
   (forall y, bnth Te u = Some y -> bnth Te (N.of_nat k) = Some (g (rpcompose (den rbN) rpidentity) y)) ->
-  forall v, drel (mbase g) (rapply (den e) v) (rapply (den rN) v).
+  forall v, drel (mbase g (rpcompose (den rbN) rpidentity)) (rapply (den e) v) (rapply (den rN) v).
 Proof.
   intros Hl L1 L2 Ht Hd Hnb Hs Hk.
   unfold hmat_targetN in Ht; unfold hmat_displayN in Hd.
   destruct (hmat_target _ _ _ _) as [[u0 [shb rb]]|] eqn:Et; [|discriminate]; injection Ht as <- <- <-.
   destruct (hmat_display _ _ _ _ _) as [[sh r]|] eqn:Ed; [|discriminate]; injection Hd as <- <-.
-  intros v; rewrite den_dec, den_enc.
+  intros v; rewrite !den_enc, den_dec.
   apply (hmat_show_sound le te ae rs pe g l _ k u0 shb rb sh r nb n1 n2 (lfacts_den l Hl) L1 L2 Et Ed).
   - rewrite Hnb, length_map; reflexivity.
   - apply shares_den; rewrite map_app; exact Hs.

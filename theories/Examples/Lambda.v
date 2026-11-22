@@ -148,6 +148,26 @@ Example mat_atom x y (N L M : tm 0) (s : sub 0 0) :
   M [⟦ x := N ⟧] [⟦ y := L ⟧] [s] = M [⟦ x := (N [⟦ y := L ⟧ ⨾ s]); y := (L [s]) | s ⟧].
 Proof. names; reflexivity. Qed.
 
+(** A substitution in a term of a substitution is normalised as part of
+    the payload of that term: its variables become renamings, its
+    adjustment is normalised with what is composed after it, and it is a
+    substitution again after. *)
+Example nested_var x y z (u M : tm 0) :
+  M [⟦ x := (u [⟦ y := (tvar (fvar z 0)) ⟧]) ⟧] = M [⟦ x := (u [(⟦ y as (fvar z 0) ⟧ : sub 0 0)]) ⟧].
+Proof. names; reflexivity. Qed.
+
+Example nested_open_close x y (u N M : tm 0) :
+  M [⟦ x := (u [⟦ y := N ⟧ ⨾ ⟦ y \ · ⟧ ⨾ ⟦ · \ y ⟧]) ⟧] = M [⟦ x := (u [⟦ y := N ⟧]) ⟧].
+Proof. names; reflexivity. Qed.
+
+Example nested_after x y (u N L M : tm 0) :
+  M [⟦ x := (u [⟦ y := N ⟧]) ⟧ ⨾ ⟦ y := L ⟧] = M [⟦ x := (u [⟦ y := N ⟧ ⨾ ⟦ y := L ⟧]); y := L ⟧].
+Proof. names; reflexivity. Qed.
+
+Example nested_twice x y z (u v N M : tm 0) :
+  M [⟦ x := (u [⟦ y := (v [⟦ z := N ⟧]) ⟧]) ⟧] = M [⟦ x := (u [⟦ y := (v [⟦ z := N ⟧]) ⟧]) ⟧].
+Proof. names; reflexivity. Qed.
+
 (** Barendregt's substitution lemma. *)
 Theorem barendregt x y (L N M : tm 0) : label_lt x y ->
   M [⟦ x := N ⟧] [⟦ y := L ⟧] = M [⟦ y := (L [⟦ \ x as _ ⟧]) ⟧] [⟦ x := (N [⟦ y := L ⟧]) ⟧].
