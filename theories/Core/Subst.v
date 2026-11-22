@@ -1317,7 +1317,13 @@ Proof. rewrite kleisli_var; symmetry; apply apply_here_eval. Qed.
     substituting into a variable is the [eval] node ([names_var]).  After normalising adjustments and
     evaluating [eval] nodes, identity substitutions go, and an [eval]
     node it cannot evaluate is shown as a substitution again. *)
-Global Hint Rewrite @kleisli_apply_under @apply_under @subst_compose : names_pre.
+Lemma ext_shift_here {N M} : ext_shift (@ext_here N M) = ext_here.
+Proof. reflexivity. Qed.
+
+Lemma ext_shift_under {N M K L} (e : ext N M K L) : ext_shift (ext_under e) = ext_under (ext_shift e).
+Proof. reflexivity. Qed.
+
+Global Hint Rewrite @kleisli_apply_under @apply_under @subst_compose @ext_shift_here @ext_shift_under : names_pre.
 Global Hint Rewrite @subst_tvar_eval @apply_here_eval : names_var.
 (** Applying a payload adjustment [b ∘ ρ] is substituting with [b] after
     applying [ρ]; the identity payload adjustment of a closed term does

@@ -121,10 +121,14 @@ databases. One pass of `names`:
 `names` repeats passes until nothing changes; a pass after the first only
 finds work in the terms that step 4 put in the goal.
 
-For each adjustment, step 3 unfolds it to the core's raw constructors
-and reifies it (label, adjustment and term atoms, `share`d definitions as
+For each adjustment, step 3 reifies the syntax as it is written, with no
+reduction (label, adjustment and term atoms, `share`d definitions as
 atoms with their definitions, and the order facts `label_lt x y` in the
-context) as an expression with binary indices (`HShow.aexpN`). It then
+context), as an expression with binary indices (`HShow.aexpN`): the
+reifier follows the denotations of context forms (`octx_den` and the
+rest), and the kernel checks by conversion that the expression denotes
+the adjustment. A context form with an entry it cannot read (a variable
+that is not a literal) is an atom. It then
 computes its normal form with `HNorm` and turns it into an expression
 with shared definitions (`HShow.hshowD`, proved sound: `hshowD_sound`),
 all in the VM. The result is built as a term directly: its scope indices

@@ -299,12 +299,16 @@ Ltac2 rec is_string_lit (s : constr) : bool :=
   | _ => false
   end.
 
-(** ** Reification *)
+(** ** Reification
 
-(** Context forms and the rest of the indexed layer are unfolded one
-    head at a time, as the reifier goes: what is not unfolded (terms, and
-    atoms) is kept as written. *)
-Ltac2 raw_refs () : Std.reference list := [reference:(adj_raw); reference:(identity); reference:(compose); reference:(at_scope); reference:(cnil); reference:(cent); reference:(cbnd); reference:(csub); reference:(csubb); reference:(cren); reference:(crenb); reference:(cnil_full); reference:(cnil_short); reference:(cent_full); reference:(cent_short); reference:(cbnd_full); reference:(cbnd_short); reference:(csub_full); reference:(csub_short); reference:(csubb_full); reference:(csubb_short); reference:(cren_full); reference:(cren_short); reference:(crenb_full); reference:(crenb_short); reference:(cform); reference:(cform_id); reference:(octx_den); reference:(octx_probe); reference:(ictx_den); reference:(sctx_den); reference:(nth); reference:(slot_at); reference:(slot_ix); reference:(in_bound); reference:(in_free); reference:(out_bound); reference:(out_free); reference:(in_look_free); reference:(in_look_bound); reference:(pctx_den); reference:(pctx_pay); reference:(noslot); reference:(pcompose); reference:(padj_raw); reference:(pid); reference:(to_target); reference:(var_raw); reference:(bvar); reference:(bvar0); reference:(fvar); reference:(lvar); reference:(vdummy); reference:(vshift_bound); reference:(vshift_free)].
+    Reification reads the syntax as it is written, with no reduction:
+    [⨾], [⟦⟧], context forms (their entries written with the [CEnt]...
+    classes or the constructors), [at_scope] and [share]; anything else,
+    and a context form with an entry it cannot read (a variable that is
+    not a literal), is an atom.  The expression it gives is what
+    [adj_raw] of the syntax computes to ([aedenB]), as the kernel checks:
+    the reifier follows [octx_den], [ictx_den], [sctx_den] and
+    [pctx_den]. *)
 
 (** An index in the input: small ones as numerals, others as
     [N.to_nat] of a binary numeral, so that the input stays small. *)
@@ -314,126 +318,291 @@ Ltac2 idx (ns : nats) (k : int) : constr :=
 Ltac2 adj_args (ty : constr) (xs : constr list) : constr list :=
   lazy_match! ty with adj ?t ?k ?l => t :: k :: l :: xs end.
 
+(** The heads the reifier reads. *)
+Ltac2 Type rh := {
+  h_identity : constr; h_compose : constr; h_at : constr; h_share : constr; h_sref : constr;
+  h_cform_id : constr; h_cform : constr; h_adj_raw : constr;
+  h_OEnd : constr; h_OEndT : constr; h_OPosF : constr; h_OPosB : constr; h_ONamF : constr; h_ONamB : constr;
+  h_OShort : constr; h_OShortT : constr; h_STail : constr;
+  h_IEmpty : constr; h_IPosF : constr; h_IPosB : constr; h_IRenF : constr; h_IRenB : constr; h_ISubF : constr; h_ISubB : constr;
+  h_SEmpty : constr; h_SLiftF : constr; h_SLiftB : constr; h_SSubF : constr; h_SSubB : constr; h_SRenF : constr;
+  h_SRenB : constr; h_SSubFA : constr; h_SSubBA : constr; h_SLookF : constr; h_SLookB : constr;
+  h_PEmpty : constr; h_PRen : constr; h_PSub : constr;
+  h_methods : (constr * int) list; h_insts : (constr * constr) list;
+  h_bvar : constr; h_bvar0 : constr; h_fvar : constr; h_lvar : constr; h_vshift_free : constr; h_vshift_bound : constr;
+  h_O : constr; h_S : constr;
+  r_NId : constr; r_NAtom : constr; r_NCompose : constr; r_NOuter : constr; r_NInner : constr;
+  r_NVarE : constr; r_NBindE : constr; r_NShiftE : constr; r_NLookE : constr; r_NPComp : constr; r_NPId : constr;
+  r_LNone : constr; r_N0 : constr }.
+
+Ltac2 mk_rh () : rh := {
+  h_identity := constr:(@identity); h_compose := constr:(@compose); h_at := constr:(@at_scope);
+  h_share := constr:(@Indexed.share); h_sref := constr:(@sref); h_cform_id := constr:(@cform_id); h_cform := constr:(@cform);
+  h_adj_raw := constr:(@adj_raw);
+  h_OEnd := constr:(@OEnd); h_OEndT := constr:(@OEndT); h_OPosF := constr:(@OPosF); h_OPosB := constr:(@OPosB);
+  h_ONamF := constr:(@ONamF); h_ONamB := constr:(@ONamB); h_OShort := constr:(@OShort); h_OShortT := constr:(@OShortT);
+  h_STail := constr:(@STail);
+  h_IEmpty := constr:(@IEmpty); h_IPosF := constr:(@IPosF); h_IPosB := constr:(@IPosB); h_IRenF := constr:(@IRenF);
+  h_IRenB := constr:(@IRenB); h_ISubF := constr:(@ISubF); h_ISubB := constr:(@ISubB);
+  h_SEmpty := constr:(@SEmpty); h_SLiftF := constr:(@SLiftF); h_SLiftB := constr:(@SLiftB); h_SSubF := constr:(@SSubF);
+  h_SSubB := constr:(@SSubB); h_SRenF := constr:(@SRenF); h_SRenB := constr:(@SRenB); h_SSubFA := constr:(@SSubFA);
+  h_SSubBA := constr:(@SSubBA); h_SLookF := constr:(@SLookF); h_SLookB := constr:(@SLookB);
+  h_PEmpty := constr:(@PEmpty); h_PRen := constr:(@PRen); h_PSub := constr:(@PSub);
+  (* each method, with the number of its class's parameters before the instance *)
+  h_methods := [(constr:(@cnil), 1); (constr:(@cent), 2); (constr:(@cbnd), 2); (constr:(@csub), 4);
+                (constr:(@csubb), 4); (constr:(@cren), 3); (constr:(@crenb), 3)];
+  (* each instance, with the constructor it is *)
+  h_insts := [(constr:(@cnil_full), constr:(@IEmpty)); (constr:(@cnil_short), constr:(@SEmpty));
+              (constr:(@cent_full), constr:(@IPosF)); (constr:(@cent_short), constr:(@SLiftF));
+              (constr:(@cbnd_full), constr:(@IPosB)); (constr:(@cbnd_short), constr:(@SLiftB));
+              (constr:(@csub_full), constr:(@ISubF)); (constr:(@csub_short), constr:(@SSubF));
+              (constr:(@csubb_full), constr:(@ISubB)); (constr:(@csubb_short), constr:(@SSubB));
+              (constr:(@cren_full), constr:(@IRenF)); (constr:(@cren_short), constr:(@SRenF));
+              (constr:(@crenb_full), constr:(@IRenB)); (constr:(@crenb_short), constr:(@SRenB))];
+  h_bvar := constr:(@bvar); h_bvar0 := constr:(@bvar0); h_fvar := constr:(@fvar); h_lvar := constr:(@lvar);
+  h_vshift_free := constr:(@vshift_free); h_vshift_bound := constr:(@vshift_bound);
+  h_O := constr:(O); h_S := constr:(S);
+  r_NId := constr:(NId); r_NAtom := constr:(NAtom); r_NCompose := constr:(NCompose); r_NOuter := constr:(NOuter);
+  r_NInner := constr:(NInner); r_NVarE := constr:(NVarE); r_NBindE := constr:(NBindE); r_NShiftE := constr:(NShiftE);
+  r_NLookE := constr:(NLookE); r_NPComp := constr:(NPComp); r_NPId := constr:(NPId);
+  r_LNone := constr:(LNone); r_N0 := constr:(N0) }.
+
 Ltac2 Type st := { labs : tbl; terms : tbl; atoms : tbl; patoms : tbl; ns : nats; lets : ident FSet.t;
-                   wfl : Std.red_flags; nfl : Std.red_flags; mutable sdefs : (int, constr) FMap.t }.
+                   heads : rh; mutable sdefs : (int, constr) FMap.t }.
 
 Ltac2 new_st () : st :=
-  let refs := raw_refs () in
   { labs := new_tbl (); terms := new_tbl (); atoms := new_tbl (); patoms := new_tbl (); ns := new_nats ();
     lets := List.fold_left (fun acc (id, b, _) => match b with Some _ => FSet.add id acc | None => acc end)
               (FSet.empty FSet.Tags.ident_tag) (Control.hyps ());
-    wfl := { Std.rStrength := Std.Head; Std.rBeta := true; Std.rMatch := true; Std.rFix := true;
-             Std.rCofix := true; Std.rZeta := true; Std.rDelta := false; Std.rConst := refs };
-    nfl := { Std.rStrength := Std.Norm; Std.rBeta := true; Std.rMatch := true; Std.rFix := true;
-             Std.rCofix := true; Std.rZeta := true; Std.rDelta := false; Std.rConst := refs };
+    heads := mk_rh ();
     sdefs := FMap.empty FSet.Tags.int_tag }.
-
-(** Head reduction by [lazy]; where that leaves a [match] or a fixpoint
-    at the head (blocked on what [cbn] would refold), by [cbn]. *)
-Ltac2 whd_s (s : st) (c : constr) : constr :=
-  let c' := Std.eval_lazy (s.(wfl)) c in
-  let rec stuck c :=
-    match Constr.Unsafe.kind c with
-    | Constr.Unsafe.Case _ _ _ _ _ => true
-    | Constr.Unsafe.Fix _ _ _ _ => true
-    | Constr.Unsafe.App f _ => stuck f
-    | _ => false
-    end in
-  if stuck c' then Std.eval_cbn (s.(wfl)) c else c'.
-
-Ltac2 nf_s (s : st) (c : constr) : constr := Std.eval_cbv (s.(nfl)) c.
 
 Ltac2 reify_lab (s : st) (x : constr) : constr :=
   if is_string_lit x then app constr:(LCon) [x]
   else let n := n_lit (tbl_add (s.(lets)) (s.(labs)) x) in app constr:(LAtom) [n].
 
-Ltac2 reify_label (s : st) (h : constr) : constr :=
-  lazy_match! whd_s s h with
-  | None => constr:(LNone)
-  | Some ?x => reify_lab s x
+(** The head and arguments of [c], under casts. *)
+Ltac2 rec split_app (c : constr) : constr * constr array :=
+  match Constr.Unsafe.kind c with
+  | Constr.Unsafe.App f args => (f, args)
+  | Constr.Unsafe.Cast c' _ _ => split_app c'
+  | _ => (c, Array.make 0 c)
   end.
 
-Ltac2 reify_atom (s : st) (a : constr) : constr :=
-  let n := n_lit (tbl_add (s.(lets)) (s.(atoms)) a) in app constr:(NAtom) [n].
-
-Ltac2 rec reify_adj (s : st) (a : constr) : constr :=
-  let a := whd_s s a in
-  lazy_match! a with
-  | ridentity => constr:(NId)
-  | rcompose ?x ?y =>
-      let ex := reify_adj s x in let ey := reify_adj s y in app constr:(NCompose) [ex; ey]
-  | rpush_outer ?h ?x =>
-      let eh := reify_label s h in let ex := reify_adj s x in app constr:(NOuter) [eh; ex]
-  | rpush_inner ?h ?t ?x =>
-      let eh := reify_label s h in
-      match reify_target s t with
-      | Some et => let ex := reify_adj s x in app constr:(NInner) [eh; et; ex]
-      | None => reify_atom s a
-      end
-  | rlift ?h ?x =>
-      let eh := reify_label s h in let ex := reify_adj s x in app constr:(NLift) [eh; ex]
-  | adj_raw ?sh =>
-      lazy_match! sh with
-      | Indexed.share ?aa ?f =>
-          (* the definition, as a new atom standing for it, and the body with a
-             marked use of it for the bound variable *)
-          let araw := app constr:(@adj_raw) (adj_args (Constr.type aa) [aa]) in
-          let d := reify_adj s araw in
-          let k := tbl_push (s.(atoms)) araw in
-          s.(sdefs) := FMap.add k d (s.(sdefs));
-          let marker := app constr:(@sref) (adj_args (Constr.type aa) [aa; n_lit k]) in
-          let body := match Constr.Unsafe.kind f with
-                      | Constr.Unsafe.Lambda _ b => Constr.Unsafe.substnl [marker] 0 b
-                      | _ => app f [marker]
-                      end in
-          reify_adj s (app constr:(@adj_raw) (adj_args (Constr.type sh) [body]))
-      | sref _ ?k => app constr:(NAtom) [k]
-      | _ => reify_atom s a
-      end
-  | _ => reify_atom s a
-  end
-with reify_var (s : st) (w : constr) : constr option :=
-  lazy_match! whd_s s w with
-  | mk_rvar ?h ?i =>
-      let i := nf_s s i in
-      if is_nat_lit i then let eh := reify_label s h in Some (app constr:(NVarE) [eh; n_lit (int_of_nat i)]) else None
-  | shift_rvar ?w0 ?w' =>
-      lazy_match! nf_s s w0 with mk_rvar ?h 0 => () | _ => Control.zero Not_found end;
-      let h := lazy_match! nf_s s w0 with mk_rvar ?h _ => h end in
-      let eh := reify_label s h in
-      match reify_var s w' with
-      | Some ew => Some (app constr:(NShiftE) [eh; ew])
-      | None => None
-      end
-  | _ => None
-  end
-with reify_target (s : st) (t : constr) : constr option :=
-  lazy_match! whd_s s t with
-  | Laws.rapply_target ?a ?w =>
-      lazy_match! nf_s s w with
-      | RRename (mk_rvar ?h ?i) =>
-      if is_nat_lit i then
-        let eh := reify_label s h in let ea := reify_adj s a in Some (app constr:(NLookE) [eh; n_lit (int_of_nat i); ea])
-      else None
-      | _ => None
-      end
-  | RRename ?w => reify_var s w
-  | RBind ?u ?p =>
-      let n := n_lit (tbl_add (s.(lets)) (s.(terms)) u) in
-      let ep := reify_padj s p in Some (app constr:(NBindE) [n; ep])
-  | _ => None
-  end
-with reify_padj (s : st) (p : constr) : constr :=
-  let p := whd_s s p in
-  lazy_match! p with
-  | rpidentity => constr:(NPId)
-  | rpcompose ?x ?q =>
-      let ex := reify_adj s x in let eq := reify_padj s q in app constr:(NPComp) [ex; eq]
-  | rpshift ?h ?q =>
-      let eh := reify_label s h in let eq := reify_padj s q in app constr:(NPShift) [eh; eq]
-  | _ =>
-      let n := n_lit (tbl_add (s.(lets)) (s.(patoms)) p) in app constr:(NPAtom) [n]
+Ltac2 rec assoc_c (k : constr) (l : (constr * 'a) list) : 'a option :=
+  match l with
+  | [] => None
+  | (k', v) :: l' => if Constr.equal k k' then Some v else assoc_c k l'
   end.
+
+(** A node of a context form, with an entry written with a class method
+    read as the constructor its instance is. *)
+Ltac2 view (h : rh) (c : constr) : constr * constr array :=
+  let (f, args) := split_app c in
+  match assoc_c f (h.(h_methods)) with
+  | Some np =>
+      let (fi, iargs) := split_app (Array.get args np) in
+      match assoc_c fi (h.(h_insts)) with
+      | Some ctor =>
+          let n := Array.length args in
+          (ctor, Array.append iargs (Array.sub args (Int.add np 1) (Int.sub n (Int.add np 1))))
+      | None => Control.zero Not_found
+      end
+  | None => (f, args)
+  end.
+
+Ltac2 is_h (f : constr) (g : constr) : bool := Constr.equal f g.
+
+Ltac2 n_of_nat_lit (s : st) (i : constr) : constr :=
+  if is_nat_lit i then n_lit (int_of_nat i) else Control.zero Not_found.
+
+(** A variable as written: [x ^ i], [· ^ i], or one shifted. *)
+Ltac2 rec reify_var (s : st) (w : constr) : constr :=
+  let h := s.(heads) in
+  let (f, a) := split_app w in
+  if is_h f (h.(h_fvar)) then app (h.(r_NVarE)) [reify_lab s (Array.get a 1); n_of_nat_lit s (Array.get a 2)]
+  else if is_h f (h.(h_lvar)) then app (h.(r_NVarE)) [reify_lab s (Array.get a 1); h.(r_N0)]
+  else if is_h f (h.(h_bvar)) then app (h.(r_NVarE)) [h.(r_LNone); n_of_nat_lit s (Array.get a 1)]
+  else if is_h f (h.(h_bvar0)) then app (h.(r_NVarE)) [h.(r_LNone); h.(r_N0)]
+  else if is_h f (h.(h_vshift_free)) then app (h.(r_NShiftE)) [reify_lab s (Array.get a 1); reify_var s (Array.get a 2)]
+  else if is_h f (h.(h_vshift_bound)) then app (h.(r_NShiftE)) [h.(r_LNone); reify_var s (Array.get a 1)]
+  else Control.zero Not_found.
+
+Ltac2 reify_term (s : st) (u : constr) : constr := n_lit (tbl_add (s.(lets)) (s.(terms)) u).
+
+(** [adj_raw a], [a : adj t n m], as an expression. *)
+Ltac2 rec reify_adj (s : st) (t : constr) (n : constr) (m : constr) (a : constr) : constr :=
+  let h := s.(heads) in
+  let atom () :=
+    let r := app (h.(h_adj_raw)) [t; n; m; a] in
+    app (h.(r_NAtom)) [n_lit (tbl_add (s.(lets)) (s.(atoms)) r)] in
+  let (f, args) := split_app a in
+  if is_h f (h.(h_identity)) then h.(r_NId)
+  else if is_h f (h.(h_compose)) then
+    let (nn, mm, kk) := (Array.get args 1, Array.get args 2, Array.get args 3) in
+    let ex := reify_adj s t mm kk (Array.get args 4) in
+    let ey := reify_adj s t nn mm (Array.get args 5) in
+    app (h.(r_NCompose)) [ex; ey]
+  else if is_h f (h.(h_at)) then reify_adj s t constr:(O) constr:(O) (Array.get args 2)
+  else if is_h f (h.(h_sref)) then app (h.(r_NAtom)) [Array.get args 4]
+  else if is_h f (h.(h_share)) then
+    (* the definition, as a new atom standing for it, and the body with a
+       marked use of it for the bound variable *)
+    let (kk, ll, aa, fb) := (Array.get args 3, Array.get args 4, Array.get args 5, Array.get args 6) in
+    let d := reify_adj s t kk ll aa in
+    let k := tbl_push (s.(atoms)) (app (h.(h_adj_raw)) [t; kk; ll; aa]) in
+    s.(sdefs) := FMap.add k d (s.(sdefs));
+    let marker := app (h.(h_sref)) [t; kk; ll; aa; n_lit k] in
+    match Constr.Unsafe.kind fb with
+    | Constr.Unsafe.Lambda _ b => reify_adj s t n m (Constr.Unsafe.substnl [marker] 0 b)
+    | _ => atom ()
+    end
+  else if is_h f (h.(h_cform_id)) then
+    Control.plus (fun () => reify_octx s t (Array.get args 6) (h.(r_NId))) (fun _ => atom ())
+  else if is_h f (h.(h_cform)) then
+    Control.plus (fun () =>
+      match Constr.Unsafe.kind (Array.get args 7) with
+      | Constr.Unsafe.Lambda _ o =>
+          let x := reify_adj s t (Array.get args 2) (Array.get args 3) (Array.get args 8) in
+          reify_octx s t o x
+      | _ => Control.zero Not_found
+      end) (fun _ => atom ())
+  else atom ()
+
+(** [octx_den o]: the outputs, outermost first, then what is inside them. *)
+with reify_octx (s : st) (t : constr) (o : constr) (x0 : constr) : constr :=
+  let h := s.(heads) in
+  (* the outputs: (label, positional), and the node after them *)
+  let rec outs o acc :=
+    let (f, a) := split_app o in
+    if is_h f (h.(h_OPosF)) then outs (Array.get a 10) ((reify_lab s (Array.get a 11), true) :: acc)
+    else if is_h f (h.(h_OPosB)) then outs (Array.get a 10) ((h.(r_LNone), true) :: acc)
+    else if is_h f (h.(h_ONamF)) then
+      match Constr.Unsafe.kind (Array.get a 11) with
+      | Constr.Unsafe.Lambda _ b => outs b ((reify_lab s (Array.get a 10), false) :: acc)
+      | _ => Control.zero Not_found
+      end
+    else if is_h f (h.(h_ONamB)) then
+      match Constr.Unsafe.kind (Array.get a 10) with
+      | Constr.Unsafe.Lambda _ b => outs b ((h.(r_LNone), false) :: acc)
+      | _ => Control.zero Not_found
+      end
+    else (List.rev acc, f, a) in
+  let (os, f, a) := outs o [] in
+  (* the variable each output gives the inputs: [octx_probe], shifted past
+     the outputs inside it *)
+  let rec probes os :=
+    match os with
+    | [] => []
+    | (y, _) :: os' =>
+        let v := List.fold_left (fun v (y', _) => app (h.(r_NShiftE)) [y'; v])
+                   (app (h.(r_NVarE)) [y; h.(r_N0)]) os' in
+        v :: probes os'
+    end in
+  let ps := probes os in
+  let env := List.rev ps in
+  let pos := List.rev (List.map snd (List.filter (fun ((_, p), _) => p) (List.combine os ps))) in
+  let slots := List.rev (List.map snd (List.filter (fun ((_, p), _) => Bool.neg p) (List.combine os ps))) in
+  let wrap x := List.fold_left (fun x (y, _) => app (h.(r_NOuter)) [y; x]) x os in
+  let wk := wrap (h.(r_NId)) in
+  let x := wrap x0 in
+  if is_h f (h.(h_OEnd)) then reify_ictx s t (Array.get a 6) env pos slots wk x
+  else if is_h f (h.(h_OEndT)) then reify_ictx s t (Array.get a 7) env pos slots wk x
+  else if is_h f (h.(h_OShort)) then reify_sctx s t (Array.get a 6) (h.(r_NId)) x
+  else if is_h f (h.(h_OShortT)) then
+    let (fc, c) := split_app (Array.get a 6) in
+    if is_h fc (h.(h_STail)) then
+      let sig := reify_adj s t (Array.get c 3) (Array.get c 4) (Array.get c 6) in
+      reify_sctx s t (Array.get c 5) (h.(r_NId)) sig
+    else Control.zero Not_found
+  else Control.zero Not_found
+
+(** [ictx_den i]: each entry put on [x], the outermost first. *)
+with reify_ictx (s : st) (t : constr) (i : constr) (env : constr list) (pos : constr list) (slots : constr list)
+    (wk : constr) (x : constr) : constr :=
+  let h := s.(heads) in
+  let slot c :=
+    match Constr.Unsafe.kind c with
+    | Constr.Unsafe.Rel r => List.nth slots (Int.sub r 1)
+    | _ => Control.zero Not_found
+    end in
+  let posn p := List.nth pos (int_of_nat p) in
+  let pay q := app (h.(r_NPComp)) [reify_pctx s t q (Some slots) wk wk; h.(r_NPId)] in
+  let (f, a) := view h i in
+  let inner c e := reify_ictx s t c env pos slots wk e in
+  if is_h f (h.(h_IEmpty)) then x
+  else if is_h f (h.(h_IPosF)) then inner (Array.get a 6) (app (h.(r_NInner)) [reify_lab s (Array.get a 7); posn (Array.get a 5); x])
+  else if is_h f (h.(h_IPosB)) then inner (Array.get a 6) (app (h.(r_NInner)) [h.(r_LNone); posn (Array.get a 5); x])
+  else if is_h f (h.(h_IRenF)) then inner (Array.get a 6) (app (h.(r_NInner)) [reify_lab s (Array.get a 7); slot (Array.get a 8); x])
+  else if is_h f (h.(h_IRenB)) then inner (Array.get a 6) (app (h.(r_NInner)) [h.(r_LNone); slot (Array.get a 7); x])
+  else if is_h f (h.(h_ISubF)) then
+    inner (Array.get a 6)
+      (app (h.(r_NInner)) [reify_lab s (Array.get a 7); app (h.(r_NBindE)) [reify_term s (Array.get a 8); pay (Array.get a 9)]; x])
+  else if is_h f (h.(h_ISubB)) then
+    inner (Array.get a 6)
+      (app (h.(r_NInner)) [h.(r_LNone); app (h.(r_NBindE)) [reify_term s (Array.get a 7); pay (Array.get a 8)]; x])
+  else Control.zero Not_found
+
+(** [sctx_den s wk]: each entry put on [x], the outermost first. *)
+with reify_sctx (s : st) (t : constr) (c : constr) (wk : constr) (x : constr) : constr :=
+  let h := s.(heads) in
+  let (f, a) := view h c in
+  let pay q := app (h.(r_NPComp)) [reify_pctx s t q None wk wk; h.(r_NPId)] in
+  let ent y tg := app (h.(r_NInner)) [y; tg; x] in
+  let bind u p := app (h.(r_NBindE)) [reify_term s u; p] in
+  let payr r := app (h.(r_NPComp)) [reify_adj s t (Array.get a 5) (Array.get a 2) r; h.(r_NPId)] in
+  if is_h f (h.(h_SEmpty)) then x
+  else if is_h f (h.(h_SLiftF)) then
+    let y := reify_lab s (Array.get a 6) in
+    reify_sctx s t (Array.get a 5) (app (h.(r_NOuter)) [y; wk])
+      (app (h.(r_NInner)) [y; app (h.(r_NVarE)) [y; h.(r_N0)]; app (h.(r_NOuter)) [y; x]])
+  else if is_h f (h.(h_SLiftB)) then
+    let y := h.(r_LNone) in
+    reify_sctx s t (Array.get a 5) (app (h.(r_NOuter)) [y; wk])
+      (app (h.(r_NInner)) [y; app (h.(r_NVarE)) [y; h.(r_N0)]; app (h.(r_NOuter)) [y; x]])
+  else if is_h f (h.(h_SSubF)) then
+    reify_sctx s t (Array.get a 5) wk (ent (reify_lab s (Array.get a 6)) (bind (Array.get a 7) (pay (Array.get a 8))))
+  else if is_h f (h.(h_SSubB)) then
+    reify_sctx s t (Array.get a 5) wk (ent (h.(r_LNone)) (bind (Array.get a 6) (pay (Array.get a 7))))
+  else if is_h f (h.(h_SRenF)) then
+    reify_sctx s t (Array.get a 5) wk (ent (reify_lab s (Array.get a 6)) (reify_var s (Array.get a 7)))
+  else if is_h f (h.(h_SRenB)) then
+    reify_sctx s t (Array.get a 5) wk (ent (h.(r_LNone)) (reify_var s (Array.get a 6)))
+  else if is_h f (h.(h_SSubFA)) then
+    reify_sctx s t (Array.get a 6) wk (ent (reify_lab s (Array.get a 7)) (bind (Array.get a 8) (payr (Array.get a 9))))
+  else if is_h f (h.(h_SSubBA)) then
+    reify_sctx s t (Array.get a 6) wk (ent (h.(r_LNone)) (bind (Array.get a 7) (payr (Array.get a 8))))
+  else if is_h f (h.(h_SLookF)) then
+    reify_sctx s t (Array.get a 6) wk (ent (reify_lab s (Array.get a 7)) (reify_look s t a (Array.get a 8) (Array.get a 9)))
+  else if is_h f (h.(h_SLookB)) then
+    reify_sctx s t (Array.get a 6) wk (ent (h.(r_LNone)) (reify_look s t a (Array.get a 7) (Array.get a 8)))
+  else Control.zero Not_found
+
+(** [rapply_target r w]: [w] a plain variable, [r : adj t K Mb]. *)
+with reify_look (s : st) (t : constr) (a : constr array) (w : constr) (r : constr) : constr :=
+  let h := s.(heads) in
+  let (vf, va) := split_app (reify_var s w) in
+  if is_h vf (h.(r_NVarE)) then
+    app (h.(r_NLookE)) [Array.get va 0; Array.get va 1; reify_adj s t (Array.get a 5) (Array.get a 2) r]
+  else Control.zero Not_found
+
+(** [pctx_den p f wk acc]: [slots] the variables of the slots ([None]: no
+    slots). *)
+with reify_pctx (s : st) (t : constr) (p : constr) (slots : constr list option) (wk : constr) (acc : constr) : constr :=
+  let h := s.(heads) in
+  let (f, a) := split_app p in
+  if is_h f (h.(h_PEmpty)) then acc
+  else if is_h f (h.(h_PRen)) then
+    match slots, Constr.Unsafe.kind (Array.get a 4) with
+    | Some sl, Constr.Unsafe.Rel r =>
+        reify_pctx s t (Array.get a 2) slots wk (app (h.(r_NInner)) [reify_lab s (Array.get a 3); List.nth sl (Int.sub r 1); acc])
+    | _, _ => Control.zero Not_found
+    end
+  else if is_h f (h.(h_PSub)) then
+    let q := app (h.(r_NPComp)) [reify_pctx s t (Array.get a 5) slots wk wk; h.(r_NPId)] in
+    reify_pctx s t (Array.get a 2) slots wk
+      (app (h.(r_NInner)) [reify_lab s (Array.get a 3); app (h.(r_NBindE)) [reify_term s (Array.get a 4); q]; acc])
+  else Control.zero Not_found.
 
 (** The label order facts in the context, and their proofs, in order. *)
 Ltac2 collect_facts (s : st) : (constr * constr * ident) list :=
@@ -1210,9 +1379,8 @@ Ltac2 show_adj (memo : memo) (a : constr) : outcome :=
   lazy_match! Constr.type a with
   | adj ?t ?n ?m =>
       let ty := Constr.type a in
-      let r := '(adj_raw $a) in
       let s := new_st () in
-      let e := (reify_adj s r) in
+      let e := reify_adj s t n m a in
       let en := (finish s t) in
       let ns := en.(e_ns) in
       let nt := nat_lit ns (en.(e_nt)) in
@@ -1330,14 +1498,13 @@ Ltac2 rec nth_c (l : constr list) (i : int) : constr := List.nth l i.
 Ltac2 var_eq (t : constr) (id : ident) : unit :=
   lazy_match! t with
   | @apply_var ?ty _ ?m ?a ?v =>
-      let r := '(adj_raw $a) in
-      let vr := eval cbn [var_raw bvar bvar0 fvar lvar] in (var_raw $v) in
-      lazy_match! vr with
-      | mk_rvar ?hv ?i =>
-          if is_nat_lit i then () else Control.zero (Tactic_failure None);
-          let s := new_st () in
-          let e := reify_adj s r in
-          let eh := reify_label s hv in
+      let n := lazy_match! Constr.type a with adj _ ?n _ => n end in
+      let s := new_st () in
+      let (eh, i) :=
+        let (vf, va) := split_app (reify_var s v) in
+        if Constr.equal vf (s.(heads).(r_NVarE)) then (Array.get va 0, nat_lit (s.(ns)) (int_of_n (Array.get va 1)))
+        else Control.zero Not_found in
+      let e := reify_adj s ty n m a in
           let en := finish s ty in
           let nt := nat_lit (en.(e_ns)) (en.(e_nt)) in
           let nb := nat_lit (en.(e_ns)) (en.(e_nb)) in
@@ -1390,7 +1557,6 @@ Ltac2 var_eq (t : constr) (id : ident) : unit :=
               | None => Control.zero Not_found
               end
           end
-      end
   end.
 
 (** The first candidate [t] in the goal on which [f t] succeeds, repeatedly. *)
@@ -1421,7 +1587,10 @@ Ltac2 names_eval () : unit :=
         let hid := Control.hyp id in
         lazy_match! Constr.type hid with
         | _ = Rename ?w =>
-            let r := eval cbn in ($f $w) in
+            let r := match Constr.Unsafe.kind f with
+                     | Constr.Unsafe.Lambda _ b => Constr.Unsafe.substnl [w] 0 b
+                     | _ => app f [w]
+                     end in
             rewrite_with '(eval_rename $f $g $a $v $w $hid : _ = $r); Std.clear [id]
         | _ = Bind ?x ?rho => rewrite_with '(eval_bind $f $g $a $v $x $rho $hid); Std.clear [id]
         end
@@ -1437,9 +1606,8 @@ Ltac2 mat_one (a : constr) : unit :=
   lazy_match! Constr.type a with
   | adj ?ty ?n 0 =>
       let inst := constr:(_ : SubstMat $ty) in
-      let r := '(adj_raw $a) in
       let s := new_st () in
-      let e := reify_adj s r in
+      let e := reify_adj s ty n constr:(O) a in
       let en := finish s ty in
       let ns := en.(e_ns) in
       let (le, te, ae, pe, l, hl) := (en.(e_le), en.(e_te), en.(e_ae), en.(e_pe), en.(e_l), en.(e_hl)) in
@@ -1554,10 +1722,7 @@ Ltac2 names_mat () : unit := each_until_fail (is_adj_head_in (adj_heads ())) mat
 Ltac2 autorw (db : ident) : unit := Std.autorewrite false None [db] (concl ()).
 
 Ltac2 names_pass (memo : memo) : unit :=
-  (Notations.repeat0 (fun () => Control.progress (fun () =>
-    autorw @names_pre; Std.cbn { Std.rStrength := Std.Norm; Std.rBeta := true; Std.rMatch := true; Std.rFix := true;
-                                 Std.rCofix := true; Std.rZeta := true; Std.rDelta := false;
-                                 Std.rConst := [reference:(ext_shift)] } (concl ()))));
+  (autorw @names_pre);
   (autorw @names_var);
   (names_adjs memo);
   (Notations.try0 names_mat);
