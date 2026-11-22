@@ -42,8 +42,13 @@ condition.
   - `Indexed.v`: the public indexed types `adj T N M`, `var`, `padj`,
     `target`; context forms (`⟦ a as x | Γ \ b as x | Γ[σ] ⟧`, short
     `⟦ · | σ ⟧`), composition `⨾` (diagrammatic order), and their laws.
-  - `Normalise.v`, `Names.v`: the reflective normaliser and the `names`
-    tactic, which proves equations between indexed adjustments.
+  - `Normalise.v`: label expressions, the known order, and the expressions
+    the tactic reifies goals into, with their meaning.
+  - `HNorm.v`, `CNorm.v`, `Comp.v`, `CSound.v`, `CComplete.v`,
+    `HRefine.v`, `KnownOrder.v`, `HConcrete.v`: the normaliser and its
+    proofs (`docs/comprehension.md`, `docs/hnorm.md`).
+  - `Names.v`: the `names` tactic, which rewrites adjustments to their
+    normal forms, shown as context forms.
   - `Syntax.v`, `Subst.v`: the interface a syntax implements (one Kleisli
     extension and its laws) and the substitution functor over it.
 - `theories/Examples/Lambda.v`: the λ-calculus as a client of the library.

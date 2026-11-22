@@ -115,7 +115,7 @@ which contains `N`. This rests on the lemma below.
 
 ### Relation to the old tree normal form
 
-This is very close to the *tree* normal form of `docs/normal-forms.md`
+This is very close to the *tree* normal form of the former layered normaliser
 (`Core/Normal.v`, `Core/Unique.v`), with a table for sharing.
 
 - **What the tree form was.** A word of segments and lifted atoms.

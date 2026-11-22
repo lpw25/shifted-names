@@ -102,7 +102,7 @@ uses `share`.
 
 ## Results
 
-The same families as in `docs/normal-forms.md`. Time is for normalising
+The benchmark families of the former layered normaliser (since removed). Time is for normalising
 both sides and comparing, with `vm_compute`, in seconds. The "new"
 rows are after the fix to `stop` described under "Why the second pass
 was cubic". "Size" is the
@@ -112,9 +112,10 @@ brackets, where it differs).
 Columns:
 
 - **new:** `HNorm.hn_eq`;
-- **layered:** the current decision, `LEval.nf_eq_t`;
-- **tree:** the tree normal form, `LEval.tnorm`, the form of the original
-  implementation.
+- **layered:** the decision `names` used before `HNorm` (`LEval.nf_eq_t`,
+  since removed);
+- **tree:** the tree normal form (`LEval.tnorm`, since removed), the form
+  of the original implementation.
 
 "—" means not run, and "> 120" means stopped after 120 s.
 
@@ -205,7 +206,7 @@ timed on the result of normalising.
   back the same normal form (it is idempotent).
 - **layered:** the canonical layered words are read back as
   expressions, each segment as one context and non-empty payloads as
-  compositions, and given to `LEval.nf_eq_t`. In every run the readback
+  compositions, and given to `LEval.nf_eq_t` (since removed). In every run the readback
   was equal to the original expression.
 
 Time in seconds, with the first normalisation's time at 1024 for

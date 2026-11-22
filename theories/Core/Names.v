@@ -12,12 +12,11 @@
     analysis).
 
     An adjustment is taken to the raw layer and reified into [aexp].  Its
-    normal form is computed by the layered normaliser (Layered.v,
-    Canon.v) and rendered; the rewrite [a = b] to the rendered form is
-    then checked by normalising both sides with [HNorm] ([names_same],
-    sound by [HConcrete.hn_eq_t_sound]).  To be replaced: [HNorm]
-    computing the normal form, with the rendering proved sound, so that
-    no check is needed. *)
+    normal form is computed by [HNorm] and shown as context forms
+    ([hdisplay]); the rewrite [a = b] to the shown form is then checked
+    by normalising both sides with [HNorm] ([names_same], sound by
+    [HConcrete.hn_eq_t_sound]).  A proof that [hdisplay] preserves
+    meaning would make the check unnecessary. *)
 
 From Stdlib Require Import NArith List String Arith Bool StrictProp.
 Open Scope bool_scope.

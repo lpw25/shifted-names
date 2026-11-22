@@ -91,7 +91,7 @@ Composition is `⨾`, in diagrammatic order (`a ⨾ b` is `a`, then `b`, so
 `t [a] [b] = t [a ⨾ b]`), and the identity is `⟦⟧`. Concrete context forms
 compute, so closed equations hold by `vm_compute` (`Tests/CoreTests.v`).
 
-### The `names` tactic (`Core/Normalise.v`, `Core/Names.v`)
+### The `names` tactic (`Core/HNorm.v`, `Core/Names.v`)
 
 `names` normalises; it does not close goals (`names; reflexivity` or
 `names; easy` does). It knows nothing about any term language: `subst` is
@@ -109,7 +109,7 @@ databases. One pass of `names`:
    v` as `cbn` leaves it);
 3. rewrites every adjustment built from context forms, `⨾`, `⟦⟧` and
    `at_scope` (anything else is an atom) to its normal form
-   (`docs/normal-forms.md`), shown as context forms, lifts grouped;
+   (`docs/hnorm.md`), shown as context forms;
 4. evaluates `apply_var a v` and `eval` nodes whose variable `v` is
    concrete and whose result the normal form of `a` determines: a
    variable `w` gives `tvar w`; a term `u` with payload adjustment `ρ`
@@ -123,17 +123,24 @@ finds work in the terms that step 4 put in the goal.
 
 For each adjustment, step 3 unfolds it to the core's raw constructors
 and reifies it (label, adjustment and term atoms, and the order facts
-`label_lt x y` in the context), computes its normal form by a Gallina
-function, turns that into a display description, renders it as context
-forms (term atoms as they were written), and proves the rewrite by
-deciding the equation (`nf_eq_sound`). An adjustment it cannot normalise
-(a label order it needs is missing) or display (a payload whose
-adjustment has atoms) is left as it is.
+`label_lt x y` in the context), computes its normal form with `HNorm`,
+turns that into a display description (`hdisplay`), renders it as
+context forms (term atoms as they were written), and proves the rewrite
+by checking that both sides have the same `HNorm` normal form
+(`HConcrete.hn_eq_t_sound`). An adjustment whose normal form cannot be
+shown (for example a payload with a payload atom, or one too large) is
+left as it is. Step 4 reads the result off `HNorm`'s lookup
+(`hlook_var_sound`, `hbind_sound`), and materialising payloads compares
+`HNorm` words (`hmat_sound`).
 
 Every comparison between labels goes through `lcmp`, which knows concrete
 labels, the bound label (the greatest), and the context's facts closed
-under transitivity. The normal form is the canonical layered word;
-what is proved about it is in `docs/normal-forms.md`.
+under transitivity (`docs/comprehension.md`, "Labels and the order
+table"). The normal form is `HNorm`'s: equal adjustments in every
+comprehension model get the same one, and it is sound for the library's
+adjustments (`docs/comprehension.md`). When two labels are not ordered,
+the normal form keeps the steps that may interact, so adjustments equal
+only for some order between them get different normal forms.
 
 ## Representation
 

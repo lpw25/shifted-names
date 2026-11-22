@@ -98,17 +98,15 @@ Example subst_chain {N} x1 x2 x3 (u1 u2 u3 : T) :
   = ⟦ x3 := u3; x2 := u2⟨ x3 := u3 ⟩; x1 := u1⟨ x3 := u3; x2 := u2⟨ x3 := u3 ⟩ ⟩ \ ⟧.
 Proof. intros; names; reflexivity. Qed.
 
-(** The payload's labels are compared with the label substituted for:
-    in the layered word they are entries of one segment. *)
+(** The payload's labels are compared with the label substituted for. *)
 Example payload_entries_commute {N} x y z (u v w : T) :
   label_lt x y -> label_lt y z ->
   (⟦ z := w⟨ x := u; y := v ⟩ \ ⟧ : adj T N N) = ⟦ z := w⟨ y := v; x := u ⟩ \ ⟧.
 Proof. intros; names; reflexivity. Qed.
 
-(** A long chain is decided on its layered word, where each term is
-    written once; as a tree the normal form doubles with each step, and
-    [names] leaves such a chain as it is.  However it is nested, it is
-    normalised from its last step. *)
+(** A long chain is normalised with each term written once (the
+    normal form shares it); shown as context forms it would double with
+    each step, so [names] leaves such a chain as it is. *)
 Example long_chain {N} x1 x2 x3 x4 x5 x6 x7 x8 x9 x10 x11 x12 (u1 u2 u3 u4 u5 u6 u7 u8 u9 u10 u11 u12 : T) :
   label_lt x1 x2 -> label_lt x2 x3 -> label_lt x3 x4 -> label_lt x4 x5 ->
   label_lt x5 x6 -> label_lt x6 x7 -> label_lt x7 x8 -> label_lt x8 x9 ->
@@ -151,8 +149,8 @@ Example swap_swap_bound {N} :
   ⟦ · as b; · as a \ · as a; · as b ⟧ ⨾ ⟦ · as b; · as a \ · as a; · as b ⟧ = @identity T (S (S N)).
 Proof. names; reflexivity. Qed.
 
-(** Without the order between [x] and [y], [names] cannot normalise and
-    leaves the goal; a case analysis on [label_compare] supplies it. *)
+(** Without the order between [x] and [y], the two sides have different
+    normal forms; a case analysis on [label_compare] supplies the order. *)
 Example lift_free_comm_cases {N M} x y (a : adj T N M) : ⟦ x; y | a ⟧ = ⟦ y; x | a ⟧.
 Proof.
   names.

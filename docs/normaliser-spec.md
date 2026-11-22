@@ -144,12 +144,9 @@ shown adequate for that quantification over models.
 
 ## Status against this specification
 
-`Core/GForm.v`, `Core/GEval.v` and `Core/GCanon.v` prove canonicity
-for a single interpretation with distinct labels (`NoDup labs`).
-
-- **Requirement 2:** not met; equality there is under one
-  interpretation only, not in every model.
-- **Requirement 3:** not met; `canon` takes `lenv`.
-- **What carries over:** the treatment of entries, payloads, factored
-  shifts, the phantom filler and sharing. The per-label lists of a
-  node do not.
+`HNorm` (`docs/comprehension.md`, `docs/hnorm.md`) decides equality in
+every comprehension model consistent with the facts
+(`HRefine.hn_eq_order_correct`), and is sound for the library's own
+adjustments (`HConcrete.hn_eq_t_sound`). It is not complete for them:
+labels the facts leave unordered may still be distinct there, and
+deciding that would take an exponential case analysis.
