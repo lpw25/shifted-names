@@ -954,19 +954,21 @@ Ltac2 share_proof (t : constr) (n : constr) (m : constr) (p : constr) (rd : rend
     (inner : constr list -> constr list -> constr -> constr) : constr :=
   let k := rd.(rd_k) in
   let raw := constr:(@adj_raw) in
-  let rels i := List.init i (fun j => rel (Int.mul 2 (Int.add j 1))) in
+  (* the [j]th variable from the inside is the [2j]th binder: the
+     definitions and the root use only the variables bound before them *)
+  let rels := List.init k (fun j => rel (Int.mul 2 (Int.add j 1))) in
   let eqc := constr:(@eq) in
   let rty := app constr:(@Adjustment.radj) [t] in
   let rec lvl i :=
     if Int.equal i k then
-      let root := Constr.Unsafe.substnl (rels k) 0 (Array.get (rd.(rd_sufs)) k) in
+      let root := Constr.Unsafe.substnl rels 0 (Array.get (rd.(rd_sufs)) k) in
       let rs := List.init k (fun j => let (a, b) := Array.get (rd.(rd_kl)) j in app raw [t; a; b; rel (Int.mul 2 (Int.sub k j))]) in
       let hs := List.init k (fun j => rel (Int.sub (Int.mul 2 (Int.sub k j)) 1)) in
       inner rs hs root
     else
       let (a, b) := Array.get (rd.(rd_kl)) i in
       let ty := Array.get (rd.(rd_tys)) i in
-      let d := Constr.Unsafe.substnl (rels i) 0 (Array.get (rd.(rd_defs)) i) in
+      let d := Constr.Unsafe.substnl rels 0 (Array.get (rd.(rd_defs)) i) in
       let hty := app eqc [rty; app raw [t; a; b; rel 1]; app raw [t; a; b; Constr.Unsafe.liftn 1 1 d]] in
       lam @r ty (lam @H hty (lvl (Int.add i 1))) in
   app constr:(@chain_intro) [t; n; m; p; rd.(rd_chain); lvl 0].
@@ -1096,6 +1098,9 @@ Ltac2 assert_by (id : ident) (t : constr) (tac : unit -> unit) : unit :=
     goal: its occurrences are found syntactically ([pattern]), never by
     unifying [lhs] with other terms, which can mean comparing two large
     adjustments by computing them. *)
+Ltac2 nocast (c : constr) : constr :=
+  match Constr.Unsafe.kind c with Constr.Unsafe.Cast c' _ _ => c' | _ => c end.
+
 Ltac2 rewrite_with (pf : constr) : unit :=
   lazy_match! Constr.type pf with
   | @eq ?ty ?lhs ?rhs =>
@@ -1105,8 +1110,15 @@ Ltac2 rewrite_with (pf : constr) : unit :=
           match Constr.Unsafe.kind p with
           | Constr.Unsafe.Lambda _ body =>
               let g := Constr.Unsafe.substnl [rhs] 0 body in
-              refine_c (fun () => '(@eq_ind_r $ty $rhs $p _ $lhs $pf));
-              Std.change None (fun _ => g) (concl ())
+              (* the new goal as an evar, the old one closed with no check:
+                 [refine] would type check the whole term *)
+              let ev := nocast '(_ : $g) in
+              let evid := match Constr.Unsafe.kind ev with
+                          | Constr.Unsafe.Evar e _ => e
+                          | _ => Control.zero Not_found
+                          end in
+              Std.exact_no_check (app constr:(@eq_ind_r) [ty; rhs; p; ev; lhs; pf]);
+              Control.new_goal evid
           | _ => Control.zero Not_found
           end
       end
@@ -1555,7 +1567,13 @@ Ltac2 names_pass (memo : memo) : unit :=
 
 Ltac2 names_tac () : unit :=
   let memo := { seen := [] } in
-  Notations.repeat0 (fun () => Control.progress (fun () => names_pass memo)).
+  (* passes until one leaves the goal as it is (compared syntactically:
+     [progress] would normalise the goal's evars to compare) *)
+  let rec go () :=
+    let g := Control.goal () in
+    names_pass memo;
+    Control.enter (fun () => if Constr.equal g (Control.goal ()) then () else go ()) in
+  Control.enter go.
 
 Ltac2 Notation "names" := names_tac ().
 
