@@ -10,7 +10,7 @@ Open Scope string_scope.
 Definition tsubst {N M} (a : sub N M) (t : tm N) : tm M := t [a].
 Definition topen_f {N} (x : label) (t : tm (S N)) : tm N := t [⟦ · \ x ⟧].
 Definition tclose_f {N} (x : label) (t : tm N) : tm (S N) := t [⟦ x \ · ⟧].
-Definition tinst_f {N} (u : tm 0) (t : tm (S N)) : tm N := t [⟦ · := u ⟧].
+Definition tinst_f {N} (u : tm N) (t : tm (S N)) : tm N := t [⟦ · := u ⟧].
 
 (** Names from numbers. *)
 Fixpoint digits (fuel n : nat) (acc : string) : string :=
@@ -54,4 +54,31 @@ Fixpoint nf (fuel : nat) (k : nat) (t : tm 0) : tm 0 :=
       end
   end.
 
-Extraction "lambda.ml" tsubst topen_f tclose_f tinst_f name sub_one sub_comp sub_id sub_ren nf whnf.
+(** The same with de Bruijn binders only: a redex is instantiated with an
+    open argument, under the binders around it. *)
+Fixpoint whnf_db (fuel : nat) {N} (t : tm N) : tm N :=
+  match fuel with
+  | 0 => t
+  | S f =>
+      match t with
+      | tapp t1 t2 =>
+          match whnf_db f t1 with
+          | tlam b => whnf_db f (tinst_f t2 b)
+          | h => tapp h t2
+          end
+      | _ => t
+      end
+  end.
+
+Fixpoint nf_db (fuel : nat) {N} (t : tm N) : tm N :=
+  match fuel with
+  | 0 => t
+  | S f =>
+      match whnf_db fuel t with
+      | tlam b => tlam (nf_db f b)
+      | tapp t1 t2 => tapp (nf_db f t1) (nf_db f t2)
+      | h => h
+      end
+  end.
+
+Extraction "lambda.ml" nf_db tsubst topen_f tclose_f tinst_f name sub_one sub_comp sub_id sub_ren nf whnf.

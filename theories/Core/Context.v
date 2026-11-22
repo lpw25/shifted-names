@@ -151,7 +151,7 @@ Notation "Γ ∋ v ~ a" := (has Γ v a) (at level 60, v at next level).
 
 Section Morphisms.
 
-Context {T A : Type}.
+Context {T : nat -> Type} {A : Type}.
 
 (** The variables an adjustment sends to variables. *)
 Lemma apply_var_rename_inv {N M} (σ : adj T N M) (v : var N) (w : var M) :
@@ -165,7 +165,7 @@ Qed.
 (** What some context forms do to variables. *)
 Lemma apply_var_weaken {N} x (v : var N) : apply_var (⟦ \ x as _ ⟧ : adj T N N) v = Rename (vshift_free x v).
 Proof.
-  apply apply_var_rename; change (adj_raw (⟦ \ x as _ ⟧ : adj T N N)) with (rpush_outer (Some x) (@ridentity T)).
+  apply apply_var_rename; change (adj_raw (⟦ \ x as _ ⟧ : adj T N N)) with (rpush_outer (Some x) (@ridentity (sigT T))).
   rewrite rapply_push_outer, rapply_identity; reflexivity.
 Qed.
 
@@ -177,13 +177,13 @@ Proof.
   rewrite rapply_push_inner; cbn [var_raw fvar]; rewrite rvar_eqb_refl; reflexivity.
 Qed.
 
-Lemma apply_var_subst_here {N} x (u : T) : apply_var (⟦ x := u ⟧ : adj T N N) (fvar x 0) = Bind u pid.
+Lemma apply_var_subst_here {N} x (u : T N) : apply_var (⟦ x := u ⟧ : adj T N N) (fvar x 0) = Bind u identity.
 Proof.
   unfold apply_var; generalize (apply_wf (⟦ x := u ⟧ : adj T N N) (fvar x 0)); unfold apply.
   change (adj_raw (⟦ x := u ⟧ : adj T N N))
-    with (rpush_inner (Some x) (RBind u (rpcompose (@ridentity T) rpidentity)) (@ridentity T)).
+    with (rpush_inner (Some x) (RBind (existT T N u) (@ridentity (sigT T))) (@ridentity (sigT T))).
   rewrite rapply_push_inner; cbn [var_raw fvar]; rewrite rvar_eqb_refl; cbn [rtarget_result].
-  intros H; f_equal; apply padj_eq; cbn [padj_raw pid]; apply rpcompose_identity.
+  intros H; f_equal; apply adj_eq; reflexivity.
 Qed.
 
 (** [Γ =[σ]=> Δ]: [σ] renames every variable of [Γ] to one of [Δ] with the

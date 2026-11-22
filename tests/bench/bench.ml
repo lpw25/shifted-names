@@ -55,4 +55,6 @@ let () =
   assert (seq = r);
   let m = time (Printf.sprintf "normalise mult %d %d" c c) (fun () -> nf fuel z (Tapp (Tapp (mult, church c), church c))) in
   assert (count m = c * c);
+  let m' = time (Printf.sprintf "normalise mult %d %d (de Bruijn)" c c) (fun () -> nf_db fuel z (Tapp (Tapp (mult, church c), church c))) in
+  assert (m' = church (c * c));
   print_endline "bench done"
