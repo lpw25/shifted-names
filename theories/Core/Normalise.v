@@ -8,7 +8,7 @@
     - expressions ([aexp], [texp], [pexp]) over label atoms, adjustment
       atoms, payload atoms and term atoms, which the tactic reifies goals
       into, and their meaning as the library's adjustments ([aeden]);
-    - [mrel], the relation materialising a payload gives;
+    - [mbase] and [drel], the relations materialising a payload gives;
     - the data the display of normal forms is built from ([seg], [word]).
     Transitivity and irreflexivity of the known order are in
     [KnownOrder]; the normaliser and its proofs in [HNorm], [CNorm],
@@ -965,9 +965,22 @@ Section Mat.
 
 Variable g : rpadj T -> T -> T.
 
-Definition mrel (r r' : rresult T) : Prop :=
-  r = r' \/ exists u ρ, r = inr (u, ρ) /\ r' = inr (g ρ u, rpidentity).
+Definition mbase (r r' : rresult T) : Prop := exists u ρ, r = inr (u, ρ) /\ r' = inr (g ρ u, rpidentity).
 
 End Mat.
+
+(** Results related by [B], also inside payloads: the same, related by
+    [B], or the same term with payloads [W ∘ ρ] and [W' ∘ ρ] for [W] and
+    [W'] whose results are related.  (An entry changed after an atom
+    changes the payloads of the atom's terms in this way.) *)
+Inductive drel (B : rresult T -> rresult T -> Prop) : rresult T -> rresult T -> Prop :=
+| DEq r : drel B r r
+| DBase r r' : B r r' -> drel B r r'
+| DPay u (W W' : radj T) ρ : (forall v, drel B (rapply W v) (rapply W' v)) ->
+    drel B (inr (u, rpcompose W ρ)) (inr (u, rpcompose W' ρ)).
+
+Lemma drel_mono (B B' : rresult T -> rresult T -> Prop) : (forall r r', B r r' -> B' r r') ->
+  forall r r', drel B r r' -> drel B' r r'.
+Proof. intros H; induction 1; [apply DEq|apply DBase, H; assumption|apply DPay; assumption]. Qed.
 
 End Sound.

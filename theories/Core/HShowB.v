@@ -213,9 +213,9 @@ Theorem hvarB_show_sound l e vt shN rN : lfacts_okB Le l ->
   (forall u x, vlook u vt = Some x -> exists y, bnth Te (N.of_nat u) = Some y) ->
   hvar_displayN (order_of l) (List.length te) (List.length ae) e vt = Some (shN, rN) ->
   Forall2 (fun x d => x = den d) rs shN ->
-  forall v, rapply (den e) v = rapply (den rN) v \/
-    exists u h i y W, vlook u vt = Some (h, i) /\ bnth Te (N.of_nat u) = Some y /\
-      rapply (den e) v = inr (y, rpcompose W rpidentity) /\ rapply (den rN) v = rapply W (mk_rvar (ldenB Le h) i).
+  forall v, drel (fun r r' => exists u h i y W, vlook u vt = Some (h, i) /\ bnth Te (N.of_nat u) = Some y /\
+      r = inr (y, rpcompose W rpidentity) /\ r' = rapply W (mk_rvar (ldenB Le h) i))
+    (rapply (den e) v) (rapply (den rN) v).
 Proof.
   intros Hl Hvt E Hs; unfold hvar_displayN in E.
   destruct (hvar_display _ _ _ _ _) as [[sh r]|] eqn:E0; [|discriminate]; injection E as <- <-.
@@ -223,8 +223,8 @@ Proof.
   assert (Hvt' : forall u x, vlook u vt = Some x -> u < List.length te).
   { intros u x Hu; destruct (Hvt u x Hu) as [y Hy]; rewrite B in Hy; apply nth_error_Some; rewrite Hy; discriminate. }
   intros v; rewrite den_dec, den_enc.
-  destruct (hvar_show_sound le te ae rs pe vt l _ sh r (lfacts_den l Hl) Hvt' E0 (shares_den _ Hs) v)
-    as [Eq|[u [h [i [y [W [E1 [E2 [E3 E4]]]]]]]]]; [left; exact Eq|right].
+  refine (drel_mono _ _ _ _ _ (hvar_show_sound le te ae rs pe vt l _ sh r (lfacts_den l Hl) Hvt' E0 (shares_den _ Hs) v)).
+  intros r0 r0' [u [h [i [y [W [E1 [E2 [E3 E4]]]]]]]].
   exists u, h, i, y, W; rewrite B, HLe, ldenB_bof; repeat split; assumption.
 Qed.
 
@@ -239,7 +239,7 @@ Theorem hmatB_show_sound l e k u shbN rbN shN rN nb n1 n2 : lfacts_okB Le l ->
   nb = List.length ae + List.length shN ->
   Forall2 (fun x d => x = den d) rs (shN ++ shbN) ->
   (forall y, bnth Te u = Some y -> bnth Te (N.of_nat k) = Some (g (rpcompose (den rbN) rpidentity) y)) ->
-  forall v, mrel g (rapply (den e) v) (rapply (den rN) v).
+  forall v, drel (mbase g) (rapply (den e) v) (rapply (den rN) v).
 Proof.
   intros Hl L1 L2 Ht Hd Hnb Hs Hk.
   unfold hmat_targetN in Ht; unfold hmat_displayN in Hd.

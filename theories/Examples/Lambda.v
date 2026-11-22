@@ -137,6 +137,17 @@ Proof. names; reflexivity. Qed.
 Example subst_var_term x y (M : tm 0) : M [⟦ x := (tvar (fvar y 0)) ⟧] = M [⟦ x as (fvar y 0) ⟧].
 Proof. names; reflexivity. Qed.
 
+(** Also with an atom after it: the variable becomes a look-up through
+    the atom. *)
+Example subst_var_term_atom x y (M : tm 0) (s : sub 0 0) :
+  M [⟦ x := (tvar (fvar y 0)) ⟧ ⨾ s] = M [(⟦ x as (fvar y 0) ⟧ : sub 0 0)] [s].
+Proof. names; reflexivity. Qed.
+
+(** A payload with an atom in it is materialised. *)
+Example mat_atom x y (N L M : tm 0) (s : sub 0 0) :
+  M [⟦ x := N ⟧] [⟦ y := L ⟧] [s] = M [⟦ x := (N [⟦ y := L ⟧ ⨾ s]); y := (L [s]) | s ⟧].
+Proof. names; reflexivity. Qed.
+
 (** Barendregt's substitution lemma. *)
 Theorem barendregt x y (L N M : tm 0) : label_lt x y ->
   M [⟦ x := N ⟧] [⟦ y := L ⟧] = M [⟦ y := (L [⟦ \ x as _ ⟧]) ⟧] [⟦ x := (N [⟦ y := L ⟧]) ⟧].

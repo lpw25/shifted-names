@@ -65,38 +65,6 @@ Definition hbind_check (F : order) (n : nat) (e : aexp) (h : lexp) (i : nat) (eb
   end.
 
 
-(** ** Materialising
-
-    [e'] is [e] with some terms [u⟨eb⟩] replaced by term atoms [k] with
-    the identity payload: their HNorm words, which have no atoms, are the
-    same step by step except at such entries. *)
-
-Fixpoint hmat_walk (ids : list (nat * nat * positive)) (w w' : HNorm.word) : bool :=
-  match w, w' with
-  | [], [] => true
-  | (s, _) :: r, (s', _) :: r' =>
-      (match s with HNorm.SA _ => false | _ => true end) &&
-      (HNorm.step_eqb s s' ||
-       match s, s' with
-       | HNorm.SE h (HNorm.VTerm u None p), HNorm.SE h' (HNorm.VTerm k None q) =>
-           lexp_eqb h h' && Pos.eqb q 1 && existsb (fun '(k', u', i) => Nat.eqb k k' && Nat.eqb u u' && Pos.eqb p i) ids
-       | _, _ => false
-       end) && hmat_walk ids r r'
-  | _, _ => false
-  end.
-
-Definition hmat_ids (F : order) (facts : list (nat * nat * aexp)) (T : HNorm.st) : list (nat * nat * positive) * HNorm.st :=
-  fold_left (fun '(acc, T) '(k, u, eb) =>
-    let '(wb, T1) := HNorm.norm F eb [] T in let '(wb', T2) := HNorm.clean None wb T1 in ((k, u, HNorm.wid wb') :: acc, T2))
-    facts ([], T).
-
-Definition hmat_check (F : order) (n : nat) (facts : list (nat * nat * aexp)) (e e' : aexp) : bool :=
-  aok n e && aok n e' && forallb (fun '(k, u, eb) => Nat.ltb k n && Nat.ltb u n && aok n eb) facts &&
-  (let '(w, T1) := HNorm.norm F e [] HNorm.st0 in
-   let '(w', T2) := HNorm.norm F e' [] T1 in
-   let '(ids, _) := hmat_ids F facts T2 in
-   hmat_walk ids w w').
-
 Section Concrete.
 
 Context {T : Type}.
@@ -303,30 +271,30 @@ Proof.
   destruct (rapply (aeden e) _) as [w'|[u' ρ]]; [discriminate|injection K as -> ->; reflexivity].
 Qed.
 
-Section Mat.
+Section WRel.
 
-Variable g : rpadj T -> T -> T.
+(** Two words step by step the same except for entries whose results are
+    related by [B]. *)
+Variable B : rresult T -> rresult T -> Prop.
 
-Definition tmrel (t t' : rtarget T) : Prop := t = t' \/ exists u ρ, t = RBind u ρ /\ t' = RBind (g ρ u) rpidentity.
+Inductive wrel : CNorm.cword -> CNorm.cword -> Prop :=
+| WNil : wrel [] []
+| WSame s w w' : wrel w w' -> wrel (s :: w) (s :: w')
+| WEnt h v v' w w' : B (rtarget_result (@vden kmodel v ridentity)) (rtarget_result (@vden kmodel v' ridentity)) ->
+    wrel w w' -> wrel (CNorm.SE h v :: w) (CNorm.SE h v' :: w').
 
-(** Two words without atoms, step by step the same except for related
-    values. *)
-Inductive matw : CNorm.cword -> CNorm.cword -> Prop :=
-| MNil : matw [] []
-| MSame s w w' : (match s with CNorm.SA _ => False | _ => True end) -> matw w w' -> matw (s :: w) (s :: w')
-| MEnt h v v' w w' : tmrel (@vden kmodel v ridentity) (@vden kmodel v' ridentity) -> matw w w' ->
-    matw (CNorm.SE h v :: w) (CNorm.SE h v' :: w').
-
-Lemma matw_mrel w w' : matw w w' -> forall v, mrel g (rapply (@wden kmodel w ridentity) v) (rapply (@wden kmodel w' ridentity) v).
+Lemma wrel_drel w w' : wrel w w' -> forall v, drel B (rapply (@wden kmodel w ridentity) v) (rapply (@wden kmodel w' ridentity) v).
 Proof.
-  induction 1 as [|s w w' Hs Hw IH|h v v' w w' Ht Hw IH]; intros x; [left; reflexivity| |].
-  - destruct s as [h v|h|a]; [| |contradiction]; cbn [wden sden kmodel cpush cpop]; unfold kpush, kpop.
-    + rewrite !rapply_push_inner; destruct (rvar_eqb x _); [left; reflexivity|apply IH].
+  induction 1 as [|s w w' Hw IH|h v v' w w' Ht Hw IH]; intros x; [apply DEq| |].
+  - destruct s as [h v|h|a]; cbn [wden sden kmodel cpush cpop catom]; unfold kpush, kpop.
+    + rewrite !rapply_push_inner; destruct (rvar_eqb x _); [apply DEq|apply IH].
     + rewrite !rapply_compose, !Laws.rapply_shift; apply IH.
+    + rewrite !rapply_compose; destruct (rapply (aden aenv a) x) as [w0|[u ρ]]; [apply IH|apply DPay, IH].
   - cbn [wden sden kmodel cpush]; unfold kpush; rewrite !rapply_push_inner; destruct (rvar_eqb x _); [|apply IH].
-    destruct Ht as [E|[u [ρ [E1 E2]]]]; [rewrite E; left; reflexivity|].
-    rewrite E1, E2; right; exists u, ρ; split; reflexivity.
+    apply DBase, Ht.
 Qed.
+
+End WRel.
 
 Lemma kword_meaning l e : lfacts_ok lenv l -> aok (List.length tenv) e = true ->
   @wden kmodel (CNorm.norm (order_of l) e []) ridentity = aeden e.
@@ -335,105 +303,9 @@ Proof.
   destruct (kden (List.length tenv) (le_n _)) as [Ka _]; rewrite (Ka e Ha); apply rcompose_identity_l.
 Qed.
 
-Lemma hmat_ids_aux F (Hirr : forall a, lt_known F a a = false)
-  (Htr : forall a b c, lt_known F a b = true -> lt_known F b c = true -> lt_known F a c = true)
-  (P : nat -> nat -> aexp -> Prop) :
-  forall (facts : list (nat * nat * aexp)) (acc : list (nat * nat * positive)) (T0 : HNorm.st), Inv T0 ->
-  (forall k u i, In (k, u, i) acc -> exists eb, P k u eb /\ RId T0 i (CNorm.clean None (CNorm.norm F eb []))) ->
-  (forall k u eb, In (k, u, eb) facts -> P k u eb) ->
-  Inv (snd (fold_left (fun '(acc, T) '(k, u, eb) =>
-      let '(wb, T1) := HNorm.norm F eb [] T in let '(wb', T2) := HNorm.clean None wb T1 in ((k, u, HNorm.wid wb') :: acc, T2))
-      facts (acc, T0)))
-  /\ Ext T0 (snd (fold_left (fun '(acc, T) '(k, u, eb) =>
-      let '(wb, T1) := HNorm.norm F eb [] T in let '(wb', T2) := HNorm.clean None wb T1 in ((k, u, HNorm.wid wb') :: acc, T2))
-      facts (acc, T0)))
-  /\ forall k u i, In (k, u, i) (fst (fold_left (fun '(acc, T) '(k, u, eb) =>
-      let '(wb, T1) := HNorm.norm F eb [] T in let '(wb', T2) := HNorm.clean None wb T1 in ((k, u, HNorm.wid wb') :: acc, T2))
-      facts (acc, T0))) ->
-      exists eb, P k u eb /\ RId (snd (fold_left (fun '(acc, T) '(k, u, eb) =>
-      let '(wb, T1) := HNorm.norm F eb [] T in let '(wb', T2) := HNorm.clean None wb T1 in ((k, u, HNorm.wid wb') :: acc, T2))
-      facts (acc, T0))) i (CNorm.clean None (CNorm.norm F eb [])).
-Proof.
-  induction facts as [|[[k0 u0] eb0] facts IH]; intros acc T0 I0 Hacc Hf; cbn [fold_left].
-  - split; [exact I0|split; [apply Ext_refl|exact Hacc]].
-  - destruct (HNorm.norm F eb0 [] T0) as [wb T1] eqn:Eb; destruct (HNorm.clean None wb T1) as [wb' T2] eqn:Ec.
-    destruct (proj1 (norm_spec_all F Hirr Htr) eb0 [] T0 [] wb T1 I0 (RWNil _) Eb) as [I1 [X1 R1]].
-    destruct (clean_spec T1 None wb _ wb' T2 I1 R1 Ec) as [I2 [X2 R2]].
-    destruct (IH ((k0, u0, HNorm.wid wb') :: acc) T2 I2) as [I3 [X3 H3]].
-    + intros k u i [E|Hi].
-      * injection E as <- <- <-; exists eb0; split; [apply Hf; left; reflexivity|apply RWord_RId, R2].
-      * destruct (Hacc k u i Hi) as [eb [Hp Hr]]; exists eb; split; [exact Hp|].
-        exact (proj1 (R_mono _ _ (Ext_trans _ _ _ X1 X2)) _ _ Hr).
-    + intros k u eb Hi; apply Hf; right; exact Hi.
-    + split; [exact I3|split; [exact (Ext_trans _ _ _ (Ext_trans _ _ _ X1 X2) X3)|exact H3]].
-Qed.
-
 Lemma RStep_SE_term S h u b p cs : RStep S (HNorm.SE h (HNorm.VTerm u b p)) cs ->
   exists cp, cs = CNorm.SE h (CNorm.VTerm u b cp) /\ RId S p cp.
 Proof. intros H; inversion H as [? ? cv Hv| |]; subst; destruct (RVal_term _ _ _ _ _ Hv) as [cp [-> Hp]]; eexists; split; [reflexivity|exact Hp]. Qed.
 
-Theorem hmat_sound l (facts : list (nat * nat * aexp)) e e' : lfacts_ok lenv l ->
-  hmat_check (order_of l) (List.length tenv) facts e e' = true ->
-  Forall (fun f => let '(k, u, eb) := f in forall y, nth_error tenv u = Some y ->
-            nth_error tenv k = Some (g (rpcompose (aeden eb) rpidentity) y)) facts ->
-  forall v, mrel g (rapply (aeden e) v) (rapply (aeden e') v).
-Proof.
-  intros Hl H Hfacts; unfold hmat_check in H.
-  apply andb_true_iff in H as [H Hw]; apply andb_true_iff in H as [H Hfs]; apply andb_true_iff in H as [Ha Ha'].
-  set (F := order_of l) in *.
-  pose proof (order_of_irrefl l lenv Hl) as Hirr; pose proof (order_of_trans l lenv Hl) as Htr.
-  destruct (HNorm.norm F e [] HNorm.st0) as [w T1] eqn:E1; destruct (HNorm.norm F e' [] T1) as [w' T2] eqn:E2.
-  unfold hmat_ids in Hw.
-  destruct (proj1 (norm_spec_all F Hirr Htr) e [] HNorm.st0 [] w T1 Inv_st0 (RWNil _) E1) as [I1 [X1 R1]].
-  destruct (proj1 (norm_spec_all F Hirr Htr) e' [] T1 [] w' T2 I1 (RWNil _) E2) as [I2 [X2 R2]].
-  destruct (hmat_ids_aux F Hirr Htr (fun k u eb => In (k, u, eb) facts) facts [] T2 I2
-              (fun _ _ _ Hi => match Hi with end) (fun _ _ _ Hi => Hi)) as [I3 [X3 H3]].
-  destruct (fold_left _ facts ([], T2)) as [ids T3] eqn:Ef; cbn [fst snd] in I3, X3, H3.
-  pose proof (proj1 (R_mono _ _ (Ext_trans _ _ _ X2 X3)) _ _ (RWord_RId _ _ _ R1)) as _.
-  assert (RW1 : RWord T3 w (CNorm.norm F e [])) by exact (RWord_mono _ _ (Ext_trans _ _ _ X2 X3) _ _ R1).
-  assert (RW2 : RWord T3 w' (CNorm.norm F e' [])) by exact (RWord_mono _ _ X3 _ _ R2).
-  rewrite <- (kword_meaning l e Hl Ha), <- (kword_meaning l e' Hl Ha'); fold F; apply matw_mrel.
-  clear E1 E2 R1 R2 Ef; revert Hw RW2; generalize (CNorm.norm F e' []) as cw'; generalize w'.
-  induction RW1 as [|s i w0 cs cw Hc Hs Hw0 IH]; intros w2 cw' Hw RW2; destruct w2 as [|[s' i'] w2]; cbn [hmat_walk] in Hw; try discriminate.
-  - inversion RW2; constructor.
-  - inversion RW2 as [|? ? ? cs' cw2 Hc' Hs' Hw2]; subst.
-    apply andb_true_iff in Hw as [Hw Hrest]; apply andb_true_iff in Hw as [Hna Hst].
-    apply orb_true_iff in Hst as [Hst|Hst].
-    + apply hstep_eqb_eq in Hst; subst s'.
-      pose proof (proj1 (proj2 (R_func _ I3)) _ _ Hs _ Hs') as <-.
-      apply MSame; [destruct s; inversion Hs; subst; try exact I; discriminate|apply (IH _ _ Hrest Hw2)].
-    + destruct s as [h [| u [b|] p |] | |]; try discriminate; destruct s' as [h' [| k [b'|] q |] | |]; try discriminate.
-      apply andb_true_iff in Hst as [Hst Hex]; apply andb_true_iff in Hst as [Hh Hq].
-      apply lexp_eqb_eq in Hh; subst h'; apply Pos.eqb_eq in Hq; subst q.
-      apply existsb_exists in Hex as [[[k1 u1] i1] [Hin Hm]].
-      apply andb_true_iff in Hm as [Hm Hp]; apply andb_true_iff in Hm as [Hk Hu].
-      apply Nat.eqb_eq in Hk, Hu; apply Pos.eqb_eq in Hp; subst k1 u1 i1.
-      destruct (H3 _ _ _ Hin) as [eb [Hinf Hr]].
-      destruct (RStep_SE_term _ _ _ _ _ _ Hs) as [cp [-> Hcp]].
-      destruct (RStep_SE_term _ _ _ _ _ _ Hs') as [cq [-> Hcq]].
-      pose proof (proj1 (R_func _ I3) _ _ Hcp _ Hr) as ->.
-      pose proof (proj1 (R_func _ I3) _ _ Hcq _ (RNil _)) as ->.
-      apply MEnt; [|apply (IH _ _ Hrest Hw2)].
-      rewrite forallb_forall in Hfs; pose proof (Hfs _ Hinf) as Hok; cbn in Hok.
-      apply andb_true_iff in Hok as [Hok Hb]; apply andb_true_iff in Hok as [Hk Hu]; apply Nat.ltb_lt in Hk, Hu.
-      rewrite Forall_forall in Hfacts; pose proof (Hfacts _ Hinf) as Hf; cbn in Hf.
-      destruct (nth_error tenv u) as [y|] eqn:Ey; [|apply nth_error_None in Ey; lia].
-      pose proof (Hf y eq_refl) as Ek.
-      pose proof (clean_sound kmodel F (kcons _ (order_of_ok lenv l Hl)) u None (CNorm.norm F eb []) ridentity) as Cs.
-      change (kterm u None (@wden kmodel (CNorm.clean None (CNorm.norm F eb [])) ridentity)
-              = kterm u None (@wden kmodel (CNorm.norm F eb []) ridentity)) in Cs.
-      unfold kterm in Cs; rewrite Ey in Cs.
-      apply (f_equal (fun t => match t with RBind _ ρ => ρ | _ => rpidentity end)) in Cs.
-      rewrite (kword_meaning l eb Hl Hb : @wden kmodel (CNorm.norm F eb []) ridentity = aeden eb) in Cs.
-      change (bden penv None) with (@rpidentity T) in Cs.
-      rewrite !vden_term.
-      change (tmrel (kterm u None (@wden kmodel (CNorm.clean None (CNorm.norm F eb [])) ridentity))
-                    (kterm k None (@wden kmodel [] ridentity))).
-      unfold kterm; rewrite Ey, Ek; change (bden penv None) with (@rpidentity T).
-      change (@wden kmodel [] ridentity) with (@ridentity T); rewrite rpcompose_identity.
-      right; exists y, (rpcompose (aeden eb) rpidentity); split; [rewrite Cs; reflexivity|reflexivity].
-Qed.
-
-End Mat.
 
 End Concrete.

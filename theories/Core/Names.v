@@ -48,23 +48,26 @@ Import ListNotations.
     - materialising: how a payload adjustment acts on a closed term ([g],
       which is [sub] on one of the form [b ∘ id]), and that substitutions
       into the closed scope whose results on each variable are related by
-      [mrel g] are equal;
+      [drel (mbase g)] are equal: the same up to terms [u] with a payload
+      [ρ] replaced by [g ρ u] with the identity payload, also inside
+      payloads;
     - a term that is a variable: substitutions whose results on each
-      variable are related by [vrel var] are equal, [vrel] relating a
-      variable [w] with a payload [W ∘ id] to where [W] sends [w].
+      variable are related by [drel (vbase var)] are equal, [vbase]
+      relating a variable [w] with a payload [W ∘ id] to where [W] sends
+      [w].
     A syntax's [Subst] functor rewrites its substitution to the node before
     [names] works on it ([names_node]) and back after ([names_post]). *)
-Definition vrel {T} (var0 : var 0 -> T) (r r' : rresult T) : Prop :=
-  r = r' \/ exists (w : var 0) (W : radj T), r = inr (var0 w, rpcompose W rpidentity) /\ r' = rapply W (var_raw w).
+Definition vbase {T} (var0 : var 0 -> T) (r r' : rresult T) : Prop :=
+  exists (w : var 0) (W : radj T), r = inr (var0 w, rpcompose W rpidentity) /\ r' = rapply W (var_raw w).
 
 Record SubstLaw (term : nat -> Type) (var0 : var 0 -> term 0) (sub : forall N M, adj (term 0) N M -> term N -> term M)
     (g : rpadj (term 0) -> term 0 -> term 0) : Prop := {
   sl_g : forall (b : adj (term 0) 0 0) u, g (rpcompose (adj_raw b) rpidentity) u = sub 0 0 b u;
   sl_mat : forall N (a a' : adj (term 0) N 0),
-    (forall v : var N, mrel g (rapply (adj_raw a) (var_raw v)) (rapply (adj_raw a') (var_raw v))) ->
+    (forall v : var N, drel (mbase g) (rapply (adj_raw a) (var_raw v)) (rapply (adj_raw a') (var_raw v))) ->
     forall t, sub N 0 a t = sub N 0 a' t;
   sl_var : forall N M (a a' : adj (term 0) N M),
-    (forall v : var N, vrel var0 (rapply (adj_raw a) (var_raw v)) (rapply (adj_raw a') (var_raw v))) ->
+    (forall v : var N, drel (vbase var0) (rapply (adj_raw a) (var_raw v)) (rapply (adj_raw a') (var_raw v))) ->
     forall t, sub N M a t = sub N M a' t }.
 
 Definition csubst {term var0 sub g} (L : SubstLaw term var0 sub g) {N M} (a : adj (term 0) N M) (t : term N) : term M :=
@@ -78,12 +81,12 @@ Definition csubst {term var0 sub g} (L : SubstLaw term var0 sub g) {N M} (a : ad
 Definition cvar {term var0 sub g} (L : SubstLaw term var0 sub g) (w : var 0) : term 0 := var0 w.
 
 Lemma csubst_mat {term var0 sub g} (L : SubstLaw term var0 sub g) {N} (a a' : adj (term 0) N 0) :
-  (forall v : var N, mrel g (rapply (adj_raw a) (var_raw v)) (rapply (adj_raw a') (var_raw v))) ->
+  (forall v : var N, drel (mbase g) (rapply (adj_raw a) (var_raw v)) (rapply (adj_raw a') (var_raw v))) ->
   forall t, csubst L a t = csubst L a' t.
 Proof. apply (sl_mat _ _ _ _ L). Qed.
 
 Lemma csubst_var {term var0 sub g} (L : SubstLaw term var0 sub g) {N M} (a a' : adj (term 0) N M) :
-  (forall v : var N, vrel var0 (rapply (adj_raw a) (var_raw v)) (rapply (adj_raw a') (var_raw v))) ->
+  (forall v : var N, drel (vbase var0) (rapply (adj_raw a) (var_raw v)) (rapply (adj_raw a') (var_raw v))) ->
   forall t, csubst L a t = csubst L a' t.
 Proof. apply (sl_var _ _ _ _ L). Qed.
 
@@ -151,13 +154,13 @@ Proof. intros H1 H2 <- y Hy; rewrite H1 in Hy; injection Hy as <-; rewrite H2, (
 #[global] Opaque cvar.
 
 (** The terms [vt] says are variables are the variables [var0 w]: from
-    what [hvarB_show_sound] gives, [vrel]. *)
+    what [hvarB_show_sound] gives, [drel (vbase var0)]. *)
 Lemma var_bridge {T} (var0 : var 0 -> T) (Te : braun T) (Le : braun label) (vt : list (nat * (lexp * nat))) (A B : radj T) :
   Forall (fun '(u, (h, i)) => exists w : var 0, bnth Te (N.of_nat u) = Some (var0 w) /\ var_raw w = mk_rvar (ldenB Le h) i) vt ->
   ((forall u x, vlook u vt = Some x -> exists y, bnth Te (N.of_nat u) = Some y) ->
-   forall v, rapply A v = rapply B v \/ exists u h i y W, vlook u vt = Some (h, i) /\ bnth Te (N.of_nat u) = Some y /\
-     rapply A v = inr (y, rpcompose W rpidentity) /\ rapply B v = rapply W (mk_rvar (ldenB Le h) i)) ->
-  forall v, vrel var0 (rapply A v) (rapply B v).
+   forall v, drel (fun r r' => exists u h i y W, vlook u vt = Some (h, i) /\ bnth Te (N.of_nat u) = Some y /\
+     r = inr (y, rpcompose W rpidentity) /\ r' = rapply W (mk_rvar (ldenB Le h) i)) (rapply A v) (rapply B v)) ->
+  forall v, drel (vbase var0) (rapply A v) (rapply B v).
 Proof.
   intros Hvt H v.
   assert (Hin : forall u x, vlook u vt = Some x -> In (u, x) vt).
@@ -166,7 +169,7 @@ Proof.
   rewrite Forall_forall in Hvt.
   assert (Hy : forall u x, vlook u vt = Some x -> exists y, bnth Te (N.of_nat u) = Some y).
   { intros u [h i] E; destruct (Hvt _ (Hin _ _ E)) as [w [E1 _]]; exists (var0 w); exact E1. }
-  destruct (H Hy v) as [E|[u [h [i [y [W [E1 [E2 [E3 E4]]]]]]]]]; [left; exact E|right].
+  refine (drel_mono _ _ _ _ _ (H Hy v)); intros r r' [u [h [i [y [W [E1 [E2 [E3 E4]]]]]]]].
   destruct (Hvt _ (Hin _ _ E1)) as [w [Ew Hw]].
   rewrite E2 in Ew; injection Ew as ->.
   exists w, W; split; [exact E3|rewrite E4, Hw; reflexivity].
@@ -1685,7 +1688,7 @@ Ltac2 mat_one (node : constr) : unit :=
               let srel := '(fun (Te : braun $ty) (Ae : braun (radj $ty)) (z0 : radj $ty) (d0 : aexpN) =>
                               z0 = aedenB $lt Te Ae $pt d0) in
               let hxf := '(fun b : adj $ty 0 0 => @eq_refl (option $ty) (Some (@csubst $term $vr $sub $g $lw 0 0 b $ut))) in
-              let p := '(fun y : adj $ty $n 0 => forall v : var $n, mrel $g (rapply (adj_raw $a) (var_raw v)) (rapply (adj_raw y) (var_raw v))) in
+              let p := '(fun y : adj $ty $n 0 => forall v : var $n, drel (mbase $g) (rapply (adj_raw $a) (var_raw v)) (rapply (adj_raw y) (var_raw v))) in
               let atoms := Array.to_list (en.(e_atoms)) in
               let pf := share_proof ty n constr:(O) p rd (fun rs hs _ =>
                 let k := rd.(rd_k) in
@@ -1700,7 +1703,7 @@ Ltac2 mat_one (node : constr) : unit :=
                 app q [rsl; bt; at_; tt; refl constr:(braun label) lt; refl '(braun $ty) tt; refl '(braun (radj $ty)) at_;
                        refl '(braun (rpadj $ty)) pt; hsp; refl '(option $ty) (app constr:(@Some) [ty; ut]); app hxf [bt];
                        refl rty (app constr:(@adj_raw) [ty; constr:(O); constr:(O); bt])]) in
-              assert_by hid '(forall v : var $n, mrel $g (rapply (adj_raw $a) (var_raw v)) (rapply (adj_raw $a') (var_raw v)))
+              assert_by hid '(forall v : var $n, drel (mbase $g) (rapply (adj_raw $a) (var_raw v)) (rapply (adj_raw $a') (var_raw v)))
                 (fun () => Std.exact_no_check pf);
               let eid := fresh @E in
               let hh := Control.hyp hid in
@@ -1794,7 +1797,7 @@ Ltac2 var_one (node : constr) : unit :=
                   refl constr:(rvar) (app constr:(@var_raw) [constr:(O); w])]]) vts in
           let hvt := forall_proof vty pr (List.map (fun (k, h, i, _) => app pr_v [nat_lit ns k; app pr_li [h; nat_lit ns (int_of_n i)]]) vts)
                        vproofs in
-          let p := '(fun y : adj $ty $n $m => forall v : var $n, vrel $vr (rapply (adj_raw $a) (var_raw v)) (rapply (adj_raw y) (var_raw v))) in
+          let p := '(fun y : adj $ty $n $m => forall v : var $n, drel (vbase $vr) (rapply (adj_raw $a) (var_raw v)) (rapply (adj_raw y) (var_raw v))) in
           let atoms := Array.to_list (en.(e_atoms)) in
           let pf := share_proof ty n m p rd (fun rs hs _ =>
             let rsl := list_of rty rs in
@@ -1802,7 +1805,7 @@ Ltac2 var_one (node : constr) : unit :=
             app q [rsl; at_; refl constr:(braun label) lt; refl '(braun $ty) tt; refl '(braun (radj $ty)) at_;
                    refl '(braun (rpadj $ty)) pt; hvt; forall2_proof rty constr:(aexpN) (app srel [at_]) rs (sh.(sh_l)) hs]) in
           let hid := fresh @H in
-          assert_by hid '(forall v : var $n, vrel $vr (rapply (adj_raw $a) (var_raw v)) (rapply (adj_raw $a') (var_raw v)))
+          assert_by hid '(forall v : var $n, drel (vbase $vr) (rapply (adj_raw $a) (var_raw v)) (rapply (adj_raw $a') (var_raw v)))
             (fun () => Std.exact_no_check pf);
           let eid := fresh @E in
           let hh := Control.hyp hid in

@@ -124,7 +124,7 @@ Qed.
 
 (** ** Materialising
 
-    The first term entry with a payload, in a word without atoms; and
+    The first term entry with a payload; and
     the word with that term replaced by the term atom [k] with the
     identity payload. *)
 Fixpoint first_paid (w : HNorm.word) : option (nat * positive) :=
@@ -133,9 +133,6 @@ Fixpoint first_paid (w : HNorm.word) : option (nat * positive) :=
   | (HNorm.SE _ (HNorm.VTerm u None p), _) :: r => if Pos.eqb p 1 then first_paid r else Some (u, p)
   | _ :: r => first_paid r
   end.
-
-Fixpoint has_atom (w : HNorm.word) : bool :=
-  match w with [] => false | (HNorm.SA _, _) :: _ => true | _ :: r => has_atom r end.
 
 Fixpoint replace_paid (k : nat) (w : HNorm.word) : list HNorm.step :=
   match w with
@@ -148,24 +145,21 @@ Fixpoint replace_paid (k : nat) (w : HNorm.word) : list HNorm.step :=
 Definition hmat_target (F : order) (n base : nat) (e : aexp) : option (nat * (list aexp * aexp)) :=
   if inp n base e then
     let '(w, T) := HNorm.norm F e [] HNorm.st0 in
-    if has_atom w then None
-    else match first_paid w with
-         | Some (u, p) =>
-             match HDisplay.display_s F base false T p with
-             | Some (sh, r) => Some (u, (sh, r))
-             | None => None
-             end
-         | None => None
-         end
+    match first_paid w with
+    | Some (u, p) =>
+        match HDisplay.display_s F base false T p with
+        | Some (sh, r) => Some (u, (sh, r))
+        | None => None
+        end
+    | None => None
+    end
   else None.
 
 Definition hmat_display (F : order) (n base : nat) (e : aexp) (k : nat) : option (list aexp * aexp) :=
   if inp n base e && Nat.ltb k n then
     let '(w, T) := HNorm.norm F e [] HNorm.st0 in
-    if has_atom w then None
-    else
-      let '(w', T') := HNorm.rebuild (replace_paid k w) [] T in
-      HDisplay.display F base T' (HNorm.wid w')
+    let '(w', T') := HNorm.rebuild (replace_paid k w) [] T in
+    HDisplay.display F base T' (HNorm.wid w')
   else None.
 
 (** ** A term that is a variable: a look-up
@@ -198,7 +192,7 @@ Fixpoint has_var (vt : list (nat * (lexp * nat))) (w : HNorm.word) : bool :=
 Definition hvar_display (F : order) (n base : nat) (e : aexp) (vt : list (nat * (lexp * nat))) : option (list aexp * aexp) :=
   if inp n base e then
     let '(w, T) := HNorm.norm F e [] HNorm.st0 in
-    if has_atom w || negb (has_var vt w) then None
+    if negb (has_var vt w) then None
     else
       let '(w', T') := HNorm.rebuild (replace_var vt w) [] T in
       HDisplay.display F base T' (HNorm.wid w')
@@ -382,12 +376,8 @@ Section MatShow.
 
 Variable g : rpadj T -> T -> T.
 
-Lemma matw_same S w cw : RWord S w cw -> has_atom w = false -> matw lenv tenv (aenv ++ rs) penv g cw cw.
-Proof.
-  induction 1 as [|s i w cs cw Hc Hs Hw IH]; intros A; [constructor|].
-  destruct s as [h v|h|a]; cbn [has_atom] in A; [| |discriminate]; inversion Hs; subst;
-    (apply MSame; [exact I|apply IH, A]).
-Qed.
+Lemma wrel_refl B cw : wrel lenv tenv (aenv ++ rs) penv B cw cw.
+Proof. induction cw; constructor; assumption. Qed.
 
 Lemma paid_ok n b S w cw u p : RWord S w cw -> CRange.WOk n b cw -> first_paid w = Some (u, p) ->
   exists cp, RId S p cp /\ CRange.WOk n b cp /\ u < n.
@@ -400,38 +390,29 @@ Proof.
   inversion Os as [? ? Ov| |]; subst; inversion Ov; subst; exists cp; split; [exact Hp|split; assumption].
 Qed.
 
-Lemma paid_matw S w cw k u p : Inv S -> RWord S w cw -> has_atom w = false -> first_paid w = Some (u, p) ->
-  (forall cp, RId S p cp -> tmrel g
-       (@vden (kmodel lenv tenv (aenv ++ rs) penv) (CNorm.VTerm u None cp) ridentity)
-       (@vden (kmodel lenv tenv (aenv ++ rs) penv) (CNorm.VTerm k None []) ridentity)) ->
-  exists cw', Forall2 (RStep S) (replace_paid k w) cw' /\ matw lenv tenv (aenv ++ rs) penv g cw cw' /\
+Lemma paid_matw S w cw k u p : Inv S -> RWord S w cw -> first_paid w = Some (u, p) ->
+  (forall cp, RId S p cp -> mbase g
+       (rtarget_result (@vden (kmodel lenv tenv (aenv ++ rs) penv) (CNorm.VTerm u None cp) ridentity))
+       (rtarget_result (@vden (kmodel lenv tenv (aenv ++ rs) penv) (CNorm.VTerm k None []) ridentity))) ->
+  exists cw', Forall2 (RStep S) (replace_paid k w) cw' /\ wrel lenv tenv (aenv ++ rs) penv (mbase g) cw cw' /\
     (forall n b, k < n -> CRange.WOk n b cw -> CRange.WOk n b cw').
 Proof.
-  intros I H; induction H as [|s i w cs cw Hc Hs Hw IH]; intros A Fp Prem; [discriminate|].
-  destruct s as [h v|h|a]; cbn [has_atom] in A; [| |discriminate].
-  - destruct v as [g0 j|u0 [b|] p0|g0 j x].
-    + cbn [first_paid replace_paid] in Fp |- *; destruct (IH A Fp Prem) as [cw' [Hf [Hm Ho]]].
-      exists (cs :: cw'); split; [constructor; assumption|split; [apply MSame; [inversion Hs; exact Logic.I|exact Hm]|]].
-      intros nn bb Lk O; inversion O; constructor; [assumption|apply Ho; assumption].
-    + cbn [first_paid replace_paid] in Fp |- *; destruct (IH A Fp Prem) as [cw' [Hf [Hm Ho]]].
-      exists (cs :: cw'); split; [constructor; assumption|split; [apply MSame; [inversion Hs; exact Logic.I|exact Hm]|]].
-      intros nn bb Lk O; inversion O; constructor; [assumption|apply Ho; assumption].
-    + cbn [first_paid replace_paid] in Fp |- *; destruct (Pos.eqb p0 1) eqn:E1.
-      * destruct (IH A Fp Prem) as [cw' [Hf [Hm Ho]]].
-        exists (cs :: cw'); split; [constructor; assumption|split; [apply MSame; [inversion Hs; exact Logic.I|exact Hm]|]].
-        intros nn bb Lk O; inversion O; constructor; [assumption|apply Ho; assumption].
-      * injection Fp as -> ->.
-        destruct (RStep_SE_term _ _ _ _ _ _ Hs) as [cp [-> Hp]].
-        exists (CNorm.SE h (CNorm.VTerm k None []) :: cw); split.
-        -- constructor; [constructor; constructor; constructor|apply RWord_fst, Hw].
-        -- split; [apply MEnt; [apply Prem, Hp|apply (matw_same S w cw Hw A)]|].
-           intros nn bb Lk O; inversion O; subst; constructor; [constructor; constructor; [exact Lk|constructor]|assumption].
-    + cbn [first_paid replace_paid] in Fp |- *; destruct (IH A Fp Prem) as [cw' [Hf [Hm Ho]]].
-      exists (cs :: cw'); split; [constructor; assumption|split; [apply MSame; [inversion Hs; exact Logic.I|exact Hm]|]].
-      intros nn bb Lk O; inversion O; constructor; [assumption|apply Ho; assumption].
-  - cbn [first_paid replace_paid] in Fp |- *; destruct (IH A Fp Prem) as [cw' [Hf [Hm Ho]]].
-    exists (cs :: cw'); split; [constructor; assumption|split; [apply MSame; [inversion Hs; exact Logic.I|exact Hm]|]].
-    intros nn bb Lk O; inversion O; constructor; [assumption|apply Ho; assumption].
+  intros I H; induction H as [|s i w cs cw Hc Hs Hw IH]; intros Fp Prem; [discriminate|].
+  assert (Same : first_paid w = Some (u, p) -> exists cw', Forall2 (RStep S) (s :: replace_paid k w) cw' /\
+            wrel lenv tenv (aenv ++ rs) penv (mbase g) (cs :: cw) cw' /\
+            (forall n b, k < n -> CRange.WOk n b (cs :: cw) -> CRange.WOk n b cw')).
+  { intros Fp'; destruct (IH Fp' Prem) as [cw' [Hf [Hm Ho]]].
+    exists (cs :: cw'); split; [constructor; assumption|split; [apply WSame, Hm|]].
+    intros nn bb Lk O; inversion O; constructor; [assumption|apply Ho; assumption]. }
+  destruct s as [h v|h|a]; [|cbn [first_paid replace_paid] in Fp |- *; apply Same, Fp ..].
+  destruct v as [g0 j|u0 [b|] p0|g0 j x]; cbn [first_paid replace_paid] in Fp |- *; try (apply Same, Fp).
+  destruct (Pos.eqb p0 1) eqn:E1; [apply Same, Fp|].
+  injection Fp as -> ->.
+  destruct (RStep_SE_term _ _ _ _ _ _ Hs) as [cp [-> Hp]].
+  exists (CNorm.SE h (CNorm.VTerm k None []) :: cw); split.
+  - constructor; [constructor; constructor; constructor|apply RWord_fst, Hw].
+  - split; [apply WEnt; [apply Prem, Hp|apply wrel_refl]|].
+    intros nn bb Lk O; inversion O; subst; constructor; [constructor; constructor; [exact Lk|constructor]|assumption].
 Qed.
 
 Theorem hmat_show_sound l e k u shb rb sh r nb n1 n2 : lfacts_ok lenv l ->
@@ -441,7 +422,7 @@ Theorem hmat_show_sound l e k u shb rb sh r nb n1 n2 : lfacts_ok lenv l ->
   nb = List.length aenv + List.length sh ->
   Forall2 (fun x d => x = aeden d) rs (sh ++ shb) ->
   (forall y, nth_error tenv u = Some y -> nth_error tenv k = Some (g (rpcompose (aeden rb) rpidentity) y)) ->
-  forall v, mrel g (rapply (aeden e) v) (rapply (aeden r) v).
+  forall v, drel (mbase g) (rapply (aeden e) v) (rapply (aeden r) v).
 Proof.
   intros Hl L1 L2 Ht Hd Hnb Hs Hk.
   unfold hmat_target, inp in Ht; unfold hmat_display, inp in Hd.
@@ -450,7 +431,6 @@ Proof.
   destruct (Nat.ltb k n2) eqn:Lk; [|discriminate]; apply Nat.ltb_lt in Lk; cbn [andb] in Ht, Hd.
   set (F := order_of l) in *.
   destruct (HNorm.norm F e [] HNorm.st0) as [w T0] eqn:En.
-  destruct (has_atom w) eqn:Hat; [discriminate|].
   destruct (first_paid w) as [[u0 p]|] eqn:Fp; [|discriminate].
   destruct (HDisplay.display_s F nb false T0 p) as [[shb0 rb0]|] eqn:Eb; [|discriminate]; injection Ht as -> -> ->.
   destruct (HNorm.rebuild (replace_paid k w) [] T0) as [w' T1] eqn:Er.
@@ -474,7 +454,8 @@ Proof.
     destruct (F2_nth _ _ _ (List.length sh + s0) d Hs ltac:(rewrite nth_error_app2 by lia; rewrite Nat.add_comm, Nat.add_sub; exact Hd0))
       as [x0 [Hx0 ->]]; apply nth_error_nth, Hx0. }
   assert (Prem : forall cp, RId T0 p cp ->
-            tmrel g (@vden K (CNorm.VTerm u None cp) ridentity) (@vden K (CNorm.VTerm k None []) ridentity)).
+            mbase g (rtarget_result (@vden K (CNorm.VTerm u None cp) ridentity))
+              (rtarget_result (@vden K (CNorm.VTerm k None []) ridentity))).
   { intros cp Hp; pose proof (proj1 (R_func T0 I1) p _ Hp _ Hp0) as <-.
     pose proof (HDisplaySound.display_s_sound F K nb n1 false T0 p shb rb cp I1 Hp Op0 Eb SB ridentity) as D.
     rewrite (Ka rb (proj1 (aok_mono n1 _ L1) rb Orb)), rcompose_identity_l in D; unfold K in D.
@@ -482,8 +463,8 @@ Proof.
     destruct (nth_error tenv u) as [y|] eqn:Ey; [|apply nth_error_None in Ey; lia].
     rewrite (Hk y eq_refl); change (bden penv None) with (@rpidentity T).
     change (@wden K [] ridentity) with (@ridentity T); rewrite rpcompose_identity.
-    right; exists y, (rpcompose (aeden rb) rpidentity); split; [rewrite D; reflexivity|reflexivity]. }
-  destruct (paid_matw T0 w _ k u p I1 R1 Hat Fp Prem) as [cw' [Hf [Hm Ho]]].
+    exists y, (rpcompose (aeden rb) rpidentity); split; [rewrite D; reflexivity|reflexivity]. }
+  destruct (paid_matw T0 w _ k u p I1 R1 Fp Prem) as [cw' [Hf [Hm Ho]]].
   destruct (rebuild_spec (replace_paid k w) cw' T0 [] [] w' T1 I1 Hf (RWNil _) Er) as [I2 [X2 R2]].
   rewrite app_nil_r in R2.
   pose proof (Ho n2 (List.length aenv) Lk Oc2) as Ocw'.
@@ -500,7 +481,7 @@ Proof.
                 (RWord_RId _ _ _ R2) Ocw' Hd SA ridentity) as D.
   rewrite (Ka r (proj1 (aok_mono n2 _ L2) r Or)), rcompose_identity_l in D; unfold K in D.
   intros v; rewrite D, <- (kword_meaning lenv tenv (aenv ++ rs) penv l e Hl (proj1 (aok_mono n1 _ L1) e Ae)).
-  apply matw_mrel, Hm.
+  apply wrel_drel, Hm.
 Qed.
 
 End MatShow.
@@ -509,64 +490,51 @@ Section VarShow.
 
 Variable vt : list (nat * (lexp * nat)).
 
-(** Two words without atoms, step by step the same except for entries to
-    a variable term replaced by look-ups. *)
-Inductive varw : CNorm.cword -> CNorm.cword -> Prop :=
-| VWNil : varw [] []
-| VWSame s w w' : (match s with CNorm.SA _ => False | _ => True end) -> varw w w' -> varw (s :: w) (s :: w')
-| VWEnt h u cp h' i' w w' : vlook u vt = Some (h', i') -> varw w w' ->
-    varw (CNorm.SE h (CNorm.VTerm u None cp) :: w) (CNorm.SE h (CNorm.VLook h' i' cp) :: w').
-
 Local Notation K := (kmodel lenv tenv (aenv ++ rs) penv).
 
-Lemma varw_rel w w' : (forall u x, vlook u vt = Some x -> u < List.length tenv) -> varw w w' ->
-  forall v, rapply (@wden K w ridentity) v = rapply (@wden K w' ridentity) v \/
-    exists u h i y W, vlook u vt = Some (h, i) /\ nth_error tenv u = Some y /\
-      rapply (@wden K w ridentity) v = inr (y, rpcompose W rpidentity) /\
-      rapply (@wden K w' ridentity) v = rapply W (mk_rvar (lden lenv h) i).
+(** An entry to a variable term against one to where the payload sends
+    the variable. *)
+Definition vbase (r r' : rresult T) : Prop :=
+  exists u h i y W, vlook u vt = Some (h, i) /\ nth_error tenv u = Some y /\
+    r = inr (y, rpcompose W rpidentity) /\ r' = rapply W (mk_rvar (lden lenv h) i).
+
+Lemma vbase_look u h' i' cp : vlook u vt = Some (h', i') -> u < List.length tenv ->
+  vbase (rtarget_result (@vden K (CNorm.VTerm u None cp) ridentity))
+        (rtarget_result (@vden K (CNorm.VLook h' i' cp) ridentity)).
 Proof.
-  intros Hvt; induction 1 as [|s w w' Hs Hw IH|h u cp h' i' w w' Hu Hw IH]; intros x; [left; reflexivity| |].
-  - destruct s as [h v|h|a]; [| |contradiction]; cbn [wden sden kmodel cpush cpop]; unfold kpush, kpop.
-    + rewrite !rapply_push_inner; destruct (rvar_eqb x _); [left; reflexivity|apply IH].
-    + rewrite !rapply_compose, !Laws.rapply_shift; apply IH.
-  - cbn [wden sden kmodel cpush]; unfold kpush; rewrite !rapply_push_inner; destruct (rvar_eqb x _); [|apply IH].
-    right; rewrite vden_term, vden_look, kname; cbn [kmodel cterm]; unfold kterm.
-    destruct (nth_error tenv u) as [y|] eqn:Ey; [|apply nth_error_None in Ey; specialize (Hvt _ _ Hu); lia].
-    exists u, h', i', y, (@wden K cp ridentity); split; [exact Hu|split; [exact Ey|split]].
-    + cbn [rtarget_result bden]; reflexivity.
-    + unfold rapply_target; destruct (rapply _ _) as [w0|[u0 ρ]]; reflexivity.
+  intros Hu Lu; rewrite vden_term, vden_look, kname; cbn [kmodel cterm]; unfold kterm.
+  destruct (nth_error tenv u) as [y|] eqn:Ey; [|apply nth_error_None in Ey; lia].
+  exists u, h', i', y, (@wden K cp ridentity); split; [exact Hu|split; [exact Ey|split]].
+  - cbn [rtarget_result bden]; reflexivity.
+  - unfold rapply_target; destruct (rapply _ _) as [w0|[u0 ρ]]; reflexivity.
 Qed.
 
-Lemma replace_var_rel S w cw : RWord S w cw -> has_atom w = false ->
-  exists cw', Forall2 (RStep S) (replace_var vt w) cw' /\ varw cw cw' /\
+Lemma replace_var_rel S w cw : (forall u x, vlook u vt = Some x -> u < List.length tenv) -> RWord S w cw ->
+  exists cw', Forall2 (RStep S) (replace_var vt w) cw' /\ wrel lenv tenv (aenv ++ rs) penv vbase cw cw' /\
     (forall n b, CRange.WOk n b cw -> CRange.WOk n b cw').
 Proof.
-  induction 1 as [|s i w cs cw Hc Hs Hw IH]; intros A; [exists []; split; [constructor|split; [constructor|auto]]|].
-  destruct s as [h v|h|a]; cbn [has_atom] in A; [| |discriminate].
-  - destruct (IH A) as [cw' [Hf [Hm Ho]]].
-    assert (Same : exists cw'', Forall2 (RStep S) (HNorm.SE h v :: replace_var vt w) cw'' /\ varw (cs :: cw) cw'' /\
-                     (forall n b, CRange.WOk n b (cs :: cw) -> CRange.WOk n b cw'')).
-    { exists (cs :: cw'); split; [constructor; assumption|split; [apply VWSame; [inversion Hs; exact Logic.I|exact Hm]|]].
-      intros nn bb O; inversion O; constructor; [assumption|apply Ho; assumption]. }
-    destruct v as [g0 j|u [b|] p|g0 j x]; cbn [replace_var]; try exact Same.
-    destruct (vlook u vt) as [[h' i']|] eqn:Hu; [|exact Same].
-    destruct (RStep_SE_term _ _ _ _ _ _ Hs) as [cp [-> Hp]].
-    exists (CNorm.SE h (CNorm.VLook h' i' cp) :: cw'); split; [constructor; [constructor; constructor; exact Hp|exact Hf]|split].
-    + apply VWEnt; assumption.
-    + intros nn bb O; inversion O as [|? ? Os Ow]; subst; inversion Os as [? ? Ov| |]; subst; inversion Ov; subst.
-      constructor; [constructor; constructor; assumption|apply Ho; assumption].
-  - destruct (IH A) as [cw' [Hf [Hm Ho]]]; cbn [replace_var].
-    exists (cs :: cw'); split; [constructor; assumption|split; [apply VWSame; [inversion Hs; exact Logic.I|exact Hm]|]].
-    intros nn bb O; inversion O; constructor; [assumption|apply Ho; assumption].
+  intros Hvt; induction 1 as [|s i w cs cw Hc Hs Hw IH]; [exists []; split; [constructor|split; [constructor|auto]]|].
+  destruct IH as [cw' [Hf [Hm Ho]]].
+  assert (Same : exists cw'', Forall2 (RStep S) (s :: replace_var vt w) cw'' /\
+                   wrel lenv tenv (aenv ++ rs) penv vbase (cs :: cw) cw'' /\
+                   (forall n b, CRange.WOk n b (cs :: cw) -> CRange.WOk n b cw'')).
+  { exists (cs :: cw'); split; [constructor; assumption|split; [apply WSame, Hm|]].
+    intros nn bb O; inversion O; constructor; [assumption|apply Ho; assumption]. }
+  cbn [replace_var]; destruct s as [h v|h|a]; try exact Same.
+  destruct v as [g0 j|u [b|] p|g0 j x]; try exact Same.
+  destruct (vlook u vt) as [[h' i']|] eqn:Hu; [|exact Same].
+  destruct (RStep_SE_term _ _ _ _ _ _ Hs) as [cp [-> Hp]].
+  exists (CNorm.SE h (CNorm.VLook h' i' cp) :: cw'); split; [constructor; [constructor; constructor; exact Hp|exact Hf]|split].
+  - apply WEnt; [apply vbase_look; [exact Hu|exact (Hvt _ _ Hu)]|exact Hm].
+  - intros nn bb O; inversion O as [|? ? Os Ow]; subst; inversion Os as [? ? Ov| |]; subst; inversion Ov; subst.
+    constructor; [constructor; constructor; assumption|apply Ho; assumption].
 Qed.
 
 Theorem hvar_show_sound l e sh r : lfacts_ok lenv l ->
   (forall u x, vlook u vt = Some x -> u < List.length tenv) ->
   hvar_display (order_of l) (List.length tenv) (List.length aenv) e vt = Some (sh, r) ->
   Forall2 (fun x d => x = aeden d) rs sh ->
-  forall v, rapply (aeden e) v = rapply (aeden r) v \/
-    exists u h i y W, vlook u vt = Some (h, i) /\ nth_error tenv u = Some y /\
-      rapply (aeden e) v = inr (y, rpcompose W rpidentity) /\ rapply (aeden r) v = rapply W (mk_rvar (lden lenv h) i).
+  forall v, drel vbase (rapply (aeden e) v) (rapply (aeden r) v).
 Proof.
   intros Hl Hvt Hd Hs.
   unfold hvar_display, inp in Hd.
@@ -574,13 +542,13 @@ Proof.
     destruct (CRange.inrange (List.length tenv) (List.length aenv) e) eqn:Ar; [|discriminate]; cbn [andb] in Hd.
   set (F := order_of l) in *.
   destruct (HNorm.norm F e [] HNorm.st0) as [w T0] eqn:En.
-  destruct (has_atom w) eqn:Hat; [discriminate|]; destruct (has_var vt w); [|discriminate]; cbn [orb negb] in Hd.
+  destruct (has_var vt w); [|discriminate]; cbn [negb] in Hd.
   destruct (HNorm.rebuild (replace_var vt w) [] T0) as [w' T1] eqn:Er.
   pose proof (order_of_irrefl l lenv Hl) as Hirr; pose proof (order_of_trans l lenv Hl) as Htr.
   destruct (kden lenv tenv (aenv ++ rs) penv (List.length tenv) (le_n _)) as [Ka _].
   destruct (proj1 (norm_spec_all F Hirr Htr) e [] HNorm.st0 [] w T0 Inv_st0 (RWNil _) En) as [I1 [_ R1]].
   pose proof (proj1 (CRange.norm_ok _ _ F) e [] Ar (Forall_nil _)) as Oc.
-  destruct (replace_var_rel T0 w _ R1 Hat) as [cw' [Hf [Hm Ho]]].
+  destruct (replace_var_rel T0 w _ Hvt R1) as [cw' [Hf [Hm Ho]]].
   destruct (rebuild_spec (replace_var vt w) cw' T0 [] [] w' T1 I1 Hf (RWNil _) Er) as [I2 [X2 R2]].
   rewrite app_nil_r in R2.
   pose proof (Ho _ _ Oc) as Ocw'.
@@ -596,7 +564,7 @@ Proof.
                 (RWord_RId _ _ _ R2) Ocw' Hd SA ridentity) as D.
   rewrite (Ka r Or), rcompose_identity_l in D.
   intros v; rewrite D, <- (kword_meaning lenv tenv (aenv ++ rs) penv l e Hl Ae).
-  apply (varw_rel _ _ Hvt Hm).
+  apply wrel_drel, Hm.
 Qed.
 
 End VarShow.
