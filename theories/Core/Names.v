@@ -634,44 +634,63 @@ Fixpoint entries_eqb (a b : list (lexp * HNorm.val)) : bool :=
   | _, _ => false
   end.
 
-Fixpoint remove_nth {A} (k : nat) (l : list A) : list A :=
-  match k, l with _, [] => [] | 0, _ :: r => r | S k, x :: r => x :: remove_nth k r end.
+(** The term payload of [v], when it is a word. *)
+Definition tpay (v : HNorm.val) : option (nat * positive) :=
+  match v with HNorm.VTerm u None p => Some (u, p) | _ => None end.
 
-(** An entry [h := u] whose payload is exactly the other entries in
-    front of [a1] is the composition of [⟦ h := u ⟧] after them. *)
-Definition factors (a1 : positive) (others : list (lexp * HNorm.val)) (v : HNorm.val) : option nat :=
-  match v with
-  | HNorm.VTerm u None p =>
-      match strip_to a1 (hcells hfuel p) with Some pre => if entries_eqb pre others then Some u else None | None => None end
-  | _ => None
-  end.
-
-Fixpoint find_factor (a1 : positive) (es : list (lexp * HNorm.val)) (k : nat) (l : list (lexp * HNorm.val))
-  : option (nat * lexp * nat) :=
-  match l with
-  | [] => None
+(** The entries whose payload is the cell [p], each the first of its
+    label among the entries not taken: those terms, and the rest. *)
+Fixpoint split_pay (p : positive) (seen : list lexp) (es : list (lexp * HNorm.val))
+  : list (lexp * nat) * list (lexp * HNorm.val) :=
+  match es with
+  | [] => ([], [])
   | (h, v) :: r =>
-      match factors a1 (remove_nth k es) v with
-      | Some u => Some (k, h, u)
-      | None => find_factor a1 es (S k) r
+      let take := match tpay v with
+                  | Some (u, q) => if Pos.eqb p q && negb (existsb (lexp_eqb h) seen) then Some u else None
+                  | None => None
+                  end in
+      match take with
+      | Some u => let '(ts, rest) := split_pay p seen r in ((h, u) :: ts, rest)
+      | None => let '(ts, rest) := split_pay p (h :: seen) r in (ts, (h, v) :: rest)
       end
   end.
 
-(** The factored terms, outermost first, and the entries left. *)
-Fixpoint factor (fuel : nat) (a1 : positive) (es : list (lexp * HNorm.val)) : list (lexp * nat) * list (lexp * HNorm.val) :=
+(** Entries [hᵢ := uᵢ] sharing a payload that is exactly the other
+    entries in front of [a1] are the form [⟦ hᵢ := uᵢ ⟧] composed after
+    them. *)
+Fixpoint find_factor (a1 : positive) (es l : list (lexp * HNorm.val))
+  : option (list (lexp * nat) * list (lexp * HNorm.val)) :=
+  match l with
+  | [] => None
+  | (_, v) :: r =>
+      match tpay v with
+      | Some (_, p) =>
+          let '(ts, rest) := split_pay p [] es in
+          match ts, strip_to a1 (hcells hfuel p) with
+          | _ :: _, Some pre => if entries_eqb pre rest then Some (ts, rest) else find_factor a1 es r
+          | _, _ => find_factor a1 es r
+          end
+      | None => find_factor a1 es r
+      end
+  end.
+
+(** The factored forms, outermost first, and the entries left. *)
+Fixpoint factor (fuel : nat) (a1 : positive) (es : list (lexp * HNorm.val))
+  : list (list (lexp * nat)) * list (lexp * HNorm.val) :=
   match fuel with
   | 0 => ([], es)
   | S f =>
-      match find_factor a1 es 0 es with
-      | Some (k, h, u) => let '(fs, rest) := factor f a1 (remove_nth k es) in ((h, u) :: fs, rest)
+      match find_factor a1 es es with
+      | Some (ts, rest) => let '(fs, rest') := factor f a1 rest in (ts :: fs, rest')
       | None => ([], es)
       end
   end.
 
 End HDisplay.
 
-Definition sub_piece (h : lexp) (u : nat) : option dpiece :=
-  option_map short_or_full (display_seg (SEnt h (TCons (NBind u (WEnd SNil) None) TNil) 0 SNil) None).
+Definition sub_piece (ts : list (lexp * nat)) : option dpiece :=
+  option_map short_or_full
+    (display_seg (fold_right (fun '(h, u) s => add_in_front h (NBind u (WEnd SNil) None) s) SNil ts) None).
 
 Definition is_term (v : HNorm.val) : bool := match v with HNorm.VTerm _ _ _ => true | _ => false end.
 
@@ -681,7 +700,7 @@ Definition is_term (v : HNorm.val) : bool := match v with HNorm.VTerm _ _ _ => t
 Definition hgroup (F : order) (T : HNorm.st) (es : list (lexp * HNorm.val)) (as' : list nat) (ws : list lexp)
   (w1 w2 R : HNorm.word) : option (list dpiece) :=
   let '(fs, es') := factor T (List.length es) (HNorm.wid w1) es in
-  match opt_all (map (fun '(h, u) => sub_piece h u) fs) with
+  match opt_all (map sub_piece fs) with
   | None => None
   | Some ps =>
       let tail := match as' with [] => None | _ => Some (rev as') end in

@@ -105,14 +105,22 @@ Example payload_entries_commute {N} x y z (u v w : T) :
 Proof. intros; names; reflexivity. Qed.
 
 (** A long chain is normalised with each term written once (the
-    normal form shares it); shown as context forms it would double with
-    each step, so [names] leaves such a chain as it is. *)
+    normal form shares it), and shown as a chain of compositions, however
+    it was nested. *)
 Example long_chain {N} x1 x2 x3 x4 x5 x6 x7 x8 x9 x10 x11 x12 (u1 u2 u3 u4 u5 u6 u7 u8 u9 u10 u11 u12 : T) :
   label_lt x1 x2 -> label_lt x2 x3 -> label_lt x3 x4 -> label_lt x4 x5 ->
   label_lt x5 x6 -> label_lt x6 x7 -> label_lt x7 x8 -> label_lt x8 x9 ->
   label_lt x9 x10 -> label_lt x10 x11 -> label_lt x11 x12 ->
   ((((((((((((⟦ x1 := u1 ⟧ ⨾ ⟦ x2 := u2 ⟧) ⨾ ⟦ x3 := u3 ⟧) ⨾ ⟦ x4 := u4 ⟧) ⨾ ⟦ x5 := u5 ⟧) ⨾ ⟦ x6 := u6 ⟧) ⨾ ⟦ x7 := u7 ⟧) ⨾ ⟦ x8 := u8 ⟧) ⨾ ⟦ x9 := u9 ⟧) ⨾ ⟦ x10 := u10 ⟧) ⨾ ⟦ x11 := u11 ⟧) ⨾ ⟦ x12 := u12 ⟧) : adj T N N)
   = (⟦ x1 := u1 ⟧ ⨾ (⟦ x2 := u2 ⟧ ⨾ (⟦ x3 := u3 ⟧ ⨾ (⟦ x4 := u4 ⟧ ⨾ (⟦ x5 := u5 ⟧ ⨾ (⟦ x6 := u6 ⟧ ⨾ (⟦ x7 := u7 ⟧ ⨾ (⟦ x8 := u8 ⟧ ⨾ (⟦ x9 := u9 ⟧ ⨾ (⟦ x10 := u10 ⟧ ⨾ (⟦ x11 := u11 ⟧ ⨾ ⟦ x12 := u12 ⟧))))))))))).
+Proof. intros; names; reflexivity. Qed.
+
+(** Entries sharing a payload are shown as one form composed with it,
+    so a chain of two-entry substitutions stays linear. *)
+Example pair_chain {N} x y (u1 v1 u2 v2 u3 v3 u4 v4 u5 v5 u6 v6 : T) :
+  label_lt x y ->
+  (((((⟦ x := u1; y := v1 ⟧ ⨾ ⟦ x := u2; y := v2 ⟧) ⨾ ⟦ x := u3; y := v3 ⟧) ⨾ ⟦ x := u4; y := v4 ⟧) ⨾ ⟦ x := u5; y := v5 ⟧) ⨾ ⟦ x := u6; y := v6 ⟧ : adj T N N)
+  = ⟦ x := u1; y := v1 ⟧ ⨾ (⟦ x := u2; y := v2 ⟧ ⨾ (⟦ x := u3; y := v3 ⟧ ⨾ (⟦ x := u4; y := v4 ⟧ ⨾ (⟦ x := u5; y := v5 ⟧ ⨾ ⟦ x := u6; y := v6 ⟧)))).
 Proof. intros; names; reflexivity. Qed.
 
 Example long_chain_left_alone {N} x1 x2 x3 x4 x5 x6 x7 x8 x9 x10 x11 x12 (u1 u2 u3 u4 u5 u6 u7 u8 u9 u10 u11 u12 : T) (P : adj T N N -> Prop) :
