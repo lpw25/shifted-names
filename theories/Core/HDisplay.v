@@ -380,9 +380,7 @@ with dbody (fuel : nat) (i : positive) (D : dstate) {struct fuel} : option (aexp
       match W with
       | [] => Some (AId, D)
       | (SA a, _) :: R =>
-          if Nat.ltb a base then
-            match dref f (wid R) D with Some (r, D1) => Some (acomp r (AAtom a), D1) | None => None end
-          else None
+          match dref f (wid R) D with Some (r, D1) => Some (acomp r (AAtom a), D1) | None => None end
       | (SW _, _) :: _ =>
           let '(hs, R) := take_sw W in
           match dref f (wid R) D with Some (r, D1) => Some (acomp r (weak hs), D1) | None => None end

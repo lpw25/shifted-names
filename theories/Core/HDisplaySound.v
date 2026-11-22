@@ -14,8 +14,8 @@
     - [assemble], which inlines references and keeps shared ones. *)
 
 From Stdlib Require Import List PArith NArith Bool FMapPositive Arith Lia.
-From ShiftedNames.Core Require Import Label Normalise KnownOrder Comp CSound HRefine.
-From ShiftedNames.Core Require HNorm CNorm HDisplay.
+From ShiftedNames.Core Require Import Label Normalise KnownOrder Comp CSound HRefine HConcrete.
+From ShiftedNames.Core Require HNorm CNorm HDisplay CRange.
 Import ListNotations.
 
 Section Sound.
@@ -31,6 +31,19 @@ Local Notation wden := (@wden M).
 Local Notation vden := (@vden M).
 Local Notation sden := (@sden M).
 Local Notation wpre := (CSound.wpre M).
+
+(** Term atoms below [nt], adjustment atoms below [base]: what is read
+    off the normal form is in range ([CRange]). *)
+Variables (base nt : nat).
+Local Notation WOk := (CRange.WOk nt base).
+Local Notation SOk := (CRange.SOk nt base).
+Local Notation VOk := (CRange.VOk nt base).
+
+Lemma WOk_cons s w : WOk (s :: w) <-> SOk s /\ WOk w.
+Proof. split; [intros H; inversion H; split; assumption|intros [H1 H2]; constructor; assumption]. Qed.
+
+Lemma WOk_app w1 w2 : WOk (w1 ++ w2) <-> WOk w1 /\ WOk w2.
+Proof. unfold CRange.WOk; rewrite Forall_app; tauto. Qed.
 
 (** ** Reading words *)
 
@@ -78,7 +91,7 @@ Variables (s : positive) (cs : CNorm.cword).
 
 Definition RelMemo T (m : HDisplay.memo) : Prop :=
   forall p p', PositiveMap.find p m = Some p' ->
-    exists cp cp', RId T p cp /\ RId T p' cp' /\ forall c, wden cp c = wden cp' (wden cs c).
+    exists cp cp', RId T p cp /\ RId T p' cp' /\ WOk cp' /\ forall c, wden cp c = wden cp' (wden cs c).
 
 Lemma RelMemo_mono T T' m : Ext T T' -> RelMemo T m -> RelMemo T' m.
 Proof.
@@ -128,52 +141,52 @@ Lemma relv_S f v T m : HDisplay.relv F s (S f) v T m =
 Proof. reflexivity. Qed.
 
 Lemma rel_spec : forall fuel,
-  (forall w T m w' T' m' cw, Inv T -> RId T s cs -> RelMemo T m -> RWord T w cw ->
+  (forall w T m w' T' m' cw, Inv T -> RId T s cs -> RelMemo T m -> RWord T w cw -> WOk cs -> WOk cw ->
      HDisplay.relw F s fuel w T m = Some (w', T', m') ->
-     Inv T' /\ Ext T T' /\ RelMemo T' m' /\ exists cw', RWord T' w' cw' /\ forall c, wden cw c = wden cw' (wden cs c))
-  /\ (forall x T m x' T' m' cx, Inv T -> RId T s cs -> RelMemo T m -> RStep T x cx ->
+     Inv T' /\ Ext T T' /\ RelMemo T' m' /\ exists cw', RWord T' w' cw' /\ WOk cw' /\ forall c, wden cw c = wden cw' (wden cs c))
+  /\ (forall x T m x' T' m' cx, Inv T -> RId T s cs -> RelMemo T m -> RStep T x cx -> WOk cs -> SOk cx ->
      HDisplay.relst F s fuel x T m = Some (x', T', m') ->
-     Inv T' /\ Ext T T' /\ RelMemo T' m' /\ exists cx', RStep T' x' cx' /\ forall y c, sden cx y c = sden cx' y (wden cs c))
-  /\ (forall v T m v' T' m' cv, Inv T -> RId T s cs -> RelMemo T m -> RVal T v cv ->
+     Inv T' /\ Ext T T' /\ RelMemo T' m' /\ exists cx', RStep T' x' cx' /\ SOk cx' /\ forall y c, sden cx y c = sden cx' y (wden cs c))
+  /\ (forall v T m v' T' m' cv, Inv T -> RId T s cs -> RelMemo T m -> RVal T v cv -> WOk cs -> VOk cv ->
      HDisplay.relv F s fuel v T m = Some (v', T', m') ->
-     Inv T' /\ Ext T T' /\ RelMemo T' m' /\ exists cv', RVal T' v' cv' /\ forall c, vden cv c = vden cv' (wden cs c)).
+     Inv T' /\ Ext T T' /\ RelMemo T' m' /\ exists cv', RVal T' v' cv' /\ VOk cv' /\ forall c, vden cv c = vden cv' (wden cs c)).
 Proof.
   induction fuel as [|f IH]; [repeat split; intros; discriminate|].
   destruct IH as [IHw [IHs IHv]]; split; [|split].
-  - intros w T m w' T' m' cw I Hs Hm Hw E; rewrite relw_S in E.
+  - intros w T m w' T' m' cw I Hs Hm Hw Ocs Ocw E; rewrite relw_S in E.
     destruct w as [|[x i] w0].
     + destruct (Pos.eqb s 1) eqn:Es; [apply Pos.eqb_eq in Es|discriminate]; cbv iota beta zeta in E; injection E as <- <- <-.
       rewrite Es in Hs; inversion Hw; subst; pose proof (RId_one T cs I Hs) as ->.
-      split; [exact I|split; [apply Ext_refl|split; [exact Hm|exists []; split; [apply RWNil|reflexivity]]]].
+      split; [exact I|split; [apply Ext_refl|split; [exact Hm|exists []; split; [apply RWNil|split; [constructor|reflexivity]]]]].
     + destruct (Pos.eqb i s) eqn:Ei.
       * apply Pos.eqb_eq in Ei; subst i; cbv iota beta zeta in E; injection E as <- <- <-.
         pose proof (RWord_RId T _ _ Hw) as Hi; cbn [HNorm.wid] in Hi.
         pose proof (RId_func T s _ _ I Hi Hs) as ->.
-        split; [exact I|split; [apply Ext_refl|split; [exact Hm|exists []; split; [apply RWNil|reflexivity]]]].
-      * inversion Hw as [|x0 i0 w1 cx cw0 Hc Hx Hw0]; subst.
+        split; [exact I|split; [apply Ext_refl|split; [exact Hm|exists []; split; [apply RWNil|split; [constructor|reflexivity]]]]].
+      * inversion Hw as [|x0 i0 w1 cx cw0 Hc Hx Hw0]; subst; apply WOk_cons in Ocw as [Ocx Ocw0].
         destruct (HDisplay.relst F s f x T m) as [[[x' T1] m1]|] eqn:E1; [|cbv iota beta zeta in E; discriminate].
-        destruct (IHs x T m x' T1 m1 cx I Hs Hm Hx E1) as [I1 [X1 [Hm1 [cx' [Hx' Sx]]]]].
+        destruct (IHs x T m x' T1 m1 cx I Hs Hm Hx Ocs Ocx E1) as [I1 [X1 [Hm1 [cx' [Hx' [Ox Sx]]]]]].
         destruct (HDisplay.relw F s f w0 T1 m1) as [[[w1 T2] m2]|] eqn:E2; [|cbv iota beta zeta in E; discriminate].
-        destruct (IHw w0 T1 m1 w1 T2 m2 cw0 I1 (RId_mono _ _ _ _ X1 Hs) Hm1 (RWord_mono _ _ X1 _ _ Hw0) E2)
-          as [I2 [X2 [Hm2 [cw1 [Hw1 Sw]]]]].
+        destruct (IHw w0 T1 m1 w1 T2 m2 cw0 I1 (RId_mono _ _ _ _ X1 Hs) Hm1 (RWord_mono _ _ X1 _ _ Hw0) Ocs Ocw0 E2)
+          as [I2 [X2 [Hm2 [cw1 [Hw1 [Ow Sw]]]]]].
         destruct (HNorm.hcons x' w1 T2) as [w2 T3] eqn:E3; cbv iota beta zeta in E; injection E as <- <- <-.
         destruct (hcons_spec T2 x' w1 cx' cw1 w2 T3 I2 (RStep_mono _ _ _ _ X2 Hx') Hw1 E3) as [I3 [X3 Hw2]].
         split; [exact I3|split; [apply (Ext_trans _ _ _ X1 (Ext_trans _ _ _ X2 X3))|split]].
         { apply (RelMemo_mono _ _ _ X3 Hm2). }
-        exists (cx' :: cw1); split; [exact Hw2|]; intros c; cbn [CSound.wden].
+        exists (cx' :: cw1); split; [exact Hw2|split; [apply WOk_cons; split; assumption|]]; intros c; cbn [CSound.wden].
         rewrite Sw; apply Sx.
-  - intros x T m x' T' m' cx I Hs Hm Hx E; rewrite relst_S in E.
+  - intros x T m x' T' m' cx I Hs Hm Hx Ocs Ocx E; rewrite relst_S in E.
     destruct x as [h v|h|a].
     + destruct (HDisplay.relv F s f v T m) as [[[v' T1] m1]|] eqn:E1; [|cbv iota beta zeta in E; discriminate]; cbv iota beta zeta in E; injection E as <- <- <-.
-      inversion Hx as [h0 v0 cv Hv| |]; subst.
-      destruct (IHv v T m v' T1 m1 cv I Hs Hm Hv E1) as [I1 [X1 [Hm1 [cv' [Hv' Sv]]]]].
+      inversion Hx as [h0 v0 cv Hv| |]; subst; inversion Ocx as [? ? Ocv| |]; subst.
+      destruct (IHv v T m v' T1 m1 cv I Hs Hm Hv Ocs Ocv E1) as [I1 [X1 [Hm1 [cv' [Hv' [Ov Sv]]]]]].
       split; [exact I1|split; [exact X1|split; [exact Hm1|]]].
-      exists (CNorm.SE h cv'); split; [constructor; exact Hv'|]; intros y c; cbn [CSound.sden]; rewrite Sv; reflexivity.
+      exists (CNorm.SE h cv'); split; [constructor; exact Hv'|split; [constructor; exact Ov|]]; intros y c; cbn [CSound.sden]; rewrite Sv; reflexivity.
     + cbv iota beta zeta in E; injection E as <- <- <-; split; [exact I|split; [apply Ext_refl|split; [exact Hm|]]].
-      exists cx; split; [exact Hx|]; intros y c; inversion Hx; subst; reflexivity.
+      exists cx; split; [exact Hx|split; [exact Ocx|]]; intros y c; inversion Hx; subst; reflexivity.
     + cbv iota beta zeta in E; injection E as <- <- <-; split; [exact I|split; [apply Ext_refl|split; [exact Hm|]]].
-      exists cx; split; [exact Hx|]; intros y c; inversion Hx; subst; reflexivity.
-  - intros v T m v' T' m' cv I Hs Hm Hv E; rewrite relv_S in E.
+      exists cx; split; [exact Hx|split; [exact Ocx|]]; intros y c; inversion Hx; subst; reflexivity.
+  - intros v T m v' T' m' cv I Hs Hm Hv Ocs Ocv E; rewrite relv_S in E.
     destruct v as [g j|u [b|] p|g j x].
     + destruct (HNorm.lookup F g j (HDisplay.hw T s) T) as [v1 T1] eqn:El.
       destruct (HNorm.val_eqb v1 (HNorm.VVar g j)) eqn:Ev; [|cbv iota beta zeta in E; discriminate]; apply hval_eqb_eq in Ev; subst v1.
@@ -182,33 +195,33 @@ Proof.
       destruct (lookup_spec F Hirr Htrans T g _ cs I Hws j _ T1 El) as [I1 [X1 Rl]].
       inversion Hv; subst; assert (El' : CNorm.VVar g j = CNorm.lookup F g j cs) by (inversion Rl; auto).
       split; [exact I1|split; [exact X1|split; [apply (RelMemo_mono _ _ _ X1 Hm)|]]].
-      exists (CNorm.VVar g j); split; [constructor|]; intros c.
+      exists (CNorm.VVar g j); split; [constructor|split; [constructor|]]; intros c.
       pose proof (lookup_sound M F HM g cs j c) as L; rewrite <- El' in L; cbn in L |- *.
       exact L.
     + discriminate.
-    + inversion Hv as [|u0 b0 p0 cp Hp|]; subst.
+    + inversion Hv as [|u0 b0 p0 cp Hp|]; subst; inversion Ocv as [|? ? ? Lu Ocp|]; subst.
       destruct (PositiveMap.find p m) as [p'|] eqn:Fm.
-      * cbv iota beta zeta in E; injection E as <- <- <-; destruct (Hm p p' Fm) as [cp0 [cp' [H1 [H2 H3]]]].
+      * cbv iota beta zeta in E; injection E as <- <- <-; destruct (Hm p p' Fm) as [cp0 [cp' [H1 [H2 [H4 H3]]]]].
         pose proof (RId_func T p _ _ I Hp H1) as ->.
         split; [exact I|split; [apply Ext_refl|split; [exact Hm|]]].
-        exists (CNorm.VTerm u None cp'); split; [constructor; exact H2|]; intros c.
+        exists (CNorm.VTerm u None cp'); split; [constructor; exact H2|split; [constructor; assumption|]]; intros c.
         rewrite !CSound.vden_term, H3; reflexivity.
       * destruct (hw_spec T p cp I Hp) as [Hwp _].
         destruct (HDisplay.relw F s f (HDisplay.hw T p) T m) as [[[w' T1] m1]|] eqn:E1; [|cbv iota beta zeta in E; discriminate].
         cbv iota beta zeta in E; injection E as <- <- <-.
-        destruct (IHw _ T m w' T1 m1 cp I Hs Hm Hwp E1) as [I1 [X1 [Hm1 [cw' [Hw' Sw]]]]].
+        destruct (IHw _ T m w' T1 m1 cp I Hs Hm Hwp Ocs Ocp E1) as [I1 [X1 [Hm1 [cw' [Hw' [Ow Sw]]]]]].
         split; [exact I1|split; [exact X1|split]].
         { intros q q' Eq; destruct (Pos.eq_dec q p) as [->|Nq].
           - rewrite PositiveMap.gss in Eq; injection Eq as <-.
-            exists cp, cw'; split; [apply (RId_mono _ _ _ _ X1 Hp)|split; [apply RWord_RId, Hw'|exact Sw]].
+            exists cp, cw'; split; [apply (RId_mono _ _ _ _ X1 Hp)|split; [apply RWord_RId, Hw'|split; [exact Ow|exact Sw]]].
           - rewrite PositiveMap.gso in Eq by exact Nq; apply Hm1, Eq. }
-        exists (CNorm.VTerm u None cw'); split; [constructor; apply RWord_RId, Hw'|]; intros c.
+        exists (CNorm.VTerm u None cw'); split; [constructor; apply RWord_RId, Hw'|split; [constructor; assumption|]]; intros c.
         rewrite !CSound.vden_term, Sw; reflexivity.
     + destruct (Pos.eqb x s) eqn:Ex; [apply Pos.eqb_eq in Ex; subst x|discriminate]; cbv iota beta zeta in E; injection E as <- <- <-.
       inversion Hv as [| |g0 j0 x0 cx Hx]; subst.
       pose proof (RId_func T s _ _ I Hx Hs) as ->.
       split; [exact I|split; [apply Ext_refl|split; [exact Hm|]]].
-      exists (CNorm.VVar g j); split; [constructor|]; intros c.
+      exists (CNorm.VVar g j); split; [constructor|split; [constructor|]]; intros c.
       rewrite CSound.vden_look, CSound.vden_var; reflexivity.
 Qed.
 
@@ -302,8 +315,8 @@ Proof. reflexivity. Qed.
 Definition UnMemo T (m : HDisplay.memo) : Prop :=
   forall k k', PositiveMap.find k m = Some k' ->
     match k with
-    | xO x => exists cx cx', RId T x cx /\ RId T k' cx' /\ forall c, wden cx c = wden cx' (cpop g c)
-    | xI p => exists cp cp', RId T p cp /\ RId T k' cp' /\
+    | xO x => exists cx cx', RId T x cx /\ RId T k' cx' /\ WOk cx' /\ forall c, wden cx c = wden cx' (cpop g c)
+    | xI p => exists cp cp', RId T p cp /\ RId T k' cp' /\ WOk cp' /\
                 forall u c, cterm u None (wden cp c) = cterm u None (wden cp' (cpop g c))
     | xH => True
     end.
@@ -316,7 +329,7 @@ Proof.
 Qed.
 
 Lemma UnMemo_add_I T m p p' : UnMemo T m ->
-  (exists cp cp', RId T p cp /\ RId T p' cp' /\ forall u c, cterm u None (wden cp c) = cterm u None (wden cp' (cpop g c))) ->
+  (exists cp cp', RId T p cp /\ RId T p' cp' /\ WOk cp' /\ forall u c, cterm u None (wden cp c) = cterm u None (wden cp' (cpop g c))) ->
   UnMemo T (PositiveMap.add (xI p) p' m).
 Proof.
   intros H N k k' E; destruct (Pos.eq_dec k (xI p)) as [->|Nk].
@@ -325,7 +338,7 @@ Proof.
 Qed.
 
 Lemma UnMemo_add_O T m x x' : UnMemo T m ->
-  (exists cx cx', RId T x cx /\ RId T x' cx' /\ forall c, wden cx c = wden cx' (cpop g c)) ->
+  (exists cx cx', RId T x cx /\ RId T x' cx' /\ WOk cx' /\ forall c, wden cx c = wden cx' (cpop g c)) ->
   UnMemo T (PositiveMap.add (xO x) x' m).
 Proof.
   intros H N k k' E; destruct (Pos.eq_dec k (xO x)) as [->|Nk].
@@ -359,127 +372,129 @@ Lemma pops_bound_named h (y : U) : h <> LNone -> cpop LNone (cpop h y) = cpop h 
 Proof. intros N; apply (kd_pops F M HM); right; apply (lt_known_bound F), N. Qed.
 
 Lemma un_spec : forall fuel,
-  (forall w T m w' T' m' cw, Inv T -> UnMemo T m -> RWord T w cw ->
+  (forall w T m w' T' m' cw, Inv T -> UnMemo T m -> RWord T w cw -> WOk cw ->
      HDisplay.unw F g fuel w T m = Some (w', T', m') ->
-     Inv T' /\ Ext T T' /\ UnMemo T' m' /\ exists cw', RWord T' w' cw' /\ forall c, wden cw c = wden cw' (cpop g c))
-  /\ (forall w T m w' T' m' cw, Inv T -> UnMemo T m -> RWord T w cw -> g = LNone ->
+     Inv T' /\ Ext T T' /\ UnMemo T' m' /\ exists cw', RWord T' w' cw' /\ WOk cw' /\ forall c, wden cw c = wden cw' (cpop g c))
+  /\ (forall w T m w' T' m' cw, Inv T -> UnMemo T m -> RWord T w cw -> WOk cw -> g = LNone ->
      Forall (fun s => exists h, CNorm.slabel s = Some h /\ h <> LNone) cw ->
      HDisplay.unall F g fuel w T m = Some (w', T', m') ->
-     Inv T' /\ Ext T T' /\ UnMemo T' m' /\ exists cw', RWord T' w' cw' /\ (forall c, wden cw' (cpop g c) = cpop g (wden cw c))
+     Inv T' /\ Ext T T' /\ UnMemo T' m' /\ exists cw', RWord T' w' cw' /\ WOk cw' /\ (forall c, wden cw' (cpop g c) = cpop g (wden cw c))
        /\ Forall (fun s => exists h, CNorm.slabel s = Some h /\ h <> LNone) cw')
-  /\ (forall x T m x' T' m' cx, Inv T -> UnMemo T m -> RStep T x cx ->
+  /\ (forall x T m x' T' m' cx, Inv T -> UnMemo T m -> RStep T x cx -> SOk cx ->
      HDisplay.unst F g fuel x T m = Some (x', T', m') ->
-     Inv T' /\ Ext T T' /\ UnMemo T' m' /\ exists cx', RStep T' x' cx' /\ CNorm.slabel cx' = CNorm.slabel cx /\
+     Inv T' /\ Ext T T' /\ UnMemo T' m' /\ exists cx', RStep T' x' cx' /\ SOk cx' /\ CNorm.slabel cx' = CNorm.slabel cx /\
        forall y c, sden cx y c = sden cx' y (cpop g c))
-  /\ (forall v T m v' T' m' cv, Inv T -> UnMemo T m -> RVal T v cv ->
+  /\ (forall v T m v' T' m' cv, Inv T -> UnMemo T m -> RVal T v cv -> VOk cv ->
      HDisplay.unv F g fuel v T m = Some (v', T', m') ->
-     Inv T' /\ Ext T T' /\ UnMemo T' m' /\ exists cv', RVal T' v' cv' /\ forall c, vden cv c = vden cv' (cpop g c)).
+     Inv T' /\ Ext T T' /\ UnMemo T' m' /\ exists cv', RVal T' v' cv' /\ VOk cv' /\ forall c, vden cv c = vden cv' (cpop g c)).
 Proof.
   induction fuel as [|f IH]; [repeat split; intros; discriminate|].
   destruct IH as [IHw [IHa [IHs IHv]]]; split; [|split; [|split]].
-  - intros w T m w' T' m' cw I Hm Hw E; rewrite unw_S in E.
+  - intros w T m w' T' m' cw I Hm Hw Ocw E; rewrite unw_S in E.
     destruct w as [|[x i] w0]; [discriminate|].
-    inversion Hw as [|x0 i0 w1 cx cw0 Hc Hx Hw0]; subst.
+    inversion Hw as [|x0 i0 w1 cx cw0 Hc Hx Hw0]; subst; apply WOk_cons in Ocw as [Ocx Ocw0].
     destruct (match x with HNorm.SW h => lexp_eqb h g && HDisplay.all_sw_kd F g w0 | _ => false end) eqn:B.
     + injection E as <- <- <-.
       destruct x as [h v|h|a]; try discriminate; apply andb_true_iff in B as [Bh B]; apply lexp_eqb_eq in Bh; subst h.
-      split; [exact I|split; [apply Ext_refl|split; [exact Hm|exists cw0; split; [exact Hw0|]]]].
+      split; [exact I|split; [apply Ext_refl|split; [exact Hm|exists cw0; split; [exact Hw0|split; [exact Ocw0|]]]]].
       intros c; inversion Hx; subst; cbn [CSound.wden CSound.sden]; apply (all_sw_kd_pop w0 cw0 T Hw0 B).
     + destruct (HDisplay.unst F g f x T m) as [[[x' T1] m1]|] eqn:E1; [|cbv iota beta zeta in E; discriminate].
-      destruct (IHs x T m x' T1 m1 cx I Hm Hx E1) as [I1 [X1 [Hm1 [cx' [Hx' [_ Sx]]]]]].
+      destruct (IHs x T m x' T1 m1 cx I Hm Hx Ocx E1) as [I1 [X1 [Hm1 [cx' [Hx' [Ox [_ Sx]]]]]]].
       destruct (HDisplay.unw F g f w0 T1 m1) as [[[w2 T2] m2]|] eqn:E2; [|cbv iota beta zeta in E; discriminate].
-      destruct (IHw w0 T1 m1 w2 T2 m2 cw0 I1 Hm1 (RWord_mono _ _ X1 _ _ Hw0) E2) as [I2 [X2 [Hm2 [cw2 [Hw2 Sw]]]]].
+      destruct (IHw w0 T1 m1 w2 T2 m2 cw0 I1 Hm1 (RWord_mono _ _ X1 _ _ Hw0) Ocw0 E2) as [I2 [X2 [Hm2 [cw2 [Hw2 [Ow Sw]]]]]].
       destruct (HNorm.hcons x' w2 T2) as [w3 T3] eqn:E3; cbv iota beta zeta in E; injection E as <- <- <-.
       destruct (hcons_spec T2 x' w2 cx' cw2 w3 T3 I2 (RStep_mono _ _ _ _ X2 Hx') Hw2 E3) as [I3 [X3 Hw3]].
       split; [exact I3|split; [apply (Ext_trans _ _ _ X1 (Ext_trans _ _ _ X2 X3))|split; [apply (UnMemo_mono _ _ _ X3 Hm2)|]]].
-      exists (cx' :: cw2); split; [exact Hw3|]; intros c; cbn [CSound.wden]; rewrite Sw; apply Sx.
-  - intros w T m w' T' m' cw I Hm Hw Hg Hn E; rewrite unall_S in E.
+      exists (cx' :: cw2); split; [exact Hw3|split; [apply WOk_cons; split; assumption|]]; intros c; cbn [CSound.wden]; rewrite Sw; apply Sx.
+  - intros w T m w' T' m' cw I Hm Hw Ocw Hg Hn E; rewrite unall_S in E.
     destruct w as [|[x i] w0].
     + injection E as <- <- <-; inversion Hw; subst.
-      split; [exact I|split; [apply Ext_refl|split; [exact Hm|exists []; split; [apply RWNil|split; [reflexivity|constructor]]]]].
+      split; [exact I|split; [apply Ext_refl|split; [exact Hm|exists []; split; [apply RWNil|split; [constructor|split; [reflexivity|constructor]]]]]].
     + inversion Hw as [|x0 i0 w1 cx cw0 Hc Hx Hw0]; subst; inversion Hn as [|? ? Hl Hn0]; subst.
+      apply WOk_cons in Ocw as [Ocx Ocw0].
       destruct (HDisplay.unst F g f x T m) as [[[x' T1] m1]|] eqn:E1; [|cbv iota beta zeta in E; discriminate].
-      destruct (IHs x T m x' T1 m1 cx I Hm Hx E1) as [I1 [X1 [Hm1 [cx' [Hx' [Lx Sx]]]]]].
+      destruct (IHs x T m x' T1 m1 cx I Hm Hx Ocx E1) as [I1 [X1 [Hm1 [cx' [Hx' [Ox [Lx Sx]]]]]]].
       destruct (HDisplay.unall F g f w0 T1 m1) as [[[w2 T2] m2]|] eqn:E2; [|cbv iota beta zeta in E; discriminate].
-      destruct (IHa w0 T1 m1 w2 T2 m2 cw0 I1 Hm1 (RWord_mono _ _ X1 _ _ Hw0) Hg Hn0 E2) as [I2 [X2 [Hm2 [cw2 [Hw2 [Sw Hn2]]]]]].
+      destruct (IHa w0 T1 m1 w2 T2 m2 cw0 I1 Hm1 (RWord_mono _ _ X1 _ _ Hw0) Ocw0 Hg Hn0 E2) as [I2 [X2 [Hm2 [cw2 [Hw2 [Ow [Sw Hn2]]]]]]].
       destruct (HNorm.hcons x' w2 T2) as [w3 T3] eqn:E3; cbv iota beta zeta in E; injection E as <- <- <-.
       destruct (hcons_spec T2 x' w2 cx' cw2 w3 T3 I2 (RStep_mono _ _ _ _ X2 Hx') Hw2 E3) as [I3 [X3 Hw3]].
       split; [exact I3|split; [apply (Ext_trans _ _ _ X1 (Ext_trans _ _ _ X2 X3))|split; [apply (UnMemo_mono _ _ _ X3 Hm2)|]]].
-      exists (cx' :: cw2); split; [exact Hw3|split; [|constructor; [rewrite Lx; exact Hl|exact Hn2]]].
+      exists (cx' :: cw2); split; [exact Hw3|split; [apply WOk_cons; split; assumption|split; [|constructor; [rewrite Lx; exact Hl|exact Hn2]]]].
       intros c; cbn [CSound.wden]; rewrite Sw.
       destruct Hl as [h [Lh Nh]]; rewrite (Sx (wden cw0 c) c); rewrite Hg.
       rewrite <- Lx in Lh; destruct cx' as [h' v'|h'|a']; cbn in Lh |- *; [injection Lh as ->|injection Lh as ->|discriminate].
       * symmetry; apply pop_bound_named; exact Nh.
       * symmetry; apply pops_bound_named, Nh.
-  - intros x T m x' T' m' cx I Hm Hx E; rewrite unst_S in E.
+  - intros x T m x' T' m' cx I Hm Hx Ocx E; rewrite unst_S in E.
     destruct x as [h v|h|a].
     + destruct (HDisplay.unv F g f v T m) as [[[v' T1] m1]|] eqn:E1; [|cbv iota beta zeta in E; discriminate].
       cbv iota beta zeta in E; injection E as <- <- <-; inversion Hx as [h0 v0 cv Hv| |]; subst.
-      destruct (IHv v T m v' T1 m1 cv I Hm Hv E1) as [I1 [X1 [Hm1 [cv' [Hv' Sv]]]]].
+      inversion Ocx as [? ? Ocv| |]; subst.
+      destruct (IHv v T m v' T1 m1 cv I Hm Hv Ocv E1) as [I1 [X1 [Hm1 [cv' [Hv' [Ov Sv]]]]]].
       split; [exact I1|split; [exact X1|split; [exact Hm1|]]].
-      exists (CNorm.SE h cv'); split; [constructor; exact Hv'|split; [reflexivity|]]; intros y c; cbn [CSound.sden]; rewrite Sv; reflexivity.
+      exists (CNorm.SE h cv'); split; [constructor; exact Hv'|split; [constructor; exact Ov|split; [reflexivity|]]]; intros y c; cbn [CSound.sden]; rewrite Sv; reflexivity.
     + injection E as <- <- <-; split; [exact I|split; [apply Ext_refl|split; [exact Hm|]]].
-      exists cx; split; [exact Hx|split; [reflexivity|]]; intros y c; inversion Hx; subst; reflexivity.
+      exists cx; split; [exact Hx|split; [exact Ocx|split; [reflexivity|]]]; intros y c; inversion Hx; subst; reflexivity.
     + injection E as <- <- <-; split; [exact I|split; [apply Ext_refl|split; [exact Hm|]]].
-      exists cx; split; [exact Hx|split; [reflexivity|]]; intros y c; inversion Hx; subst; reflexivity.
-  - intros v T m v' T' m' cv I Hm Hv E; rewrite unv_S in E.
+      exists cx; split; [exact Hx|split; [exact Ocx|split; [reflexivity|]]]; intros y c; inversion Hx; subst; reflexivity.
+  - intros v T m v' T' m' cv I Hm Hv Ocv E; rewrite unv_S in E.
     destruct v as [h j|u [b|] p|h j x].
     + inversion Hv; subst.
       destruct (lexp_eqb h g) eqn:Eh.
       * apply lexp_eqb_eq in Eh; subst h; destruct j as [|j]; [discriminate|]; injection E as <- <- <-.
         split; [exact I|split; [apply Ext_refl|split; [exact Hm|]]].
-        exists (CNorm.VVar g j); split; [constructor|]; intros c; cbn [CSound.vden].
+        exists (CNorm.VVar g j); split; [constructor|split; [constructor|]]; intros c; cbn [CSound.vden].
         symmetry; apply (cname_pop M).
       * destruct (HNorm.kd F h g) eqn:K; [|discriminate]; injection E as <- <- <-.
         split; [exact I|split; [apply Ext_refl|split; [exact Hm|]]].
-        exists (CNorm.VVar h j); split; [constructor|]; intros c; cbn [CSound.vden].
+        exists (CNorm.VVar h j); split; [constructor|split; [constructor|]]; intros c; cbn [CSound.vden].
         symmetry; apply cname_other, K.
     + discriminate.
-    + inversion Hv as [|u0 b0 p0 cp Hp|]; subst.
+    + inversion Hv as [|u0 b0 p0 cp Hp|]; subst; inversion Ocv as [|? ? ? Lu Ocp|]; subst.
       destruct (PositiveMap.find (xI p) m) as [p'|] eqn:Fm.
-      * injection E as <- <- <-; destruct (Hm (xI p) p' Fm) as [cp0 [cp' [H1 [H2 H3]]]].
+      * injection E as <- <- <-; destruct (Hm (xI p) p' Fm) as [cp0 [cp' [H1 [H2 [H4 H3]]]]].
         pose proof (RId_func T p _ _ I Hp H1) as ->.
         split; [exact I|split; [apply Ext_refl|split; [exact Hm|]]].
-        exists (CNorm.VTerm u None cp'); split; [constructor; exact H2|]; intros c.
+        exists (CNorm.VTerm u None cp'); split; [constructor; exact H2|split; [constructor; assumption|]]; intros c.
         rewrite !CSound.vden_term; apply H3.
       * destruct (hw_spec T p cp I Hp) as [Hwp _]; cbv zeta in E.
         destruct (HDisplay.unw F g f (HDisplay.hw T p) T m) as [[[w1 T1] m1]|] eqn:E1.
         -- cbv iota beta zeta in E; injection E as <- <- <-.
-           destruct (IHw _ T m w1 T1 m1 cp I Hm Hwp E1) as [I1 [X1 [Hm1 [cw1 [Hw1 Sw]]]]].
+           destruct (IHw _ T m w1 T1 m1 cp I Hm Hwp Ocp E1) as [I1 [X1 [Hm1 [cw1 [Hw1 [Ow Sw]]]]]].
            split; [exact I1|split; [exact X1|split]].
            { apply UnMemo_add_I; [exact Hm1|].
-             exists cp, cw1; split; [apply (RId_mono _ _ _ _ X1 Hp)|split; [apply RWord_RId, Hw1|]].
+             exists cp, cw1; split; [apply (RId_mono _ _ _ _ X1 Hp)|split; [apply RWord_RId, Hw1|split; [exact Ow|]]].
              intros u0 c; rewrite Sw; reflexivity. }
-           exists (CNorm.VTerm u None cw1); split; [constructor; apply RWord_RId, Hw1|]; intros c.
+           exists (CNorm.VTerm u None cw1); split; [constructor; apply RWord_RId, Hw1|split; [constructor; assumption|]]; intros c.
            rewrite !CSound.vden_term, Sw; reflexivity.
         -- cbv iota beta zeta in E.
            destruct (lexp_eqb g LNone && HDisplay.named_only (HDisplay.hw T p)) eqn:B; [|discriminate].
            apply andb_true_iff in B as [Bg Bn]; apply lexp_eqb_eq in Bg.
            destruct (HDisplay.unall F g f (HDisplay.hw T p) T m) as [[[w1 T1] m1]|] eqn:E2; [|discriminate].
            injection E as <- <- <-.
-           destruct (IHa _ T m w1 T1 m1 cp I Hm Hwp Bg (named_pop T _ cp Hwp Bn) E2) as [I1 [X1 [Hm1 [cw1 [Hw1 [Sw _]]]]]].
+           destruct (IHa _ T m w1 T1 m1 cp I Hm Hwp Ocp Bg (named_pop T _ cp Hwp Bn) E2) as [I1 [X1 [Hm1 [cw1 [Hw1 [Ow [Sw _]]]]]]].
            assert (St : forall u0 c, cterm u0 None (wden cp c) = cterm u0 None (wden cw1 (cpop g c))).
            { intros u0 c; rewrite Sw, Bg; symmetry; apply (proj2 HM). }
            split; [exact I1|split; [exact X1|split]].
            { apply UnMemo_add_I; [exact Hm1|].
-             exists cp, cw1; split; [apply (RId_mono _ _ _ _ X1 Hp)|split; [apply RWord_RId, Hw1|exact St]]. }
-           exists (CNorm.VTerm u None cw1); split; [constructor; apply RWord_RId, Hw1|]; intros c.
+             exists cp, cw1; split; [apply (RId_mono _ _ _ _ X1 Hp)|split; [apply RWord_RId, Hw1|split; [exact Ow|exact St]]]. }
+           exists (CNorm.VTerm u None cw1); split; [constructor; apply RWord_RId, Hw1|split; [constructor; assumption|]]; intros c.
            rewrite !CSound.vden_term; apply St.
-    + inversion Hv as [| |h0 j0 x0 cx Hx]; subst.
+    + inversion Hv as [| |h0 j0 x0 cx Hx]; subst; inversion Ocv as [| |? ? ? Ocx]; subst.
       destruct (PositiveMap.find (xO x) m) as [x'|] eqn:Fm.
-      * injection E as <- <- <-; destruct (Hm (xO x) x' Fm) as [cx0 [cx' [H1 [H2 H3]]]].
+      * injection E as <- <- <-; destruct (Hm (xO x) x' Fm) as [cx0 [cx' [H1 [H2 [H4 H3]]]]].
         pose proof (RId_func T x _ _ I Hx H1) as ->.
         split; [exact I|split; [apply Ext_refl|split; [exact Hm|]]].
-        exists (CNorm.VLook h j cx'); split; [constructor; exact H2|]; intros c.
+        exists (CNorm.VLook h j cx'); split; [constructor; exact H2|split; [constructor; assumption|]]; intros c.
         rewrite !CSound.vden_look, H3; reflexivity.
       * destruct (hw_spec T x cx I Hx) as [Hwx _].
         destruct (HDisplay.unw F g f (HDisplay.hw T x) T m) as [[[w1 T1] m1]|] eqn:E1; [|cbv iota beta zeta in E; discriminate].
         cbv iota beta zeta in E; injection E as <- <- <-.
-        destruct (IHw _ T m w1 T1 m1 cx I Hm Hwx E1) as [I1 [X1 [Hm1 [cw1 [Hw1 Sw]]]]].
+        destruct (IHw _ T m w1 T1 m1 cx I Hm Hwx Ocx E1) as [I1 [X1 [Hm1 [cw1 [Hw1 [Ow Sw]]]]]].
         split; [exact I1|split; [exact X1|split]].
         { apply UnMemo_add_O; [exact Hm1|].
-          exists cx, cw1; split; [apply (RId_mono _ _ _ _ X1 Hx)|split; [apply RWord_RId, Hw1|exact Sw]]. }
-        exists (CNorm.VLook h j cw1); split; [constructor; apply RWord_RId, Hw1|]; intros c.
+          exists cx, cw1; split; [apply (RId_mono _ _ _ _ X1 Hx)|split; [apply RWord_RId, Hw1|split; [exact Ow|exact Sw]]]. }
+        exists (CNorm.VLook h j cw1); split; [constructor; apply RWord_RId, Hw1|split; [constructor; assumption|]]; intros c.
         rewrite !CSound.vden_look, Sw; reflexivity.
 Qed.
 
@@ -520,11 +535,12 @@ Proof.
     + injection E as <- <-; exists (cx :: cw); split; [reflexivity|apply RWCons; assumption].
 Qed.
 
-Lemma wids_RId T R cR z : Inv T -> RWord T R cR -> In z (HDisplay.wids R) -> exists cz, RId T z cz.
+Lemma wids_RId T R cR z : Inv T -> RWord T R cR -> In z (HDisplay.wids R) -> exists cz pre, RId T z cz /\ cR = pre ++ cz.
 Proof.
   intros I H; induction H as [|y i w cy cw Hc Hy Hw IH]; cbn; [contradiction|].
-  intros [<-|Hin]; [|apply IH, Hin].
-  exists (cy :: cw); apply (RCons T i y (HNorm.wid w)); [exact Hc|exact Hy|apply RWord_RId, Hw].
+  intros [<-|Hin].
+  - exists (cy :: cw), []; split; [apply (RCons T i y (HNorm.wid w)); [exact Hc|exact Hy|apply RWord_RId, Hw]|reflexivity].
+  - destruct (IH Hin) as [cz [pre [Hz ->]]]; exists cz, (cy :: pre); split; [exact Hz|reflexivity].
 Qed.
 
 (** Moving entries in front of entries on labels known distinct. *)
@@ -608,73 +624,100 @@ Proof.
   cbn [CSound.sden]; rewrite IH, !CSound.vden_term; reflexivity.
 Qed.
 
-Lemma split_pay_cell T q : forall es ces seen t0 ts0 rest, Inv T -> REnts T es ces ->
-  HDisplay.split_pay F q seen es = (t0 :: ts0, rest) -> exists cq, RId T q cq.
+Lemma split_pay_cell T q : forall es ces seen t0 ts0 rest, Inv T -> REnts T es ces -> WOk ces ->
+  HDisplay.split_pay F q seen es = (t0 :: ts0, rest) -> exists cq, RId T q cq /\ WOk cq.
 Proof.
-  induction es as [|[h v] es IH]; intros ces seen t0 ts0 rest I He E; [discriminate|].
+  induction es as [|[h v] es IH]; intros ces seen t0 ts0 rest I He Oes E; [discriminate|].
   inversion He as [|? cs ? ces' Hs He']; subst; cbn [HDisplay.split_pay] in E.
+  apply WOk_cons in Oes as [Ocs Oes'].
   destruct (match HDisplay.tpay v with
             | Some (u, q') => if Pos.eqb q q' && forallb (fun k => HNorm.kd F k h) seen then Some u else None
             | None => None end) as [u|] eqn:Tk.
   - destruct v as [g j|u0 [b|] q'|g j x]; cbn [HDisplay.tpay] in Tk; try discriminate.
     destruct (Pos.eqb q q') eqn:Bq; [|discriminate]; apply Pos.eqb_eq in Bq; subst q'.
-    inversion Hs as [h0 v0 cv Hv| |]; subst; inversion Hv as [|u1 b1 p1 cq Hq|]; subst; exists cq; exact Hq.
+    inversion Hs as [h0 v0 cv Hv| |]; subst; inversion Hv as [|u1 b1 p1 cq Hq|]; subst; exists cq; split; [exact Hq|].
+    inversion Ocs as [? ? Ocv| |]; subst; inversion Ocv; assumption.
   - destruct (HDisplay.split_pay F q (h :: seen) es) as [ts' rest'] eqn:E1; injection E as Ets _; subst ts'.
-    apply (IH ces' (h :: seen) t0 ts0 rest' I He' E1).
+    apply (IH ces' (h :: seen) t0 ts0 rest' I He' Oes' E1).
 Qed.
 
-Lemma factor_spec T a1 cR es ces ts p : Inv T -> RId T a1 cR -> REnts T es ces ->
-  HDisplay.find_factor F T a1 es es = Some (ts, p) ->
-  exists cp, RId T p cp /\ forall c, wden (ces ++ cR) c = wden (sform_c ts) (wden cp c).
+Lemma split_pay_ts T q : forall es ces seen ts rest, REnts T es ces -> WOk ces ->
+  HDisplay.split_pay F q seen es = (ts, rest) -> Forall (fun hu => snd hu < nt) ts.
 Proof.
-  intros I Ha He; generalize es at 2; intros l E; induction l as [|[h v] l IH]; cbn [HDisplay.find_factor] in E; [discriminate|].
+  induction es as [|[h v] es IH]; intros ces seen ts rest He Oes E; cbn [HDisplay.split_pay] in E.
+  - injection E as <- <-; constructor.
+  - inversion He as [|? cs ? ces' Hs He']; subst; apply WOk_cons in Oes as [Ocs Oes'].
+    destruct (match HDisplay.tpay v with
+              | Some (u, q') => if Pos.eqb q q' && forallb (fun k => HNorm.kd F k h) seen then Some u else None
+              | None => None end) as [u|] eqn:Tk.
+    + destruct (HDisplay.split_pay F q seen es) as [ts' rest'] eqn:E1; injection E as <- <-.
+      constructor; [|apply (IH ces' seen ts' rest' He' Oes' E1)].
+      destruct v as [g j|u0 [b|] q'|g j x]; cbn [HDisplay.tpay] in Tk; try discriminate.
+      destruct (Pos.eqb q q' && _); [injection Tk as <-|discriminate].
+      inversion Hs as [h0 v0 cv Hv| |]; subst; inversion Hv; subst.
+      inversion Ocs as [? ? Ocv| |]; subst; inversion Ocv; assumption.
+    + destruct (HDisplay.split_pay F q (h :: seen) es) as [ts' rest'] eqn:E1; injection E as <- <-.
+      apply (IH ces' (h :: seen) ts' rest' He' Oes' E1).
+Qed.
+
+Lemma factor_spec T a1 cR es ces ts p : Inv T -> RId T a1 cR -> REnts T es ces -> WOk ces ->
+  HDisplay.find_factor F T a1 es es = Some (ts, p) ->
+  exists cp, RId T p cp /\ WOk cp /\ Forall (fun hu => snd hu < nt) ts /\
+    forall c, wden (ces ++ cR) c = wden (sform_c ts) (wden cp c).
+Proof.
+  intros I Ha He Oes; generalize es at 2; intros l E; induction l as [|[h v] l IH]; cbn [HDisplay.find_factor] in E; [discriminate|].
   destruct (HDisplay.tpay v) as [[u q]|] eqn:Tq; [|apply IH, E].
   destruct (HDisplay.split_pay F q [] es) as [ts' rest] eqn:Es.
   destruct ts' as [|t0 ts0]; [apply IH, E|].
   destruct (HDisplay.strip_to a1 (HDisplay.hw T q)) as [pre|] eqn:St; [|apply IH, E].
   destruct (HDisplay.entries_eqb pre rest) eqn:Eq; [|apply IH, E].
   injection E as <- <-; apply entries_eqb_eq in Eq; subst pre.
-  destruct (split_pay_cell T q es ces [] _ _ _ I He Es) as [cq Hq].
+  destruct (split_pay_cell T q es ces [] _ _ _ I He Oes Es) as [cq [Hq Oq]].
+  pose proof (split_pay_ts T q es ces [] _ _ He Oes Es) as Ots.
   destruct (hw_spec T q cq I Hq) as [Hwq _].
   destruct (strip_to_spec T a1 cR I Ha _ _ rest Hwq St) as [cpre [Hpre ->]].
   destruct (split_pay_spec T q _ es ces [] [] _ rest I Hq He (Forall_nil _) Es) as [crest [Hr S]].
   pose proof (REnts_func T rest _ _ I Hpre Hr) as <-.
-  exists (cpre ++ cR); split; [exact Hq|]; intros c.
+  exists (cpre ++ cR); split; [exact Hq|split; [exact Oq|split; [exact Ots|]]]; intros c.
   rewrite wden_app; change ces with ([] ++ ces); rewrite S, app_nil_l, wpre_app, <- wden_app.
   rewrite sform_wpre; symmetry; apply wden_wpre.
 Qed.
 
 
 Lemma unents_spec g f : forall es ces R' cR' T m B T' m', Inv T -> UnMemo g T m -> REnts T es ces -> RWord T R' cR' ->
+  WOk ces -> WOk cR' ->
   HDisplay.unents F g f es R' T m = Some (B, T', m') ->
-  Inv T' /\ Ext T T' /\ UnMemo g T' m' /\ exists ces', RWord T' B (ces' ++ cR') /\ forall Y c, wpre ces Y c = wpre ces' Y (cpop g c).
+  Inv T' /\ Ext T T' /\ UnMemo g T' m' /\ exists ces', RWord T' B (ces' ++ cR') /\ WOk ces' /\ forall Y c, wpre ces Y c = wpre ces' Y (cpop g c).
 Proof.
-  induction es as [|[h v] es IH]; intros ces R' cR' T m B T' m' I Hm He HR E; cbn [HDisplay.unents] in E.
+  induction es as [|[h v] es IH]; intros ces R' cR' T m B T' m' I Hm He HR Oes OR E; cbn [HDisplay.unents] in E.
   - injection E as <- <- <-; inversion He; subst.
-    split; [exact I|split; [apply Ext_refl|split; [exact Hm|exists []; split; [exact HR|reflexivity]]]].
+    split; [exact I|split; [apply Ext_refl|split; [exact Hm|exists []; split; [exact HR|split; [constructor|reflexivity]]]]].
   - inversion He as [|? cs ? ces0 Hs He0]; subst; inversion Hs as [h0 v0 cv Hv| |]; subst.
+    apply WOk_cons in Oes as [Ocs Oes0]; inversion Ocs as [? ? Ocv| |]; subst.
     destruct (HDisplay.unv F g f v T m) as [[[v' T1] m1]|] eqn:E1; [|discriminate].
-    destruct (proj2 (proj2 (proj2 (un_spec g f))) v T m v' T1 m1 cv I Hm Hv E1) as [I1 [X1 [Hm1 [cv' [Hv' Sv]]]]].
+    destruct (proj2 (proj2 (proj2 (un_spec g f))) v T m v' T1 m1 cv I Hm Hv Ocv E1) as [I1 [X1 [Hm1 [cv' [Hv' [Ov Sv]]]]]].
     destruct (HDisplay.unents F g f es R' T1 m1) as [[[w1 T2] m2]|] eqn:E2; [|discriminate].
-    destruct (IH ces0 R' cR' T1 m1 w1 T2 m2 I1 Hm1 (REnts_mono _ _ _ _ X1 He0) (RWord_mono _ _ X1 _ _ HR) E2)
-      as [I2 [X2 [Hm2 [ces1 [Hw1 Sw]]]]].
+    destruct (IH ces0 R' cR' T1 m1 w1 T2 m2 I1 Hm1 (REnts_mono _ _ _ _ X1 He0) (RWord_mono _ _ X1 _ _ HR) Oes0 OR E2)
+      as [I2 [X2 [Hm2 [ces1 [Hw1 [Ow Sw]]]]]].
     destruct (HNorm.hcons (HNorm.SE h v') w1 T2) as [w2 T3] eqn:E3; injection E as <- <- <-.
     destruct (hcons_spec T2 _ w1 (CNorm.SE h cv') _ w2 T3 I2 (RStep_mono _ _ _ _ X2 (RSE _ h v' cv' Hv')) Hw1 E3) as [I3 [X3 Hw3]].
     split; [exact I3|split; [apply (Ext_trans _ _ _ X1 (Ext_trans _ _ _ X2 X3))|split; [apply (UnMemo_mono g _ _ _ X3 Hm2)|]]].
-    exists (CNorm.SE h cv' :: ces1); split; [exact Hw3|]; intros Y c; cbn [CSound.wpre CSound.sden].
+    exists (CNorm.SE h cv' :: ces1); split; [exact Hw3|split; [apply WOk_cons; split; [constructor; exact Ov|exact Ow]|]]; intros Y c; cbn [CSound.wpre CSound.sden].
     rewrite Sw, Sv; reflexivity.
 Qed.
 
 Lemma find_lift_spec T : forall es seen pre ces cpre R cR x g B T', Inv T ->
   REnts T (rev pre) cpre -> Forall (fun s => exists l, CNorm.slabel s = Some l /\ In l seen) cpre ->
-  REnts T es ces -> RWord T R cR -> HDisplay.find_lift F T seen pre es R = Some (x, g, B, T') ->
-  Inv T' /\ Ext T T' /\ exists cB, RWord T' B cB /\
+  REnts T es ces -> RWord T R cR -> WOk cpre -> WOk ces -> WOk cR ->
+  HDisplay.find_lift F T seen pre es R = Some (x, g, B, T') ->
+  Inv T' /\ Ext T T' /\ exists cB, RWord T' B cB /\ WOk cB /\
     forall c, wden (cpre ++ ces ++ cR) c = cpush x (wden cB (cpop g c)) (cname g 0 c).
 Proof.
-  induction es as [|[h v] es IH]; intros seen pre ces cpre R cR x g B T' I Hpre Hseen He HR E; [discriminate|].
+  induction es as [|[h v] es IH]; intros seen pre ces cpre R cR x g B T' I Hpre Hseen He HR Opre Oes OR E; [discriminate|].
   inversion He as [|? cs ? ces0 Hs He0]; subst; cbn [HDisplay.find_lift] in E.
+  apply WOk_cons in Oes as [Ocs Oes0].
   assert (Hnext : HDisplay.find_lift F T (h :: seen) ((h, v) :: pre) es R = Some (x, g, B, T') ->
-    Inv T' /\ Ext T T' /\ exists cB, RWord T' B cB /\
+    Inv T' /\ Ext T T' /\ exists cB, RWord T' B cB /\ WOk cB /\
       forall c, wden (cpre ++ cs :: ces0 ++ cR) c = cpush x (wden cB (cpop g c)) (cname g 0 c)).
   { intros En.
     assert (Hpre' : REnts T (rev ((h, v) :: pre)) (cpre ++ [cs])) by (cbn [rev]; apply Forall2_app; [exact Hpre|constructor; [exact Hs|constructor]]).
@@ -682,19 +725,21 @@ Proof.
     { apply Forall_app; split.
       - eapply Forall_impl; [|exact Hseen]; intros t [l [Lt Il]]; exists l; split; [exact Lt|right; exact Il].
       - constructor; [|constructor]; inversion Hs; subst; exists h; split; [reflexivity|left; reflexivity]. }
-    destruct (IH (h :: seen) ((h, v) :: pre) ces0 (cpre ++ [cs]) R cR x g B T' I Hpre' Hseen' He0 HR En) as [I1 [X1 [cB [HB S]]]].
-    split; [exact I1|split; [exact X1|exists cB; split; [exact HB|]]]; intros c; rewrite <- S, <- app_assoc; reflexivity. }
+    destruct (IH (h :: seen) ((h, v) :: pre) ces0 (cpre ++ [cs]) R cR x g B T' I Hpre' Hseen' He0 HR
+                (proj2 (WOk_app _ _) (conj Opre (Forall_cons _ Ocs (Forall_nil _)))) Oes0 OR En) as [I1 [X1 [cB [HB [OB S]]]]].
+    split; [exact I1|split; [exact X1|exists cB; split; [exact HB|split; [exact OB|]]]]; intros c; rewrite <- S, <- app_assoc; reflexivity. }
   destruct v as [g0 [|j]|u b p|g0 j y]; try (apply Hnext, E).
   destruct (forallb (fun k => HNorm.kd F k h) seen) eqn:K; [|apply Hnext, E].
   destruct (HDisplay.unw F g0 (HDisplay.fuel_of T) R T (PositiveMap.empty _)) as [[[R' T1] m1]|] eqn:E1; [|apply Hnext, E].
   destruct (HDisplay.unents F g0 (HDisplay.fuel_of T) (rev pre ++ es) R' T1 m1) as [[[B' T2] m2]|] eqn:E2; [|apply Hnext, E].
   injection E as <- <- <- <-.
   assert (Hm0 : UnMemo g0 T (PositiveMap.empty _)) by (intros k k' Ek; rewrite PositiveMap.gempty in Ek; discriminate).
-  destruct (proj1 (un_spec g0 (HDisplay.fuel_of T)) R T _ R' T1 m1 cR I Hm0 HR E1) as [I1 [X1 [Hm1 [cR' [HR' SR]]]]].
+  destruct (proj1 (un_spec g0 (HDisplay.fuel_of T)) R T _ R' T1 m1 cR I Hm0 HR OR E1) as [I1 [X1 [Hm1 [cR' [HR' [OR' SR]]]]]].
   assert (He' : REnts T1 (rev pre ++ es) (cpre ++ ces0)) by (apply (REnts_mono T); [exact X1|apply Forall2_app; assumption]).
-  destruct (unents_spec g0 _ _ _ R' cR' T1 m1 B' T2 m2 I1 Hm1 He' HR' E2) as [I2 [X2 [_ [ces' [HB SB]]]]].
+  destruct (unents_spec g0 _ _ _ R' cR' T1 m1 B' T2 m2 I1 Hm1 He' HR' (proj2 (WOk_app _ _) (conj Opre Oes0)) OR' E2)
+    as [I2 [X2 [_ [ces' [HB [Oes' SB]]]]]].
   split; [exact I2|split; [apply (Ext_trans _ _ _ X1 X2)|]].
-  exists (ces' ++ cR'); split; [exact HB|]; intros c.
+  exists (ces' ++ cR'); split; [exact HB|split; [apply WOk_app; split; assumption|]]; intros c.
   inversion Hs as [h1 v1 cv Hv| |]; subst; inversion Hv; subst.
   rewrite wden_app, <- app_comm_cons; cbn [CSound.wden].
   rewrite (wpre_comm M F HM (CNorm.SE h (CNorm.VVar g0 0)) h cpre); [|reflexivity|].
@@ -714,24 +759,23 @@ Proof.
     intros E; injection E as <-; apply existsb_exists in Ex as [z [Hz Ez]]; apply Pos.eqb_eq in Ez; subst; exact Hz.
 Qed.
 
-Lemma find_split_spec T W cW R cR es x W1 T1 : Inv T -> RWord T W cW -> RWord T R cR ->
+Lemma find_split_spec T W cW R cR es x W1 T1 : Inv T -> RWord T W cW -> RWord T R cR -> WOk cW -> WOk cR ->
   HDisplay.find_split F T W R es = Some (x, W1, T1) ->
-  Inv T1 /\ Ext T T1 /\ exists cx cW1, RId T1 x cx /\ RWord T1 W1 cW1 /\ forall c, wden cW c = wden cW1 (wden cx c).
+  Inv T1 /\ Ext T T1 /\ exists cx cW1, RId T1 x cx /\ RWord T1 W1 cW1 /\ WOk cx /\ WOk cW1 /\ forall c, wden cW c = wden cW1 (wden cx c).
 Proof.
-  intros I HW HR E; unfold HDisplay.find_split in E.
+  intros I HW HR OW OR E; unfold HDisplay.find_split in E.
   destruct (HDisplay.split_cand (HDisplay.wids R) es) as [y|] eqn:Ec; [|discriminate].
   destruct (HDisplay.relw F y (HDisplay.fuel_of T) W T (PositiveMap.empty _)) as [[[W' T'] m']|] eqn:Er; [|discriminate].
   injection E as <- <- <-.
-  destruct (wids_RId T R cR y I HR (split_cand_in _ _ _ Ec)) as [cy Hy].
+  destruct (wids_RId T R cR y I HR (split_cand_in _ _ _ Ec)) as [cy [pre [Hy ER]]].
+  assert (Oy : WOk cy) by (rewrite ER in OR; apply WOk_app in OR; apply OR).
   assert (Hm : RelMemo cy T (PositiveMap.empty _)) by (intros k k' Ek; rewrite PositiveMap.gempty in Ek; discriminate).
-  destruct (proj1 (rel_spec y cy (HDisplay.fuel_of T)) W T _ W' T' m' cW I Hy Hm HW Er) as [I1 [X1 [_ [cW1 [HW1 S]]]]].
-  split; [exact I1|split; [exact X1|exists cy, cW1; split; [apply (RId_mono _ _ _ _ X1 Hy)|split; [exact HW1|exact S]]]].
+  destruct (proj1 (rel_spec y cy (HDisplay.fuel_of T)) W T _ W' T' m' cW I Hy Hm HW Oy OW Er) as [I1 [X1 [_ [cW1 [HW1 [OW1 S]]]]]].
+  split; [exact I1|split; [exact X1|exists cy, cW1; split; [apply (RId_mono _ _ _ _ X1 Hy)|split; [exact HW1|split; [exact Oy|split; [exact OW1|exact S]]]]]].
 Qed.
 
 
 (** ** Showing cells *)
-
-Variable base : nat.
 
 (** References to cells, [base + k], read through [ρ]. *)
 Definition upd (ρ : nat -> U -> U) : cmodel :=
@@ -788,9 +832,7 @@ Lemma dbody_S f i D : HDisplay.dbody F base (S f) i D =
   match HDisplay.hw (HDisplay.dT D) i with
   | [] => Some (AId, D)
   | (HNorm.SA a, _) :: R =>
-      if Nat.ltb a base then
-        match HDisplay.dref F base f (HNorm.wid R) D with Some (r, D1) => Some (HDisplay.acomp r (AAtom a), D1) | None => None end
-      else None
+      match HDisplay.dref F base f (HNorm.wid R) D with Some (r, D1) => Some (HDisplay.acomp r (AAtom a), D1) | None => None end
   | (HNorm.SW _, _) :: _ =>
       let '(hs, R) := HDisplay.take_sw (HDisplay.hw (HDisplay.dT D) i) in
       match HDisplay.dref F base f (HNorm.wid R) D with Some (r, D1) => Some (HDisplay.acomp r (HDisplay.weak hs), D1) | None => None end
@@ -888,7 +930,7 @@ Record DInv (D : HDisplay.dstate) : Prop := {
   di_len : length (HDisplay.ddefs D) = HDisplay.dn D;
   di_memo : forall i k, PositiveMap.find i (HDisplay.dmemo D) = Some k ->
     k < HDisplay.dn D /\ (exists ci, RId (HDisplay.dT D) i ci) /\
-    exists d, nth_error (rev (HDisplay.ddefs D)) k = Some d /\ alt (base + k) d /\
+    exists d, nth_error (rev (HDisplay.ddefs D)) k = Some d /\ alt (base + k) d /\ aok nt d = true /\
       forall ρ, Agree D ρ k -> forall ci, RId (HDisplay.dT D) i ci -> forall c, dden ρ d c = wden ci c;
   di_onto : forall k, k < HDisplay.dn D -> exists i, PositiveMap.find i (HDisplay.dmemo D) = Some k
 }.
@@ -921,8 +963,8 @@ Lemma DInv_setT D T' : DInv D -> Inv T' -> Ext (HDisplay.dT D) T' -> DInv (HDisp
 Proof.
   intros [I L Mm On] I' X; split; [|split; [exact X|split; [auto|split; auto]]].
   constructor; cbn; [exact I'|exact L| |exact On].
-  intros i k E; destruct (Mm i k E) as [Lk [[ci Hi] [d [Hd [Ad Sd]]]]].
-  split; [exact Lk|split; [exists ci; apply (RId_mono _ _ _ _ X Hi)|exists d; split; [exact Hd|split; [exact Ad|]]]].
+  intros i k E; destruct (Mm i k E) as [Lk [[ci Hi] [d [Hd [Ad [Kd Sd]]]]]].
+  split; [exact Lk|split; [exists ci; apply (RId_mono _ _ _ _ X Hi)|exists d; split; [exact Hd|split; [exact Ad|split; [exact Kd|]]]]].
   intros ρ A ci' Hi' c; rewrite (RId_later _ _ i ci ci' I' X Hi Hi').
   apply Sd; [|exact Hi]; intros i' k' E' L' cj Hj c'; apply (A i' k' E' L' cj (RId_mono _ _ _ _ X Hj)).
 Qed.
@@ -945,13 +987,13 @@ Proof.
 Qed.
 
 Lemma add_spec D1 i d : DInv D1 -> PositiveMap.find i (HDisplay.dmemo D1) = None ->
-  (exists ci, RId (HDisplay.dT D1) i ci) -> alt (base + HDisplay.dn D1) d ->
+  (exists ci, RId (HDisplay.dT D1) i ci) -> alt (base + HDisplay.dn D1) d -> aok nt d = true ->
   (forall ρ, Agree D1 ρ (HDisplay.dn D1) -> forall ci, RId (HDisplay.dT D1) i ci -> forall c, dden ρ d c = wden ci c) ->
   let D' := HDisplay.mk_dstate (HDisplay.dT D1) (PositiveMap.add i (HDisplay.dn D1) (HDisplay.dmemo D1))
               (d :: HDisplay.ddefs D1) (S (HDisplay.dn D1)) in
   DInv D' /\ DExt D1 D'.
 Proof.
-  intros [I L Mm On] N Hi Ad Sd D'.
+  intros [I L Mm On] N Hi Ad Kd Sd D'.
   assert (Lr : length (rev (HDisplay.ddefs D1)) = HDisplay.dn D1) by (rewrite length_rev; exact L).
   assert (Old : forall k d0, nth_error (rev (HDisplay.ddefs D1)) k = Some d0 ->
                   nth_error (rev (HDisplay.ddefs D')) k = Some d0).
@@ -965,12 +1007,12 @@ Proof.
   constructor; cbn [D' HDisplay.dT HDisplay.ddefs HDisplay.dn HDisplay.dmemo]; [exact I|cbn; rewrite L; reflexivity| |].
   - intros i' k E; destruct (Pos.eq_dec i' i) as [->|Ni].
     + rewrite PositiveMap.gss in E; injection E as <-.
-      split; [lia|split; [exact Hi|exists d; split; [|split; [exact Ad|]]]].
+      split; [lia|split; [exact Hi|exists d; split; [|split; [exact Ad|split; [exact Kd|]]]]].
       * cbn [rev]; rewrite nth_error_app2 by lia; rewrite Lr, Nat.sub_diag; reflexivity.
       * intros ρ A; apply Sd; intros i'' k'' E'' L'' ci H c; apply (A i'' k'' (Mi _ _ E'') L'' ci H c).
     + rewrite PositiveMap.gso in E by exact Ni.
-      destruct (Mm i' k E) as [Lk [Hc [d0 [Hd [Ad0 Sd0]]]]].
-      split; [lia|split; [exact Hc|exists d0; split; [apply (Old k d0 Hd)|split; [exact Ad0|]]]].
+      destruct (Mm i' k E) as [Lk [Hc [d0 [Hd [Ad0 [Kd0 Sd0]]]]]].
+      split; [lia|split; [exact Hc|exists d0; split; [apply (Old k d0 Hd)|split; [exact Ad0|split; [exact Kd0|]]]]].
       intros ρ A; apply Sd0, (AD ρ k A).
   - intros k Lk; destruct (Nat.eq_dec k (HDisplay.dn D1)) as [->|Nk].
     + exists i; apply PositiveMap.gss.
@@ -983,49 +1025,65 @@ Proof.
   replace (Nat.leb base a) with false by (symmetry; apply Nat.leb_gt, L); reflexivity.
 Qed.
 
+Lemma aok_acomp r x : aok nt r = true -> aok nt x = true -> aok nt (HDisplay.acomp r x) = true.
+Proof. intros H1 H2; destruct r; cbn [HDisplay.acomp aok] in *; rewrite ?H1, ?H2; try reflexivity; exact H2. Qed.
+
+Lemma aok_weak hs : aok nt (HDisplay.weak hs) = true.
+Proof.
+  unfold HDisplay.weak; assert (G : forall a, aok nt a = true -> aok nt (fold_left (fun a h => AOuter h a) hs a) = true).
+  { induction hs as [|h hs IH]; intros a H; cbn; [exact H|apply IH, H]. }
+  apply G; reflexivity.
+Qed.
+
+Lemma aok_sform ts : Forall (fun hu => snd hu < nt) ts -> aok nt (HDisplay.sform ts) = true.
+Proof.
+  induction ts as [|[h u] ts IH]; intros H; [reflexivity|]; inversion H; subst; cbn in *.
+  apply andb_true_iff; split; [apply andb_true_iff; split; [apply Nat.ltb_lt; assumption|reflexivity]|apply IH; assumption].
+Qed.
+
 Lemma disp_spec : forall fuel,
-  (forall i D r D', DInv D -> (exists ci, RId (HDisplay.dT D) i ci) -> HDisplay.dref F base fuel i D = Some (r, D') ->
-     DInv D' /\ DExt D D' /\ alt (base + HDisplay.dn D') r /\
+  (forall i D r D', DInv D -> (exists ci, RId (HDisplay.dT D) i ci /\ WOk ci) -> HDisplay.dref F base fuel i D = Some (r, D') ->
+     DInv D' /\ DExt D D' /\ alt (base + HDisplay.dn D') r /\ aok nt r = true /\
      forall ρ, Agree D' ρ (HDisplay.dn D') -> forall ci, RId (HDisplay.dT D') i ci -> forall c, dden ρ r c = wden ci c)
-  /\ (forall i D r D', DInv D -> (exists ci, RId (HDisplay.dT D) i ci) -> HDisplay.dbody F base fuel i D = Some (r, D') ->
-     DInv D' /\ DExt D D' /\ alt (base + HDisplay.dn D') r /\
+  /\ (forall i D r D', DInv D -> (exists ci, RId (HDisplay.dT D) i ci /\ WOk ci) -> HDisplay.dbody F base fuel i D = Some (r, D') ->
+     DInv D' /\ DExt D D' /\ alt (base + HDisplay.dn D') r /\ aok nt r = true /\
      forall ρ, Agree D' ρ (HDisplay.dn D') -> forall ci, RId (HDisplay.dT D') i ci -> forall c, dden ρ r c = wden ci c)
-  /\ (forall es R D a D' ces cR, DInv D -> REnts (HDisplay.dT D) es ces -> RWord (HDisplay.dT D) R cR ->
+  /\ (forall es R D a D' ces cR, DInv D -> REnts (HDisplay.dT D) es ces -> RWord (HDisplay.dT D) R cR -> WOk ces -> WOk cR ->
      HDisplay.dabs F base fuel es R D = Some (a, D') ->
-     DInv D' /\ DExt D D' /\ alt (base + HDisplay.dn D') a /\
+     DInv D' /\ DExt D D' /\ alt (base + HDisplay.dn D') a /\ aok nt a = true /\
      forall ρ, Agree D' ρ (HDisplay.dn D') -> forall c, dden ρ a c = wden (ces ++ cR) c).
 Proof.
   induction fuel as [|f IH]; [repeat split; intros; discriminate|].
   destruct IH as [IHr [IHb IHa]]; split; [|split].
   - (* dref *)
-    intros i D r D' DI [ci Hi] E; rewrite dref_S in E.
+    intros i D r D' DI [ci [Hi Oi]] E; rewrite dref_S in E.
     destruct (Pos.eqb i 1) eqn:E1.
     + apply Pos.eqb_eq in E1; subst i; injection E as <- <-.
-      split; [exact DI|split; [apply DExt_refl|split; [exact I|]]].
+      split; [exact DI|split; [apply DExt_refl|split; [exact I|split; [reflexivity|]]]].
       intros ρ A ci' H c; rewrite (RId_one _ _ (di_inv _ DI) H); reflexivity.
     + destruct (PositiveMap.find i (HDisplay.dmemo D)) as [k|] eqn:Fm.
       * injection E as <- <-; destruct (ref_hit D i k DI Fm) as [Ak Sk].
-        split; [exact DI|split; [apply DExt_refl|split; [exact Ak|exact Sk]]].
+        split; [exact DI|split; [apply DExt_refl|split; [exact Ak|split; [reflexivity|exact Sk]]]].
       * destruct (HDisplay.dbody F base f i D) as [[d D1]|] eqn:Eb; [|discriminate].
-        destruct (IHb i D d D1 DI (ex_intro _ ci Hi) Eb) as [DI1 [X1 [Ad Sd]]].
+        destruct (IHb i D d D1 DI (ex_intro _ ci (conj Hi Oi)) Eb) as [DI1 [X1 [Ad [Kd Sd]]]].
         destruct (PositiveMap.find i (HDisplay.dmemo D1)) as [k|] eqn:Fm1.
         -- injection E as <- <-; destruct (ref_hit D1 i k DI1 Fm1) as [Ak Sk].
-           split; [exact DI1|split; [exact X1|split; [exact Ak|exact Sk]]].
+           split; [exact DI1|split; [exact X1|split; [exact Ak|split; [reflexivity|exact Sk]]]].
         -- injection E as <- <-.
            assert (Hi1 : exists ci, RId (HDisplay.dT D1) i ci) by (exists ci; apply (RId_mono _ _ _ _ (proj1 X1) Hi)).
-           destruct (add_spec D1 i d DI1 Fm1 Hi1 Ad Sd) as [DI2 X2].
+           destruct (add_spec D1 i d DI1 Fm1 Hi1 Ad Kd Sd) as [DI2 X2].
            split; [exact DI2|split; [apply (DExt_trans _ _ _ X1 X2)|]].
            assert (Fi : PositiveMap.find i (HDisplay.dmemo (HDisplay.mk_dstate (HDisplay.dT D1)
                       (PositiveMap.add i (HDisplay.dn D1) (HDisplay.dmemo D1)) (d :: HDisplay.ddefs D1) (S (HDisplay.dn D1))))
                       = Some (HDisplay.dn D1)) by apply PositiveMap.gss.
-           apply (ref_hit _ i _ DI2 Fi).
+           destruct (ref_hit _ i _ DI2 Fi) as [Ak Sk]; split; [exact Ak|split; [reflexivity|exact Sk]].
   - (* dbody *)
-    intros i D r D' DI [ci Hi] E; rewrite dbody_S in E.
+    intros i D r D' DI [ci [Hi Oi]] E; rewrite dbody_S in E.
     pose proof (di_inv D DI) as I.
     destruct (hw_spec (HDisplay.dT D) i ci I Hi) as [HW _].
     destruct (HDisplay.hw (HDisplay.dT D) i) as [|[x j] R] eqn:EW.
     + injection E as <- <-; inversion HW; subst.
-      split; [exact DI|split; [apply DExt_refl|split; [exact Logic.I|]]].
+      split; [exact DI|split; [apply DExt_refl|split; [exact Logic.I|split; [reflexivity|]]]].
       intros ρ A ci' H c; rewrite (RId_func _ i _ _ I H Hi); reflexivity.
     + assert (Later : forall D2 ci', DExt D D2 -> DInv D2 -> RId (HDisplay.dT D2) i ci' -> ci' = ci).
       { intros D2 ci' X2 DI2 H'; apply (RId_later _ _ i ci ci' (di_inv _ DI2) (proj1 X2) Hi H'). }
@@ -1033,98 +1091,104 @@ Proof.
       * (* entries *)
         destruct (HDisplay.take_se ((HNorm.SE h v, j) :: R)) as [es R0] eqn:Et.
         destruct (take_se_spec _ _ ci es R0 HW Et) as [ces [cR [Eci [He HR]]]].
+        assert (Oes : WOk ces) by (rewrite Eci in Oi; apply WOk_app in Oi; apply Oi).
+        assert (OR : WOk cR) by (rewrite Eci in Oi; apply WOk_app in Oi; apply Oi).
         destruct (HDisplay.find_factor F (HDisplay.dT D) (HNorm.wid R0) es es) as [[ts p]|] eqn:Ef.
-        { destruct (factor_spec _ _ cR es ces ts p I (RWord_RId _ _ _ HR) He Ef) as [cp [Hp Sem]].
+        { destruct (factor_spec _ _ cR es ces ts p I (RWord_RId _ _ _ HR) He Oes Ef) as [cp [Hp [Op [Ots Sem]]]].
           destruct (HDisplay.dref F base f p D) as [[r1 D1]|] eqn:Er; [|discriminate]; injection E as <- <-.
-          destruct (IHr p D r1 D1 DI (ex_intro _ cp Hp) Er) as [DI1 [X1 [A1 S1]]].
-          split; [exact DI1|split; [exact X1|split; [apply alt_acomp; [exact A1|apply alt_sform]|]]].
+          destruct (IHr p D r1 D1 DI (ex_intro _ cp (conj Hp Op)) Er) as [DI1 [X1 [A1 [K1 S1]]]].
+          split; [exact DI1|split; [exact X1|split; [apply alt_acomp; [exact A1|apply alt_sform]|split; [apply aok_acomp; [exact K1|apply aok_sform, Ots]|]]]].
           intros ρ A ci' H c; rewrite (Later D1 ci' X1 DI1 H), Eci, dden_acomp, dden_sform, Sem.
           rewrite (S1 ρ A cp (RId_mono _ _ _ _ (proj1 X1) Hp) c); reflexivity. }
         destruct (HDisplay.find_split F (HDisplay.dT D) ((HNorm.SE h v, j) :: R) R0 es) as [[[y W1] T1]|] eqn:Es.
-        { destruct (find_split_spec _ _ ci R0 cR es y W1 T1 I HW HR Es) as [I1 [X1 [cy [cW1 [Hy [HW1 Sem]]]]]].
+        { destruct (find_split_spec _ _ ci R0 cR es y W1 T1 I HW HR Oi OR Es) as [I1 [X1 [cy [cW1 [Hy [HW1 [Oy [OW1 Sem]]]]]]]].
           destruct (DInv_setT D T1 DI I1 X1) as [DIs Xs].
           destruct (HDisplay.dref F base f y (HDisplay.setT D T1)) as [[r2 D1]|] eqn:Er2; [|discriminate].
-          destruct (IHr y _ r2 D1 DIs (ex_intro _ cy Hy) Er2) as [DI1 [X2 [A2 S2]]].
+          destruct (IHr y _ r2 D1 DIs (ex_intro _ cy (conj Hy Oy)) Er2) as [DI1 [X2 [A2 [K2 S2]]]].
           destruct (HDisplay.dref F base f (HNorm.wid W1) D1) as [[r1 D2]|] eqn:Er1; [|discriminate]; injection E as <- <-.
           assert (H1 : RId (HDisplay.dT D1) (HNorm.wid W1) cW1) by apply (RId_mono _ _ _ _ (proj1 X2)), RWord_RId, HW1.
-          destruct (IHr _ D1 r1 D2 DI1 (ex_intro _ cW1 H1) Er1) as [DI2 [X3 [A1 S1]]].
+          destruct (IHr _ D1 r1 D2 DI1 (ex_intro _ cW1 (conj H1 OW1)) Er1) as [DI2 [X3 [A1 [K1 S1]]]].
           pose proof (DExt_trans _ _ _ Xs (DExt_trans _ _ _ X2 X3)) as X.
           split; [exact DI2|split; [exact X|split]].
           { apply alt_acomp; [|exact A1].
             apply (proj1 (alt_mono (base + HDisplay.dn D1) (base + HDisplay.dn D2) ltac:(pose proof (proj1 (proj2 (proj2 X3))); lia))), A2. }
+          split; [apply aok_acomp; assumption|].
           intros ρ A ci' H c; rewrite (Later D2 ci' X DI2 H), dden_acomp.
           rewrite (S2 ρ (Agree_of _ _ ρ X3 A) cy (RId_mono _ _ _ _ (proj1 X2) Hy) c).
           rewrite (S1 ρ A cW1 (RId_mono _ _ _ _ (proj1 X3) H1)); symmetry; apply Sem. }
         destruct (HDisplay.find_lift F (HDisplay.dT D) [] [] es R0) as [[[[y g] B] T1]|] eqn:El.
-        { destruct (find_lift_spec _ es [] [] ces [] R0 cR y g B T1 I (Forall2_nil _) (Forall_nil _) He HR El)
-            as [I1 [X1 [cB [HB Sem]]]].
+        { destruct (find_lift_spec _ es [] [] ces [] R0 cR y g B T1 I (Forall2_nil _) (Forall_nil _) He HR (Forall_nil _) Oes OR El)
+            as [I1 [X1 [cB [HB [OB Sem]]]]].
           destruct (DInv_setT D T1 DI I1 X1) as [DIs Xs].
           destruct (HDisplay.dref F base f (HNorm.wid B) (HDisplay.setT D T1)) as [[rb D1]|] eqn:Erb; [|discriminate].
           injection E as <- <-.
-          destruct (IHr _ _ rb D1 DIs (ex_intro _ cB (RWord_RId _ _ _ HB)) Erb) as [DI1 [X2 [Ab Sb]]].
+          destruct (IHr _ _ rb D1 DIs (ex_intro _ cB (conj (RWord_RId _ _ _ HB) OB)) Erb) as [DI1 [X2 [Ab [Kb Sb]]]].
           pose proof (DExt_trans _ _ _ Xs X2) as X.
-          split; [exact DI1|split; [exact X|split; [cbn; tauto|]]].
+          split; [exact DI1|split; [exact X|split; [cbn; tauto|split; [cbn; exact Kb|]]]].
           intros ρ A ci' H c; rewrite (Later D1 ci' X DI1 H), Eci, (Sem c : wden (ces ++ cR) c = _).
           change (cpush y (dden ρ rb (cpop g c)) (cname g 0 c) = cpush y (wden cB (cpop g c)) (cname g 0 c)).
           rewrite (Sb ρ A cB (RId_mono _ _ _ _ (proj1 X2) (RWord_RId _ _ _ HB))); reflexivity. }
-        destruct (IHa es R0 D r D' ces cR DI He HR E) as [DI1 [X1 [A1 S1]]].
-        split; [exact DI1|split; [exact X1|split; [exact A1|]]].
+        destruct (IHa es R0 D r D' ces cR DI He HR Oes OR E) as [DI1 [X1 [A1 [K1 S1]]]].
+        split; [exact DI1|split; [exact X1|split; [exact A1|split; [exact K1|]]]].
         intros ρ A ci' H c; rewrite (Later D' ci' X1 DI1 H), Eci; apply S1, A.
       * (* weakenings *)
         destruct (HDisplay.take_sw ((HNorm.SW h, j) :: R)) as [hs R0] eqn:Et.
         destruct (take_sw_spec _ _ ci hs R0 HW Et) as [cR [Eci HR]].
+        assert (OR : WOk cR) by (rewrite Eci in Oi; apply WOk_app in Oi; apply Oi).
         destruct (HDisplay.dref F base f (HNorm.wid R0) D) as [[r1 D1]|] eqn:Er; [|discriminate]; injection E as <- <-.
-        destruct (IHr _ D r1 D1 DI (ex_intro _ cR (RWord_RId _ _ _ HR)) Er) as [DI1 [X1 [A1 S1]]].
-        split; [exact DI1|split; [exact X1|split; [apply alt_acomp; [exact A1|apply alt_weak]|]]].
+        destruct (IHr _ D r1 D1 DI (ex_intro _ cR (conj (RWord_RId _ _ _ HR) OR)) Er) as [DI1 [X1 [A1 [K1 S1]]]].
+        split; [exact DI1|split; [exact X1|split; [apply alt_acomp; [exact A1|apply alt_weak]|split; [apply aok_acomp; [exact K1|apply aok_weak]|]]]].
         intros ρ A ci' H c; rewrite (Later D1 ci' X1 DI1 H), Eci, dden_acomp, dden_weak, wden_app.
         rewrite (S1 ρ A cR (RId_mono _ _ _ _ (proj1 X1) (RWord_RId _ _ _ HR))); apply wpre_sw.
       * (* an atom *)
-        destruct (Nat.ltb a base) eqn:La; [apply Nat.ltb_lt in La|discriminate].
         inversion HW as [|x0 i0 w0 cx cR Hc Hx HR]; subst.
+        apply WOk_cons in Oi as [Ox OR]; inversion Hx; subst; inversion Ox as [| |? La]; subst.
         destruct (HDisplay.dref F base f (HNorm.wid R) D) as [[r1 D1]|] eqn:Er; [|discriminate]; injection E as <- <-.
-        destruct (IHr _ D r1 D1 DI (ex_intro _ cR (RWord_RId _ _ _ HR)) Er) as [DI1 [X1 [A1 S1]]].
-        split; [exact DI1|split; [exact X1|split; [apply alt_acomp; [exact A1|cbn; lia]|]]].
+        destruct (IHr _ D r1 D1 DI (ex_intro _ cR (conj (RWord_RId _ _ _ HR) OR)) Er) as [DI1 [X1 [A1 [K1 S1]]]].
+        split; [exact DI1|split; [exact X1|split; [apply alt_acomp; [exact A1|cbn; lia]|split; [apply aok_acomp; [exact K1|reflexivity]|]]]].
         intros ρ A ci' H c; rewrite (Later D1 ci' X1 DI1 H), dden_acomp, dden_atom_real by exact La.
-        inversion Hx; subst; cbn [CSound.wden CSound.sden].
+        cbn [CSound.wden CSound.sden].
         rewrite (S1 ρ A cR (RId_mono _ _ _ _ (proj1 X1) (RWord_RId _ _ _ HR))); reflexivity.
   - (* dabs *)
-    intros es R D a D' ces cR DI He HR E; rewrite dabs_S in E.
+    intros es R D a D' ces cR DI He HR Oes OR E; rewrite dabs_S in E.
     destruct es as [|[h v] es].
     + inversion He; subst.
-      destruct (IHr _ D a D' DI (ex_intro _ cR (RWord_RId _ _ _ HR)) E) as [DI1 [X1 [A1 S1]]].
-      split; [exact DI1|split; [exact X1|split; [exact A1|]]].
+      destruct (IHr _ D a D' DI (ex_intro _ cR (conj (RWord_RId _ _ _ HR) OR)) E) as [DI1 [X1 [A1 [K1 S1]]]].
+      split; [exact DI1|split; [exact X1|split; [exact A1|split; [exact K1|]]]].
       intros ρ A c; apply (S1 ρ A cR (RId_mono _ _ _ _ (proj1 X1) (RWord_RId _ _ _ HR))).
     + inversion He as [|? cs ? ces0 Hs He0]; subst; inversion Hs as [h0 v0 cv Hv| |]; subst.
+      apply WOk_cons in Oes as [Ocs Oes0]; inversion Ocs as [? ? Ocv| |]; subst.
       assert (Step : forall t D1 a0 D2, DInv D1 -> DExt D D1 ->
-                HDisplay.dabs F base f es R D1 = Some (a0, D2) -> tlt (base + HDisplay.dn D1) t ->
+                HDisplay.dabs F base f es R D1 = Some (a0, D2) -> tlt (base + HDisplay.dn D1) t -> tok nt t = true ->
                 (forall ρ, Agree D1 ρ (HDisplay.dn D1) -> forall c, @ct (upd ρ) t c = vden cv c) ->
-                DInv D2 /\ DExt D D2 /\ alt (base + HDisplay.dn D2) (AInner h t a0) /\
+                DInv D2 /\ DExt D D2 /\ alt (base + HDisplay.dn D2) (AInner h t a0) /\ aok nt (AInner h t a0) = true /\
                 forall ρ, Agree D2 ρ (HDisplay.dn D2) -> forall c, dden ρ (AInner h t a0) c = wden (CNorm.SE h cv :: ces0 ++ cR) c).
-      { intros t D1 a0 D2 DI1 X1 Ea At St.
-        destruct (IHa es R D1 a0 D2 ces0 cR DI1 (REnts_mono _ _ _ _ (proj1 X1) He0) (RWord_mono _ _ (proj1 X1) _ _ HR) Ea)
-          as [DI2 [X2 [A2 S2]]].
+      { intros t D1 a0 D2 DI1 X1 Ea At Kt St.
+        destruct (IHa es R D1 a0 D2 ces0 cR DI1 (REnts_mono _ _ _ _ (proj1 X1) He0) (RWord_mono _ _ (proj1 X1) _ _ HR) Oes0 OR Ea)
+          as [DI2 [X2 [A2 [K2 S2]]]].
         split; [exact DI2|split; [apply (DExt_trans _ _ _ X1 X2)|split]].
         - cbn; split; [|exact A2].
           apply (proj1 (proj2 (alt_mono (base + HDisplay.dn D1) (base + HDisplay.dn D2) ltac:(pose proof (proj1 (proj2 (proj2 X2))); lia)))), At.
-        - intros ρ A c; change (cpush h (dden ρ a0 c) (@ct (upd ρ) t c) = wden (CNorm.SE h cv :: ces0 ++ cR) c).
+        - split; [cbn [aok]; rewrite Kt, K2; reflexivity|].
+          intros ρ A c; change (cpush h (dden ρ a0 c) (@ct (upd ρ) t c) = wden (CNorm.SE h cv :: ces0 ++ cR) c).
           rewrite (S2 ρ A c), (St ρ (Agree_of _ _ ρ X2 A) c); reflexivity. }
       destruct v as [g j0|u [b|] p|g j0 x].
       * destruct (HDisplay.dabs F base f es R D) as [[a0 D2]|] eqn:Ea; [|discriminate]; injection E as <- <-.
-        apply (Step (TVarE g j0) D a0 D2 DI (DExt_refl D) Ea Logic.I).
+        apply (Step (TVarE g j0) D a0 D2 DI (DExt_refl D) Ea Logic.I eq_refl).
         intros ρ _ c; inversion Hv; subst; reflexivity.
       * discriminate.
-      * inversion Hv as [|u0 b0 p0 cp Hp|]; subst.
+      * inversion Hv as [|u0 b0 p0 cp Hp|]; subst; inversion Ocv as [|? ? ? Lu Op|]; subst.
         destruct (HDisplay.dref F base f p D) as [[r1 D1]|] eqn:Er; [|discriminate].
-        destruct (IHr p D r1 D1 DI (ex_intro _ cp Hp) Er) as [DI1 [X1 [A1 S1]]].
+        destruct (IHr p D r1 D1 DI (ex_intro _ cp (conj Hp Op)) Er) as [DI1 [X1 [A1 [K1 S1]]]].
         destruct (HDisplay.dabs F base f es R D1) as [[a0 D2]|] eqn:Ea; [|discriminate]; injection E as <- <-.
-        apply (Step _ D1 a0 D2 DI1 X1 Ea); [cbn; tauto|].
+        apply (Step _ D1 a0 D2 DI1 X1 Ea); [cbn; tauto|cbn [tok pok]; rewrite K1; apply andb_true_iff; split; [apply Nat.ltb_lt, Lu|reflexivity]|].
         intros ρ A c; rewrite CSound.vden_term; change (cterm u None (dden ρ r1 c) = cterm u None (wden cp c)).
         rewrite (S1 ρ A cp (RId_mono _ _ _ _ (proj1 X1) Hp)); reflexivity.
-      * inversion Hv as [| |g0 j1 x0 cx Hx]; subst.
+      * inversion Hv as [| |g0 j1 x0 cx Hx]; subst; inversion Ocv as [| |? ? ? Ox]; subst.
         destruct (HDisplay.dref F base f x D) as [[r1 D1]|] eqn:Er; [|discriminate].
-        destruct (IHr x D r1 D1 DI (ex_intro _ cx Hx) Er) as [DI1 [X1 [A1 S1]]].
+        destruct (IHr x D r1 D1 DI (ex_intro _ cx (conj Hx Ox)) Er) as [DI1 [X1 [A1 [K1 S1]]]].
         destruct (HDisplay.dabs F base f es R D1) as [[a0 D2]|] eqn:Ea; [|discriminate]; injection E as <- <-.
-        apply (Step _ D1 a0 D2 DI1 X1 Ea); [exact A1|].
+        apply (Step _ D1 a0 D2 DI1 X1 Ea); [exact A1|exact K1|].
         intros ρ A c; rewrite CSound.vden_look; change (cname g j0 (dden ρ r1 c) = cname g j0 (wden cx c)).
         rewrite (S1 ρ A cx (RId_mono _ _ _ _ (proj1 X1) Hx)); reflexivity.
 Qed.
@@ -1244,18 +1308,18 @@ Qed.
 
 (** ** The display means the word *)
 
-Theorem display_sound0 shr T i shared root ci : Inv T -> RId T i ci ->
+Theorem display_sound0 shr T i shared root ci : Inv T -> RId T i ci -> WOk ci ->
   (match HDisplay.dref F base (4 * Pos.to_nat (HNorm.next T) + 16) i (HDisplay.dstart T) with
    | Some (r, D) => Some (HDisplay.assemble base shr r D) | None => None end) = Some (shared, root) ->
   (forall s d, nth_error shared s = Some d -> forall x, catom (base + s) x = @ca M d x) ->
   forall c, @ca M root c = wden ci c.
 Proof.
-  intros I Hi E HS.
+  intros I Hi Oi E HS.
   destruct (HDisplay.dref F base _ i (HDisplay.dstart T)) as [[r D]|] eqn:Er; [|discriminate]; injection E as E.
   assert (DI0 : DInv (HDisplay.dstart T)).
   { constructor; cbn; [exact I|reflexivity| |intros k L; lia].
     intros i' k E'; rewrite PositiveMap.gempty in E'; discriminate. }
-  destruct (proj1 (disp_spec _) i _ r D DI0 (ex_intro _ ci Hi) Er) as [DI [X [Ar Sr]]].
+  destruct (proj1 (disp_spec _) i _ r D DI0 (ex_intro _ ci (conj Hi Oi)) Er) as [DI [X [Ar [_ Sr]]]].
   unfold HDisplay.assemble in E.
   destruct (HDisplay.assemble_go base shr _ 0 (rev (HDisplay.ddefs D)) [] []) as [out sh] eqn:Eg; injection E as <- <-.
   destruct (assemble_go_spec shr _ _ 0 [] [] out sh Eg eq_refl) as [_ [_ [_ Sg]]].
@@ -1263,7 +1327,7 @@ Proof.
   assert (Claim : forall j, j < HDisplay.dn D -> forall i' ci', PositiveMap.find i' (HDisplay.dmemo D) = Some j ->
                     RId (HDisplay.dT D) i' ci' -> forall c, @ca M (σ j) c = wden ci' c).
   { intros j; induction j as [j IHj] using (well_founded_induction lt_wf); intros Lj i' ci' Fj H' c.
-    destruct (di_memo D DI i' j Fj) as [_ [_ [d [Hd [Ad Sd]]]]].
+    destruct (di_memo D DI i' j Fj) as [_ [_ [d [Hd [Ad [_ Sd]]]]]].
     assert (Ag : Agree D (fun j' y => @ca M (σ j') y) j).
     { intros i'' k'' F'' L'' ci'' H'' c''; apply (IHj k'' L'' ltac:(lia) i'' ci'' F'' H''). }
     destruct (Sg j d Hd Ad σ (fun j' _ => eq_refl)) as [Eo|[s0 [Eo Es]]]; cbn [Nat.add] in Eo; unfold σ at 1; rewrite Eo.
@@ -1275,24 +1339,105 @@ Proof.
 Qed.
 
 
-Theorem display_s_sound shr T i shared root ci : Inv T -> RId T i ci ->
+Theorem display_s_sound shr T i shared root ci : Inv T -> RId T i ci -> WOk ci ->
   HDisplay.display_s F base shr T i = Some (shared, root) ->
   (forall s d, nth_error shared s = Some d -> forall x, catom (base + s) x = @ca M d x) ->
   forall c, @ca M root c = wden ci c.
 Proof.
-  intros I Hi E HS; unfold HDisplay.display_s in E.
+  intros I Hi Oi E HS; unfold HDisplay.display_s in E.
   destruct (HDisplay.dref F base _ i (HDisplay.dstart T)) as [[r D]|] eqn:Er; [|discriminate].
   destruct (HDisplay.assemble base shr r D) as [sh0 r0] eqn:Ea; injection E as <- <-.
   intros c; rewrite (proj1 (lassoc_ca M)).
-  apply (display_sound0 shr T i sh0 r0 ci I Hi); [rewrite Er, Ea; reflexivity|].
+  apply (display_sound0 shr T i sh0 r0 ci I Hi Oi); [rewrite Er, Ea; reflexivity|].
   intros s d Hd x; rewrite (HS s (HDisplay.lassoc d)) by (rewrite nth_error_map, Hd; reflexivity).
   apply (proj1 (lassoc_ca M)).
 Qed.
 
-Theorem display_sound T i shared root ci : Inv T -> RId T i ci ->
+Theorem display_sound T i shared root ci : Inv T -> RId T i ci -> WOk ci ->
   HDisplay.display F base T i = Some (shared, root) ->
   (forall s d, nth_error shared s = Some d -> forall x, catom (base + s) x = @ca M d x) ->
   forall c, @ca M root c = wden ci c.
 Proof. apply display_s_sound. Qed.
+
+(** ** What is shown is in range *)
+
+Lemma plain_tsub σ t : plain (HDisplay.tsub base σ t) = plain t.
+Proof. induction t; cbn; auto. Qed.
+
+Lemma asub_aok σ : (forall j, aok nt (σ j) = true) ->
+  (forall d, aok nt d = true -> aok nt (HDisplay.asub base σ d) = true)
+  /\ (forall t, tok nt t = true -> tok nt (HDisplay.tsub base σ t) = true)
+  /\ (forall p, pok nt p = true -> pok nt (HDisplay.psub base σ p) = true).
+Proof.
+  intros Hσ; apply exp_mind; intros; simpl in *; rewrite ?andb_true_iff in *; try tauto.
+  - destruct (Nat.leb base n); [apply Hσ|reflexivity].
+  - rewrite plain_tsub; tauto.
+Qed.
+
+Lemma plain_tlassoc t : plain (HDisplay.tlassoc t) = plain t.
+Proof. induction t; cbn; auto. Qed.
+
+Lemma comp_l_aok x y : aok nt x = true -> aok nt y = true -> aok nt (HDisplay.comp_l x y) = true.
+Proof.
+  revert y; induction x; intros y Hx Hy; cbn [HDisplay.comp_l aok] in *; rewrite ?andb_true_iff in *; try tauto.
+  apply IHx1; [tauto|apply IHx2; tauto].
+Qed.
+
+Lemma lassoc_aok :
+  (forall d, aok nt d = true -> aok nt (HDisplay.lassoc d) = true)
+  /\ (forall t, tok nt t = true -> tok nt (HDisplay.tlassoc t) = true)
+  /\ (forall p, pok nt p = true -> pok nt (HDisplay.plassoc p) = true).
+Proof.
+  apply exp_mind; intros; cbn [HDisplay.lassoc HDisplay.tlassoc HDisplay.plassoc aok tok pok] in *;
+    rewrite ?andb_true_iff in *; try tauto.
+  - apply comp_l_aok; tauto.
+  - rewrite plain_tlassoc; tauto.
+Qed.
+
+Lemma assemble_go_aok shr cnt : forall ds k out shared out' shared',
+  HDisplay.assemble_go base shr cnt k ds out shared = (out', shared') ->
+  Forall (fun d => aok nt d = true) ds -> Forall (fun d => aok nt d = true) out -> Forall (fun d => aok nt d = true) shared ->
+  Forall (fun d => aok nt d = true) out' /\ Forall (fun d => aok nt d = true) shared'.
+Proof.
+  induction ds as [|d ds IH]; intros k out shared out' shared' E Hds Ho Hs; cbn [HDisplay.assemble_go] in E.
+  - injection E as <- <-; split; assumption.
+  - inversion Hds as [|? ? Hd Hds']; subst.
+    assert (Hσ : forall j, aok nt (nth j out AId) = true).
+    { intros j; destruct (Nat.lt_ge_cases j (length out)) as [L|L].
+      - rewrite Forall_forall in Ho; apply Ho, nth_In, L.
+      - rewrite nth_overflow by exact L; reflexivity. }
+    pose proof (proj1 (asub_aok _ Hσ) d Hd) as Hd'.
+    destruct (shr && _ && _); (apply (IH _ _ _ _ _ E Hds'); [apply Forall_app; split; [exact Ho|constructor; [|constructor]]|]);
+      try exact Hd'; try reflexivity; try exact Hs.
+    apply Forall_app; split; [exact Hs|constructor; [exact Hd'|constructor]].
+Qed.
+
+Theorem display_s_aok shr T i shared root ci : Inv T -> RId T i ci -> WOk ci ->
+  HDisplay.display_s F base shr T i = Some (shared, root) ->
+  Forall (fun d => aok nt d = true) shared /\ aok nt root = true.
+Proof.
+  intros I Hi Oi E; unfold HDisplay.display_s in E.
+  destruct (HDisplay.dref F base _ i (HDisplay.dstart T)) as [[r D]|] eqn:Er; [|discriminate].
+  assert (DI0 : DInv (HDisplay.dstart T)).
+  { constructor; cbn; [exact I|reflexivity| |intros k L; lia].
+    intros i' k E'; rewrite PositiveMap.gempty in E'; discriminate. }
+  destruct (proj1 (disp_spec _) i _ r D DI0 (ex_intro _ ci (conj Hi Oi)) Er) as [DI [_ [_ [Kr _]]]].
+  unfold HDisplay.assemble in E.
+  destruct (HDisplay.assemble_go base shr _ 0 (rev (HDisplay.ddefs D)) [] []) as [out sh] eqn:Eg.
+  injection E as <- <-.
+  assert (Hds : Forall (fun d => aok nt d = true) (rev (HDisplay.ddefs D))).
+  { rewrite Forall_forall; intros d Hd; apply In_nth_error in Hd as [k Hk].
+    assert (Lk : k < HDisplay.dn D) by (rewrite <- (di_len _ DI), <- length_rev; apply nth_error_Some; rewrite Hk; discriminate).
+    destruct (di_onto _ DI k Lk) as [i' Fi]; destruct (di_memo _ DI i' k Fi) as [_ [_ [d' [Hd' [_ [Kd _]]]]]].
+    rewrite Hk in Hd'; injection Hd' as ->; exact Kd. }
+  destruct (assemble_go_aok shr _ _ 0 [] [] out sh Eg Hds (Forall_nil _) (Forall_nil _)) as [Ho Hs].
+  assert (Hσ : forall j, aok nt (nth j out AId) = true).
+  { intros j; destruct (Nat.lt_ge_cases j (length out)) as [L|L].
+    - rewrite Forall_forall in Ho; apply Ho, nth_In, L.
+    - rewrite nth_overflow by exact L; reflexivity. }
+  split.
+  - apply Forall_map; eapply Forall_impl; [|exact Hs]; intros d Hd; apply (proj1 lassoc_aok), Hd.
+  - apply (proj1 lassoc_aok), (proj1 (asub_aok _ Hσ)), Kr.
+Qed.
 
 End Sound.

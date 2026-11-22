@@ -27,6 +27,10 @@ Import ListNotations.
 
 (** ** Reification *)
 
+(** [tt] when [v] is a variable (a variable is convertible only to
+    itself, so it is looked up syntactically). *)
+Ltac is_var_v v := let _ := match goal with _ => is_var v end in constr:(tt).
+
 (** The position of [x] in the list [l], up to conversion, adding it at
     the end if absent; returns the index and the new list.  Syntactic
     equality is tried first, being much cheaper. *)
@@ -45,12 +49,20 @@ Ltac lookup_add x l :=
         | _ => go r (S n)
         end
     end in
+  let simple := match x with
+                | adj_raw ?v => match constr:(tt) with _ => let _ := is_var_v v in true | _ => false end
+                | _ => match constr:(tt) with _ => let _ := is_var_v x in true | _ => false end
+                end in
   lazymatch go_syn l O with
   | (?n, true) => constr:((n, l))
-  | _ =>
+  | (?n, false) =>
+      lazymatch simple with
+      | true => let l' := eval cbv [app] in (l ++ [x]) in constr:((n, l'))
+      | false =>
       lazymatch go l O with
       | (?n, true) => constr:((n, l))
       | (?n, false) => let l' := eval cbv [app] in (l ++ [x]) in constr:((n, l'))
+      end
       end
   end.
 
@@ -79,7 +91,7 @@ Ltac reify_label h env :=
           match constr:(tt) with
           | _ => let _ := is_string_lit s in constr:((LCon s, env))
           | _ => lazymatch lookup_add s le with
-                 | (?n, ?le') => let n' := eval vm_compute in (N.of_nat n) in constr:((LAtom n', (le', te, ae, pe)))
+                 | (?n, ?le') => let n' := eval cbv in (N.of_nat n) in constr:((LAtom n', (le', te, ae, pe)))
                  end
           end
       end
@@ -466,9 +478,13 @@ Ltac is_adj_expr a :=
 (** The reifier sees term atoms after unfolding; they are shown as the
     subterms of the original adjustment they came from. *)
 Ltac restore_term u a :=
-  match a with
-  | context [?v] => let _ := constr:(@eq_refl _ u : u = v) in v
-  | _ => u
+  lazymatch a with
+  | context [u] => u
+  | _ =>
+      match a with
+      | context [?v] => let _ := constr:(@eq_refl _ u : u = v) in v
+      | _ => u
+      end
   end.
 
 Ltac restore_terms te a :=
@@ -477,7 +493,16 @@ Ltac restore_terms te a :=
   | ?u :: ?r => let u' := restore_term u a in let r' := restore_terms r a in constr:(u' :: r')
   end.
 
-Ltac lfacts_tac := unfold lfacts_ok; repeat constructor; cbn [lden N.to_nat Pos.to_nat Pos.iter_op Nat.add nth]; assumption.
+Ltac lfacts_tac :=
+  unfold lfacts_ok;
+  repeat (apply Forall_cons;
+          [lazymatch goal with
+           | |- ?g => let g' := eval cbv -[olabel_lt] in g in
+                      lazymatch g' with
+                      | olabel_lt (Some ?x) (Some ?y) => lazymatch goal with H : label_lt x y |- _ => exact H end
+                      end
+           end|]);
+  apply Forall_nil.
 
 (** The shares of the goal's right-hand side as variables, with what each
     is: then [k] with their raw forms and the hypotheses, latest first. *)
@@ -504,12 +529,13 @@ Ltac shares_ok hs :=
 (** [a = b], [b] the rendered normal form of [a]. *)
 Ltac names_prove T le te ae pe l nb e shd root :=
   intro_shares (@nil (radj T)) tt ltac:(fun rs hs =>
-    apply adj_eq; names_unfold;
-    change (aeden le te (ae ++ rs) pe e = aeden le te (ae ++ rs) pe root);
-    refine (hshow_sound le te ae rs pe l e shd root _ _ _);
-    [ lfacts_tac
-    | vm_cast_no_check (@eq_refl _ (Some (shd, root)))
-    | shares_ok hs ]).
+    apply adj_eq;
+    let Hl := fresh "Hl" in assert (Hl : lfacts_ok le l) by lfacts_tac;
+    let Hs := fresh "Hs" in
+    assert (Hs : Forall2 (fun z0 d0 => z0 = aeden le te (ae ++ rs) pe d0) rs shd) by (cbv [List.app]; shares_ok hs);
+    exact_no_check (hshow_sound le te ae rs pe l e shd root Hl
+                      (@eq_refl _ (Some (shd, root)) <: hshow (order_of l) (List.length te) (List.length ae) e = Some (shd, root))
+                      Hs)).
 
 (** Rewriting one adjustment to its normal form, shown as context forms,
     then running [kt] on its term atoms; runs [kt] alone when it is

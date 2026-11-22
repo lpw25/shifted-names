@@ -21,6 +21,7 @@ theories/Core/Indexed.v
 theories/Core/Normalise.v
 theories/Core/HNorm.v
 theories/Core/CNorm.v
+theories/Core/CRange.v
 theories/Core/Comp.v
 theories/Core/CSound.v
 theories/Core/CComplete.v
