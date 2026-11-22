@@ -328,7 +328,18 @@ Ltac2 new_st () : st :=
              Std.rCofix := true; Std.rZeta := true; Std.rDelta := false; Std.rConst := refs };
     sdefs := FMap.empty FSet.Tags.int_tag }.
 
-Ltac2 whd_s (s : st) (c : constr) : constr := Std.eval_cbn (s.(wfl)) c.
+(** Head reduction by [lazy]; where that leaves a [match] or a fixpoint
+    at the head (blocked on what [cbn] would refold), by [cbn]. *)
+Ltac2 whd_s (s : st) (c : constr) : constr :=
+  let c' := Std.eval_lazy (s.(wfl)) c in
+  let rec stuck c :=
+    match Constr.Unsafe.kind c with
+    | Constr.Unsafe.Case _ _ _ _ _ => true
+    | Constr.Unsafe.Fix _ _ _ _ => true
+    | Constr.Unsafe.App f _ => stuck f
+    | _ => false
+    end in
+  if stuck c' then Std.eval_cbn (s.(wfl)) c else c'.
 
 Ltac2 nf_s (s : st) (c : constr) : constr := Std.eval_cbv (s.(nfl)) c.
 
