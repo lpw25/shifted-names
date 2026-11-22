@@ -41,23 +41,29 @@ Import ListNotations.
 
 (** ** Syntaxes
 
-    What [names] needs to know about a syntax to materialise payloads:
-    its substitution, how a payload adjustment acts on a closed term
-    ([sm_g]), and that substitutions whose results on each variable are
-    related by [mrel sm_g] are equal.  A syntax's [Subst] functor provides
-    an instance. *)
-Class SubstMat (T : Type) := {
-  sm_term : nat -> Type;
-  sm_subst : forall {N M}, adj T N M -> sm_term N -> sm_term M;
-  sm_of : T -> sm_term 0;
-  sm_back : sm_term 0 -> T;
-  sm_g : rpadj T -> T -> T;
-  sm_g_spec : forall (b : adj T 0 0) u, sm_g (rpcompose (adj_raw b) rpidentity) u = sm_back (sm_subst b (sm_of u));
-  sm_mat : forall N (a a' : adj T N 0),
-    (forall v : var N, mrel sm_g (rapply (adj_raw a) (var_raw v)) (rapply (adj_raw a') (var_raw v))) ->
-    forall t, sm_subst a t = sm_subst a' t
-}.
+    A substitution [t [a]] of a syntax, as [names] sees it: the node
+    [csubst L a t], which carries the syntax's substitution [sub] and the
+    law [L] that lets [names] move payloads into terms, as arguments
+    [names] reads and passes on, never unfolds: how a payload adjustment
+    acts on a closed term ([g], which is [sub] on one of the form
+    [b ∘ id]), and that substitutions whose results on each variable are
+    related by [mrel g] are equal.  A syntax's [Subst] functor rewrites
+    its substitution to the node before [names] works on it ([names_node])
+    and back after ([names_post]). *)
+Record SubstLaw (term : nat -> Type) (sub : forall N M, adj (term 0) N M -> term N -> term M)
+    (g : rpadj (term 0) -> term 0 -> term 0) : Prop := {
+  sl_g : forall (b : adj (term 0) 0 0) u, g (rpcompose (adj_raw b) rpidentity) u = sub 0 0 b u;
+  sl_mat : forall N (a a' : adj (term 0) N 0),
+    (forall v : var N, mrel g (rapply (adj_raw a) (var_raw v)) (rapply (adj_raw a') (var_raw v))) ->
+    forall t, sub N 0 a t = sub N 0 a' t }.
 
+Definition csubst {term sub g} (L : SubstLaw term sub g) {N M} (a : adj (term 0) N M) (t : term N) : term M :=
+  sub N M a t.
+
+Lemma csubst_mat {term sub g} (L : SubstLaw term sub g) {N} (a a' : adj (term 0) N 0) :
+  (forall v : var N, mrel g (rapply (adj_raw a) (var_raw v)) (rapply (adj_raw a') (var_raw v))) ->
+  forall t, csubst L a t = csubst L a' t.
+Proof. apply (sl_mat _ _ _ L). Qed.
 
 Lemma share_intro_r {T N M K L} (a : adj T N M) (A : adj T K L) (f : adj T K L -> adj T N M) :
   (forall r, adj_raw r = adj_raw A -> a = f r) -> a = Indexed.share A f.
@@ -114,10 +120,10 @@ Lemma lfacts_cons le x y l : olabel_lt (lden le x) (lden le y) -> lfacts_ok le l
 Proof. intros H Hl; constructor; assumption. Qed.
 
 (** The term [k] is the term [u] with the payload [b] materialised. *)
-Lemma mat_kB {T} {inst : SubstMat T} (l : braun T) u k ut (b : adj T 0 0) (d : radj T) :
-  bnth l u = Some ut -> bnth l k = Some (sm_back (sm_subst b (sm_of ut))) -> adj_raw b = d ->
-  forall y, bnth l u = Some y -> bnth l k = Some (sm_g (rpcompose d rpidentity) y).
-Proof. intros H1 H2 <- y Hy; rewrite H1 in Hy; injection Hy as <-; rewrite H2, sm_g_spec; reflexivity. Qed.
+Lemma mat_kB {term sub g} (L : SubstLaw term sub g) (l : braun (term 0)) u k ut (b : adj (term 0) 0 0) (d : radj (term 0)) :
+  bnth l u = Some ut -> bnth l k = Some (csubst L b ut) -> adj_raw b = d ->
+  forall y, bnth l u = Some y -> bnth l k = Some (g (rpcompose d rpidentity) y).
+Proof. intros H1 H2 <- y Hy; rewrite H1 in Hy; injection Hy as <-; rewrite H2, (sl_g _ _ _ L); reflexivity. Qed.
 
 (** ** Ltac2 *)
 
@@ -128,10 +134,9 @@ From Ltac2 Require Import Ltac2.
 (** Entries in order of first occurrence (kept latest first); entries
     that are variables, or a raw adjustment of a variable, are also kept
     by name. *)
-Ltac2 Type tbl := { mutable items : constr list; mutable size : int; mutable vars : (ident, int) FMap.t;
-                    mutable flex : (constr * int) list }.
+Ltac2 Type tbl := { mutable items : constr list; mutable size : int; mutable vars : (ident, int) FMap.t }.
 
-Ltac2 new_tbl () : tbl := { items := []; size := 0; vars := FMap.empty FSet.Tags.ident_tag; flex := [] }.
+Ltac2 new_tbl () : tbl := { items := []; size := 0; vars := FMap.empty FSet.Tags.ident_tag }.
 
 Ltac2 is_raw (f : constr) : bool :=
   match Constr.Unsafe.kind f with
@@ -155,9 +160,6 @@ Ltac2 key_of (x : constr) : ident option :=
   | _ => None
   end.
 
-Ltac2 conv (x : constr) (y : constr) : bool :=
-  Control.plus (fun () => Unification.unify_with_current_ts x y; true) (fun _ => false).
-
 Ltac2 rec find_idx (p : constr -> bool) (l : constr list) (i : int) : int option :=
   match l with
   | [] => None
@@ -170,35 +172,8 @@ Ltac2 tbl_push (t : tbl) (x : constr) : int :=
   t.(size) := Int.add i 1;
   i.
 
-(** A term built from variables without definitions, constructors and
-    literals is normal: it is convertible to another such term only when
-    equal to it.  So such a term needs comparing up to conversion only
-    with the entries that are not ([flex]). *)
-Ltac2 rec rigid (lets : ident FSet.t) (x : constr) : bool :=
-  match Constr.Unsafe.kind x with
-  | Constr.Unsafe.Var id => Bool.neg (FSet.mem id lets)
-  | Constr.Unsafe.Constructor _ _ => true
-  | Constr.Unsafe.Ind _ _ => true
-  | Constr.Unsafe.Sort _ => true
-  | Constr.Unsafe.Uint63 _ => true
-  | Constr.Unsafe.Float _ => true
-  | Constr.Unsafe.String _ => true
-  | Constr.Unsafe.App f args =>
-      match Constr.Unsafe.kind f with
-      | Constr.Unsafe.Var _ => Bool.and (rigid lets f) (Array.for_all (rigid lets) args)
-      | Constr.Unsafe.Constructor _ _ => Array.for_all (rigid lets) args
-      | Constr.Unsafe.Ind _ _ => Array.for_all (rigid lets) args
-      | _ => false
-      end
-  | _ => false
-  end.
-
-Ltac2 rec find_conv (x : constr) (l : (constr * int) list) : int option :=
-  match l with
-  | [] => None
-  | (y, i) :: r => if conv x y then Some i else find_conv x r
-  end.
-
+(** An entry's index, the entry added if it is not there: entries are
+    compared syntactically (variables by name). *)
 Ltac2 tbl_add (lets : ident FSet.t) (t : tbl) (x : constr) : int :=
   match key_of x with
   | Some id =>
@@ -207,19 +182,9 @@ Ltac2 tbl_add (lets : ident FSet.t) (t : tbl) (x : constr) : int :=
       | None => let i := tbl_push t x in t.(vars) := FMap.add id i (t.(vars)); i
       end
   | None =>
-      let l := List.rev (t.(items)) in
-      match find_idx (Constr.equal x) l 0 with
+      match find_idx (Constr.equal x) (List.rev (t.(items))) 0 with
       | Some i => i
-      | None =>
-          let r := rigid lets x in
-          let cands := if r then List.rev (t.(flex)) else List.combine l (List.init (List.length l) (fun i => i)) in
-          match find_conv x cands with
-          | Some i => i
-          | None =>
-              let i := tbl_push t x in
-              (if r then () else t.(flex) := ((x, i) :: (t.(flex))));
-              i
-          end
+      | None => tbl_push t x
       end
   end.
 
@@ -1600,12 +1565,13 @@ Ltac2 names_eval () : unit :=
 
     An adjustment [A] to the closed scope with terms with payload
     adjustments, used in a substitution, is replaced by [A'] where the
-    first such term [u⟨b⟩] is [u [b]], when the syntax has a [SubstMat]
-    instance. *)
-Ltac2 mat_one (a : constr) : unit :=
-  lazy_match! Constr.type a with
-  | adj ?ty ?n 0 =>
-      let inst := constr:(_ : SubstMat $ty) in
+    first such term [u⟨b⟩] is [u [b]], for a substitution node
+    [csubst L a t] (built with the syntax's [L]). *)
+Ltac2 mat_one (node : constr) : unit :=
+  let (_, na) := split_app node in
+  let (term, sub, g, lw, n, a) := (Array.get na 0, Array.get na 1, Array.get na 2, Array.get na 3, Array.get na 4, Array.get na 6) in
+  let ty := app term [constr:(O)] in
+  (
       let s := new_st () in
       let e := reify_adj s ty n constr:(O) a in
       let en := finish s ty in
@@ -1625,16 +1591,10 @@ Ltac2 mat_one (a : constr) : unit :=
               let (shb, rb) := (bsh.(sh_c), bsh.(sh_root)) in
               let terms := en.(e_terms) in
               let ut := nth_c terms (int_of_n u) in
-              let fb := Std.eval_hnf '(@sm_back _ $inst) in
-              let fs := Std.eval_hnf '(@sm_subst _ $inst 0 0) in
-              let fo := Std.eval_hnf '(@sm_of _ $inst) in
-              (* [u [b]], as a function of [b] *)
-              let xf := eval cbv beta in (fun b : adj $ty 0 0 => $fb ($fs b ($fo $ut))) in
-              let mk_x bt :=
-                match Constr.Unsafe.kind xf with
-                | Constr.Unsafe.Lambda _ body => Constr.Unsafe.substnl [bt] 0 body
-                | _ => app xf [bt]
-                end in
+              (* [u [b]] as the node, as a function of [b] *)
+              let csub := constr:(@csubst) in
+              let mk_x bt := app csub [term; sub; g; lw; constr:(O); constr:(O); bt; ut] in
+              let xf := '(fun b : adj $ty 0 0 => @csubst $term $sub $g $lw 0 0 b $ut) in
               let nt := en.(e_nt) in
               let tarr := Array.of_list terms in
               let term_of rbs i sb d := if Int.equal i nt then mk_x ((List.hd rbs) sb d) else Array.get tarr i in
@@ -1646,7 +1606,6 @@ Ltac2 mat_one (a : constr) : unit :=
                                  [(rb, constr:(O), constr:(O)); (r', n, constr:(O))] term_of in
               let a' := rd.(rd_term) in
               let hid := fresh @H in
-              let g := '(@sm_g _ $inst) in
               let pty := constr:((N * (list aexpN * aexpN))%type) in
               let sty := constr:((list aexpN * aexpN)%type) in
               let ht := vm_eq '(option $pty) '(hmat_targetN (order_of $l) $n1 $nbb $e)
@@ -1658,15 +1617,15 @@ Ltac2 mat_one (a : constr) : unit :=
                              (hLe : $lt = bof $le) (hTe : Te = bof ($te ++ [$xf b])) (hAe : Ae = bof ($ae ++ rs)) (hPe : $pt = bof $pe)
                              (hs : Forall2 (fun z0 d0 => z0 = aedenB $lt Te Ae $pt d0) rs ($sh' ++ $shb))
                              (hu : bnth Te $u = Some $ut)
-                             (hx : bnth Te (N.of_nat $n1) = Some (@sm_back _ $inst (@sm_subst _ $inst 0 0 b (@sm_of _ $inst $ut))))
+                             (hx : bnth Te (N.of_nat $n1) = Some (@csubst $term $sub $g $lw 0 0 b $ut))
                              (hb : adj_raw b = aedenB $lt Te Ae $pt $rb)
                              (v : var $n) =>
                            hmatB_show_sound $le ($te ++ [$xf b]) $ae rs $pe $lt Te Ae $pt hLe hTe hAe hPe $g $l $e $n1 $u
                              $shb $rb $sh' $r' $nbb $n1 $n2 $hl (le_S _ _ (le_n _)) (le_n _) $ht $hd eq_refl hs
-                             (@mat_kB $ty $inst Te $u (N.of_nat $n1) $ut b _ hu hx hb) (var_raw v)) in
+                             (@mat_kB $term $sub $g $lw Te $u (N.of_nat $n1) $ut b _ hu hx hb) (var_raw v)) in
               let srel := '(fun (Te : braun $ty) (Ae : braun (radj $ty)) (z0 : radj $ty) (d0 : aexpN) =>
                               z0 = aedenB $lt Te Ae $pt d0) in
-              let hxf := '(fun b : adj $ty 0 0 => @eq_refl (option $ty) (Some (@sm_back _ $inst (@sm_subst _ $inst 0 0 b (@sm_of _ $inst $ut))))) in
+              let hxf := '(fun b : adj $ty 0 0 => @eq_refl (option $ty) (Some (@csubst $term $sub $g $lw 0 0 b $ut))) in
               let p := '(fun y : adj $ty $n 0 => forall v : var $n, mrel $g (rapply (adj_raw $a) (var_raw v)) (rapply (adj_raw y) (var_raw v))) in
               let atoms := Array.to_list (en.(e_atoms)) in
               let pf := share_proof ty n constr:(O) p rd (fun rs hs _ =>
@@ -1686,20 +1645,27 @@ Ltac2 mat_one (a : constr) : unit :=
                 (fun () => Std.exact_no_check pf);
               let eid := fresh @E in
               let hh := Control.hyp hid in
-              let f := Std.eval_hnf '(@sm_subst _ $inst $n 0 $a) in
-              let f' := Std.eval_hnf '(@sm_subst _ $inst $n 0 $a') in
-              let ety := eval cbv beta in (forall t, $f t = $f' t) in
-              assert_by eid ety (fun () => Std.exact_no_check '(@sm_mat _ $inst $n $a $a' $hh));
+              let ety := '(forall t, @csubst $term $sub $g $lw $n 0 $a t = @csubst $term $sub $g $lw $n 0 $a' t) in
+              assert_by eid ety (fun () => Std.exact_no_check '(@csubst_mat $term $sub $g $lw $n $a $a' $hh));
               Std.clear [hid];
               Control.progress (fun () => rewrite_all_instances (Control.hyp eid));
               Std.clear [eid]
           | None => Control.zero Not_found
           end
       | None => Control.zero Not_found
-      end
+      end).
+
+(** A substitution node into the closed scope. *)
+Ltac2 is_csubst_closed (c : constr) : bool :=
+  match Constr.Unsafe.kind c with
+  | Constr.Unsafe.App f args =>
+      if Constr.equal f constr:(@csubst) then
+        if Int.equal (Array.length args) 8 then Constr.equal (Array.get args 5) constr:(O) else false
+      else false
+  | _ => false
   end.
 
-Ltac2 names_mat () : unit := each_until_fail (is_adj_head_in (adj_heads ())) mat_one.
+Ltac2 names_mat () : unit := each_until_fail is_csubst_closed mat_one.
 
 (** ** The tactic
 
@@ -1710,7 +1676,7 @@ Ltac2 names_mat () : unit := each_until_fail (is_adj_head_in (adj_heads ())) mat
        nested substitutions first, then substituting into variables;
     2. rewrites every adjustment built from context forms and [∘] to its
        normal form, shown as context forms;
-    3. materialises payloads ([SubstMat]);
+    3. materialises payloads in substitution nodes ([csubst]);
     4. evaluates [apply_var a v] and [eval] nodes for variables the normal
        form of [a] renames or sends to a term;
     5. rewrites with [names_post]: identity substitutions go, a payload
@@ -1724,6 +1690,7 @@ Ltac2 autorw (db : ident) : unit := Std.autorewrite false None [db] (concl ()).
 Ltac2 names_pass (memo : memo) : unit :=
   (autorw @names_pre);
   (autorw @names_var);
+  (autorw @names_node);
   (names_adjs memo);
   (Notations.try0 names_mat);
   (names_apply ());

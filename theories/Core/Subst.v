@@ -1452,16 +1452,17 @@ Proof.
   rewrite psubst_pid, (pg_ok _ _ (inr_scoped _ _ _ _ E1)); reflexivity.
 Qed.
 
-Global Instance subst_mat_inst : SubstMat P := {
-  sm_term := term;
-  sm_subst := fun N M a t => t [a];
-  sm_of := fun u => u;
-  sm_back := fun u => u;
-  sm_g := pg;
-  sm_g_spec := pg_spec;
-  sm_mat := @subst_mat
-}.
+(** Substitution as the node [names] works on. *)
+Definition subst_law : SubstLaw term (fun N M a t => t [a]) pg := {| sl_g := pg_spec; sl_mat := @subst_mat |}.
 
+Lemma subst_csubst {N M} (a : adj P N M) (t : term N) : t [a] = csubst subst_law a t.
+Proof. reflexivity. Qed.
+
+Lemma csubst_subst {N M} (a : adj P N M) (t : term N) : csubst subst_law a t = t [a].
+Proof. reflexivity. Qed.
+
+Global Hint Rewrite @subst_csubst : names_node.
+Global Hint Rewrite @csubst_subst : names_post.
 Global Hint Rewrite @subst_identity @eval_fold @psubst_pcompose @psubst_pid : names_post.
 
 End Subst.
