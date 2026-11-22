@@ -162,7 +162,7 @@ Proof. names; reflexivity. Qed.
 Example lift_free_comm_cases {N M} x y (a : adj T N M) : ⟦ x; y | a ⟧ = ⟦ y; x | a ⟧.
 Proof.
   names.
-  destruct (label_compare_spec x y) as [<-|H|H]; [reflexivity|names; reflexivity|names; reflexivity].
+  destruct (label_compare_spec x y) as [<-|H|H]; names; reflexivity.
 Qed.
 
 (** ** Applying adjustments to variables *)

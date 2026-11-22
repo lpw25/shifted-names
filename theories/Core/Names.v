@@ -593,6 +593,9 @@ Ltac2 strip_lam (n : int) (c : constr) : constr :=
     end in
   go n c.
 
+Ltac2 nocast (c : constr) : constr :=
+  match Constr.Unsafe.kind c with Constr.Unsafe.Cast c' _ _ => c' | _ => c end.
+
 Ltac2 adj_idx (ty : constr) : constr * constr :=
   lazy_match! ty with adj _ ?a ?b => (a, b) end.
 
@@ -617,12 +620,12 @@ Ltac2 render_term (t : constr) (ty : constr) (labs : constr array) (terms : cons
                  shtys := FMap.empty FSet.Tags.int_tag } in
       let defs := (List.map
           (fun d =>
-             let c := constr:(ltac2:(render_a r d) : adj $t _ _) in
+             let c := nocast open_constr:(ltac2:(render_a r d) : adj $t _ _) in
              let k := r.(shtys) in
              r.(shtys) := FMap.add (FMap.cardinal k) (adj_idx (Constr.type c)) k;
              c)
           shd) in
-      let rt := (constr:(ltac2:(render_a r root) : $ty)) in
+      let rt := nocast constr:(ltac2:(render_a r root) : $ty) in
       let k := List.length defs in
       let shc := constr:(@Indexed.share) in
       let rec nest i ds :=
@@ -680,11 +683,60 @@ Ltac2 concl () : Std.clause := { Std.on_hyps := Some []; Std.on_concl := Std.All
 Ltac2 assert_by (id : ident) (t : constr) (tac : unit -> unit) : unit :=
   Std.assert (Std.AssertType (Some (Std.IntroNaming (Std.IntroIdentifier id))) t (Some tac)).
 
-Ltac2 rewrite_with (c : constr) : unit :=
-  Std.rewrite false
-    [{ Std.rew_orient := Some Std.LTR; Std.rew_repeat := Std.Precisely 1;
-       Std.rew_equatn := (fun () => (c, Std.NoBindings)) }]
-    (concl ()) None.
+(** Rewriting with [pf : lhs = rhs] where [lhs] occurs as it is in the
+    goal: its occurrences are found syntactically ([pattern]), never by
+    unifying [lhs] with other terms, which can mean comparing two large
+    adjustments by computing them. *)
+Ltac2 rewrite_with (pf : constr) : unit :=
+  lazy_match! Constr.type pf with
+  | @eq ?ty ?lhs ?rhs =>
+      Std.pattern [(lhs, Std.AllOccurrences)] (concl ());
+      lazy_match! goal with
+      | [ |- ?p _ ] =>
+          match Constr.Unsafe.kind p with
+          | Constr.Unsafe.Lambda _ body =>
+              let g := Constr.Unsafe.substnl [rhs] 0 body in
+              refine_c (fun () => '(@eq_ind_r $ty $rhs $p _ $lhs $pf));
+              Std.change None (fun _ => g) (concl ())
+          | _ => Control.zero Not_found
+          end
+      end
+  end.
+
+(** The instances [t] of [pf : forall t, L t = R t] whose [L t] occur in
+    the goal, [L t] an application whose last argument is [t]. *)
+Ltac2 rec app_instances (h : constr) (args : constr array) (c : constr) (acc : constr list) : constr list :=
+  let acc :=
+    match Constr.Unsafe.kind c with
+    | Constr.Unsafe.App h' args' =>
+        let n := Array.length args in
+        if Bool.and (Constr.equal h h') (Int.equal (Array.length args') n) then
+          let rec same i := if Int.equal i (Int.sub n 1) then true
+                            else if Constr.equal (Array.get args i) (Array.get args' i) then same (Int.add i 1) else false in
+          let t := Array.get args' (Int.sub n 1) in
+          if Bool.and (same 0) (Constr.Unsafe.is_closed t) then (if List.exist (Constr.equal t) acc then acc else t :: acc) else acc
+        else acc
+    | _ => acc
+    end in
+  let r := { contents := acc } in
+  Constr.Unsafe.iter (fun x => r.(contents) := app_instances h args x (r.(contents))) c;
+  r.(contents).
+
+Ltac2 rewrite_all_instances (pf : constr) : unit :=
+  match Constr.Unsafe.kind (Constr.type pf) with
+  | Constr.Unsafe.Prod _ b =>
+      lazy_match! b with
+      | _ = _ =>
+          let l := match Constr.Unsafe.kind b with Constr.Unsafe.App _ a => Array.get a 1 | _ => Control.zero Not_found end in
+          match Constr.Unsafe.kind l with
+          | Constr.Unsafe.App h args =>
+              let ts := app_instances h args (Control.goal ()) [] in
+              List.iter (fun t => rewrite_with (app pf [t])) ts
+          | _ => Control.zero Not_found
+          end
+      end
+  | _ => Control.zero Not_found
+  end.
 
 (** The shares at the head of the right-hand side of the goal [_ = b] as
     variables, with what each is: their raw forms and hypotheses, in
@@ -697,7 +749,7 @@ Ltac2 rec intro_shares (rs : constr list) (hs : ident list) : constr list * iden
       let h := fresh @Hr in intro_as h;
       Std.cbv { Std.rStrength := Std.Norm; Std.rBeta := true; Std.rMatch := false; Std.rFix := false;
                 Std.rCofix := false; Std.rZeta := false; Std.rDelta := false; Std.rConst := [] } (concl ());
-      intro_shares (List.append rs ['(adj_raw &r)]) (List.append hs [h])
+      let rv := Control.hyp r in intro_shares (List.append rs ['(adj_raw $rv)]) (List.append hs [h])
   | [ |- _ ] => (rs, hs)
   end.
 
@@ -1036,7 +1088,7 @@ Ltac2 mat_one (a : constr) : unit :=
               let ety := eval cbv beta in (forall t, $f t = $f' t) in
               assert_by eid ety (fun () => Std.exact_no_check '(@sm_mat _ $inst $n $a $a' $hh));
               Std.clear [hid];
-              Control.progress (fun () => rewrite_with (Control.hyp eid));
+              Control.progress (fun () => rewrite_all_instances (Control.hyp eid));
               Std.clear [eid]
           | None => Control.zero Not_found
           end

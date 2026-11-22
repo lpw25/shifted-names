@@ -99,14 +99,14 @@ Proof.
   pose proof (kcons lenv tenv (aenv ++ rs) penv _ (order_of_ok lenv l Hl)) as HM.
   destruct (kden lenv tenv (aenv ++ rs) penv (List.length tenv) (le_n _)) as [Ka _].
   destruct (proj1 (norm_spec_all (order_of l) Hirr Htr) e [] HNorm.st0 [] w T0 Inv_st0 (RWNil _) En) as [I1 [_ R1]].
-  destruct (HDisplaySound.display_s_aok (order_of l) Hirr Htr K HM (List.length aenv) (List.length tenv) true T0
+  destruct (HDisplaySound.display_s_aok (order_of l) K (List.length aenv) (List.length tenv) true T0
               (HNorm.wid w) sh r _ I1 (RWord_RId _ _ _ R1) Oc E) as [Osh Or].
   assert (HS : forall s d, nth_error sh s = Some d -> forall x, @catom K (List.length aenv + s) x = @ca K d x).
   { intros s d Hd x; rewrite (Ka d) by (rewrite Forall_forall in Osh; apply Osh, (nth_error_In _ _ Hd)).
     cbn [K kmodel catom]; f_equal; unfold aden; rewrite app_nth2 by lia.
     replace (List.length aenv + s - List.length aenv) with s by lia.
     destruct (F2_nth _ _ _ s d Hs Hd) as [x0 [Hx0 ->]]; apply nth_error_nth, Hx0. }
-  pose proof (HDisplaySound.display_sound (order_of l) Hirr Htr K HM (List.length aenv) (List.length tenv) T0 (HNorm.wid w) sh r
+  pose proof (HDisplaySound.display_sound (order_of l) K (List.length aenv) (List.length tenv) T0 (HNorm.wid w) sh r
                 (CNorm.norm (order_of l) e []) I1 (RWord_RId _ _ _ R1) Oc E HS ridentity) as D.
   rewrite (Ka r Or), rcompose_identity_l in D; rewrite D.
   rewrite (norm_meaning K _ HM), (Ka e Ae), rcompose_identity_l; reflexivity.
@@ -163,9 +163,9 @@ Proof.
   destruct (RVal_term _ _ _ _ _ R2) as [cp [Ecp Rp]]; rewrite Ecp in Kl.
   pose proof (CRange.lookup_ok _ _ F h i _ (proj1 (CRange.norm_ok _ _ F) e [] Ar (Forall_nil _))) as Ov.
   rewrite Ecp in Ov; inversion Ov as [|? ? ? _ Op|]; subst.
-  destruct (HDisplaySound.display_s_aok F Hirr Htr K HM (List.length aenv) (List.length tenv) true T1 p sh r cp I2 Rp Op Ed)
+  destruct (HDisplaySound.display_s_aok F K (List.length aenv) (List.length tenv) true T1 p sh r cp I2 Rp Op Ed)
     as [Osh Or].
-  pose proof (HDisplaySound.display_sound F Hirr Htr K HM (List.length aenv) (List.length tenv) T1 p sh r cp I2 Rp Op Ed
+  pose proof (HDisplaySound.display_sound F K (List.length aenv) (List.length tenv) T1 p sh r cp I2 Rp Op Ed
                 (shares_model l _ sh Hl (le_n _) Hs Osh) ridentity) as D.
   rewrite (Ka r Or), rcompose_identity_l in D; unfold K in D.
   rewrite vden_term, <- D in Kl.
@@ -269,7 +269,7 @@ Proof.
   pose proof (proj1 (CRange.norm_ok _ _ F) e [] Ar1 (Forall_nil _)) as Oc1.
   pose proof (proj1 (CRange.norm_ok _ _ F) e [] Ar2 (Forall_nil _)) as Oc2.
   destruct (paid_ok _ _ T0 w _ u p R1 Oc1 Fp) as [cp0 [Hp0 [Op0 Lu]]].
-  destruct (HDisplaySound.display_s_aok F Hirr Htr K HM nb n1 false T0 p shb rb cp0 I1 Hp0 Op0 Eb) as [Oshb Orb].
+  destruct (HDisplaySound.display_s_aok F K nb n1 false T0 p shb rb cp0 I1 Hp0 Op0 Eb) as [Oshb Orb].
   (* the payload term and the term atom [k] are related *)
   assert (SB : forall s d, nth_error shb s = Some d -> forall x, @catom K (nb + s) x = @ca K d x).
   { intros s0 d Hd0 x; rewrite Hnb, <- Nat.add_assoc.
@@ -283,7 +283,7 @@ Proof.
   assert (Prem : forall cp, RId T0 p cp ->
             tmrel g (@vden K (CNorm.VTerm u None cp) ridentity) (@vden K (CNorm.VTerm k None []) ridentity)).
   { intros cp Hp; pose proof (proj1 (R_func T0 I1) p _ Hp _ Hp0) as <-.
-    pose proof (HDisplaySound.display_s_sound F Hirr Htr K HM nb n1 false T0 p shb rb cp I1 Hp Op0 Eb SB ridentity) as D.
+    pose proof (HDisplaySound.display_s_sound F K nb n1 false T0 p shb rb cp I1 Hp Op0 Eb SB ridentity) as D.
     rewrite (Ka rb (proj1 (aok_mono n1 _ L1) rb Orb)), rcompose_identity_l in D; unfold K in D.
     rewrite !vden_term; cbn [K kmodel cterm]; unfold kterm.
     destruct (nth_error tenv u) as [y|] eqn:Ey; [|apply nth_error_None in Ey; lia].
@@ -294,7 +294,7 @@ Proof.
   destruct (rebuild_spec (replace_paid k w) cw' T0 [] [] w' T1 I1 Hf (RWNil _) Er) as [I2 [X2 R2]].
   rewrite app_nil_r in R2.
   pose proof (Ho n2 (List.length aenv) Lk Oc2) as Ocw'.
-  destruct (HDisplaySound.display_s_aok F Hirr Htr K HM (List.length aenv) n2 true T1 (HNorm.wid w') sh r cw' I2
+  destruct (HDisplaySound.display_s_aok F K (List.length aenv) n2 true T1 (HNorm.wid w') sh r cw' I2
               (RWord_RId _ _ _ R2) Ocw' Hd) as [Osh Or].
   assert (SA : forall s d, nth_error sh s = Some d -> forall x, @catom K (List.length aenv + s) x = @ca K d x).
   { intros s0 d Hd0 x.
@@ -303,7 +303,7 @@ Proof.
     replace (List.length aenv + s0 - List.length aenv) with s0 by lia.
     destruct (F2_nth _ _ _ s0 d Hs ltac:(rewrite nth_error_app1; [exact Hd0|apply nth_error_Some; rewrite Hd0; discriminate]))
       as [x0 [Hx0 ->]]; apply nth_error_nth, Hx0. }
-  pose proof (HDisplaySound.display_sound F Hirr Htr K HM (List.length aenv) n2 T1 (HNorm.wid w') sh r cw' I2
+  pose proof (HDisplaySound.display_sound F K (List.length aenv) n2 T1 (HNorm.wid w') sh r cw' I2
                 (RWord_RId _ _ _ R2) Ocw' Hd SA ridentity) as D.
   rewrite (Ka r (proj1 (aok_mono n2 _ L2) r Or)), rcompose_identity_l in D; unfold K in D.
   intros v; rewrite D, <- (kword_meaning lenv tenv (aenv ++ rs) penv l e Hl (proj1 (aok_mono n1 _ L1) e Ae)).
