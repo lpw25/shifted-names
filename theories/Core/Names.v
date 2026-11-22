@@ -7,16 +7,15 @@
     the order between label variables comes from hypotheses [label_lt x y]
     in the context ([label_compare] provides them by case analysis).
 
-    The goal is taken to the raw layer, reified into [aexp], and both
-    sides are normalised to layered words (Layered.v), which are compared;
-    when they differ and are small, their trees are compared (LEval.v).
-    The tactic fails when the normal forms differ, when normalisation
-    needed the order between two labels and no hypothesis gave it, or when
-    the words differ and are too large to multiply out. *)
+    The goal is taken to the raw layer, reified into [aexp], and the two
+    sides are decided by [HNorm] ([hn_eq_t], sound by
+    [HConcrete.hn_eq_t_sound]).  The tactic fails when the normal forms
+    differ, which includes when an equation needs an order between two
+    labels that no hypothesis gives. *)
 
 From Stdlib Require Import NArith List String Arith Bool StrictProp.
 Open Scope bool_scope.
-From ShiftedNames.Core Require Import Label Var Adjustment Indexed Syntax Normalise Layered Canon Keys Retarget Canonical LEval.
+From ShiftedNames.Core Require Import Label Var Adjustment Indexed Syntax Normalise Layered Canon Keys Retarget Canonical LEval HConcrete.
 Import ListNotations.
 
 (** ** Reification *)
@@ -859,16 +858,13 @@ Ltac names_decide :=
           lazymatch reify_adj_top rhs env1 with
           | (?e2, ?env2) =>
               lazymatch collect_facts env2 (@nil (lexp * lexp)) with
-              | ((?le, ?te, ?ae, ?pe), ?F) =>
+              | ((?le, ?te, ?ae, ?pe), order_of ?l) =>
                   change (aeden le te ae pe e1 = aeden le te ae pe e2);
-                  refine (nf_eq_t_sound le te ae pe F _ (List.length te) (le_n _) e1 e2 _);
-                  [ lazymatch goal with
-                    | |- facts_ok _ _ => apply order_of_ok; unfold lfacts_ok; repeat constructor; cbn [lden N.to_nat Pos.to_nat Pos.iter_op Nat.add nth]; assumption
-                    | |- nf_eq_t _ _ _ _ = true =>
-                        vm_compute; first
-                          [ reflexivity
-                          | fail 2 "names: the two sides have different normal forms, a label order is missing, or they are too large to compare" ]
-                    end .. ]
+                  refine (hn_eq_t_sound le te ae pe l e1 e2 _ _);
+                  [ unfold lfacts_ok; repeat constructor; cbn [lden N.to_nat Pos.to_nat Pos.iter_op Nat.add nth]; assumption
+                  | vm_compute; first
+                      [ reflexivity
+                      | fail 2 "names: the two sides have different normal forms, or a label order is missing" ] ]
               end
           end
       end
