@@ -873,6 +873,44 @@ Definition hlook_pay (F : order) (n : nat) (e : aexp) (h : lexp) (i : nat) : opt
   | _ => None
   end.
 
+(** *** Materialising with [HNorm]: the first term entry with a payload,
+    in a word without atoms, and the word with that term replaced by a
+    term atom with the identity payload. *)
+Fixpoint first_paid (w : HNorm.word) : option (nat * positive) :=
+  match w with
+  | [] => None
+  | (HNorm.SE _ (HNorm.VTerm u None p), _) :: r => if Pos.eqb p 1 then first_paid r else Some (u, p)
+  | _ :: r => first_paid r
+  end.
+
+Fixpoint has_atom (w : HNorm.word) : bool :=
+  match w with [] => false | (HNorm.SA _, _) :: _ => true | _ :: r => has_atom r end.
+
+Fixpoint replace_paid (k : nat) (w : HNorm.word) : list HNorm.step :=
+  match w with
+  | [] => []
+  | (HNorm.SE h (HNorm.VTerm u None p) as s, _) :: r =>
+      if Pos.eqb p 1 then s :: replace_paid k r else HNorm.SE h (HNorm.VTerm k None 1) :: map fst r
+  | (s, _) :: r => s :: replace_paid k r
+  end.
+
+Definition hmat_target (F : order) (n : nat) (e : aexp) : option (nat * list dpiece) :=
+  if aok n e then
+    let '(w, T) := HNorm.norm F e [] HNorm.st0 in
+    if has_atom w then None
+    else match first_paid w with
+         | Some (u, p) => option_map (pair u) (hdisplay F T (hcells T (hfuel T) p))
+         | None => None
+         end
+  else None.
+
+Definition hmat_display (F : order) (n : nat) (e : aexp) (k : nat) : option (list dpiece) :=
+  if aok n e then
+    let '(w, T) := HNorm.norm F e [] HNorm.st0 in
+    let '(w', T') := HNorm.rebuild (replace_paid k w) [] T in
+    hdisplay F T' w'
+  else None.
+
 (** Normalise and show. *)
 Definition hshow (F : order) (ntm : nat) (e : aexp) : option (list dpiece) :=
   if aok ntm e then let '(w, T) := HNorm.norm F e [] HNorm.st0 in hdisplay F T w else None.
@@ -1444,17 +1482,9 @@ Ltac names_eval :=
     payload adjustments, used in a substitution, is replaced by [A'] where
     each such term [u⟨b⟩] is [u [b]], when the syntax has a [SubstMat]
     instance. *)
-Ltac mat_render le te ae T ts :=
-  lazymatch ts with
-  | (_, ?wp) :: nil =>
-      let F0 := constr:(order_of (@nil (lexp * lexp))) in
-      let d := eval vm_compute in (display_nf F0 (List.length te) (Some wp)) in
-      lazymatch d with
-      | Some ?ps =>
-          let bb := fresh "b" in
-          unshelve evar (bb : adj T 0 0); [render_pieces le te ae ps|]
-      end
-  end.
+Ltac mat_render le te ae T ps :=
+  let bb := fresh "b" in
+  unshelve evar (bb : adj T 0 0); [render_pieces le te ae ps|].
 
 Ltac mat_reify T bs env :=
   lazymatch bs with
@@ -1489,7 +1519,7 @@ Ltac mat_terms T inst te ts bs :=
       end
   end.
 
-Fixpoint mat_facts (k : nat) (ts : list (nat * word)) (ebs : list aexp) : list (nat * nat * aexp) :=
+Fixpoint mat_facts {A} (k : nat) (ts : list (nat * A)) (ebs : list aexp) : list (nat * nat * aexp) :=
   match ts, ebs with
   | (u, _) :: ts, eb :: ebs => (k, u, eb) :: mat_facts (S k) ts ebs
   | _, _ => []
@@ -1528,67 +1558,61 @@ Ltac names_mat_one A :=
       | (?e, ?env1) =>
           lazymatch collect_facts env1 (@nil (lexp * lexp)) with
           | ((?le, ?te, ?ae, ?pe), ?F) =>
-              let w := eval vm_compute in (lshow F (List.length te) e) in
-              lazymatch w with
-              | ShWord (WEnd ?S) =>
-                  let ts := eval vm_compute in (firstn 1 (mat_targets S)) in
-                  lazymatch ts with
-                  | _ :: _ =>
-                      let te0 := restore_terms te A in
-                      mat_render le te0 ae T ts;
-                      lazymatch goal with
-                      | b0 := ?bv : adj T 0 0 |- _ =>
-                      clear b0; let bs := constr:(bv :: nil) in
-                      lazymatch mat_reify T bs (le, te, ae, pe) with
-                      | (?ebs, (?le2, ?te2, ?ae2, ?pe2)) =>
-                          let xs := mat_terms T inst te0 ts bs in
-                          let n2 := eval vm_compute in (List.length te2) in
-                          let teall := eval cbn [List.app] in (te2 ++ xs) in
-                          let te0all := let t2 := restore_terms te2 A in eval cbn [List.app] in (t2 ++ xs) in
-                          let rep := eval vm_compute in (mat_rep n2 ts) in
-                          let facts := eval vm_compute in (mat_facts n2 ts ebs) in
-                          let S' := eval vm_compute in (smat_apply rep S) in
-                          let nall := eval vm_compute in (List.length teall) in
-                          let d := eval vm_compute in (display_nf F nall (Some (WEnd S'))) in
-                          lazymatch d with
-                          | Some ?ps =>
-                              let bb := fresh "b" in
-                              unshelve evar (bb : adj T N 0); [render_pieces le2 te0all ae2 ps|];
-                              let A' := eval cbv delta [bb] in bb in
-                              clear bb;
-                              let r' := eval cbn [adj_raw identity compose at_scope
-                                                  cnil cent cbnd csub csubb
-                                                  cnil_full cnil_short cent_full cent_short cbnd_full cbnd_short
-                                                  csub_full csub_short csubb_full csubb_short
-                                                  cform cform_id octx_den octx_probe ictx_den sctx_den nth slot_at slot_ix
-                                                  in_bound in_free out_bound out_free pctx_den pctx_pay noslot pcompose padj_raw pid
-                                                  to_target var_raw bvar bvar0 fvar lvar vdummy vshift_bound vshift_free] in (adj_raw A') in
-                              lazymatch reify_adj_top r' (le2, teall, ae2, pe2) with
-                              | (?e', (?le3, ?te3, ?ae3, ?pe3)) =>
-                                  lazymatch collect_facts (le3, te3, ae3, pe3) (@nil (lexp * lexp)) with
-                                  | ((?le4, ?te4, ?ae4, ?pe4), ?F4) =>
-                                      let H := fresh "H" in
-                                      assert (H : forall v : var N, mrel (@sm_g _ inst) (rapply (adj_raw A) (var_raw v)) (rapply (adj_raw A') (var_raw v)));
-                                      [ intros v;
-                                        change (mrel (@sm_g _ inst) (rapply (aeden le4 te4 ae4 pe4 e) (var_raw v)) (rapply (aeden le4 te4 ae4 pe4 e') (var_raw v)));
-                                        let HF := fresh "HF" in
-                                        assert (HF : facts_ok le4 F4) by (apply order_of_ok; unfold lfacts_ok; repeat constructor; cbn [lden N.to_nat Pos.to_nat Pos.iter_op Nat.add nth]; assumption);
-                                        let HM := fresh "HM" in
-                                        assert (HM : Forall (fun f => let '(k, u, eb) := f in forall y, nth_error te4 u = Some y -> nth_error te4 k = Some (@sm_g _ inst (rpcompose (aeden le4 te4 ae4 pe4 eb) rpidentity) y)) facts)
-                                          by (mat_prove_facts inst te4 ts bs);
-                                        refine (lmat_sound le4 te4 ae4 pe4 F4 HF (List.length te4) (le_n _) (@sm_g _ inst) facts HM e e' _ (var_raw v));
-                                        vm_compute; reflexivity
-                                      | let E := fresh "E" in
-                                        pose proof (@sm_mat _ inst N A A' H) as E; clear H;
-                                        let f := eval hnf in (@sm_subst _ inst N 0 A) in
-                                        let f' := eval hnf in (@sm_subst _ inst N 0 A') in
-                                        change (forall t, f t = f' t) in E; cbv beta in E;
-                                        progress rewrite E; clear E ]
-                                  end
+              let tg := eval vm_compute in (hmat_target F (List.length te) e) in
+              lazymatch tg with
+              | Some (?um, ?pps) =>
+                  let ts := constr:((um, tt) :: nil) in
+                  let te0 := restore_terms te A in
+                  mat_render le te0 ae T pps;
+                  lazymatch goal with
+                  | b0 := ?bv : adj T 0 0 |- _ =>
+                  clear b0; let bs := constr:(bv :: nil) in
+                  lazymatch mat_reify T bs (le, te, ae, pe) with
+                  | (?ebs, (?le2, ?te2, ?ae2, ?pe2)) =>
+                      let xs := mat_terms T inst te0 ts bs in
+                      let n2 := eval vm_compute in (List.length te2) in
+                      let teall := eval cbn [List.app] in (te2 ++ xs) in
+                      let te0all := let t2 := restore_terms te2 A in eval cbn [List.app] in (t2 ++ xs) in
+                      let facts := eval vm_compute in (mat_facts n2 ts ebs) in
+                      let nall := eval vm_compute in (List.length teall) in
+                      let d := eval vm_compute in (hmat_display F nall e n2) in
+                      lazymatch d with
+                      | Some ?ps =>
+                          let bb := fresh "b" in
+                          unshelve evar (bb : adj T N 0); [render_pieces le2 te0all ae2 ps|];
+                          let A' := eval cbv delta [bb] in bb in
+                          clear bb;
+                          let r' := eval cbn [adj_raw identity compose at_scope
+                                              cnil cent cbnd csub csubb
+                                              cnil_full cnil_short cent_full cent_short cbnd_full cbnd_short
+                                              csub_full csub_short csubb_full csubb_short
+                                              cform cform_id octx_den octx_probe ictx_den sctx_den nth slot_at slot_ix
+                                              in_bound in_free out_bound out_free pctx_den pctx_pay noslot pcompose padj_raw pid
+                                              to_target var_raw bvar bvar0 fvar lvar vdummy vshift_bound vshift_free] in (adj_raw A') in
+                          lazymatch reify_adj_top r' (le2, teall, ae2, pe2) with
+                          | (?e', (?le3, ?te3, ?ae3, ?pe3)) =>
+                              lazymatch collect_facts (le3, te3, ae3, pe3) (@nil (lexp * lexp)) with
+                              | ((?le4, ?te4, ?ae4, ?pe4), order_of ?l4) =>
+                                  let H := fresh "H" in
+                                  assert (H : forall v : var N, mrel (@sm_g _ inst) (rapply (adj_raw A) (var_raw v)) (rapply (adj_raw A') (var_raw v)));
+                                  [ intros v;
+                                    change (mrel (@sm_g _ inst) (rapply (aeden le4 te4 ae4 pe4 e) (var_raw v)) (rapply (aeden le4 te4 ae4 pe4 e') (var_raw v)));
+                                    let HM := fresh "HM" in
+                                    assert (HM : Forall (fun f => let '(k, u, eb) := f in forall y, nth_error te4 u = Some y -> nth_error te4 k = Some (@sm_g _ inst (rpcompose (aeden le4 te4 ae4 pe4 eb) rpidentity) y)) facts)
+                                      by (mat_prove_facts inst te4 ts bs);
+                                    refine (hmat_sound le4 te4 ae4 pe4 (@sm_g _ inst) l4 facts e e' _ _ HM (var_raw v));
+                                    [ unfold lfacts_ok; repeat constructor; cbn [lden N.to_nat Pos.to_nat Pos.iter_op Nat.add nth]; assumption
+                                    | vm_compute; reflexivity ]
+                                  | let E := fresh "E" in
+                                    pose proof (@sm_mat _ inst N A A' H) as E; clear H;
+                                    let f := eval hnf in (@sm_subst _ inst N 0 A) in
+                                    let f' := eval hnf in (@sm_subst _ inst N 0 A') in
+                                    change (forall t, f t = f' t) in E; cbv beta in E;
+                                    progress rewrite E; clear E ]
                               end
                           end
                       end
-                      end
+                  end
                   end
               end
           end
