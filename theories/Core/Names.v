@@ -22,6 +22,8 @@
 From Stdlib Require Import NArith List String Arith Bool StrictProp.
 Open Scope bool_scope.
 From ShiftedNames.Core Require Import Label Var Adjustment Indexed Syntax Normalise Layered Canon Keys Retarget Canonical LEval HConcrete.
+From ShiftedNames.Core Require HNorm.
+From Stdlib Require Import PArith FMapPositive.
 Import ListNotations.
 
 (** ** Reification *)
@@ -559,6 +561,314 @@ Definition split_seg (L : list (lexp * nat)) (S : seg) : option (seg * seg) :=
 
 End Split.
 
+(** *** Normal forms of [HNorm]
+
+    An [HNorm] word, outermost step first, is shown group by group: a
+    group is a run of input entries, then of atoms, then of weakenings,
+    and is one context form: the entries are its inputs, the atoms its
+    tail, the weakenings its outputs.  A value is read at the end of the
+    word; in the form it is a slot, the variable at the group's own
+    input that the rest of the word sends there (found with [HNorm]'s
+    lookup), or a term whose payload is some entries in front of exactly
+    what follows the group's entries (the payload context).  Anything
+    else is not shown.  The result is checked like any display. *)
+
+Section HDisplay.
+
+Variable F : order.
+Variable T : HNorm.st.
+
+(** The word from the cell [i]. *)
+Fixpoint hcells (fuel : nat) (i : positive) : HNorm.word :=
+  match fuel with
+  | 0 => []
+  | S f =>
+      if Pos.eqb i 1 then []
+      else match PositiveMap.find i (HNorm.cells T) with Some (s, t) => (s, i) :: hcells f t | None => [] end
+  end.
+
+Definition hfuel : nat := Pos.to_nat (HNorm.next T).
+
+Fixpoint take_se (w : HNorm.word) : list (lexp * HNorm.val) * HNorm.word :=
+  match w with (HNorm.SE h v, _) :: w' => let '(l, r) := take_se w' in ((h, v) :: l, r) | _ => ([], w) end.
+
+Fixpoint take_sa (w : HNorm.word) : list nat * HNorm.word :=
+  match w with (HNorm.SA a, _) :: w' => let '(l, r) := take_sa w' in (a :: l, r) | _ => ([], w) end.
+
+Fixpoint take_sw (w : HNorm.word) : list lexp * HNorm.word :=
+  match w with (HNorm.SW h, _) :: w' => let '(l, r) := take_sw w' in (h :: l, r) | _ => ([], w) end.
+
+(** The groups: entries, atoms, weakenings, the word after the entries,
+    and the word after the group. *)
+Fixpoint hgroups (fuel : nat) (w : HNorm.word)
+  : list (list (lexp * HNorm.val) * list nat * list lexp * HNorm.word * HNorm.word) :=
+  match fuel with
+  | 0 => []
+  | S f =>
+      match w with
+      | [] => []
+      | _ =>
+          let '(es, w1) := take_se w in
+          let '(as', w2) := take_sa w1 in
+          let '(ws, w3) := take_sw w2 in
+          (es, as', ws, w1, w3) :: hgroups f w3
+      end
+  end.
+
+Fixpoint opt_all {A} (l : list (option A)) : option (list A) :=
+  match l with [] => Some [] | Some x :: r => option_map (cons x) (opt_all r) | None :: _ => None end.
+
+Fixpoint se_labels (w : HNorm.word) : list lexp :=
+  match w with [] => [] | (HNorm.SE h _, _) :: w' => h :: se_labels w' | _ :: w' => se_labels w' end.
+
+Fixpoint first_match (cs : list (lexp * nat)) (v : HNorm.val) (R : HNorm.word) : option (lexp * nat) :=
+  match cs with
+  | [] => None
+  | (c, j) :: r => if HNorm.val_eqb (fst (HNorm.lookup F c j R T)) v then Some (c, j) else first_match r v R
+  end.
+
+(** The variable at the start of [R] that [R] sends to [v]. *)
+Definition hrel (v : HNorm.val) (R : HNorm.word) : option (lexp * nat) :=
+  match v with
+  | HNorm.VVar g i | HNorm.VLook g i _ =>
+      let n := i + List.length R + 1 in
+      first_match (flat_map (fun c => map (pair c) (seq 0 n)) (g :: se_labels R)) v R
+  | HNorm.VTerm _ _ _ => None
+  end.
+
+(** The entries of a payload word in front of the cell [a]. *)
+Fixpoint strip_to (a : positive) (w : HNorm.word) : option (list (lexp * HNorm.val)) :=
+  match w with
+  | [] => if Pos.eqb a 1 then Some [] else None
+  | (s, i) :: w' =>
+      if Pos.eqb i a then Some []
+      else match s with HNorm.SE h v => option_map (cons (h, v)) (strip_to a w') | _ => None end
+  end.
+
+Fixpoint tapp (ts u : tlist) : tlist := match ts with TNil => u | TCons t r => TCons t (tapp r u) end.
+
+Fixpoint add_in (h : lexp) (t : ntgt) (s : seg) : seg :=
+  match s with
+  | SNil => SEnt h (TCons t TNil) 0 SNil
+  | SEnt g ts m r => if lexp_eqb g h then SEnt g (tapp ts (TCons t TNil)) m r else SEnt g ts m (add_in h t r)
+  end.
+
+Fixpoint add_out (h : lexp) (s : seg) : seg :=
+  match s with
+  | SNil => SEnt h TNil 1 SNil
+  | SEnt g ts m r => if lexp_eqb g h then SEnt g ts (S m) r else SEnt g ts m (add_out h r)
+  end.
+
+Fixpoint step_labels (w : HNorm.word) : list lexp :=
+  match w with
+  | [] => []
+  | (HNorm.SE h _, _) :: w' | (HNorm.SW h, _) :: w' => h :: step_labels w'
+  | _ :: w' => step_labels w'
+  end.
+
+Fixpoint dedup_l (hs : list lexp) : list lexp :=
+  match hs with [] => [] | h :: r => h :: filter (fun g => negb (lexp_eqb h g)) (dedup_l r) end.
+
+Fixpoint count_l (h : lexp) (hs : list lexp) : nat :=
+  match hs with [] => 0 | g :: r => (if lexp_eqb h g then 1 else 0) + count_l h r end.
+
+(** Targets in a form read at the start of [R], whose outputs are [outs].
+    A term's payload is found name by name: where the payload sends
+    [nₖ], as a variable at the start of [R], until the names follow the
+    default, past the form's slots on [n]. *)
+Fixpoint htgt (fuel : nat) (outs : list lexp) (R : HNorm.word) (v : HNorm.val) : option ntgt :=
+  match v with
+  | HNorm.VTerm u None p =>
+      match fuel with
+      | 0 => None
+      | S f =>
+          let pw := hcells hfuel p in
+          let labs := filter (fun h => match h with LNone => false | _ => true end)
+                        (dedup_l (step_labels pw ++ outs ++ step_labels R)) in
+          let entry (n : lexp) : option (list ntgt * nat) :=
+            let bound := count_l n (step_labels pw) + count_l n outs + count_l n (step_labels R) + 2 in
+            let tg (k : nat) := htgt f outs R (fst (HNorm.lookup F n k pw T)) in
+            let fix dflt (k : nat) (d : nat) (fuel : nat) : bool :=
+              match fuel with
+              | 0 => true
+              | S fu => match tg k with
+                        | Some (NVar c j) => lexp_eqb c n && Nat.eqb j d && dflt (S k) (S d) fu
+                        | _ => false
+                        end
+              end in
+            let fix firstK (K : nat) (fuel : nat) : option (nat * nat) :=
+              match fuel with
+              | 0 => None
+              | S fu =>
+                  match tg K with
+                  | Some (NVar c d) => if lexp_eqb c n && dflt K d (S bound) then Some (K, d) else firstK (S K) fu
+                  | _ => firstK (S K) fu
+                  end
+              end in
+            match firstK 0 (S bound) with
+            | Some (K, d) => option_map (fun ts => (ts, d)) (opt_all (map tg (seq 0 K)))
+            | None => None
+            end in
+          let fix go (ls : list lexp) (acc : seg) : option seg :=
+            match ls with
+            | [] => Some acc
+            | n :: r =>
+                match entry n with
+                | Some (ts, d) =>
+                    match ts, d with
+                    | [], 0 => go r acc
+                    | _, _ => go r (SEnt n (fold_right TCons TNil ts) d acc)
+                    end
+                | None => None
+                end
+            end in
+          option_map (fun P => NBind u (WEnd P) None) (go labs SNil)
+      end
+  | HNorm.VTerm _ (Some _) _ => None
+  | _ => option_map (fun '(c, j) => NVar c j) (hrel v R)
+  end.
+
+Fixpoint add_in_front (h : lexp) (t : ntgt) (s : seg) : seg :=
+  match s with
+  | SNil => SEnt h (TCons t TNil) 0 SNil
+  | SEnt g ts m r => if lexp_eqb g h then SEnt g (TCons t ts) m r else SEnt g ts m (add_in_front h t r)
+  end.
+
+Fixpoint hgseg (es : list (lexp * HNorm.val)) (ws : list lexp) (R : HNorm.word) : option seg :=
+  match es with
+  | [] => Some (fold_left (fun s h => add_out h s) ws SNil)
+  | (h, v) :: r =>
+      match htgt 8 ws R v, hgseg r ws R with
+      | Some t, Some Sg => Some (add_in_front h t Sg)
+      | _, _ => None
+      end
+  end.
+
+Fixpoint entries_eqb (a b : list (lexp * HNorm.val)) : bool :=
+  match a, b with
+  | [], [] => true
+  | (h, v) :: a', (g, u) :: b' => lexp_eqb h g && HNorm.val_eqb v u && entries_eqb a' b'
+  | _, _ => false
+  end.
+
+Fixpoint remove_nth {A} (k : nat) (l : list A) : list A :=
+  match k, l with _, [] => [] | 0, _ :: r => r | S k, x :: r => x :: remove_nth k r end.
+
+(** An entry [h := u] whose payload is exactly the other entries in
+    front of [a1] is the composition of [⟦ h := u ⟧] after them. *)
+Definition factors (a1 : positive) (others : list (lexp * HNorm.val)) (v : HNorm.val) : option nat :=
+  match v with
+  | HNorm.VTerm u None p =>
+      match strip_to a1 (hcells hfuel p) with Some pre => if entries_eqb pre others then Some u else None | None => None end
+  | _ => None
+  end.
+
+Fixpoint find_factor (a1 : positive) (es : list (lexp * HNorm.val)) (k : nat) (l : list (lexp * HNorm.val))
+  : option (nat * lexp * nat) :=
+  match l with
+  | [] => None
+  | (h, v) :: r =>
+      match factors a1 (remove_nth k es) v with
+      | Some u => Some (k, h, u)
+      | None => find_factor a1 es (S k) r
+      end
+  end.
+
+(** The factored terms, outermost first, and the entries left. *)
+Fixpoint factor (fuel : nat) (a1 : positive) (es : list (lexp * HNorm.val)) : list (lexp * nat) * list (lexp * HNorm.val) :=
+  match fuel with
+  | 0 => ([], es)
+  | S f =>
+      match find_factor a1 es 0 es with
+      | Some (k, h, u) => let '(fs, rest) := factor f a1 (remove_nth k es) in ((h, u) :: fs, rest)
+      | None => ([], es)
+      end
+  end.
+
+End HDisplay.
+
+Definition sub_piece (h : lexp) (u : nat) : option dpiece :=
+  option_map short_or_full (display_seg (SEnt h (TCons (NBind u (WEnd SNil) None) TNil) 0 SNil) None).
+
+Definition is_term (v : HNorm.val) : bool := match v with HNorm.VTerm _ _ _ => true | _ => false end.
+
+(** One group, outermost piece first.  With atoms, terms that cannot sit
+    in the tail form go into a form of their own outside it, read over
+    the word without them. *)
+Definition hgroup (F : order) (T : HNorm.st) (es : list (lexp * HNorm.val)) (as' : list nat) (ws : list lexp)
+  (w1 w2 R : HNorm.word) : option (list dpiece) :=
+  let '(fs, es') := factor T (List.length es) (HNorm.wid w1) es in
+  match opt_all (map (fun '(h, u) => sub_piece h u) fs) with
+  | None => None
+  | Some ps =>
+      let tail := match as' with [] => None | _ => Some (rev as') end in
+      let one (es : list (lexp * HNorm.val)) :=
+        match hgseg F T es ws R with
+        | Some Sg => match display_seg Sg tail with Some d => Some [short_or_full d] | None => None end
+        | None => None
+        end in
+      match es' with
+      | [] =>
+          let atoms := match tail with Some ns => [DLift [] ns] | None => [] end in
+          match ws with
+          | [] => Some (ps ++ atoms)
+          | _ => match display_seg (fold_left (fun s h => add_out h s) ws SNil) None with
+                 | Some d => Some (ps ++ atoms ++ [short_or_full d])
+                 | None => None
+                 end
+          end
+      | _ =>
+          match one es' with
+          | Some d => Some (ps ++ d)
+          | None =>
+              match tail with
+              | None => None
+              | Some _ =>
+                  let terms := filter (fun '(_, v) => is_term v) es' in
+                  let rest := filter (fun '(_, v) => negb (is_term v)) es' in
+                  let '(Wi, T') := HNorm.rebuild (map (fun '(h, v) => HNorm.SE h v) rest) w1 T in
+                  match hgseg F T' terms [] Wi, (match rest with [] => Some [] | _ => one rest end) with
+                  | Some So, Some di =>
+                      match display_seg So None with
+                      | Some d => Some (ps ++ short_or_full d :: (match rest with [] => [DLift [] (rev as')] ++
+                                          (match ws with [] => [] | _ => match display_seg (fold_left (fun s h => add_out h s) ws SNil) None with Some d' => [short_or_full d'] | None => [] end end)
+                                        | _ => di end))
+                      | None => None
+                      end
+                  | _, _ => None
+                  end
+              end
+          end
+      end
+  end.
+
+Fixpoint dt_size (d : dtgt) : nat :=
+  match d with
+  | DSlot _ _ => 1
+  | DTerm _ p => S (fold_right (fun '(_, d) n => dt_size d + n) 0 p)
+  end.
+
+Definition dp_size (d : dpiece) : nat :=
+  match d with
+  | DFull os is _ => List.length os + fold_right (fun i n => match i with DITerm _ _ p => S (fold_right (fun '(_, d) n => dt_size d + n) 0 p) | _ => 1 end + n) 0 is
+  | DShort es _ => List.length es
+  | DLift hs ns => List.length hs + List.length ns
+  end.
+
+(** The pieces, innermost first (as [render_pieces] composes them). *)
+Definition hdisplay (F : order) (T : HNorm.st) (w : HNorm.word) : option (list dpiece) :=
+  match opt_all (map (fun '(es, as', ws, w1, R) =>
+                        let '(_, w2) := take_sa w1 in hgroup F T es as' ws w1 w2 R) (hgroups (hfuel T) w)) with
+  | Some pss =>
+      let ps := rev (List.concat pss) in
+      if Nat.leb (fold_right (fun d n => dp_size d + n) 0 ps) 200 then Some ps else None
+  | None => None
+  end.
+
+(** Normalise and show. *)
+Definition hshow (F : order) (ntm : nat) (e : aexp) : option (list dpiece) :=
+  if aok ntm e then let '(w, T) := HNorm.norm F e [] HNorm.st0 in hdisplay F T w else None.
+
 (** *** Terms before atoms
 
     The normaliser carries a term substituted before an atom past it: the
@@ -933,21 +1243,16 @@ Ltac names_rewrite_k a kt kn :=
       | (?e, ?env1) =>
           lazymatch collect_facts env1 (@nil (lexp * lexp)) with
           | ((?le, ?te, ?ae, ?pe), ?F) =>
-              let s := eval vm_compute in (obind (lnorm F (List.length te) e) (canon F (List.length te))) in
-              lazymatch s with
-              | Some ?w =>
-                  let d := eval vm_compute in (ldisplay F (List.length te) w) in
-                  lazymatch d with
-                  | Some ?ps =>
-                      let te' := restore_terms te a in
-                      let bb := fresh "b" in
-                      unshelve evar (bb : ty); [render_pieces le te' ae ps|];
-                      let b := eval cbv delta [bb] in bb in
-                      clear bb;
-                      tryif constr_eq a b then kt te'
-                      else (let E := fresh "E" in assert (E : a = b) by names_same; rewrite E; clear E; kt te')
-                  | None => kn
-                  end
+              let d := eval vm_compute in (hshow F (List.length te) e) in
+              lazymatch d with
+              | Some ?ps =>
+                  let te' := restore_terms te a in
+                  let bb := fresh "b" in
+                  unshelve evar (bb : ty); [render_pieces le te' ae ps|];
+                  let b := eval cbv delta [bb] in bb in
+                  clear bb;
+                  tryif constr_eq a b then kt te'
+                  else (let E := fresh "E" in assert (E : a = b) by names_same; rewrite E; clear E; kt te')
               | None => kn
               end
           end
