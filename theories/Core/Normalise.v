@@ -292,11 +292,18 @@ Definition order_of (l : list (lexp * lexp)) : order :=
   let tp := tab_of (bmap true (dups l)) (PositiveMap.elements dm) rows in
   mk_order l (tmem (PositiveMap.mapi (fun _ p => fst p) tp)) (tup (PositiveMap.mapi (fun _ p => snd p) tp)) (dfind dm).
 
-Definition lcmp (F : order) (a b : lexp) : option comparison :=
+Definition lcmp_spec (F : order) (a b : lexp) : option comparison :=
   if lexp_eqb a b then Some Eq
   else if lt_known F a b then Some Lt
   else if lt_known F b a then Some Gt
   else None.
+
+(** [lcmp_spec], with two concrete labels compared in one pass. *)
+Definition lcmp (F : order) (a b : lexp) : option comparison :=
+  match a, b with
+  | LCon s, LCon t => Some (lab_cmp s t)
+  | _, _ => lcmp_spec F a b
+  end.
 
 (** *** Facts about keys, bounds and rows *)
 
@@ -352,6 +359,15 @@ Proof. unfold lab_lt; rewrite lab_cmp_spec; destruct (is_less_than_label s t); [
 Lemma leb_lab_eq s t : leb_lab s t = if String.eqb s t then true else is_less_than_label s t.
 Proof.
   unfold leb_lab; rewrite lab_cmp_spec; destruct (String.eqb_spec s t) as [->|Ne].
+  - destruct (is_less_than_label t t) eqn:E; [exfalso; exact (label_lt_irrefl t E)|reflexivity].
+  - destruct (is_less_than_label s t) eqn:E1; [reflexivity|].
+    destruct (is_less_than_label t s) eqn:E2; [reflexivity|exfalso; exact (Ne (is_less_than_label_total _ _ E1 E2))].
+Qed.
+
+Lemma lcmp_eq F a b : lcmp F a b = lcmp_spec F a b.
+Proof.
+  destruct a as [|s|i], b as [|t|j]; try reflexivity; unfold lcmp, lcmp_spec, lt_known; cbn [lexp_eqb].
+  rewrite !lab_lt_eq, lab_cmp_spec; destruct (String.eqb_spec s t) as [->|Ne].
   - destruct (is_less_than_label t t) eqn:E; [exfalso; exact (label_lt_irrefl t E)|reflexivity].
   - destruct (is_less_than_label s t) eqn:E1; [reflexivity|].
     destruct (is_less_than_label t s) eqn:E2; [reflexivity|exfalso; exact (Ne (is_less_than_label_total _ _ E1 E2))].
@@ -752,7 +768,7 @@ Definition cmp_holds (c : comparison) (a b : lexp) : Prop :=
 
 Lemma lcmp_sound a b c : lcmp F a b = Some c -> cmp_holds c a b.
 Proof.
-  unfold lcmp; destruct (lexp_eqb a b) eqn:E.
+  rewrite lcmp_eq; unfold lcmp_spec; destruct (lexp_eqb a b) eqn:E.
   - intros H; injection H as <-; apply lexp_eqb_eq, E.
   - destruct (lt_known F a b) eqn:L1; [intros H; injection H as <-; apply lt_known_sound, L1|].
     destruct (lt_known F b a) eqn:L2; [intros H; injection H as <-; apply lt_known_sound, L2|discriminate].
@@ -2371,7 +2387,7 @@ Proof.
       (destruct (lins F h r) as [r'|] eqn:Er; [|discriminate]; intros H; injection H as <-; intros Hn;
        inversion Hn as [|x l Hx Hr]; subst; constructor; [|apply IH; [reflexivity|exact Hr]];
        intros Hi; apply (proj1 (proj1 (lins_spec _ _ _ Er) h')) in Hi as [Hi|Hi]; [subst h'|contradiction];
-       unfold lcmp in Ec; rewrite (proj2 (lexp_eqb_eq h h) eq_refl) in Ec; discriminate).
+       rewrite lcmp_eq in Ec; unfold lcmp_spec in Ec; rewrite (proj2 (lexp_eqb_eq h h) eq_refl) in Ec; discriminate).
 Qed.
 
 Lemma linss_nodup hs acc hs' : linss F hs acc = Some hs' -> NoDup acc -> NoDup hs'.
@@ -2386,7 +2402,7 @@ Definition lknown (hs : list lexp) : Prop := forall x y, In x hs -> In y hs -> e
 
 Lemma lcmp_known_sym x y c : lcmp F x y = Some c -> exists c', lcmp F y x = Some c'.
 Proof.
-  unfold lcmp; destruct (lexp_eqb x y) eqn:E1.
+  rewrite !lcmp_eq; unfold lcmp_spec; destruct (lexp_eqb x y) eqn:E1.
   - apply lexp_eqb_eq in E1; subst y; rewrite (proj2 (lexp_eqb_eq x x) eq_refl); eexists; reflexivity.
   - assert (E1' : lexp_eqb y x = false)
       by (destruct (lexp_eqb y x) eqn:E; [apply lexp_eqb_eq in E; subst y; rewrite (proj2 (lexp_eqb_eq x x) eq_refl) in E1; discriminate|reflexivity]).
@@ -2409,7 +2425,7 @@ Lemma lins_known h hs hs' : lins F h hs = Some hs' -> lknown hs -> lknown hs'.
 Proof.
   intros E Hk; destruct (lins_spec _ _ _ E) as [Hi _].
   assert (Hrefl : forall x, exists c, lcmp F x x = Some c)
-    by (intros x; unfold lcmp; rewrite (proj2 (lexp_eqb_eq x x) eq_refl); eexists; reflexivity).
+    by (intros x; rewrite lcmp_eq; unfold lcmp_spec; rewrite (proj2 (lexp_eqb_eq x x) eq_refl); eexists; reflexivity).
   assert (Hh : forall z, In z hs -> exists c, lcmp F h z = Some c).
   { destruct (lins_cmp _ _ _ E) as [H|H]; [exact H|intros z Hz; exact (Hk h z H Hz)]. }
   intros x y Hx Hy; apply Hi in Hx as [->|Hx]; apply Hi in Hy as [->|Hy].

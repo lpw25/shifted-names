@@ -637,7 +637,11 @@ which compares each character twice, and with `String.eqb` first in
 the same knowledge as atoms (the formerly concrete labels chained by
 facts) the work is identical, so what remained was the cost of each
 comparison: 4.6 µs for an atom and a concrete label before, 1.9 µs
-after, against 1.1 µs for two atoms. With unary
+after, against 1.1 µs for two atoms. `lcmp` compares two concrete
+labels with a single `lab_cmp` (0.85 µs rather than 2.7 µs; `lcmp_eq`
+relates it to the plain definition). The extracted library never orders
+labels: it only tests them for equality, which extracts to OCaml's
+string equality. With unary
 atoms and an L × L table of lists closed under transitivity, building the
 table took 330 s for about 400 labels and each comparison cost O(L).
 
