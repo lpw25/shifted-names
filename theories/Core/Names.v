@@ -67,6 +67,27 @@ Lemma share_intro_p {T N M K L} (A : adj T K L) (f : adj T K L -> adj T N M) (P 
   (forall r, adj_raw r = adj_raw A -> P (f r)) -> P (Indexed.share A f).
 Proof. intros H; rewrite share_eq; apply H; reflexivity. Qed.
 
+(** A rendering with shared definitions, as data: [nest] gives the
+    rendering, and [chain_intro] proves a property of it from one of its
+    root, the definitions as variables, with one step for each.  (The
+    proof [names] builds mentions each definition once.) *)
+Inductive chain {T : Type} {N M : nat} : Type :=
+| CRoot (b : adj T N M)
+| CShare {K L} (d : adj T K L) (k : adj T K L -> chain).
+Arguments chain T N M : clear implicits.
+
+Fixpoint nest {T N M} (c : chain T N M) : adj T N M :=
+  match c with CRoot b => b | CShare d k => Indexed.share d (fun r => nest (k r)) end.
+
+Fixpoint chain_all {T N M} (P : adj T N M -> Prop) (c : chain T N M) : Prop :=
+  match c with CRoot b => P b | CShare d k => forall r, adj_raw r = adj_raw d -> chain_all P (k r) end.
+
+Lemma chain_intro {T N M} (P : adj T N M -> Prop) (c : chain T N M) : chain_all P c -> P (nest c).
+Proof.
+  induction c as [b|K L d k IH]; cbn [chain_all nest]; [exact (fun H => H)|].
+  intros H; rewrite share_eq; apply IH, H; reflexivity.
+Qed.
+
 (** A use of a shared definition, as the reifier marks it: [A] itself,
     with the atom [k] that stands for it. *)
 Definition sref {T K L} (A : adj T K L) (k : nat) : adj T K L := A.
@@ -77,9 +98,11 @@ Proof. constructor. Qed.
 Lemma lfacts_cons le x y l : olabel_lt (lden le x) (lden le y) -> lfacts_ok le l -> lfacts_ok le ((x, y) :: l).
 Proof. intros H Hl; constructor; assumption. Qed.
 
-Lemma nth_hk {A} (l : list A) u k (f : A -> A) ut :
-  nth_error l u = Some ut -> nth_error l k = Some (f ut) -> forall y, nth_error l u = Some y -> nth_error l k = Some (f y).
-Proof. intros H1 H2 y Hy; rewrite H1 in Hy; injection Hy as <-; exact H2. Qed.
+(** The term [k] is the term [u] with the payload [b] materialised. *)
+Lemma mat_k {T} {inst : SubstMat T} (l : list T) u k ut (b : adj T 0 0) (d : radj T) :
+  nth_error l u = Some ut -> nth_error l k = Some (sm_back (sm_subst b (sm_of ut))) -> adj_raw b = d ->
+  forall y, nth_error l u = Some y -> nth_error l k = Some (sm_g (rpcompose d rpidentity) y).
+Proof. intros H1 H2 <- y Hy; rewrite H1 in Hy; injection Hy as <-; rewrite H2, sm_g_spec; reflexivity. Qed.
 
 (** ** Ltac2 *)
 
@@ -408,34 +431,8 @@ Ltac2 rec of_list (l : constr) : constr list :=
   | cons ?x ?r => x :: of_list r
   end.
 
-(** ** Rendering
-
-    A shown normal form, shared definitions and an expression, as
-    [share]s and context forms, solving the goal [adj T N M]:
-    - a run of entries as a short form over its tail, lifts first:
-      [x := u], [x := u⟨| r ⟩], [x as w], [x as w⟨| r ⟩];
-    - [x ↦ g₀] over a pop of [g] as [⟦ x | Γ \ g | Γ[σ] ⟧] (a lift when
-      [x = g]);
-    - pops alone as outputs [⟦ \ y as _ ⟧];
-    - composition as [⨾], atoms as written, shared definitions as the
-      variables [share] binds. *)
-
-(** The rendering is done in a goal whose context holds only what the
-    types need, with labels, terms and atoms as the placeholders
-    [phl n], [pht n] and [pha A B n] (an atom of type [adj T A B]), so
-    that its cost does not grow with the context; the placeholders are
-    then replaced.  Shared definitions are rendered separately, their uses
-    as placeholders too, and bound by [share] at the end. *)
-Ltac2 Type rst := { phl : constr; pht : constr; pha : constr; atys : (constr * constr) array; rnb : int;
-                    mutable shtys : (int, constr * constr) FMap.t }.
-
-Ltac2 refine_c (c : unit -> constr) : unit := Control.refine c; Control.shelve_unifiable ().
-
-Ltac2 intro_as (id : ident) : unit := Std.intros false [Std.IntroNaming (Std.IntroIdentifier id)].
-
-Ltac2 fresh (base : ident) : ident := Fresh.in_goal base.
-
-Ltac2 last_hyp () : ident := let (id, _, _) := List.last (Control.hyps ()) in id.
+Ltac2 adj_idx (ty : constr) : constr * constr :=
+  lazy_match! ty with adj _ ?a ?b => (a, b) end.
 
 Ltac2 lab_env (labs : constr array) (h : constr) : constr :=
   lazy_match! h with
@@ -443,229 +440,519 @@ Ltac2 lab_env (labs : constr array) (h : constr) : constr :=
   | LAtom ?n => Array.get labs (int_of_n n)
   end.
 
-Ltac2 lab (r : rst) (h : constr) : constr :=
-  lazy_match! h with
-  | LCon ?s => s
-  | LAtom ?n => app (r.(phl)) [n]
-  end.
-
 Ltac2 is_lnone (h : constr) : bool := lazy_match! h with LNone => true | _ => false end.
 
-Ltac2 rvar (r : rst) (g : constr) (j : constr) : unit :=
-  if is_lnone g then
-    lazy_match! goal with [ |- var ?m ] => refine_c (fun () => '(@bvar $m $j stt)) end
-  else let gl := lab r g in refine_c (fun () => '(fvar $gl $j)).
+Ltac2 refine_c (c : unit -> constr) : unit := Control.refine c; Control.shelve_unifiable ().
 
-Ltac2 rec collect_short (e : constr) (lifts : bool) (acc : (constr * constr option) list) :=
-  lazy_match! e with
-  | AInner ?x (TVarE ?g 0) (AOuter ?g' ?b) =>
-      if Bool.and (Constr.equal g g') (Constr.equal x g) then
-        if lifts then collect_short b true ((x, None) :: acc) else (acc, e)
-      else if Constr.equal g g' then (acc, e)
-      else collect_short b false ((x, Some '(TVarE $g 0)) :: acc)
-  | AInner ?x ?t ?b => collect_short b false ((x, Some t) :: acc)
-  | _ => (acc, e)
+Ltac2 intro_as (id : ident) : unit := Std.intros false [Std.IntroNaming (Std.IntroIdentifier id)].
+
+Ltac2 fresh (base : ident) : ident := Fresh.in_goal base.
+
+(** ** Rendering
+
+    A shown normal form, shared definitions and expressions, is built as
+    a term directly:
+    - a run of entries as a short form over its tail, lifts first:
+      [x := u], [x := u⟨| r ⟩], [x as w], [x as w⟨| r ⟩];
+    - [x ↦ g₀] over a pop of [g] as [⟦ x | Γ \ g | Γ[σ] ⟧] (a lift when
+      [x = g]);
+    - pops alone as outputs [⟦ \ y as _ ⟧];
+    - composition as [⨾], atoms as written, shared definitions as the
+      variables [share] binds.
+
+    The scope indices the constructors take are found first: each is a
+    variable plus an offset, and the variables are unified, with the
+    atoms' types and the type of the whole fixing their values, as a
+    [nat] term with [S]s on it.  The terms are then built: a builder
+    takes where the shared definitions are bound (the de Bruijn index of
+    each, at the builder's root) and how many binders it is under. *)
+
+Ltac2 Type rec ix := { iid : int; mutable up : (ix * int) option; mutable cst : (constr * int) option; mutable lo : int }.
+
+Ltac2 rec ix_find (x : ix) : ix * int :=
+  match x.(up) with
+  | None => (x, 0)
+  | Some p =>
+      let (p, k) := p in
+      let (r, k2) := ix_find p in
+      let o := Int.add k k2 in
+      x.(up) := Some (r, o); (r, o)
   end.
 
-Ltac2 rec collect_outs (e : constr) (acc : constr list) :=
-  lazy_match! e with
-  | AOuter ?y ?b => collect_outs b (y :: acc)
-  | _ => (acc, e)
-  end.
+Ltac2 scope_err () := Control.zero (Tactic_failure (Some (Message.of_string "names: no scopes for the rendering"))).
 
-Ltac2 rec render_onames (r : rst) (ys : constr list) (fin : unit -> unit) : unit :=
-  match ys with
-  | [] => fin ()
-  | y :: ys =>
-      (if is_lnone y then refine_c (fun () => '(ONamB (fun a => _)))
-       else let yl := lab r y in refine_c (fun () => '(ONamF $yl (fun a => _))));
-      render_onames r ys fin
-  end.
+(** The value of [a] is that of [b] plus [k]. *)
+Ltac2 ix_eq (a : ix) (b : ix) (k : int) : unit :=
+  let (ra, oa) := ix_find a in
+  let (rb, ob) := ix_find b in
+  let d := Int.sub (Int.add ob k) oa in
+  if Int.equal (ra.(iid)) (rb.(iid)) then (if Int.equal d 0 then () else scope_err ())
+  else
+    (ra.(up) := Some (rb, d);
+     let l := Int.add (ra.(lo)) d in
+     (if Int.lt l (rb.(lo)) then rb.(lo) := l else ());
+     match ra.(cst) with
+     | Some c =>
+         let (bs, v) := c in
+         match rb.(cst) with
+         | None => rb.(cst) := Some (bs, Int.sub v d)
+         | Some c' => let (bs', v') := c' in
+                      if Bool.and (Constr.equal bs bs') (Bool.neg (Int.equal v' (Int.sub v d))) then scope_err () else ()
+         end
+     | None => ()
+     end).
 
-Ltac2 rec render_a (r : rst) (e : constr) : unit :=
-  lazy_match! e with
-  | AId => refine_c (fun () => '(identity))
-  | AAtom ?m =>
-      let i := int_of_idx m in
-      let (ka, kb) :=
-        if Int.lt i (r.(rnb)) then Array.get (r.(atys)) i
-        else match FMap.find_opt (Int.sub i (r.(rnb))) (r.(shtys)) with
-             | Some t => t
-             | None => Control.zero Not_found
-             end in
-      refine_c (fun () => app (r.(pha)) [ka; kb; n_lit i])
-  | ACompose ?x ?y => refine_c (fun () => '(compose _ _)); Control.dispatch [(fun () => render_a r x); (fun () => render_a r y)]
-  | AInner ?x (TVarE ?g 0) (AOuter ?g' ?b) =>
-      if Bool.and (Constr.equal g g') (Bool.neg (Constr.equal x g)) then render_ren r x g b
-      else render_short r e
-  | AInner _ _ _ => render_short r e
-  | AOuter _ _ =>
-      let (ys, tl) := collect_outs e [] in
-      lazy_match! tl with
-      | AId => refine_c (fun () => '(cform_id _)); render_onames r ys (fun () => refine_c (fun () => '(OEnd IEmpty)))
-      | _ =>
-          refine_c (fun () => '(cform (fun G => _) _));
-          Control.dispatch
-            [(fun () => let g := Control.hyp (last_hyp ()) in
-                        render_onames r ys (fun () => refine_c (fun () => '(OEndT $g IEmpty))));
-             (fun () => render_a r tl)]
-      end
-  end
-with render_short (r : rst) (e : constr) : unit :=
-  let (acc, tl) := collect_short e true [] in
-  lazy_match! tl with
-  | AId => refine_c (fun () => '(cform_id (OShort _))); render_entries r acc
-  | _ =>
-      refine_c (fun () => '(cform_id (OShortT (Nt:=0) (STail _ _))));
-      Control.dispatch [(fun () => render_entries r acc); (fun () => render_a r tl)]
-  end
-with render_entries (r : rst) (acc : (constr * constr option) list) : unit :=
-  match acc with
-  | [] => refine_c (fun () => '(SEmpty))
-  | (x, t) :: rest =>
-      let k := fun () => render_entries r rest in
-      let b := is_lnone x in
-      match t with
-      | None =>
-          if b then (refine_c (fun () => '(SLiftB _)); k ())
-          else let xl := lab r x in refine_c (fun () => '(SLiftF _ $xl)); k ()
-      | Some t =>
-          lazy_match! t with
-          | TVarE ?g ?j =>
-              (if b then refine_c (fun () => '(SRenB _ _))
-               else let xl := lab r x in refine_c (fun () => '(SRenF _ $xl _)));
-              Control.dispatch [k; (fun () => rvar r g j)]
-          | TBindE ?u (PComp AId PId) =>
-              let ut := app (r.(pht)) [n_lit (int_of_idx u)] in
-              (if b then refine_c (fun () => '(SSubB _ $ut PEmpty))
-               else let xl := lab r x in refine_c (fun () => '(SSubF _ $xl $ut PEmpty)));
-              k ()
-          | TBindE ?u (PComp ?rr PId) =>
-              let ut := app (r.(pht)) [n_lit (int_of_idx u)] in
-              (if b then refine_c (fun () => '(SSubBA _ $ut _))
-               else let xl := lab r x in refine_c (fun () => '(SSubFA _ $xl $ut _)));
-              Control.dispatch [k; (fun () => render_a r rr)]
-          | TLookE ?g ?j ?rr =>
-              (if b then refine_c (fun () => '(SLookB _ _ _))
-               else let xl := lab r x in refine_c (fun () => '(SLookF _ $xl _ _)));
-              Control.dispatch [k; (fun () => ()); (fun () => render_a r rr)];
-              Control.enter (fun () => rvar r g j)
-          end
-      end
-  end
-with render_ren (r : rst) (x : constr) (g : constr) (b : constr) : unit :=
-  let pos () :=
-    if is_lnone g then refine_c (fun () => '(OPosB _))
-    else let gl := lab r g in refine_c (fun () => '(OPosF _ $gl)) in
-  let inp () :=
-    if is_lnone x then refine_c (fun () => '(IPosB IEmpty))
-    else let xl := lab r x in refine_c (fun () => '(IPosF IEmpty $xl)) in
-  lazy_match! b with
-  | AId => refine_c (fun () => '(cform_id _)); pos (); refine_c (fun () => '(OEnd _)); inp ()
-  | _ =>
-      refine_c (fun () => '(cform (fun G => _) _));
-      Control.dispatch
-        [(fun () => let gv := Control.hyp (last_hyp ()) in
-                    pos (); refine_c (fun () => '(OEndT $gv _)); inp ());
-         (fun () => render_a r b)]
-  end.
+(** The constructors, looked up once. *)
+Ltac2 Type kc := {
+  kO : constr; kS : constr; kAId : constr; kAAtom : constr; kACompose : constr; kAOuter : constr; kAInner : constr;
+  kTVarE : constr; kTBindE : constr; kTLookE : constr; kPComp : constr; kPId : constr; kLNone : constr; kLCon : constr;
+  kidentity : constr; kcompose : constr; kcform : constr; kcform_id : constr; kshare : constr; kadj : constr;
+  kONamF : constr; kONamB : constr; kOEnd : constr; kOEndT : constr; kOPosF : constr; kOPosB : constr;
+  kOShort : constr; kOShortT : constr; kIEmpty : constr; kIPosF : constr; kIPosB : constr; kSTail : constr;
+  kSEmpty : constr; kSLiftF : constr; kSLiftB : constr; kSSubF : constr; kSSubB : constr; kSRenF : constr;
+  kSRenB : constr; kSSubFA : constr; kSSubBA : constr; kSLookF : constr; kSLookB : constr; kPEmpty : constr;
+  kbvar : constr; kfvar : constr; kstt : constr; kslot : constr; ktname : constr; kSome : constr; kNone : constr }.
 
-Ltac2 rec fv (c : constr) (acc : ident FSet.t) : ident FSet.t :=
-  match Constr.Unsafe.kind c with
-  | Constr.Unsafe.Var id => FSet.add id acc
-  | _ => let r := { contents := acc } in Constr.Unsafe.iter (fun x => r.(contents) := fv x (r.(contents))) c; r.(contents)
-  end.
+Ltac2 mk_kc () : kc := {
+  kO := constr:(O); kS := constr:(S); kAId := constr:(AId); kAAtom := constr:(AAtom); kACompose := constr:(ACompose);
+  kAOuter := constr:(AOuter); kAInner := constr:(AInner); kTVarE := constr:(TVarE); kTBindE := constr:(TBindE);
+  kTLookE := constr:(TLookE); kPComp := constr:(PComp); kPId := constr:(PId); kLNone := constr:(LNone); kLCon := constr:(LCon);
+  kidentity := constr:(@identity); kcompose := constr:(@compose); kcform := constr:(@cform); kcform_id := constr:(@cform_id);
+  kshare := constr:(@Indexed.share); kadj := constr:(@adj);
+  kONamF := constr:(@ONamF); kONamB := constr:(@ONamB); kOEnd := constr:(@OEnd); kOEndT := constr:(@OEndT);
+  kOPosF := constr:(@OPosF); kOPosB := constr:(@OPosB); kOShort := constr:(@OShort); kOShortT := constr:(@OShortT);
+  kIEmpty := constr:(@IEmpty); kIPosF := constr:(@IPosF); kIPosB := constr:(@IPosB); kSTail := constr:(@STail);
+  kSEmpty := constr:(@SEmpty); kSLiftF := constr:(@SLiftF); kSLiftB := constr:(@SLiftB); kSSubF := constr:(@SSubF);
+  kSSubB := constr:(@SSubB); kSRenF := constr:(@SRenF); kSRenB := constr:(@SRenB); kSSubFA := constr:(@SSubFA);
+  kSSubBA := constr:(@SSubBA); kSLookF := constr:(@SLookF); kSLookB := constr:(@SLookB); kPEmpty := constr:(@PEmpty);
+  kbvar := constr:(@bvar); kfvar := constr:(@fvar); kstt := constr:(stt); kslot := constr:(slot); ktname := constr:(tname);
+  kSome := constr:(@Some tname); kNone := constr:(@None tname) }.
 
-(** The hypotheses [c] needs, with those their types need. *)
-Ltac2 needed (cs : constr list) : ident FSet.t :=
-  let hyps := Control.hyps () in
-  let s := List.fold_left (fun acc c => fv c acc) (FSet.empty FSet.Tags.ident_tag) cs in
-  List.fold_right
-    (fun (id, body, ty) acc =>
-       if FSet.mem id acc then
-         let acc := fv ty acc in
-         match body with Some b => fv b acc | None => acc end
-       else acc)
-    hyps s.
+(** The universe constraints the constructors' applications to [t]
+    need, which building terms directly does not add. *)
+Ltac2 univs (t : constr) : unit :=
+  let _ := '(@identity $t) in let _ := '(@compose $t) in let _ := '(@cform $t) in let _ := '(@cform_id $t) in
+  let _ := '(@Indexed.share $t) in let _ := '(@adj $t) in let _ := '(@ONamF $t) in let _ := '(@ONamB $t) in
+  let _ := '(@OEnd $t) in let _ := '(@OEndT $t) in let _ := '(@OPosF $t) in let _ := '(@OPosB $t) in
+  let _ := '(@OShort $t) in let _ := '(@OShortT $t) in let _ := '(@IEmpty $t) in let _ := '(@IPosF $t) in
+  let _ := '(@IPosB $t) in let _ := '(@STail $t) in let _ := '(@SEmpty $t) in let _ := '(@SLiftF $t) in
+  let _ := '(@SLiftB $t) in let _ := '(@SSubF $t) in let _ := '(@SSubB $t) in let _ := '(@SRenF $t) in
+  let _ := '(@SRenB $t) in let _ := '(@SSubFA $t) in let _ := '(@SSubBA $t) in let _ := '(@SLookF $t) in
+  let _ := '(@SLookB $t) in let _ := '(@PEmpty $t) in let _ := '(@share_intro_p $t) in let _ := '(@adj_raw $t) in
+  let _ := '(@Adjustment.radj $t) in let _ := '(@adj_eq $t) in let _ := '(@apply_var_bind $t) in
+  let _ := '(@CRoot $t) in let _ := '(@CShare $t) in let _ := '(@chain_intro $t) in
+  ().
 
-(** The placeholders (bound by the outermost three binders, stripped) as
-    what they stand for; a shared definition [j] (an atom from [nb]) as
-    the [j]th binder from the top. *)
-Ltac2 rec subst_ph (labs : constr array) (terms : constr array) (atoms : constr array) (nb : int) (d : int) (c : constr) : constr :=
-  let rec_ () := Constr.Unsafe.map_with_binders (fun d _ => Int.add d 1) (subst_ph labs terms atoms nb) d c in
+(** A builder: given the index of each shared definition at its root and
+    the binders it is under, a term. *)
+Ltac2 Type rnd := {
+  rk : kc; rt : constr; rns : nats; mutable rctr : int; rlabs : constr array;
+  mutable rterm : int -> (int -> int) -> int -> constr;
+  mutable ratoms : (constr * (ix * int) * (ix * int)) array; rnb : int;
+  rpos : (int, int) FMap.t; mutable rshty : ((ix * int) * (ix * int)) array }.
+
+Ltac2 new_ix (r : rnd) : ix * int :=
+  let i := r.(rctr) in
+  r.(rctr) := Int.add i 1;
+  ({ iid := i; up := None; cst := None; lo := 0 }, 0).
+
+Ltac2 rec nat_parse (k : kc) (c : constr) : constr * int :=
   match Constr.Unsafe.kind c with
   | Constr.Unsafe.App f args =>
-      match Constr.Unsafe.kind f with
-      | Constr.Unsafe.Rel i =>
-          if Int.equal i (Int.add d 3) then Array.get labs (int_of_n (Array.get args 0))
-          else if Int.equal i (Int.add d 2) then Array.get terms (int_of_n (Array.get args 0))
-          else if Int.equal i (Int.add d 1) then
-            let j := int_of_n (Array.get args 2) in
-            if Int.lt j nb then Array.get atoms j
-            else Constr.Unsafe.make (Constr.Unsafe.Rel (Int.sub d (Int.sub j nb)))
-          else rec_ ()
-      | _ => rec_ ()
-      end
-  | _ => rec_ ()
+      if Constr.equal f (k.(kS)) then let (b, n) := nat_parse k (Array.get args 0) in (b, Int.add n 1) else (c, 0)
+  | _ => (c, 0)
   end.
 
-Ltac2 strip_lam (n : int) (c : constr) : constr :=
-  let rec go n c :=
-    if Int.equal n 0 then c else
-    match Constr.Unsafe.kind c with
-    | Constr.Unsafe.Lambda _ b => go (Int.sub n 1) b
-    | Constr.Unsafe.Cast c _ _ => go n c
-    | _ => Control.zero (Tactic_failure (Some (Message.concat (Message.of_string "strip_lam: ") (Message.of_constr c))))
+Ltac2 const_ix (r : rnd) (c : constr) : ix * int :=
+  let (x, _) := new_ix r in x.(cst) := Some (nat_parse (r.(rk)) c); (x, 0).
+
+Ltac2 ie_eq (a : ix * int) (b : ix * int) : unit :=
+  let (x, ka) := a in let (y, kb) := b in ix_eq x y (Int.sub kb ka).
+
+Ltac2 ie_add (a : ix * int) (k : int) : ix * int := let (x, o) := a in (x, Int.add o k).
+
+Ltac2 rec add_s (r : rnd) (b : constr) (n : int) : constr :=
+  let k := r.(rk) in
+  if Constr.equal b (k.(kO)) then (if Int.lt n 0 then scope_err () else nat_lit (r.(rns)) n)
+  else if Int.equal n 0 then b
+  else if Int.lt n 0 then
+    match Constr.Unsafe.kind b with
+    | Constr.Unsafe.App f args => if Constr.equal f (k.(kS)) then add_s r (Array.get args 0) (Int.add n 1) else scope_err ()
+    | _ => scope_err ()
+    end
+  else app (k.(kS)) [add_s r b (Int.sub n 1)].
+
+(** The value of an index, once all are unified; one no type fixes is
+    made as small as it can be. *)
+Ltac2 ie_nat (r : rnd) (a : ix * int) : constr :=
+  let (x, n) := a in
+  let (rx, o) := ix_find x in
+  match rx.(cst) with
+  | Some c => let (b, v) := c in add_s r b (Int.add v (Int.add o n))
+  | None => add_s r (r.(rk).(kO)) (Int.sub (Int.add o n) (rx.(lo)))
+  end.
+
+Ltac2 hd_args (c : constr) : constr * constr array :=
+  match Constr.Unsafe.kind c with
+  | Constr.Unsafe.App f args => (f, args)
+  | _ => (c, Array.make 0 c)
+  end.
+
+Ltac2 rel (i : int) : constr := Constr.Unsafe.make (Constr.Unsafe.Rel i).
+
+Ltac2 lam (id : ident) (ty : constr) (b : constr) : constr :=
+  Constr.Unsafe.make (Constr.Unsafe.Lambda (Constr.Binder.unsafe_make (Some id) Constr.Binder.Relevant ty) b).
+
+Ltac2 is_lnone' (r : rnd) (h : constr) : bool := Constr.equal h (r.(rk).(kLNone)).
+
+Ltac2 rlab (r : rnd) (h : constr) : constr :=
+  let (f, a) := hd_args h in
+  if Constr.equal f (r.(rk).(kLCon)) then Array.get a 0 else Array.get (r.(rlabs)) (int_of_n (Array.get a 0)).
+
+(** The variable [gⱼ] in scope [m]. *)
+Ltac2 rvar (r : rnd) (g : constr) (j : constr) (m : constr) : constr :=
+  let k := r.(rk) in
+  let jn := nat_lit (r.(rns)) (int_of_idx j) in
+  if is_lnone' r g then app (k.(kbvar)) [m; jn; k.(kstt)] else app (k.(kfvar)) [m; rlab r g; jn].
+
+(** [x ↦ g₀] over a pop of [g], [x] not [g]: [(x, g, b)], [b] under the pop. *)
+Ltac2 is_ren (r : rnd) (a : constr array) : (constr * constr * constr) option :=
+  let k := r.(rk) in
+  let x := Array.get a 0 in
+  let (th, ta) := hd_args (Array.get a 1) in
+  let (bh, ba) := hd_args (Array.get a 2) in
+  if Constr.equal th (k.(kTVarE)) then
+    if Constr.equal bh (k.(kAOuter)) then
+      let g := Array.get ta 0 in
+      if Constr.equal (Array.get ta 1) (k.(kO)) then
+        if Constr.equal g (Array.get ba 0) then
+          if Constr.equal x g then None else Some (x, g, Array.get ba 1)
+        else None
+      else None
+    else None
+  else None.
+
+(** The entries of a short form, outermost first ([None] for a lift),
+    and its tail. *)
+Ltac2 rec collect_short (r : rnd) (e : constr) (lifts : bool) (acc : (constr * constr option) list) :=
+  let k := r.(rk) in
+  let (h, a) := hd_args e in
+  if Constr.equal h (k.(kAInner)) then
+    let x := Array.get a 0 in
+    let t := Array.get a 1 in
+    let b := Array.get a 2 in
+    let (th, ta) := hd_args t in
+    let (bh, ba) := hd_args b in
+    let pop :=
+      if Constr.equal th (k.(kTVarE)) then
+        if Constr.equal bh (k.(kAOuter)) then
+          if Constr.equal (Array.get ta 1) (k.(kO)) then Constr.equal (Array.get ta 0) (Array.get ba 0) else false
+        else false
+      else false in
+    if pop then
+      if Bool.and lifts (Constr.equal x (Array.get ta 0)) then collect_short r (Array.get ba 1) true ((x, None) :: acc)
+      else (acc, e)
+    else collect_short r b false ((x, Some t) :: acc)
+  else (acc, e).
+
+Ltac2 rec render_a (r : rnd) (e : constr) : (ix * int) * (ix * int) * ((int -> int) -> int -> constr) :=
+  let k := r.(rk) in
+  let t := r.(rt) in
+  let (h, a) := hd_args e in
+  if Constr.equal h (k.(kAId)) then
+    let n := new_ix r in (n, n, (fun _ _ => app (k.(kidentity)) [t; ie_nat r n]))
+  else if Constr.equal h (k.(kAAtom)) then
+    let i := int_of_idx (Array.get a 0) in
+    if Int.lt i (r.(rnb)) then
+      let (s, an, am) := Array.get (r.(ratoms)) i in (an, am, (fun _ _ => s))
+    else
+      let p := match FMap.find_opt i (r.(rpos)) with Some p => p | None => Control.zero Not_found end in
+      let (sn, sm) := Array.get (r.(rshty)) p in
+      (sn, sm, (fun sb d => rel (Int.add (sb p) d)))
+  else if Constr.equal h (k.(kACompose)) then
+    let (nx, mx, bx) := render_a r (Array.get a 0) in
+    let (ny, my, byy) := render_a r (Array.get a 1) in
+    ie_eq my nx;
+    (ny, mx, (fun sb d => app (k.(kcompose)) [t; ie_nat r ny; ie_nat r nx; ie_nat r mx; bx sb d; byy sb d]))
+  else if Constr.equal h (k.(kAOuter)) then render_outs r e
+  else if Constr.equal h (k.(kAInner)) then
+    match is_ren r a with
+    | Some xgb => let (x, g, b) := xgb in render_ren r x g b
+    | None => render_short r e
+    end
+  else Control.zero Not_found
+with render_outs (r : rnd) (e : constr) :=
+  let k := r.(rk) in
+  let t := r.(rt) in
+  let rec coll e acc :=
+    let (h, a) := hd_args e in
+    if Constr.equal h (k.(kAOuter)) then coll (Array.get a 1) (Array.get a 0 :: acc) else (acc, e) in
+  let (ys, tl) := coll e [] in
+  let kn := List.length ys in
+  let nbd := List.length (List.filter (is_lnone' r) ys) in
+  let kk := nat_lit (r.(rns)) kn in
+  let z := k.(kO) in
+  let sl := app (k.(kslot)) [kk] in
+  (* the output names from level [lvl] on, [j] bound ones before *)
+  let rec chain ys lvl j jb bt fin nNt nN nM :=
+    match ys with
+    | [] => fin
+    | y :: ys' =>
+        let isb := is_lnone' r y in
+        let inner := chain ys' (Int.add lvl 1) (if isb then Int.add j 1 else j) jb bt fin nNt nN nM in
+        let jc := ie_nat r (ie_add jb j) in
+        let nc := nat_lit (r.(rns)) (Int.sub (Int.sub kn lvl) 1) in
+        if isb then app (k.(kONamB)) [t; kk; nNt; nN; nM; z; z; jc; nc; bt lvl; lam @a sl inner]
+        else app (k.(kONamF)) [t; kk; nNt; nN; nM; z; z; jc; nc; bt lvl; rlab r y; lam @a sl inner]
     end in
-  go n c.
+  let (th, _) := hd_args tl in
+  if Constr.equal th (k.(kAId)) then
+    let n := new_ix r in
+    let m := ie_add n nbd in
+    (n, m, (fun _ _ =>
+       let nN := ie_nat r n in
+       let nM := ie_nat r m in
+       let fin := app (k.(kOEnd)) [t; kk; nN; nN; nM; z; app (k.(kIEmpty)) [t; kk; nM; nN]] in
+       let o := chain ys 0 0 n (fun _ => k.(kNone)) fin nN nN nM in
+       app (k.(kcform_id)) [t; kk; nN; nN; nM; z; o]))
+  else
+    let (ns, ms, bs) := render_a r tl in
+    let m := ie_add ms nbd in
+    (ns, m, (fun sb d =>
+       let nN := ie_nat r ns in
+       let nMt := ie_nat r ms in
+       let nM := ie_nat r m in
+       let fin := app (k.(kOEndT)) [t; kk; nN; nN; nM; z; rel (Int.add kn 1); app (k.(kIEmpty)) [t; kk; nM; nN]] in
+       let o := chain ys 0 0 ms (fun lvl => app (k.(kSome)) [rel (Int.add lvl 1)]) fin nN nN nM in
+       app (k.(kcform)) [t; kk; nN; nMt; nN; nM; z; lam @G (k.(ktname)) o; bs sb d]))
+with render_ren (r : rnd) (x : constr) (g : constr) (b : constr) :=
+  let k := r.(rk) in
+  let t := r.(rt) in
+  let xb := is_lnone' r x in
+  let gb := is_lnone' r g in
+  let one := nat_lit (r.(rns)) 1 in
+  let z := k.(kO) in
+  let inp nM nNt nN :=
+    let i0 := app (k.(kIEmpty)) [t; one; nM; nN] in
+    if xb then app (k.(kIPosB)) [t; one; nM; nNt; nN; z; i0]
+    else app (k.(kIPosF)) [t; one; nM; nNt; nN; z; i0; rlab r x] in
+  let pos fin nNt nN nM j bo :=
+    if gb then app (k.(kOPosB)) [t; one; nNt; nN; nM; one; z; j; z; bo; fin]
+    else app (k.(kOPosF)) [t; one; nNt; nN; nM; one; z; j; z; bo; fin; rlab r g] in
+  let (bh, _) := hd_args b in
+  if Constr.equal bh (k.(kAId)) then
+    let nt := new_ix r in
+    let n := ie_add nt (if xb then 1 else 0) in
+    let m := ie_add nt (if gb then 1 else 0) in
+    (n, m, (fun _ _ =>
+       let (nNt, nN, nM) := (ie_nat r nt, ie_nat r n, ie_nat r m) in
+       let fin := app (k.(kOEnd)) [t; one; nNt; nN; nM; one; inp nM nNt nN] in
+       app (k.(kcform_id)) [t; one; nNt; nN; nM; one; pos fin nNt nN nM nNt (k.(kNone))]))
+  else
+    let (ns, ms, bs) := render_a r b in
+    let n := ie_add ns (if xb then 1 else 0) in
+    let m := ie_add ms (if gb then 1 else 0) in
+    (n, m, (fun sb d =>
+       let (nNt, nMt, nN, nM) := (ie_nat r ns, ie_nat r ms, ie_nat r n, ie_nat r m) in
+       let fin := app (k.(kOEndT)) [t; one; nNt; nN; nM; one; rel 1; inp nM nNt nN] in
+       let o := pos fin nNt nN nM nMt (app (k.(kSome)) [rel 1]) in
+       app (k.(kcform)) [t; one; nNt; nMt; nN; nM; one; lam @G (k.(ktname)) o; bs sb d]))
+with render_short (r : rnd) (e : constr) :=
+  let k := r.(rk) in
+  let t := r.(rt) in
+  let z := k.(kO) in
+  let (acc, tl) := collect_short r e true [] in
+  let be := List.length (List.filter (fun (x, _) => is_lnone' r x) acc) in
+  let bl := List.length (List.filter (fun (x, o) => Bool.and (is_lnone' r x) (match o with None => true | Some _ => false end)) acc) in
+  let (th, _) := hd_args tl in
+  let notail := Constr.equal th (k.(kAId)) in
+  let (nb0, mb0, bs) :=
+    if notail then let nt := new_ix r in (nt, nt, (fun _ _ => z)) else render_a r tl in
+  let n := ie_add nb0 be in
+  let m := ie_add mb0 bl in
+  (* the entries from [l] on, [cb] bound ones and [cl] bound lifts before *)
+  let rec ents l cb cl : (int -> int) -> int -> constr :=
+    match l with
+    | [] => (fun _ _ => app (k.(kSEmpty)) [t; ie_nat r n; ie_nat r m])
+    | xo :: l' =>
+        let (x, o) := xo in
+        let xb := is_lnone' r x in
+        let nbi := ie_add nb0 cb in
+        let mbi := ie_add mb0 cl in
+        let cb' := if xb then Int.add cb 1 else cb in
+        let hd sb d := [t; ie_nat r nbi; ie_nat r mbi; ie_nat r n; ie_nat r m] in
+        match o with
+        | None =>
+            let inner := ents l' cb' (if xb then Int.add cl 1 else cl) in
+            (fun sb d =>
+               let s := inner sb d in
+               if xb then app (k.(kSLiftB)) (List.append (hd sb d) [s])
+               else app (k.(kSLiftF)) (List.append (hd sb d) [s; rlab r x]))
+        | Some tm =>
+            let inner := ents l' cb' cl in
+            let (th, ta) := hd_args tm in
+            if Constr.equal th (k.(kTVarE)) then
+              (fun sb d =>
+                 let s := inner sb d in
+                 let w := rvar r (Array.get ta 0) (Array.get ta 1) (ie_nat r mbi) in
+                 if xb then app (k.(kSRenB)) (List.append (hd sb d) [s; w])
+                 else app (k.(kSRenF)) (List.append (hd sb d) [s; rlab r x; w]))
+            else if Constr.equal th (k.(kTBindE)) then
+              let u := int_of_idx (Array.get ta 0) in
+              let (ph, pa) := hd_args (Array.get ta 1) in
+              (if Constr.equal ph (k.(kPComp)) then (if Constr.equal (Array.get pa 1) (k.(kPId)) then () else Control.zero Not_found)
+               else Control.zero Not_found);
+              let rr := Array.get pa 0 in
+              let (rh, _) := hd_args rr in
+              if Constr.equal rh (k.(kAId)) then
+                (fun sb d =>
+                   let s := inner sb d in
+                   let uc := r.(rterm) u sb d in
+                   let q := app (k.(kPEmpty)) [t; z] in
+                   if xb then app (k.(kSSubB)) (List.append (hd sb d) [s; uc; q])
+                   else app (k.(kSSubF)) (List.append (hd sb d) [s; rlab r x; uc; q]))
+              else
+                let (nr, mr, br) := render_a r rr in
+                ie_eq mr mbi;
+                (fun sb d =>
+                   let s := inner sb d in
+                   let uc := r.(rterm) u sb d in
+                   let hk := List.append (hd sb d) [ie_nat r nr] in
+                   if xb then app (k.(kSSubBA)) (List.append hk [s; uc; br sb d])
+                   else app (k.(kSSubFA)) (List.append hk [s; rlab r x; uc; br sb d]))
+            else if Constr.equal th (k.(kTLookE)) then
+              let (nr, mr, br) := render_a r (Array.get ta 2) in
+              ie_eq mr mbi;
+              (fun sb d =>
+                 let s := inner sb d in
+                 let kr := ie_nat r nr in
+                 let w := rvar r (Array.get ta 0) (Array.get ta 1) kr in
+                 let hk := List.append (hd sb d) [kr] in
+                 if xb then app (k.(kSLookB)) (List.append hk [s; w; br sb d])
+                 else app (k.(kSLookF)) (List.append hk [s; rlab r x; w; br sb d]))
+            else Control.zero Not_found
+        end
+    end in
+  let es := ents acc 0 0 in
+  (n, m, (fun sb d =>
+     let (nN, nM) := (ie_nat r n, ie_nat r m) in
+     let s := es sb d in
+     if notail then
+       let nNt := ie_nat r nb0 in
+       app (k.(kcform_id)) [t; z; nNt; nN; nM; z; app (k.(kOShort)) [t; z; nNt; nN; nM; z; s]]
+     else
+       let c := app (k.(kSTail)) [t; nN; nM; ie_nat r nb0; ie_nat r mb0; s; bs sb d] in
+       app (k.(kcform_id)) [t; z; z; nN; nM; z; app (k.(kOShortT)) [t; z; z; nN; nM; z; c]])).
 
-Ltac2 nocast (c : constr) : constr :=
-  match Constr.Unsafe.kind c with Constr.Unsafe.Cast c' _ _ => c' | _ => c end.
+(** A rendering: the shared definitions in the order they are bound,
+    each with its type and its scope indices, under the binders of those
+    before it; the suffixes of the whole ([share]s from the [i]th on, the
+    last the root alone), each under the binders before it; the whole. *)
+Ltac2 Type rendered := {
+  rd_k : int; rd_tys : constr array; rd_kl : (constr * constr) array; rd_defs : constr array;
+  rd_sufs : constr array; rd_term : constr; rd_chain : constr }.
 
-Ltac2 adj_idx (ty : constr) : constr * constr :=
-  lazy_match! ty with adj _ ?a ?b => (a, b) end.
+(** [render_all t ns labs terms atoms nb shs roots term_of]: the shared
+    definitions [shs] (atom numbers and expressions, in the order they are
+    bound) and the expressions [roots] (with their scope indices), the
+    last the root; [term_of] gives the terms, from the builders of the
+    roots. *)
+Ltac2 render_all (t : constr) (ns : nats) (labs : constr array) (atoms : constr array) (nb : int)
+    (shs : (int * constr) list) (roots : (constr * constr * constr) list)
+    (term_of : ((int -> int) -> int -> constr) list -> int -> (int -> int) -> int -> constr) : rendered * ((int -> int) -> int -> constr) list :=
+  let k := mk_kc () in
+  univs t;
+  let shn := List.length shs in
+  let pos := List.fold_left (fun acc (i, j) => FMap.add j i acc) (FMap.empty FSet.Tags.int_tag)
+               (List.combine (List.init shn (fun i => i)) (List.map (fun (j, _) => j) shs)) in
+  let r := { rk := k; rt := t; rns := ns; rctr := 0; rlabs := labs; rterm := (fun _ _ _ => k.(kO));
+             ratoms := Array.of_list []; rnb := nb; rpos := pos; rshty := Array.of_list [] } in
+  r.(ratoms) := Array.map (fun a =>
+      let s := lazy_match! a with adj_raw ?s => s end in
+      let (an, am) := adj_idx (Constr.type s) in
+      (s, const_ix r an, const_ix r am)) atoms;
+  let shty := Array.init shn (fun _ => let x := new_ix r in (x, new_ix r)) in
+  r.(rshty) := shty;
+  let dbs := List.map (fun (j, d) =>
+      let (n, m, b) := render_a r d in
+      let (sn, sm) := Array.get shty (Option.get (FMap.find_opt j pos)) in
+      ie_eq n sn; ie_eq m sm; b) shs in
+  let rbs := List.map (fun (e, rn, rm) =>
+      let (n, m, b) := render_a r e in
+      ie_eq n (const_ix r rn); ie_eq m (const_ix r rm); b) roots in
+  r.(rterm) := term_of rbs;
+  let (rn, rm) := let (_, rn, rm) := List.last roots in (rn, rm) in
+  let kl := Array.map (fun (sn, sm) => (ie_nat r sn, ie_nat r sm)) shty in
+  let tys := Array.map (fun (a, b) => app (k.(kadj)) [t; a; b]) kl in
+  let defs := Array.of_list (List.mapi (fun i b => b (fun p => Int.sub i p) 0) dbs) in
+  let sufs := Array.make (Int.add shn 1) (k.(kO)) in
+  Array.set sufs shn ((List.last rbs) (fun p => Int.sub shn p) 0);
+  let rec nest i :=
+    if Int.lt i 0 then () else
+    let (a, b) := Array.get kl i in
+    Array.set sufs i (app (k.(kshare)) [t; rn; rm; a; b; Array.get defs i; lam @r (Array.get tys i) (Array.get sufs (Int.add i 1))]);
+    nest (Int.sub i 1) in
+  nest (Int.sub shn 1);
+  let rec chain i :=
+    if Int.equal i shn then app constr:(@CRoot) [t; rn; rm; Array.get sufs shn]
+    else let (a, b) := Array.get kl i in
+         app constr:(@CShare) [t; rn; rm; a; b; Array.get defs i; lam @r (Array.get tys i) (chain (Int.add i 1))] in
+  ({ rd_k := shn; rd_tys := tys; rd_kl := kl; rd_defs := defs; rd_sufs := sufs; rd_term := Array.get sufs 0;
+     rd_chain := chain 0 }, rbs).
 
-(** [render_term t ty labs terms atoms nb shd root]: the rendering of
-    [shd] and [root], of type [ty] (an [adj t _ _]); [atoms] the raw
-    atoms, those below [nb] in [root] and [shd]. *)
-Ltac2 render_term (t : constr) (ty : constr) (labs : constr array) (terms : constr array) (atoms : constr array) (nb : int)
-    (shd : constr list) (root : constr) : constr :=
-  let atoms := Array.map (fun a => lazy_match! a with adj_raw ?s => s end) atoms in
-  let atys := Array.map (fun s => adj_idx (Constr.type s)) atoms in
-  let keep := (needed (ty :: Array.to_list (Array.map (fun s => Constr.type s) atoms))) in
+(** The closed terms [terms]. *)
+Ltac2 closed_terms (terms : constr array) : ((int -> int) -> int -> constr) list -> int -> (int -> int) -> int -> constr :=
+  fun _ i _ _ => Array.get terms i.
+
+(** [render_term t ty labs terms atoms nb shd root]: the rendering of the
+    shared definitions [shd] (the atoms from [nb] on) and [root], of type
+    [ty]. *)
+Ltac2 render_term (t : constr) (ty : constr) (ns : nats) (labs : constr array) (terms : constr array) (atoms : constr array) (nb : int)
+    (shd : constr list) (root : constr) : rendered :=
   let (n, m) := adj_idx ty in
-  let sk :=
-    constr:(ltac2:(
-      let phl := fresh @phl in intro_as phl;
-      let pht := fresh @pht in intro_as pht;
-      let pha := fresh @pha in intro_as pha;
-      let keep := FSet.add phl (FSet.add pht (FSet.add pha keep)) in
-      (Std.clear (List.map (fun (id, _, _) => id)
-                   (List.filter (fun (id, _, _) => Bool.neg (FSet.mem id keep)) (Control.hyps ()))));
-      let r := { phl := Control.hyp phl; pht := Control.hyp pht; pha := Control.hyp pha; atys := atys; rnb := nb;
-                 shtys := FMap.empty FSet.Tags.int_tag } in
-      let defs := (List.map
-          (fun d =>
-             let c := nocast open_constr:(ltac2:(render_a r d) : adj $t _ _) in
-             let k := r.(shtys) in
-             r.(shtys) := FMap.add (FMap.cardinal k) (adj_idx (Constr.type c)) k;
-             c)
-          shd) in
-      let rt := nocast constr:(ltac2:(render_a r root) : $ty) in
-      let k := List.length defs in
-      let shc := constr:(@Indexed.share) in
-      let rec nest i ds :=
-        match ds with
-        | [] => rt
-        | d :: ds =>
-            let (a, b) := Option.get (FMap.find_opt i (r.(shtys))) in
-            let aty := app constr:(@adj) [t; a; b] in
-            app shc [t; n; m; a; b; d;
-                     Constr.Unsafe.make (Constr.Unsafe.Lambda (Constr.Binder.make (Some @r) aty) (nest (Int.add i 1) ds))]
-        end in
-      let tm := (nest 0 defs) in (Std.exact_no_check tm))
-      : forall (phl : N -> label) (pht : N -> $t) (pha : forall A B : nat, N -> adj $t A B), $ty) in
-  (subst_ph labs terms atoms nb 0 (strip_lam 3 sk)).
+  let shs := List.mapi (fun i d => (Int.add nb i, d)) shd in
+  let (rd, _) := render_all t ns labs atoms nb shs [(root, n, m)] (closed_terms terms) in rd.
+
+(** ** Proofs about renderings
+
+    For a rendering [b] with shared definitions, a proof of [P b] from
+    one of [P] of its root, with each [share] as a variable [r] and a
+    hypothesis that [r] is its definition, by [chain_intro]: the
+    variables and hypotheses are bound alternately.  [inner rs hs root]
+    is the proof for the root, given the variables (as [adj_raw r]) and
+    the hypotheses, in the order they are bound. *)
+Ltac2 share_proof (t : constr) (n : constr) (m : constr) (p : constr) (rd : rendered)
+    (inner : constr list -> constr list -> constr -> constr) : constr :=
+  let k := rd.(rd_k) in
+  let raw := constr:(@adj_raw) in
+  let rels i := List.init i (fun j => rel (Int.mul 2 (Int.add j 1))) in
+  let eqc := constr:(@eq) in
+  let rty := app constr:(@Adjustment.radj) [t] in
+  let rec lvl i :=
+    if Int.equal i k then
+      let root := Constr.Unsafe.substnl (rels k) 0 (Array.get (rd.(rd_sufs)) k) in
+      let rs := List.init k (fun j => let (a, b) := Array.get (rd.(rd_kl)) j in app raw [t; a; b; rel (Int.mul 2 (Int.sub k j))]) in
+      let hs := List.init k (fun j => rel (Int.sub (Int.mul 2 (Int.sub k j)) 1)) in
+      inner rs hs root
+    else
+      let (a, b) := Array.get (rd.(rd_kl)) i in
+      let ty := Array.get (rd.(rd_tys)) i in
+      let d := Constr.Unsafe.substnl (rels i) 0 (Array.get (rd.(rd_defs)) i) in
+      let hty := app eqc [rty; app raw [t; a; b; rel 1]; app raw [t; a; b; Constr.Unsafe.liftn 1 1 d]] in
+      lam @r ty (lam @H hty (lvl (Int.add i 1))) in
+  app constr:(@chain_intro) [t; n; m; p; rd.(rd_chain); lvl 0].
+
+(** [Forall2 rel xs ys] from proofs [hs] of [rel x y]. *)
+Ltac2 forall2_proof (aty : constr) (bty : constr) (rl : constr) (xs : constr list) (ys : constr list) (hs : constr list) : constr :=
+  let rec go xs ys hs :=
+    match xs, ys, hs with
+    | x :: xs', y :: ys', h :: hs' =>
+        let (pf, l, l') := go xs' ys' hs' in
+        (app constr:(@Forall2_cons) [aty; bty; rl; x; y; l; l'; h; pf],
+         app constr:(@cons) [aty; x; l], app constr:(@cons) [bty; y; l'])
+    | _, _, _ => (app constr:(@Forall2_nil) [aty; bty; rl], app constr:(@nil) [aty], app constr:(@nil) [bty])
+    end in
+  let (pf, _, _) := go xs ys hs in pf.
 
 (** ** Environments *)
 
@@ -771,46 +1058,6 @@ Ltac2 rewrite_all_instances (pf : constr) : unit :=
   | _ => Control.zero Not_found
   end.
 
-(** The shares at the head of the right-hand side of the goal [_ = b] as
-    variables, with what each is: their raw forms and hypotheses, in
-    order. *)
-Ltac2 rec intro_shares (rs : constr list) (hs : ident list) : constr list * ident list :=
-  lazy_match! goal with
-  | [ |- _ = Indexed.share ?aa ?f ] =>
-      refine_c (fun () => '(share_intro_r _ $aa $f _));
-      let r := fresh @r in intro_as r;
-      let h := fresh @Hr in intro_as h;
-      Std.cbv { Std.rStrength := Std.Norm; Std.rBeta := true; Std.rMatch := false; Std.rFix := false;
-                Std.rCofix := false; Std.rZeta := false; Std.rDelta := false; Std.rConst := [] } (concl ());
-      let rv := Control.hyp r in intro_shares (List.append rs ['(adj_raw $rv)]) (List.append hs [h])
-  | [ |- _ ] => (rs, hs)
-  end.
-
-(** The same for the shares at the head of [t], wherever it is in the goal. *)
-Ltac2 rec intro_shares_t (t : constr) (rs : constr list) (hs : ident list) : constr list * ident list :=
-  lazy_match! t with
-  | Indexed.share ?aa ?f =>
-      Std.pattern [(t, Std.AllOccurrences)] (concl ());
-      refine_c (fun () => '(share_intro_p $aa $f _ _));
-      let r := fresh @r in intro_as r;
-      let h := fresh @Hr in intro_as h;
-      let rv := Control.hyp r in
-      let t' := eval cbv beta in ($f $rv) in
-      Std.cbv { Std.rStrength := Std.Norm; Std.rBeta := true; Std.rMatch := false; Std.rFix := false;
-                Std.rCofix := false; Std.rZeta := false; Std.rDelta := false; Std.rConst := [] } (concl ());
-      intro_shares_t t' (List.append rs ['(adj_raw $rv)]) (List.append hs [h])
-  | _ => (rs, hs)
-  end.
-
-(** [Forall2 (fun x d => x = aeden d) rs sh] from the share hypotheses. *)
-Ltac2 rec shares_ok (hs : ident list) : unit :=
-  match hs with
-  | [] => refine_c (fun () => '(@Forall2_nil _ _ _))
-  | h :: hs =>
-      refine_c (fun () => '(@Forall2_cons _ _ _ _ _ _ _ _ _));
-      Control.dispatch [(fun () => Std.exact_no_check (Control.hyp h)); (fun () => shares_ok hs)]
-  end.
-
 (** ** Reading results back *)
 
 Ltac2 rec dec_a (ns : nats) (e : constr) : constr :=
@@ -894,39 +1141,45 @@ Ltac2 Type memo := { mutable seen : constr list }.
     goal; the terms of [b]. *)
 Ltac2 show_adj (memo : memo) (a : constr) : outcome :=
   lazy_match! Constr.type a with
-  | adj ?t _ _ =>
+  | adj ?t ?n ?m =>
       let ty := Constr.type a in
       let r := '(adj_raw $a) in
       let s := new_st () in
       let e := (reify_adj s r) in
       let en := (finish s t) in
-      let nt := nat_lit (en.(e_ns)) (en.(e_nt)) in
-      let nb := nat_lit (en.(e_ns)) (en.(e_nb)) in
+      let ns := en.(e_ns) in
+      let nt := nat_lit ns (en.(e_nt)) in
+      let nb := nat_lit ns (en.(e_nb)) in
       let l := en.(e_l) in
       let defs := en.(e_defs) in
-      let d := (vm_show (en.(e_ns)) '(hshowD (order_of $l) $nt $nb $defs $e)) in
+      let d := (vm_show ns '(hshowD (order_of $l) $nt $nb $defs $e)) in
       match d with
       | Some sh =>
           let (shd, root) := (sh.(sh_c), sh.(sh_root)) in
           let terms := en.(e_terms) in
-          let b := (render_term t ty (en.(e_labs)) (Array.of_list terms) (en.(e_atoms)) (en.(e_nb)) (sh.(sh_l)) root) in
+          let rd := (render_term t ty ns (en.(e_labs)) (Array.of_list terms) (en.(e_atoms)) (en.(e_nb)) (sh.(sh_l)) root) in
+          let b := rd.(rd_term) in
           memo.(seen) := (b :: (memo.(seen)));
           (if Constr.equal a b then () else
            let id := fresh @E in
            let (le, te, ae, pe, hl) := (en.(e_le), en.(e_te), en.(e_ae), en.(e_pe), en.(e_hl)) in
-           (assert_by id '($a = $b) (fun () =>
-             let (rs, hs) := intro_shares [] [] in
-             refine_c (fun () => '(adj_eq _ _ _));
-             let rs := list_of '(radj $t) rs in
-             let hsid := fresh @Hs in
-             assert_by hsid '(Forall2 (fun z0 d0 => z0 = aeden $le $te ($ae ++ $rs) $pe d0) $rs $shd)
-               (fun () => shares_ok hs);
-             let hsp := Control.hyp hsid in
-             let ty := constr:((list aexp * aexp)%type) in
-             let ht := vm_eq '(option $ty) '(hshowD (order_of $l) (List.length $te) (List.length $ae) $defs $e) (some ty (sh.(sh_val))) in
-             let rel := '(fun (x : radj $t) (od : option aexp) => match od with Some d => x = aeden $le $te ($ae ++ $rs) $pe d | None => True end) in
-             let hd := defs_proof t rel (Array.to_list (en.(e_atoms))) (en.(e_defl)) in
-             Std.exact_no_check '(hshowD_sound $le $te $ae $rs $pe $l $defs $e $shd $root $hl $ht $hd $hsp)));
+           let sty := constr:((list aexp * aexp)%type) in
+           let ht := vm_eq '(option $sty) '(hshowD (order_of $l) (List.length $te) (List.length $ae) $defs $e) (some sty (sh.(sh_val))) in
+           let rty := '(radj $t) in
+           let q := '(fun (rs : list (radj $t))
+                          (hd : Forall2 (fun x od => match od with Some d => x = aeden $le $te ($ae ++ rs) $pe d | None => True end) $ae $defs)
+                          (hs : Forall2 (fun z0 d0 => z0 = aeden $le $te ($ae ++ rs) $pe d0) rs $shd) =>
+                        hshowD_sound $le $te $ae rs $pe $l $defs $e $shd $root $hl $ht hd hs) in
+           let hrel := '(fun (rs : list (radj $t)) (x : radj $t) (od : option aexp) =>
+                           match od with Some d => x = aeden $le $te ($ae ++ rs) $pe d | None => True end) in
+           let srel := '(fun (rs : list (radj $t)) (z0 : radj $t) (d0 : aexp) => z0 = aeden $le $te ($ae ++ rs) $pe d0) in
+           let p := '(fun x : $ty => $a = x) in
+           let pf := share_proof t n m p rd (fun rs hs root' =>
+             let rsl := list_of rty rs in
+             let hd := defs_proof t (app hrel [rsl]) (Array.to_list (en.(e_atoms))) (en.(e_defl)) in
+             let hsp := forall2_proof rty constr:(aexp) (app srel [rsl]) rs (sh.(sh_l)) hs in
+             app constr:(@adj_eq) [t; n; m; a; root'; app q [rsl; hd; hsp]]) in
+           assert_by id '($a = $b) (fun () => Std.exact_no_check pf);
            (rewrite_with (Control.hyp id)); Std.clear [id]);
           Shown terms
       | None => NotShown
@@ -937,20 +1190,33 @@ Ltac2 show_adj (memo : memo) (a : constr) : outcome :=
 
     Adjustment expressions in [c] not inside another, and closed (so not
     under a binder they use). *)
-Ltac2 is_adj_head (c : constr) : bool :=
-  lazy_match! c with
-  | compose _ _ => true
-  | cform_id _ => true
-  | cform _ _ => true
-  | at_scope _ => true
+Ltac2 Type heads := { h_comp : constr; h_cid : constr; h_cf : constr; h_at : constr; h_sh : constr }.
+
+Ltac2 adj_heads () : heads :=
+  { h_comp := constr:(@compose); h_cid := constr:(@cform_id); h_cf := constr:(@cform); h_at := constr:(@at_scope);
+    h_sh := constr:(@Indexed.share) }.
+
+(** An adjustment expression's head: [⨾], a context form, [at_scope] or
+    [share]. *)
+Ltac2 is_adj_head_in (hs : heads) (c : constr) : bool :=
+  match Constr.Unsafe.kind c with
+  | Constr.Unsafe.App f _ =>
+      let (f, _) := match Constr.Unsafe.kind f with Constr.Unsafe.App g a => (g, a) | _ => (f, Array.make 0 f) end in
+      if Constr.equal f (hs.(h_comp)) then true
+      else if Constr.equal f (hs.(h_cid)) then true
+      else if Constr.equal f (hs.(h_cf)) then true
+      else if Constr.equal f (hs.(h_at)) then true
+      else Constr.equal f (hs.(h_sh))
   | _ => false
   end.
+
+Ltac2 is_adj_head (c : constr) : bool := is_adj_head_in (adj_heads ()) c.
 
 Ltac2 add_new (c : constr) (acc : constr list) : constr list :=
   if List.exist (Constr.equal c) acc then acc else c :: acc.
 
 Ltac2 rec cands (p : constr -> bool) (c : constr) (acc : constr list) : constr list :=
-  if Bool.and (Constr.Unsafe.is_closed c) (p c) then add_new c acc
+  if (if p c then Constr.Unsafe.is_closed c else false) then add_new c acc
   else
     let r := { contents := acc } in
     Constr.Unsafe.iter (fun x => r.(contents) := cands p x (r.(contents))) c;
@@ -969,17 +1235,18 @@ Ltac2 candidates_in (p : constr -> bool) (c : constr) : constr list :=
     candidates inside it are tried instead.  Normal forms already
     produced are left alone. *)
 Ltac2 rec rewrite_each (memo : memo) (cs : constr list) : unit :=
+  let hs := adj_heads () in
   List.iter
     (fun a =>
        if List.exist (Constr.equal a) (memo.(seen)) then () else
        Notations.try0 (fun () =>
          match show_adj memo a with
-         | Shown terms => List.iter (fun u => rewrite_each memo (candidates is_adj_head u)) terms
-         | NotShown => rewrite_each memo (candidates_in is_adj_head a)
+         | Shown terms => List.iter (fun u => rewrite_each memo (candidates (is_adj_head_in hs) u)) terms
+         | NotShown => rewrite_each memo (candidates_in (is_adj_head_in hs) a)
          end))
     cs.
 
-Ltac2 names_adjs (memo : memo) : unit := rewrite_each memo (candidates is_adj_head (Control.goal ())).
+Ltac2 names_adjs (memo : memo) : unit := let hs := adj_heads () in rewrite_each memo (candidates (is_adj_head_in hs) (Control.goal ())).
 
 (** ** Variables *)
 
@@ -1016,22 +1283,24 @@ Ltac2 var_eq (t : constr) (id : ident) : unit :=
               | Some (u, sh) =>
                   let (shd, root) := (sh.(sh_c), sh.(sh_root)) in
                   let terms := en.(e_terms) in
-                  let b := render_term ty '(adj $ty 0 $m) (en.(e_labs)) (Array.of_list terms) (en.(e_atoms)) (en.(e_nb)) (sh.(sh_l)) root in
+                  let rd := render_term ty '(adj $ty 0 $m) (en.(e_ns)) (en.(e_labs)) (Array.of_list terms) (en.(e_atoms)) (en.(e_nb)) (sh.(sh_l)) root in
+                  let b := rd.(rd_term) in
                   let x := nth_c terms (int_of_idx u) in
-                  assert_by id '(apply_var $a $v = Bind $x (pcompose $b pid)) (fun () =>
-                    refine_c (fun () => '(apply_var_bind _ _ _ _ _ _));
-                    let (rs, hs) := intro_shares_t b [] [] in
-                    let rs := list_of '(radj $ty) rs in
-                    let hsid := fresh @Hs in
-                    assert_by hsid '(Forall2 (fun z0 d0 => z0 = aeden $le $te ($ae ++ $rs) $pe d0) $rs $shd)
-                      (fun () => shares_ok hs);
-                    let hsp := Control.hyp hsid in
-                    let pty := constr:((nat * (list aexp * aexp))%type) in
-                    let hp := vm_eq '(option $pty)
-                                '(hlook_pay (order_of $l) (List.length $te) (List.length $ae) $e $eh $i)
-                                (some pty (app constr:(@pair nat (list aexp * aexp)) [u; sh.(sh_val)])) in
-                    Std.exact_no_check
-                      '(hbind_show_sound $le $te $ae $rs $pe $l $e $eh $i $u $shd $root $x $hl $hp $hsp eq_refl))
+                  let n := lazy_match! Constr.type a with adj _ ?n _ => n end in
+                  let pty := constr:((nat * (list aexp * aexp))%type) in
+                  let hp := vm_eq '(option $pty)
+                              '(hlook_pay (order_of $l) (List.length $te) (List.length $ae) $e $eh $i)
+                              (some pty (app constr:(@pair nat (list aexp * aexp)) [u; sh.(sh_val)])) in
+                  let rty := '(radj $ty) in
+                  let q := '(fun (rs : list (radj $ty)) (hs : Forall2 (fun z0 d0 => z0 = aeden $le $te ($ae ++ rs) $pe d0) rs $shd) =>
+                               hbind_show_sound $le $te $ae rs $pe $l $e $eh $i $u $shd $root $x $hl $hp hs eq_refl) in
+                  let srel := '(fun (rs : list (radj $ty)) (z0 : radj $ty) (d0 : aexp) => z0 = aeden $le $te ($ae ++ rs) $pe d0) in
+                  let p := '(fun y : adj $ty 0 $m => rapply (adj_raw $a) (var_raw $v) = inr ($x, rpcompose (adj_raw y) (padj_raw (@pid $ty 0)))) in
+                  let pf := share_proof ty constr:(O) m p rd (fun rs hs _ =>
+                    let rsl := list_of rty rs in
+                    app q [rsl; forall2_proof rty constr:(aexp) (app srel [rsl]) rs (sh.(sh_l)) hs]) in
+                  let fin := app constr:(@apply_var_bind) [ty; n; m; constr:(O); a; v; x; b; '(@pid $ty 0); pf] in
+                  assert_by id '(apply_var $a $v = Bind $x (pcompose $b pid)) (fun () => Std.exact_no_check fin)
               | None => Control.zero Not_found
               end
           end
@@ -1087,7 +1356,7 @@ Ltac2 mat_one (a : constr) : unit :=
       let e := reify_adj s r in
       let en := finish s ty in
       let ns := en.(e_ns) in
-      let (le, _, ae, pe, l, hl) := (en.(e_le), en.(e_te), en.(e_ae), en.(e_pe), en.(e_l), en.(e_hl)) in
+      let (le, te, ae, pe, l, hl) := (en.(e_le), en.(e_te), en.(e_ae), en.(e_pe), en.(e_l), en.(e_hl)) in
       let n1 := nat_lit ns (en.(e_nt)) in
       let n2 := nat_lit ns (Int.add (en.(e_nt)) 1) in
       let nb := nat_lit ns (en.(e_nb)) in
@@ -1101,40 +1370,58 @@ Ltac2 mat_one (a : constr) : unit :=
           | Some (u, bsh) =>
               let (shb, rb) := (bsh.(sh_c), bsh.(sh_root)) in
               let terms := en.(e_terms) in
-              let b := render_term ty '(adj $ty 0 0) (en.(e_labs)) (Array.of_list terms) (en.(e_atoms)) nbbi (bsh.(sh_l)) rb in
               let ut := nth_c terms (int_of_idx u) in
               let fb := Std.eval_hnf '(@sm_back _ $inst) in
-              let fs := Std.eval_hnf '(@sm_subst _ $inst 0 0 $b) in
+              let fs := Std.eval_hnf '(@sm_subst _ $inst 0 0) in
               let fo := Std.eval_hnf '(@sm_of _ $inst) in
-              let x := eval cbv beta in ($fb ($fs ($fo $ut))) in
-              let te2 := list_of ty (List.append (en.(e_terms)) [x]) in
-              let a' := render_term ty '(adj $ty $n 0) (en.(e_labs)) (Array.of_list (List.append terms [x])) (en.(e_atoms))
-                          (en.(e_nb)) shl r' in
+              (* [u [b]], as a function of [b] *)
+              let xf := eval cbv beta in (fun b : adj $ty 0 0 => $fb ($fs b ($fo $ut))) in
+              let mk_x bt :=
+                match Constr.Unsafe.kind xf with
+                | Constr.Unsafe.Lambda _ body => Constr.Unsafe.substnl [bt] 0 body
+                | _ => app xf [bt]
+                end in
+              let nt := en.(e_nt) in
+              let tarr := Array.of_list terms in
+              let term_of rbs i sb d := if Int.equal i nt then mk_x ((List.hd rbs) sb d) else Array.get tarr i in
+              (* the payload's shared definitions are bound first, as the payload is in a term of the rest *)
+              let nsb := List.length (bsh.(sh_l)) in
+              let shs := List.append (List.mapi (fun i d => (Int.add nbbi i, d)) (bsh.(sh_l)))
+                                     (List.mapi (fun i d => (Int.add (en.(e_nb)) i, d)) shl) in
+              let (rd, rbs) := render_all ty ns (en.(e_labs)) (en.(e_atoms)) (en.(e_nb)) shs
+                                 [(rb, constr:(O), constr:(O)); (r', n, constr:(O))] term_of in
+              let a' := rd.(rd_term) in
               let hid := fresh @H in
               let g := '(@sm_g _ $inst) in
+              let pty := constr:((nat * (list aexp * aexp))%type) in
+              let sty := constr:((list aexp * aexp)%type) in
+              let ht := vm_eq '(option $pty) '(hmat_target (order_of $l) $n1 $nbb $e)
+                          (some pty (app constr:(@pair nat (list aexp * aexp)) [u; bsh.(sh_val)])) in
+              let hd := vm_eq '(option $sty) '(hmat_display (order_of $l) $n2 (List.length $ae) $e $n1) (some sty (dsh.(sh_val))) in
+              let rty := '(radj $ty) in
+              let q := '(fun (rs : list (radj $ty)) (b : adj $ty 0 0)
+                             (hs : Forall2 (fun z0 d0 => z0 = aeden $le ($te ++ [$xf b]) ($ae ++ rs) $pe d0) rs ($sh' ++ $shb))
+                             (hx : nth_error ($te ++ [$xf b]) $n1 = Some (@sm_back _ $inst (@sm_subst _ $inst 0 0 b (@sm_of _ $inst $ut))))
+                             (hb : adj_raw b = aeden $le ($te ++ [$xf b]) ($ae ++ rs) $pe $rb)
+                             (v : var $n) =>
+                           hmat_show_sound $le ($te ++ [$xf b]) $ae rs $pe $g $l $e $n1 $u $shb $rb $sh' $r' $nbb $n1 $n2 $hl
+                             (le_S _ _ (le_n _)) (le_n _) $ht $hd eq_refl hs
+                             (@mat_k $ty $inst ($te ++ [$xf b]) $u $n1 $ut b _ eq_refl hx hb) (var_raw v)) in
+              let srel := '(fun (rs : list (radj $ty)) (b : adj $ty 0 0) (z0 : radj $ty) (d0 : aexp) =>
+                              z0 = aeden $le ($te ++ [$xf b]) ($ae ++ rs) $pe d0) in
+              let hxf := '(fun b : adj $ty 0 0 => @eq_refl (option $ty) (Some (@sm_back _ $inst (@sm_subst _ $inst 0 0 b (@sm_of _ $inst $ut))))) in
+              let p := '(fun y : adj $ty $n 0 => forall v : var $n, mrel $g (rapply (adj_raw $a) (var_raw v)) (rapply (adj_raw y) (var_raw v))) in
+              let pf := share_proof ty n constr:(O) p rd (fun rs hs _ =>
+                let k := rd.(rd_k) in
+                let bt := Constr.Unsafe.substnl (List.init k (fun j => rel (Int.mul 2 (Int.add j 1)))) 0
+                            ((List.hd rbs) (fun p => Int.sub k p) 0) in
+                let ord l := List.append (List.skipn nsb l) (List.firstn nsb l) in
+                let rs := ord rs in
+                let rsl := list_of rty rs in
+                let hsp := forall2_proof rty constr:(aexp) (app srel [rsl; bt]) rs (List.append shl (bsh.(sh_l))) (ord hs) in
+                app q [rsl; bt; hsp; app hxf [bt]; app constr:(@eq_refl) [rty; app constr:(@adj_raw) [ty; constr:(O); constr:(O); bt]]]) in
               assert_by hid '(forall v : var $n, mrel $g (rapply (adj_raw $a) (var_raw v)) (rapply (adj_raw $a') (var_raw v)))
-                (fun () =>
-                   let (rs, hs) := intro_shares_t a' [] [] in
-                   let rs := list_of '(radj $ty) rs in
-                   let v := fresh @v in intro_as v;
-                   let vv := Control.hyp v in
-                   let hsid := fresh @Hs in
-                   assert_by hsid '(Forall2 (fun z0 d0 => z0 = aeden $le $te2 ($ae ++ $rs) $pe d0) $rs ($sh' ++ $shb))
-                     (fun () => Std.cbv { Std.rStrength := Std.Norm; Std.rBeta := false; Std.rMatch := false; Std.rFix := false;
-                                          Std.rCofix := false; Std.rZeta := false; Std.rDelta := false;
-                                          Std.rConst := [reference:(List.app)] } (concl ());
-                                shares_ok hs);
-                   let hsp := Control.hyp hsid in
-                   let pty := constr:((nat * (list aexp * aexp))%type) in
-                   let sty := constr:((list aexp * aexp)%type) in
-                   let ht := vm_eq '(option $pty) '(hmat_target (order_of $l) $n1 $nbb $e)
-                               (some pty (app constr:(@pair nat (list aexp * aexp)) [u; bsh.(sh_val)])) in
-                   let hd := vm_eq '(option $sty) '(hmat_display (order_of $l) $n2 (List.length $ae) $e $n1) (some sty (dsh.(sh_val))) in
-                   let f := '(fun y => $g (rpcompose (aeden $le $te2 ($ae ++ $rs) $pe $rb) rpidentity) y) in
-                   let hk := '(nth_hk $te2 $u $n1 $f $ut eq_refl (f_equal Some (eq_sym (@sm_g_spec _ $inst $b $ut)))) in
-                   Std.exact_no_check
-                     '(hmat_show_sound $le $te2 $ae $rs $pe $g $l $e $n1 $u $shb $rb $sh' $r' $nbb $n1 $n2 $hl
-                         (le_S _ _ (le_n _)) (le_n _) $ht $hd eq_refl $hsp $hk (var_raw $vv)));
+                (fun () => Std.exact_no_check pf);
               let eid := fresh @E in
               let hh := Control.hyp hid in
               let f := Std.eval_hnf '(@sm_subst _ $inst $n 0 $a) in
@@ -1150,17 +1437,7 @@ Ltac2 mat_one (a : constr) : unit :=
       end
   end.
 
-Ltac2 is_adj_expr (c : constr) : bool :=
-  lazy_match! c with
-  | compose _ _ => true
-  | cform_id _ => true
-  | cform _ _ => true
-  | at_scope _ => true
-  | Indexed.share _ _ => true
-  | _ => false
-  end.
-
-Ltac2 names_mat () : unit := each_until_fail is_adj_expr mat_one.
+Ltac2 names_mat () : unit := each_until_fail (is_adj_head_in (adj_heads ())) mat_one.
 
 (** ** The tactic
 
