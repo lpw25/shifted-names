@@ -1,17 +1,23 @@
 (** * The [names] tactic
 
-    [names] proves an equation between adjustments [adj T N M] built from
-    context forms (full [⟦ I \ O ⟧], [⟦ I | Γ \ O | Γ[σ] ⟧] and short
-    [⟦ I; σ ⟧], and so [lift] and [lift_free]), [∘], [⟦⟧] and [at_scope],
-    with any other adjustment as an atom.  Labels may be concrete strings or variables;
-    the order between label variables comes from hypotheses [label_lt x y]
-    in the context ([label_compare] provides them by case analysis).
+    [names] rewrites every adjustment [adj T N M] built from context forms
+    (full [⟦ I \ O ⟧], [⟦ I | Γ \ O | Γ[σ] ⟧] and short [⟦ I; σ ⟧], and so
+    [lift] and [lift_free]), [∘], [⟦⟧] and [at_scope] to its normal form,
+    shown as context forms, with any other adjustment as an atom; it then
+    evaluates the variables those normal forms send to variables or terms.
+    Equal adjustments get the same normal form, so an equation is proved
+    by [names; reflexivity].  Labels may be concrete strings or
+    variables; the order between label variables comes from hypotheses
+    [label_lt x y] in the context ([label_compare] provides them by case
+    analysis).
 
-    The goal is taken to the raw layer, reified into [aexp], and the two
-    sides are decided by [HNorm] ([hn_eq_t], sound by
-    [HConcrete.hn_eq_t_sound]).  The tactic fails when the normal forms
-    differ, which includes when an equation needs an order between two
-    labels that no hypothesis gives. *)
+    An adjustment is taken to the raw layer and reified into [aexp].  Its
+    normal form is computed by the layered normaliser (Layered.v,
+    Canon.v) and rendered; the rewrite [a = b] to the rendered form is
+    then checked by normalising both sides with [HNorm] ([names_same],
+    sound by [HConcrete.hn_eq_t_sound]).  To be replaced: [HNorm]
+    computing the normal form, with the rendering proved sound, so that
+    no check is needed. *)
 
 From Stdlib Require Import NArith List String Arith Bool StrictProp.
 Open Scope bool_scope.
@@ -849,6 +855,8 @@ Ltac render_pieces le te ae ps :=
 
 (** ** The tactic *)
 
+(** Proves [a = b] for the rewrite to a rendered normal form, by
+    comparing their [HNorm] normal forms. *)
 Ltac names_decide :=
   lazymatch goal with
   | |- @eq (radj ?T) ?lhs ?rhs =>

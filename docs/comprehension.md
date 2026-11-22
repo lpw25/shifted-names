@@ -376,13 +376,16 @@ antichain of about `n` labels are still cubic (`hcost.py`: `advL`,
 
 ## Still open
 
-- **Showing normal forms, applying to a variable, materialising
-  payloads.** The `names` tactic decides equations with `HNorm`
-  (`HConcrete.hn_eq_t_sound`), but still uses the layered normaliser
-  (`Layered`, `Canon`, `LEval`) to show a normal form as context forms
-  (`names_rewrite`, checked by `HNorm`), to read off where an adjustment
-  sends a variable (`names_var_eq`, with `lapply_result_sound`), and to
-  materialise payloads. Porting these to `HNorm`'s words would let the
-  layered normaliser go.
+- **`names` still normalises with the layered normaliser.** It rewrites
+  each adjustment to its normal form, and the user closes the goal with
+  `reflexivity`. The normal form is still computed by the layered
+  normaliser (`Layered`, `Canon`, `LEval`) and rendered as context forms;
+  each rewrite is checked by comparing `HNorm` normal forms
+  (`HConcrete.hn_eq_t_sound`). Where an adjustment sends a variable
+  (`names_var_eq`, `lapply_result_sound`) and materialising payloads also
+  use the layered normaliser. The intended design has one normaliser:
+  `HNorm` computes the normal form, the rendering is a function proved to
+  preserve meaning, and each rewrite follows from that proof with no
+  check. Then the layered normaliser and `hn_eq_t` can go.
 - **Cost:** lookups that keep a step could be made cheaper, for example
   by memoising their payloads per label and cell.
