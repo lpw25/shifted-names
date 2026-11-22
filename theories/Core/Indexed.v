@@ -199,6 +199,22 @@ Definition in_free {N M} (x : label) (t : target T M) (a : adj T N M) : adj T N 
   mk_adj (rpush_inner (Some x) (to_target t) (adj_raw a))
     (Is_true_s_intro (scoped_push_inner_some x N M _ _ (adj_scoped a) (to_target_wf t))).
 
+Lemma look_wf {K M} (r : adj T K M) (v : var K) :
+  result_wf M (rtarget_result (rapply_target (adj_raw r) (RRename (var_raw v)))) = true.
+Proof.
+  pose proof (apply_wf r v) as H; unfold apply in H; unfold rapply_target.
+  destruct (rapply (adj_raw r) (var_raw v)) as [w|[u ρ]]; exact H.
+Qed.
+
+(** An input entry sending the input to wherever [r] sends [v]. *)
+Definition in_look_free {N M K} (x : label) (r : adj T K M) (v : var K) (a : adj T N M) : adj T N M :=
+  mk_adj (rpush_inner (Some x) (rapply_target (adj_raw r) (RRename (var_raw v))) (adj_raw a))
+    (Is_true_s_intro (scoped_push_inner_some x N M _ _ (adj_scoped a) (look_wf r v))).
+
+Definition in_look_bound {N M K} (r : adj T K M) (v : var K) (a : adj T N M) : adj T (S N) M :=
+  mk_adj (rpush_inner None (rapply_target (adj_raw r) (RRename (var_raw v))) (adj_raw a))
+    (Is_true_s_intro (scoped_push_inner_none N M _ _ (adj_scoped a) (look_wf r v))).
+
 (** Payload adjustments are moved through scoped adjustments. *)
 Definition pcompose {M K} (a : adj T M K) (ρ : padj T M) : padj T K :=
   mk_padj (rpcompose (adj_raw a) (padj_raw ρ))
@@ -309,7 +325,13 @@ Inductive sctx : nat -> nat -> nat -> nat -> Type :=
 | SLiftF {Nb Mb N M} (s : sctx Nb Mb N M) (x : label) : sctx Nb Mb N M
 | SLiftB {Nb Mb N M} (s : sctx (S Nb) (S Mb) N M) : sctx Nb Mb N M
 | SSubF {Nb Mb N M} (s : sctx Nb Mb N M) (x : label) (u : T) (q : pctx 0) : sctx Nb Mb N M
-| SSubB {Nb Mb N M} (s : sctx (S Nb) Mb N M) (u : T) (q : pctx 0) : sctx Nb Mb N M.
+| SSubB {Nb Mb N M} (s : sctx (S Nb) Mb N M) (u : T) (q : pctx 0) : sctx Nb Mb N M
+| SRenF {Nb Mb N M} (s : sctx Nb Mb N M) (x : label) (w : var Mb) : sctx Nb Mb N M
+| SRenB {Nb Mb N M} (s : sctx (S Nb) Mb N M) (w : var Mb) : sctx Nb Mb N M
+| SSubFA {Nb Mb N M K} (s : sctx Nb Mb N M) (x : label) (u : T) (r : adj T K Mb) : sctx Nb Mb N M
+| SSubBA {Nb Mb N M K} (s : sctx (S Nb) Mb N M) (u : T) (r : adj T K Mb) : sctx Nb Mb N M
+| SLookF {Nb Mb N M K} (s : sctx Nb Mb N M) (x : label) (w : var K) (r : adj T K Mb) : sctx Nb Mb N M
+| SLookB {Nb Mb N M K} (s : sctx (S Nb) Mb N M) (w : var K) (r : adj T K Mb) : sctx Nb Mb N M.
 
 Inductive sclosed (N M : nat) : Type :=
 | STail {Nb Mb} (s : sctx Nb Mb N M) (σ : adj T Nb Mb).
@@ -325,6 +347,12 @@ Fixpoint sctx_den {K Nb Mb N M} (s : sctx Nb Mb N M) : (unit -> adj T K Mb) -> a
   | SLiftB s => fun wk X => sctx_den s (fun _ => out_bound (wk tt)) (in_bound (Rename bvar0) (out_bound X))
   | SSubF s x u q => fun wk X => sctx_den s wk (in_free x (Bind u (pctx_pay q noslot (wk tt))) X)
   | SSubB s u q => fun wk X => sctx_den s wk (in_bound (Bind u (pctx_pay q noslot (wk tt))) X)
+  | SRenF s x w => fun wk X => sctx_den s wk (in_free x (Rename w) X)
+  | SRenB s w => fun wk X => sctx_den s wk (in_bound (Rename w) X)
+  | SSubFA s x u r => fun wk X => sctx_den s wk (in_free x (Bind u (pcompose r pid)) X)
+  | SSubBA s u r => fun wk X => sctx_den s wk (in_bound (Bind u (pcompose r pid)) X)
+  | SLookF s x w r => fun wk X => sctx_den s wk (in_look_free x r w X)
+  | SLookB s w r => fun wk X => sctx_den s wk (in_look_bound r w X)
   end.
 
 (** *** The full form
@@ -466,6 +494,12 @@ Arguments SLiftF {T Nb Mb N M} s x.
 Arguments SLiftB {T Nb Mb N M} s.
 Arguments SSubF {T Nb Mb N M} s x u q.
 Arguments SSubB {T Nb Mb N M} s u q.
+Arguments SRenF {T Nb Mb N M} s x w%_var.
+Arguments SRenB {T Nb Mb N M} s w%_var.
+Arguments SSubFA {T Nb Mb N M K} s x u r.
+Arguments SSubBA {T Nb Mb N M K} s u r.
+Arguments SLookF {T Nb Mb N M K} s x w%_var r.
+Arguments SLookB {T Nb Mb N M K} s w%_var r.
 Arguments STail {T N M Nb Mb} s σ.
 
 (** *** Entries shared by both forms
@@ -480,6 +514,8 @@ Class CEnt (C R : Type) := cent : C -> label -> R.
 Class CBnd (C R : Type) := cbnd : C -> R.
 Class CSub (T : Type) (K : nat) (C R : Type) := csub : C -> label -> T -> @pctx T K -> R.
 Class CSubB (T : Type) (K : nat) (C R : Type) := csubb : C -> T -> @pctx T K -> R.
+Class CRen (V C R : Type) := cren : C -> label -> V -> R.
+Class CRenB (V C R : Type) := crenb : C -> V -> R.
 #[export] Instance cnil_full {T K M N} : CNil (@ictx T K M N N 0) := IEmpty.
 #[export] Instance cnil_short {T N M} : CNil (@sctx T N M N M) := SEmpty.
 #[export] Instance cent_full {T K M Nb N P} : CEnt (@ictx T K M Nb N P) (ictx K M Nb N (S P)) := IPosF.
@@ -490,6 +526,10 @@ Class CSubB (T : Type) (K : nat) (C R : Type) := csubb : C -> T -> @pctx T K -> 
 #[export] Instance csub_short {T Nb Mb N M} : CSub T 0 (@sctx T Nb Mb N M) (sctx Nb Mb N M) := SSubF.
 #[export] Instance csubb_full {T K M Nb N P} : CSubB T K (@ictx T K M (S Nb) N P) (ictx K M Nb N P) := ISubB.
 #[export] Instance csubb_short {T Nb Mb N M} : CSubB T 0 (@sctx T (S Nb) Mb N M) (sctx Nb Mb N M) := SSubB.
+#[export] Instance cren_full {T K M Nb N P} : CRen (slot K) (@ictx T K M Nb N P) (ictx K M Nb N P) := IRenF.
+#[export] Instance cren_short {T Nb Mb N M} : CRen (var Mb) (@sctx T Nb Mb N M) (sctx Nb Mb N M) := SRenF.
+#[export] Instance crenb_full {T K M Nb N P} : CRenB (slot K) (@ictx T K M (S Nb) N P) (ictx K M Nb N P) := IRenB.
+#[export] Instance crenb_short {T Nb Mb N M} : CRenB (var Mb) (@sctx T (S Nb) Mb N M) (sctx Nb Mb N M) := SRenB.
 (** *** Notation *)
 
 Declare Custom Entry adj_pay.
@@ -505,8 +545,8 @@ Notation "i ; '·' ':=' u" := (ISubB i u PEmpty) (only printing, in custom adj_i
 Notation "i ; '·' ':=' u '⟨' p '⟩'" := (ISubB i u p) (only printing, in custom adj_in at level 2, left associativity, u constr at level 0, p custom adj_pay at level 2).
 Notation "x" := (IPosF IEmpty x) (only printing, in custom adj_in at level 1, x constr at level 0).
 Notation "'·'" := (IPosB IEmpty) (only printing, in custom adj_in at level 1).
-Notation "x 'as' v" := (IRenF IEmpty x v) (only printing, in custom adj_in at level 1, x constr at level 0, v constr at level 0).
-Notation "'·' 'as' v" := (IRenB IEmpty v) (only printing, in custom adj_in at level 1, v constr at level 0).
+Notation "x 'as' v" := (IRenF IEmpty x v) (only printing, in custom adj_in at level 1, x constr at level 0, v constr at level 1).
+Notation "'·' 'as' v" := (IRenB IEmpty v) (only printing, in custom adj_in at level 1, v constr at level 1).
 Notation "x ':=' u" := (ISubF IEmpty x u PEmpty) (only printing, in custom adj_in at level 1, x constr at level 0, u constr at level 0).
 Notation "x ':=' u '⟨' p '⟩'" := (ISubF IEmpty x u p) (only printing, in custom adj_in at level 1, x constr at level 0, u constr at level 0, p custom adj_pay at level 2).
 Notation "'·' ':=' u" := (ISubB IEmpty u PEmpty) (only printing, in custom adj_in at level 1, u constr at level 0).
@@ -519,6 +559,18 @@ Notation "i ; x ':=' u" := (SSubF i x u PEmpty) (only printing, in custom adj_in
 Notation "i ; '·' ':=' u" := (SSubB i u PEmpty) (only printing, in custom adj_in at level 2, left associativity, u constr at level 0).
 Notation "x ':=' u" := (SSubF SEmpty x u PEmpty) (only printing, in custom adj_in at level 1, x constr at level 0, u constr at level 0).
 Notation "'·' ':=' u" := (SSubB SEmpty u PEmpty) (only printing, in custom adj_in at level 1, u constr at level 0).
+Notation "i ; x 'as' w" := (SRenF i x w) (only printing, in custom adj_in at level 2, left associativity, x constr at level 0, w constr at level 1).
+Notation "i ; '·' 'as' w" := (SRenB i w) (only printing, in custom adj_in at level 2, left associativity, w constr at level 1).
+Notation "x 'as' w" := (SRenF SEmpty x w) (only printing, in custom adj_in at level 1, x constr at level 0, w constr at level 1).
+Notation "'·' 'as' w" := (SRenB SEmpty w) (only printing, in custom adj_in at level 1, w constr at level 1).
+Notation "i ; x ':=' u '⟨' '|' r '⟩'" := (SSubFA i x u r) (in custom adj_in at level 2, left associativity, x constr at level 0, u constr at level 0, r constr at level 200, format "i ;  x  :=  u '⟨' '|'  r  '⟩'").
+Notation "i ; '·' ':=' u '⟨' '|' r '⟩'" := (SSubBA i u r) (in custom adj_in at level 2, left associativity, u constr at level 0, r constr at level 200, format "i ;  ·  :=  u '⟨' '|'  r  '⟩'").
+Notation "x ':=' u '⟨' '|' r '⟩'" := (SSubFA SEmpty x u r) (in custom adj_in at level 1, x constr at level 0, u constr at level 0, r constr at level 200, format "x  :=  u '⟨' '|'  r  '⟩'").
+Notation "'·' ':=' u '⟨' '|' r '⟩'" := (SSubBA SEmpty u r) (in custom adj_in at level 1, u constr at level 0, r constr at level 200, format "·  :=  u '⟨' '|'  r  '⟩'").
+Notation "i ; x 'as' w '⟨' '|' r '⟩'" := (SLookF i x w r) (in custom adj_in at level 2, left associativity, x constr at level 0, w constr at level 1, r constr at level 200, format "i ;  x  as  w '⟨' '|'  r  '⟩'").
+Notation "i ; '·' 'as' w '⟨' '|' r '⟩'" := (SLookB i w r) (in custom adj_in at level 2, left associativity, w constr at level 1, r constr at level 200, format "i ;  ·  as  w '⟨' '|'  r  '⟩'").
+Notation "x 'as' w '⟨' '|' r '⟩'" := (SLookF SEmpty x w r) (in custom adj_in at level 1, x constr at level 0, w constr at level 1, r constr at level 200, format "x  as  w '⟨' '|'  r  '⟩'").
+Notation "'·' 'as' w '⟨' '|' r '⟩'" := (SLookB SEmpty w r) (in custom adj_in at level 1, w constr at level 1, r constr at level 200, format "·  as  w '⟨' '|'  r  '⟩'").
 Notation "i" := (OShort i) (only printing, in custom adj_out at level 3, i custom adj_in at level 2).
 Notation "'\'" := (OEnd IEmpty) (only printing, in custom adj_out at level 3).
 Notation "'\' y" := (OPosF (OEnd IEmpty) y) (only printing, in custom adj_out at level 3, y constr at level 0).
@@ -540,19 +592,19 @@ Notation "x ':=' u" := (PSub PEmpty x u PEmpty) (in custom adj_pay at level 1, x
 Notation "x ':=' u '⟨' q '⟩'" := (PSub PEmpty x u q) (in custom adj_pay at level 1, x constr at level 0, u constr at level 0, q custom adj_pay at level 2).
 
 Notation "i ; x" := (cent i x) (in custom adj_in at level 2, left associativity, x constr at level 0).
-Notation "i ; x 'as' v" := (IRenF i x v) (in custom adj_in at level 2, left associativity, x constr at level 0, v constr at level 0).
+Notation "i ; x 'as' v" := (cren i x v) (in custom adj_in at level 2, left associativity, x constr at level 0, v constr at level 1).
 Notation "i ; x ':=' u" := (csub i x u PEmpty) (in custom adj_in at level 2, left associativity, x constr at level 0, u constr at level 0).
 Notation "i ; x ':=' u '⟨' p '⟩'" := (csub i x u p) (in custom adj_in at level 2, left associativity, x constr at level 0, u constr at level 0, p custom adj_pay at level 2).
 Notation "i ; '·'" := (cbnd i) (in custom adj_in at level 2, left associativity).
-Notation "i ; '·' 'as' v" := (IRenB i v) (in custom adj_in at level 2, left associativity, v constr at level 0).
+Notation "i ; '·' 'as' v" := (crenb i v) (in custom adj_in at level 2, left associativity, v constr at level 1).
 Notation "i ; '·' ':=' u" := (csubb i u PEmpty) (in custom adj_in at level 2, left associativity, u constr at level 0).
 Notation "i ; '·' ':=' u '⟨' p '⟩'" := (csubb i u p) (in custom adj_in at level 2, left associativity, u constr at level 0, p custom adj_pay at level 2).
 Notation "x" := (cent cnil x) (in custom adj_in at level 1, x constr at level 0).
-Notation "x 'as' v" := (IRenF cnil x v) (in custom adj_in at level 1, x constr at level 0, v constr at level 0).
+Notation "x 'as' v" := (cren cnil x v) (in custom adj_in at level 1, x constr at level 0, v constr at level 1).
 Notation "x ':=' u" := (csub cnil x u PEmpty) (in custom adj_in at level 1, x constr at level 0, u constr at level 0).
 Notation "x ':=' u '⟨' p '⟩'" := (csub cnil x u p) (in custom adj_in at level 1, x constr at level 0, u constr at level 0, p custom adj_pay at level 2).
 Notation "'·'" := (cbnd cnil) (in custom adj_in at level 1).
-Notation "'·' 'as' v" := (IRenB cnil v) (in custom adj_in at level 1, v constr at level 0).
+Notation "'·' 'as' v" := (crenb cnil v) (in custom adj_in at level 1, v constr at level 1).
 Notation "'·' ':=' u" := (csubb cnil u PEmpty) (in custom adj_in at level 1, u constr at level 0).
 Notation "'·' ':=' u '⟨' p '⟩'" := (csubb cnil u p) (in custom adj_in at level 1, u constr at level 0, p custom adj_pay at level 2).
 

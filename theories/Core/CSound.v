@@ -340,6 +340,7 @@ Proof.
   - apply lookup_sound.
   - rewrite vden_term, clean_sound, H; reflexivity.
   - destruct (is_bind t); [apply H|rewrite H, pushW_sound; reflexivity].
+  - rewrite lookup_sound, H; reflexivity.
   - reflexivity.
   - reflexivity.
   - rewrite H0, H; reflexivity.

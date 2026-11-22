@@ -552,6 +552,7 @@ Proof.
   - unfold cname; cbn [chd tmodel]; unfold thd; rewrite iter_tpop, lookup_iter; reflexivity.
   - cbn [cterm tmodel]; unfold tterm; rewrite H; reflexivity.
   - destruct (is_bind t); [apply H|rewrite H; reflexivity].
+  - unfold cname; cbn [chd tmodel]; unfold thd; rewrite iter_tpop, H, lookup_iter; reflexivity.
   - reflexivity.
   - reflexivity.
   - rewrite H0, H; reflexivity.

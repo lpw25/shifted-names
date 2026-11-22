@@ -69,6 +69,7 @@ with ct (t : texp) (x : U) {struct t} : A :=
   | TVarE h i => cname h i x
   | TBindE u p => cterm u (fpb p) (cp p x)
   | TShiftE h t' => if CNorm.is_bind t' then ct t' x else ct t' (cpop h x)
+  | TLookE h i a => cname h i (ca a x)
   end
 with cp (p : pexp) (x : U) {struct p} : U :=
   match p with

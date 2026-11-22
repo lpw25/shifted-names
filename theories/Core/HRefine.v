@@ -87,7 +87,8 @@ Record Inv (S : HNorm.st) : Prop := {
   inv_uniq : forall i j c, cellof S i = Some c -> cellof S j = Some c -> i = j;
   inv_sound : forall t l s i, PositiveMap.find t (HNorm.tab S) = Some l -> In (s, i) l -> cellof S i = Some (s, t);
   inv_compl : forall i s t, cellof S i = Some (s, t) ->
-    exists l, PositiveMap.find t (HNorm.tab S) = Some l /\ In (s, i) l
+    exists l, PositiveMap.find t (HNorm.tab S) = Some l /\ In (s, i) l;
+  inv_tail : forall i s t, cellof S i = Some (s, t) -> (t < i)%positive
 }.
 
 Lemma Inv_st0 : Inv HNorm.st0.
@@ -223,6 +224,11 @@ Proof.
         destruct (Pos.eq_dec t' t) as [->|Nt].
         -- exists ((s, i) :: bucket); split; [apply PositiveMap.gss|right; unfold bucket; rewrite Fl; exact Il].
         -- exists l; split; [rewrite PositiveMap.gso by exact Nt; exact Fl|exact Il].
+    + intros j s'' t' Hj; destruct (Pos.eq_dec j i) as [->|Nj].
+      * rewrite PositiveMap.gss in Hj; injection Hj as <- <-; unfold t, i.
+        destruct Hw as [|s0 i0 w0 cs0 cw0 Hc0 _ _]; cbn [HNorm.wid]; [apply (inv_next2 S I)|].
+        apply (inv_next S I _ _ Hc0).
+      * rewrite PositiveMap.gso in Hj by exact Nj; apply (inv_tail S I j s'' t' Hj).
 Qed.
 
 Lemma Forall2_mono S S' p cp : Ext S S' -> Forall2 (RStep S) p cp -> Forall2 (RStep S') p cp.
@@ -577,6 +583,10 @@ Proof.
     destruct (HNorm.pushW F h K S) as [K1 S1] eqn:E1.
     destruct (pushW_spec S h K cK K1 S1 H0 H1 E1) as [I1 [X1 R1]].
     destruct (H K1 S1 _ v S' I1 R1 H2) as [I2 [X2 R2]].
+    split; [exact I2|split; [apply (Ext_trans _ _ _ X1 X2)|exact R2]].
+  - destruct (HNorm.norm F a K S) as [K1 S1] eqn:E1.
+    destruct (H K S cK K1 S1 H0 H1 E1) as [I1 [X1 R1]].
+    destruct (lookup_spec S1 h K1 _ I1 R1 i v S' H2) as [I2 [X2 R2]].
     split; [exact I2|split; [apply (Ext_trans _ _ _ X1 X2)|exact R2]].
   - injection H1 as <- <-; split; [exact H|split; [apply Ext_refl|exact H0]].
   - injection H1 as <- <-; split; [exact H|split; [apply Ext_refl|exact H0]].

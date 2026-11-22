@@ -210,6 +210,7 @@ with tval (t : texp) (K : cword) {struct t} : cval :=
   | TVarE h i => lookup h i K
   | TBindE u p => VTerm u (fpb p) (clean (fpb p) (pnorm p K))
   | TShiftE h t' => if is_bind t' then tval t' K else tval t' (pushW h K)
+  | TLookE h i a => lookup h i (norm a K)
   end
 with pnorm (p : pexp) (K : cword) {struct p} : cword :=
   match p with

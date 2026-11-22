@@ -27,6 +27,9 @@ theories/Core/CComplete.v
 theories/Core/KnownOrder.v
 theories/Core/HRefine.v
 theories/Core/HConcrete.v
+theories/Core/HDisplay.v
+theories/Core/HDisplaySound.v
+theories/Core/HShow.v
 theories/Core/Names.v
 theories/Core/Context.v
 theories/Core/Syntax.v

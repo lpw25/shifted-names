@@ -26,7 +26,7 @@ Proof. reflexivity. Qed.
 (** Slots are positions in the output context, of type [slot K]; tail
     names are local to their context form.  A variable is not a slot, and
     outside can stand for one. *)
-Fail Check (fun (c : var 0) => (⟦ "x" as c \ "x" as d ⟧ : adj T 0 0)).
+Fail Definition var_not_slot := (fun (c : var 0) => (⟦ "x" as c \ "x" as d ⟧ : adj T 0 0)).
 Fail Check (fun (W : Type) (Δ : W) (σ : adj T 0 0) => ⟦ "x" | Δ \ "y" | Γ[σ] ⟧).
 Fail Check (fun (σ : adj T 0 0) => ⟦ "x" | tt \ "y" | Γ[σ] ⟧).
 Fail Check (fun (u : T) => (⟦ "y" := u⟨ "x" as c ⟩ ⟧ : adj T 0 0)).

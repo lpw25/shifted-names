@@ -286,6 +286,7 @@ with tval (t : texp) (K : word) (S : st) {struct t} : val * st :=
   | TShiftE h t' =>
       if is_bind t' then tval t' K S
       else let '(K1, S1) := pushW h K S in tval t' K1 S1
+  | TLookE h i a => let '(K1, S1) := norm a K S in lookup h i K1 S1
   end
 with pnorm (p : pexp) (K : word) (S : st) {struct p} : word * st :=
   match p with

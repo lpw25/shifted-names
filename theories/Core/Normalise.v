@@ -834,6 +834,7 @@ with texp : Type :=
 | TVarE (h : lexp) (i : nat)
 | TBindE (u : nat) (p : pexp)
 | TShiftE (h : lexp) (t : texp)
+| TLookE (h : lexp) (i : nat) (a : aexp)
 with pexp : Type :=
 | PId
 | PAtom (n : nat)
@@ -881,6 +882,7 @@ with teden (t : texp) : rtarget T :=
   | TVarE h i => RRename (mk_rvar (lden h) i)
   | TBindE u p => match nth_error tenv u with Some x => RBind x (peden p) | None => RRename (mk_rvar None 0) end
   | TShiftE h t => match teden t with RRename w => RRename (shift_rvar (mk_rvar (lden h) 0) w) | r => r end
+  | TLookE h i a => rapply_target (aeden a) (RRename (mk_rvar (lden h) i))
   end
 with peden (p : pexp) : rpadj T :=
   match p with

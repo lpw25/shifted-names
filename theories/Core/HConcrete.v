@@ -17,6 +17,10 @@ From Stdlib Require Import List Arith Lia Bool PArith.
 From ShiftedNames.Core Require Import Label Var Adjustment Laws Normalise CNorm Comp HNorm KnownOrder HRefine CSound.
 Import ListNotations.
 
+(** A target built from variables and terms alone. *)
+Fixpoint plain (t : texp) : bool :=
+  match t with TVarE _ _ | TBindE _ _ => true | TShiftE _ t => plain t | TLookE _ _ _ => false end.
+
 (** Term atoms below [n]. *)
 Fixpoint aok (n : nat) (a : aexp) : bool :=
   match a with
@@ -29,7 +33,8 @@ with tok (n : nat) (t : texp) : bool :=
   match t with
   | TVarE _ _ => true
   | TBindE u p => Nat.ltb u n && pok n p
-  | TShiftE _ t => tok n t
+  | TShiftE _ t => tok n t && plain t
+  | TLookE _ _ a => aok n a
   end
 with pok (n : nat) (p : pexp) : bool :=
   match p with
@@ -139,18 +144,31 @@ Proof.
   rewrite label_eqb_refl; cbn [andb Nat.leb]; rewrite IH; f_equal; f_equal; lia.
 Qed.
 
-Lemma teden_kind n t : n <= List.length tenv -> tok n t = true ->
+Lemma teden_kind n t : n <= List.length tenv -> tok n t = true -> plain t = true ->
   (CNorm.is_bind t = true -> exists u ρ, teden t = RBind u ρ) /\ (CNorm.is_bind t = false -> exists w, teden t = RRename w).
 Proof.
-  intros Hn; induction t as [h i|u p|h t IH]; cbn [tok CNorm.is_bind Normalise.teden].
-  - intros _; split; [discriminate|intros _; eexists; reflexivity].
-  - intros H; apply andb_true_iff in H as [Hu _]; apply Nat.ltb_lt in Hu.
+  intros Hn; induction t as [h i|u p|h t IH|h i a]; cbn [tok plain CNorm.is_bind Normalise.teden].
+  - intros _ _; split; [discriminate|intros _; eexists; reflexivity].
+  - intros H _; apply andb_true_iff in H as [Hu _]; apply Nat.ltb_lt in Hu.
     destruct (nth_error tenv u) as [w|] eqn:E; [|apply nth_error_None in E; lia].
     split; [intros _; do 2 eexists; reflexivity|discriminate].
-  - intros H; destruct (IH H) as [Hb Hv]; split.
+  - intros H P; apply andb_true_iff in H as [H _]; destruct (IH H P) as [Hb Hv]; split.
     + intros B; destruct (Hb B) as [u [ρ E]]; rewrite E; do 2 eexists; reflexivity.
     + intros B; destruct (Hv B) as [w E]; rewrite E; eexists; reflexivity.
+  - discriminate.
 Qed.
+
+Lemma rapply_target_compose (a b : radj T) w :
+  rapply_target (rcompose a b) (RRename w) = rapply_target a (rapply_target b (RRename w)).
+Proof.
+  unfold rapply_target; rewrite rapply_compose.
+  destruct (rapply b w) as [v|[u ρ]]; [|reflexivity].
+  destruct (rapply a v) as [v'|[u' ρ']]; reflexivity.
+Qed.
+
+Lemma khd_target_iter h i x :
+  rapply_target (iter i (kpop h) x) (RRename (mk_rvar (lden h) 0)) = rapply_target x (RRename (mk_rvar (lden h) (i + 0))).
+Proof. unfold rapply_target; rewrite (khd_iter h i x 0); reflexivity. Qed.
 
 (** An expression acts on [x] as [x] composed with its denotation. *)
 Lemma kden n : n <= List.length tenv ->
@@ -174,11 +192,13 @@ Proof.
   - intros u p IH H x; apply andb_true_iff in H as [Hu Hp]; apply Nat.ltb_lt in Hu.
     cbn [kmodel cterm]; unfold kterm; destruct (nth_error tenv u) as [w|] eqn:E; [|apply nth_error_None in E; lia].
     rewrite (IH Hp); reflexivity.
-  - intros h t IH H x; pose proof (teden_kind n t Hn H) as [Hb Hv].
+  - intros h t IH H x; apply andb_true_iff in H as [H P]; pose proof (teden_kind n t Hn H P) as [Hb Hv].
     destruct (CNorm.is_bind t) eqn:B.
     + destruct (Hb eq_refl) as [u [ρ E]]; rewrite (IH H), E; reflexivity.
     + destruct (Hv eq_refl) as [w E]; rewrite (IH H), E; cbn [kmodel cpop]; unfold kpop, rapply_target.
       rewrite rapply_compose, Laws.rapply_shift; reflexivity.
+  - intros h i a IH H x; unfold cname; cbn [kmodel chd cpop cU]; unfold khd.
+    rewrite (khd_target_iter h i), (IH H), Nat.add_0_r; apply rapply_target_compose.
   - intros _ x; reflexivity.
   - intros m _ x; reflexivity.
   - intros a IHa p IHp H x; apply andb_true_iff in H as [Ha Hp].
