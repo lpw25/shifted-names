@@ -113,17 +113,17 @@ Lemma var_fact {term tv sub} (L : SubstLaw term tv sub) (Le : braun label) (Te :
 Proof. intros H1 H2; exists K, w; split; [exact H1|exact H2]. Qed.
 
 Lemma conv_rel {term} (tv : forall K, var K -> term K) (sub : forall N M, adj term N M -> term N -> term M)
-    nf vf Le Te Ae (A B : radj {K & term K}) e :
+    nf vf Le Te Ae (A B : radj {K & term K}) f e :
   Forall (fun '(k, (k', C)) => exists K M (c : adj term K M) (u : term K),
             adj_raw c = aedenB Le Te Ae C /\ bnth Te k' = Some (existT term K u)
             /\ bnth Te k = Some (existT term M (sub K M c u))) nf ->
   Forall (fun '(k, (h, i)) => exists K (w : var K),
             bnth Te k = Some (existT term K (tv K w)) /\ var_raw w = mk_rvar (ldenB Le h) (N.to_nat i)) vf ->
-  A = aedenB Le Te Ae e -> aedenB Le Te Ae (aconv nf vf e) = B ->
+  A = aedenB Le Te Ae e -> aedenB Le Te Ae (aconvn nf vf f e) = B ->
   forall v, drel (lawbase tv sub) (rapply A v) (rapply B v).
 Proof.
   intros Hn Hv -> <- v.
-  refine (drel_mono _ _ (cbase_lawbase tv sub) _ _ (proj1 (conv_sound nf vf tv sub Le Te Ae Hn Hv) e v)).
+  refine (drel_mono _ _ (cbase_lawbase tv sub) _ _ (aconvn_sound nf vf tv sub Le Te Ae Hn Hv f e v)).
 Qed.
 
 Lemma share_intro_r {T N M K L} (a : adj T N M) (A : adj T K L) (f : adj T K L -> adj T N M) :
@@ -1395,21 +1395,12 @@ Ltac2 defs_proof (t : constr) (rel : constr) (atoms : constr list) (defl : const
 
 Ltac2 Type outcome := [ Shown (constr) | NotShown ].
 
-(** The normal forms [names] has produced: rewriting them again would
-    give them back. *)
-(** [seen]: normal forms, not normalised again; [done]: adjustments of
-    nodes finished (normal, and with no payloads left to materialise);
-    [failed]: adjustments that could not be shown; [mterms]: the terms of
-    the normal forms produced. *)
-Ltac2 Type memo := { mutable seen : constr list; mutable done : constr list; mutable failed : constr list;
-                     mutable mterms : constr list }.
-
 (** [a = b], [b] the rendering of the normal form of [a], rewritten in the
-    goal; the terms of [b]. *)
+    goal by [rw]. *)
 (** [eq_refl x : x = y], [y] a computation the kernel does. *)
 Ltac2 refl (ty : constr) (x : constr) : constr := app constr:(@eq_refl) [ty; x].
 
-Ltac2 show_adj (memo : memo) (a : constr) : outcome :=
+Ltac2 show_adj_with (rw : constr -> unit) (a : constr) : outcome :=
   lazy_match! Constr.type a with
   | adj ?t ?n ?m =>
       let ty := Constr.type a in
@@ -1428,7 +1419,6 @@ Ltac2 show_adj (memo : memo) (a : constr) : outcome :=
           let terms := en.(e_terms) in
           let rd := (render_term t ty ns (en.(e_labs)) (Array.of_list terms) (en.(e_atoms)) (en.(e_nb)) (sh.(sh_l)) root) in
           let b := rd.(rd_term) in
-          memo.(seen) := (b :: (memo.(seen)));
           (if Constr.equal a b then () else
            let id := fresh @E in
            let (le, te, ae, hl) := (en.(e_le), en.(e_te), en.(e_ae), en.(e_hl)) in
@@ -1455,12 +1445,13 @@ Ltac2 show_adj (memo : memo) (a : constr) : outcome :=
              app constr:(@adj_eq) [t; n; m; a; root';
                app q [rsl; at_; refl constr:(braun label) lt; refl '(braun $pt) tt; refl '(braun (radj $pt)) at_; hd; hsp]]) in
            assert_by id '($a = $b) (fun () => Std.exact_no_check pf);
-           (rewrite_with (Control.hyp id)); Std.clear [id]);
-          memo.(mterms) := List.append terms (memo.(mterms));
+           (rw (Control.hyp id)); Std.clear [id]);
           Shown b
       | None => NotShown
       end
   end.
+
+Ltac2 show_adj (a : constr) : outcome := show_adj_with rewrite_with a.
 
 (** ** Candidates
 
@@ -1526,31 +1517,6 @@ Ltac2 rec cands_skip (p : constr -> bool) (skip : constr -> bool) (inside : cons
   if (if p c then Constr.Unsafe.is_closed c else false) then
     if skip c then (if inside c then go acc else acc) else add_new c acc
   else go acc.
-
-Ltac2 seen_in (memo : memo) (x : constr) : bool := List.exist (Constr.equal x) (memo.(seen)).
-
-(** The adjustments of the goal, one at a time, the outermost first: each
-    is rewritten to its normal form, and the candidates are found again
-    in the goal it gives (a rewrite also changes the other occurrences of
-    the adjustment, inside others).  A normal form produced is not looked
-    inside, but its terms are; an adjustment that could not be shown is
-    looked inside. *)
-Ltac2 rec names_adjs (memo : memo) : unit :=
-  let hs := adj_heads () in
-  let failed x := List.exist (Constr.equal x) (memo.(failed)) in
-  let skip x := Bool.or (seen_in memo x) (failed x) in
-  let p := is_adj_head_in hs in
-  let cs := List.fold_left (fun acc u => cands_skip p skip failed u acc)
-              (cands_skip p skip failed (Control.goal ()) []) (memo.(mterms)) in
-  match List.rev cs with
-  | [] => ()
-  | a :: _ =>
-      (match Control.case (fun () => Control.once (fun () => show_adj memo a)) with
-       | Val (Shown _, _) => ()
-       | _ => memo.(failed) := a :: (memo.(failed))
-       end);
-      names_adjs memo
-  end.
 
 (** ** Variables *)
 
@@ -1636,16 +1602,6 @@ Ltac2 is_csubst_in (cs : constr) (c : constr) : bool :=
   | _ => false
   end.
 
-(** The first subterm [t] in the goal, inner ones first, on which [f t]
-    succeeds, repeatedly. *)
-Ltac2 rec each_until_fail (p : constr -> bool) (f : constr -> unit) : unit :=
-  let rec first cs :=
-    match cs with
-    | [] => false
-    | c :: cs => if Control.plus (fun () => Control.once (fun () => f c); true) (fun _ => false) then true else first cs
-    end in
-  if first (cands_all p (Control.goal ()) []) then each_until_fail p f else ().
-
 Ltac2 names_apply () : unit :=
   Notations.repeat0 (fun () =>
     match! goal with
@@ -1692,7 +1648,7 @@ Ltac2 names_eval () : unit :=
     An adjustment [A] with terms with payload adjustments, used in a
     substitution node [csubst L a t] (built with the syntax's [L]), is
     replaced by [A'] where the first such term [u⟨b⟩] is [u [b]]. *)
-Ltac2 mat_one (memo : memo) (node : constr) : constr :=
+Ltac2 mat_one (node : constr) : constr :=
   let (_, na) := split_app node in
   let (term, vr, sub, lw, n, m, a) :=
     (Array.get na 0, Array.get na 1, Array.get na 2, Array.get na 3, Array.get na 4, Array.get na 5, Array.get na 6) in
@@ -1717,7 +1673,6 @@ Ltac2 mat_one (memo : memo) (node : constr) : constr :=
           | Some (u, bsh) =>
               let (shb, rb) := (bsh.(sh_c), bsh.(sh_root)) in
               let terms := en.(e_terms) in
-              memo.(mterms) := List.append terms (memo.(mterms));
               let y := nth_c terms (int_of_n u) in
               let (ku, ut) := term_parts y in
               (* [u [b]] as the node, as a function of [b] *)
@@ -1735,10 +1690,6 @@ Ltac2 mat_one (memo : memo) (node : constr) : constr :=
               let (rd, rbs) := render_all ty ns (en.(e_labs)) (en.(e_atoms)) (en.(e_nb)) shs
                                  [(rb, Some ku, m); (r', Some n, m)] scope_of term_of in
               let a' := rd.(rd_term) in
-              (* the materialised payloads are normal forms *)
-              List.iter (fun c => let (_, ca) := split_app c in
-                                  if Constr.equal (Array.get ca 7) ut then memo.(seen) := Array.get ca 6 :: (memo.(seen)) else ())
-                (cands_all (is_csubst_in csub) a' []);
               let hid := fresh @H in
               let pty := constr:((N * (list aexpN * aexpN))%type) in
               let sty := constr:((list aexpN * aexpN)%type) in
@@ -1815,7 +1766,7 @@ Ltac2 var_term (heads : constr list) (u : constr) : (constr * constr) option :=
     u], are converted ([aconv]): a variable to a look-up through its
     payload, a substitution to [u] with [c] in its payload.  The result
     is normalised and shown, by the law's [sl_rel]. *)
-Ltac2 conv_one (memo : memo) (node : constr) : constr :=
+Ltac2 conv_one (node : constr) : constr :=
   let (_, na) := split_app node in
   let (term, vr, sub, lw, n, m, a) :=
     (Array.get na 0, Array.get na 1, Array.get na 2, Array.get na 3, Array.get na 4, Array.get na 5, Array.get na 6) in
@@ -1825,8 +1776,10 @@ Ltac2 conv_one (memo : memo) (node : constr) : constr :=
   let e := reify_adj s ty n m a in
   let cs := constr:(@csubst) in
   let vh := var_heads vr in
-  let items := List.combine (List.init ((s.(terms)).(size)) (fun k => k)) (List.rev ((s.(terms)).(items))) in
-  let (nfs, vfs) := List.fold_left (fun (nfs, vfs) (k, it) =>
+  (* the terms of [a], then those of the nested substitutions found, in
+     rounds *)
+  let one acc ki :=
+      let (nfs, vfs) := acc in let (k, it) := ki in
       let (_, u) := term_parts it in
       let (uf, ua) := split_app u in
       match var_term vh u with
@@ -1849,7 +1802,14 @@ Ltac2 conv_one (memo : memo) (node : constr) : constr :=
           ((k, k', ce, kc, mc, c, u', it) :: nfs, vfs)
         else (nfs, vfs)
       else (nfs, vfs)
-      end) ([], []) items in
+      end in
+  let rec rounds k0 acc :=
+    let sz := (s.(terms)).(size) in
+    if Int.ge k0 sz then acc else
+    let items := List.skipn k0 (List.rev ((s.(terms)).(items))) in
+    let acc := List.fold_left one acc (List.combine (List.init (Int.sub sz k0) (fun k => Int.add k0 k)) items) in
+    rounds sz acc in
+  let (nfs, vfs) := rounds 0 ([], []) in
   match (nfs, vfs) with
   | ([], []) => Control.zero Not_found
   | _ =>
@@ -1866,12 +1826,12 @@ Ltac2 conv_one (memo : memo) (node : constr) : constr :=
       let nfi := List.map (fun (k, k', ce, _, _, _, _, _) => app pnn [n_lit k; app pna [n_lit k'; ce]]) nfs in
       let vfi := List.map (fun (k, h, i, _, _, _) => app pvl [n_lit k; app pln [h; i]]) vfs in
       let (nfc, vfc) := (list_of nfty nfi, list_of vfty vfi) in
-      let ce := '(aconv $nfc $vfc $e) in
+      let fuel := nat_lit ns (List.length nfs) in
+      let ce := '(aconvn $nfc $vfc $fuel $e) in
       match vm_show '(hshowDN (order_of $l) $nt $nb $defs $ce) with
       | Some sh =>
           let (shd, root) := (sh.(sh_c), sh.(sh_root)) in
           let terms := en.(e_terms) in
-          memo.(mterms) := List.append terms (memo.(mterms));
           let rd := render_term ty '(adj $ty $n $m) ns (en.(e_labs)) (Array.of_list terms) (en.(e_atoms)) (en.(e_nb)) (sh.(sh_l)) root in
           let a' := rd.(rd_term) in
           (if Constr.equal a a' then Control.zero Not_found else ());
@@ -1891,7 +1851,7 @@ Ltac2 conv_one (memo : memo) (node : constr) : constr :=
                          (hn : Forall ($prn Ae) $nfc) (hv : Forall $prv $vfc)
                          (hd : Forall2 (fun x od => match od with Some d => x = aedenB $lt $tt Ae d | None => True end) $ae $defs)
                          (hs : Forall2 (fun z0 d0 => z0 = aedenB $lt $tt Ae d0) rs $shd) (v : var $n) =>
-                       conv_rel $vr $sub $nfc $vfc $lt $tt Ae _ _ $e hn hv eq_refl
+                       conv_rel $vr $sub $nfc $vfc $lt $tt Ae _ _ $fuel $e hn hv eq_refl
                          (hshowDB_sound $le $te $ae rs $lt $tt Ae hLe hTe hAe $l $defs $ce $shd $root $hl $ht hd hs)
                          (var_raw v)) in
           let hrel := '(fun (Ae : braun (radj $pt)) (x : radj $pt) (od : option aexpN) =>
@@ -2000,7 +1960,7 @@ Ltac2 look_node (node : constr) : unit :=
 
 (** A node substituting into a variable, evaluated when the normal form of
     its adjustment sends the variable to a variable or a term. *)
-Ltac2 eval_node (memo : memo) (node : constr) : unit :=
+Ltac2 eval_node (node : constr) : unit :=
   let (_, na) := split_app node in
   let (term, vr, sub, lw, n, m, a, t) :=
     (Array.get na 0, Array.get na 1, Array.get na 2, Array.get na 3, Array.get na 4, Array.get na 5,
@@ -2014,41 +1974,83 @@ Ltac2 eval_node (memo : memo) (node : constr) : unit :=
   | _ = Rename ?w =>
       rewrite_with '(@node_rename $term $vr $sub $lw $n $m $a $v $w $hid : $node = $vr $m $w); Std.clear [id]
   | @eq _ _ (@Bind _ _ ?k ?x ?rho) =>
-      memo.(seen) := rho :: (memo.(seen));
       rewrite_with '(@node_bind $term $vr $sub $lw $n $m $a $v $k $x $rho $hid : $node = csubst $lw $rho $x); Std.clear [id]
   end.
 
-(** All of [names]'s work on one substitution node [csubst L a t]: [a]
-    converted and normalised (or only normalised, when there is nothing
-    to convert), its payloads materialised, and, when [t] is a variable,
-    the node evaluated.  It fails on a node already done. *)
-Ltac2 node_one (memo : memo) (node : constr) : unit :=
-  let (_, na) := split_app node in
-  let (lw, a, t) := (Array.get na 3, Array.get na 6, Array.get na 7) in
-  let mk a := app constr:(@csubst) [Array.get na 0; Array.get na 1; Array.get na 2; lw; Array.get na 4; Array.get na 5; a; t] in
-  let isv := match var_term (var_heads (Array.get na 1)) t with Some _ => true | None => false end in
-  let done_a := List.exist (Constr.equal a) (memo.(done)) in
-  if Bool.and done_a (Bool.neg isv) then Control.zero Not_found else
-  let a1 :=
-    if seen_in memo a then a
-    else
-      let a1 := Control.plus (fun () => Control.once (fun () => conv_one memo (mk a)))
-                  (fun _ => match Control.case (fun () => Control.once (fun () => show_adj memo a)) with
-                            | Val (Shown b, _) => b
-                            | _ => a
-                            end) in
-      memo.(seen) := a1 :: (memo.(seen)); a1 in
-  let rec mats a :=
-    match Control.case (fun () => Control.once (fun () => mat_one memo (mk a))) with
-    | Val (a', _) => memo.(seen) := a' :: (memo.(seen)); mats a'
-    | Err _ => a
-    end in
-  let a2 := if done_a then a1 else mats a1 in
-  memo.(done) := a2 :: (memo.(done));
-  if isv then Control.plus (fun () => Control.once (fun () => eval_node memo (mk a2))) (fun e => if done_a then Control.zero e else ())
-  else ().
+(** ** The passes *)
 
-Ltac2 names_nodes (memo : memo) : unit := let cs := constr:(@csubst) in each_until_fail (is_csubst_in cs) (node_one memo).
+(** [f c], once, for each of [cs]; a failure is ignored. *)
+Ltac2 each (f : constr -> unit) (cs : constr list) : unit :=
+  List.iter (fun c => match Control.case (fun () => Control.once (fun () => f c)) with _ => () end) cs.
+
+(** The nodes and adjustments of [c] not inside an adjustment: inside a
+    node, only its term is looked in. *)
+Ltac2 rec outer (cs : constr) (hs : heads) (c : constr) (acc : constr list) : constr list :=
+  let closed := Constr.Unsafe.is_closed c in
+  if Bool.and (is_csubst_in cs c) closed then
+    let (_, na) := split_app c in outer cs hs (Array.get na 7) (add_new c acc)
+  else if Bool.and (is_adj_head_in hs c) closed then add_new c acc
+  else
+    let r := { contents := acc } in
+    Constr.Unsafe.iter (fun x => r.(contents) := outer cs hs x (r.(contents))) c;
+    r.(contents).
+
+(** The adjustment of a node. *)
+Ltac2 node_adj (c : constr) : constr := let (_, na) := split_app c in Array.get na 6.
+
+(** [h : a = b], rewritten in the nodes [csubst L a t] like [node] only. *)
+Ltac2 node_rw (node : constr) (h : constr) : unit :=
+  let (_, na) := split_app node in
+  let (term, vr, sub, lw, n, m, a) :=
+    (Array.get na 0, Array.get na 1, Array.get na 2, Array.get na 3, Array.get na 4, Array.get na 5, Array.get na 6) in
+  let b := lazy_match! Constr.type h with _ = ?b => b end in
+  rewrite_all_instances
+    '((fun t => f_equal (fun x => @csubst $term $vr $sub $lw $n $m x t) $h)
+      : forall t, @csubst $term $vr $sub $lw $n $m $a t = @csubst $term $vr $sub $lw $n $m $b t).
+
+(** Pass 1: each node's adjustment, with its nested substitutions and its
+    variables converted to payloads and look-ups, normalised; and each
+    other adjustment normalised.  (A node's adjustment is taken once:
+    the rewrite changes the nodes that share it.) *)
+Ltac2 names_norm () : unit :=
+  let cs := constr:(@csubst) in
+  let xs := List.rev (outer cs (adj_heads ()) (Control.goal ()) []) in
+  let rec dedup xs seen :=
+    match xs with
+    | [] => []
+    | x :: xs =>
+        let k := if is_csubst_in cs x then node_adj x else x in
+        if List.exist (Constr.equal k) seen then dedup xs seen else x :: dedup xs (k :: seen)
+    end in
+  each (fun x =>
+    if is_csubst_in cs x then
+      Control.plus (fun () => let _ := conv_one x in ()) (fun _ => let _ := show_adj_with (node_rw x) (node_adj x) in ())
+    else let _ := show_adj x in ()) (dedup xs []).
+
+(** Pass 2: each node substituting into a variable, evaluated. *)
+Ltac2 names_vars () : unit :=
+  let cs := constr:(@csubst) in
+  let isv c := if is_csubst_in cs c then
+                 let (_, na) := split_app c in
+                 match var_term (var_heads (Array.get na 1)) (Array.get na 7) with Some _ => true | None => false end
+               else false in
+  each eval_node (cands_all isv (Control.goal ()) []).
+
+(** Pass 3: each node's payloads materialised, then those of the nodes
+    this makes. *)
+Ltac2 rec mat_node (node : constr) : unit :=
+  let (f, na) := split_app node in
+  let mk a := Array.set na 6 a; app f (Array.to_list na) in
+  let rec mats a := match Control.case (fun () => Control.once (fun () => mat_one (mk a))) with
+                    | Val (a', _) => mats a'
+                    | Err _ => a
+                    end in
+  let a := mats (Array.get na 6) in
+  each mat_node (candidates (is_csubst_in constr:(@csubst)) a).
+
+Ltac2 names_mats () : unit :=
+  let cs := constr:(@csubst) in
+  each mat_node (List.filter (is_csubst_in cs) (List.rev (outer cs (adj_heads ()) (Control.goal ()) []))).
 
 (** ** The tactic
 
@@ -2059,51 +2061,38 @@ Ltac2 names_nodes (memo : memo) : unit := let cs := constr:(@csubst) in each_unt
        nested substitutions fuse;
     2. rewrites with [names_node]: substitutions are nodes
        [csubst L a t];
-    3. finishes each node, inner ones first ([node_one]): converts its
-       terms that are variables to look-ups and those that are
-       substitutions to payloads, and normalises ([conv_one]);
-       materialises payloads as substitutions ([u⟨b⟩] becomes [u [b]],
-       [mat_one]); and evaluates a node substituting into a variable;
-    4. rewrites every other adjustment built from context forms and [∘] to
-       its normal form, shown as context forms ([names_adjs]);
-    5. evaluates [apply_var a v] and [eval] nodes for variables the normal
+    3. normalises ([names_norm]): in each node's adjustment, the terms
+       that are substitutions become payloads and those that are
+       variables look-ups, all the way down ([conv_one]), and the result
+       is normalised; any other adjustment is normalised;
+    4. evaluates each node substituting into a variable ([names_vars]);
+    5. materialises payloads as substitutions, [u⟨b⟩] becoming [u [b]]
+       ([names_mats]);
+    6. evaluates [apply_var a v] and [eval] nodes for variables the normal
        form of [a] renames or sends to a term;
-    6. rewrites with [names_post]: the nodes back, and identity
+    7. rewrites with [names_post]: the nodes back, and identity
        substitutions go.
-    A node is finished before the nodes around it, so what it becomes
-    (an atom, a variable, or a term with a normal payload) needs no more
-    work when they are finished. *)
+    Each step's results need nothing from the ones before: a payload's
+    normal form is normal, and what a node on a variable becomes is a
+    variable, or a node with a term that is not one and a normal
+    adjustment. *)
 Ltac2 autorw (db : ident) : unit := Std.autorewrite false None [db] (concl ()).
 
-Ltac2 names_pass (memo : memo) : unit :=
+Ltac2 names_pass () : unit :=
   (autorw @names_pre);
   (autorw @names_node);
-  (names_nodes memo);
-  (names_adjs memo);
+  (names_norm ());
+  (names_vars ());
+  (names_mats ());
   (names_apply ());
   (names_eval ());
   (autorw @names_post).
 
 (** [names] commits to what it does: a failure after it does not backtrack
     into it. *)
-Ltac2 names_tac () : unit :=
-  Control.enter (fun () => Control.once (fun () => names_pass { seen := []; done := []; failed := []; mterms := [] })).
+Ltac2 names_tac () : unit := Control.enter (fun () => Control.once names_pass).
 
 Ltac2 Notation "names" := names_tac ().
-
-(** For testing: [names], then fail if a second [names] would change the
-    goal. *)
-Ltac2 names_once_check () : unit :=
-  Control.enter (fun () =>
-    names_tac ();
-    Control.enter (fun () =>
-      let g := Control.goal () in
-      names_tac ();
-      Control.enter (fun () =>
-        if Constr.equal g (Control.goal ()) then ()
-        else Control.throw (Tactic_failure (Some (Message.concat (Message.of_string "names: a second pass changes ")
-                                                                   (Message.of_constr g))))))).
-Ltac names_check := ltac2:(names_once_check ()).
 
 (** For Ltac1 proofs. *)
 Ltac names := ltac2:(names_tac ()).

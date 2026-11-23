@@ -159,6 +159,20 @@ Example subst_var_term_atom x y (M : tm 0) (s : sub 0 0) :
   M [⟦ x := (tvar (fvar y 0)) ⟧ ⨾ s] = M [(⟦ x as (fvar y 0) ⟧ : sub 0 0)] [s].
 Proof. names; reflexivity. Qed.
 
+(** A variable that a substitution sends through an atom is left there. *)
+Example var_through_atom x y (s : sub 0 0) :
+  (tvar (fvar x 0) : tm 0) [⟦ x := (tvar (fvar y 0)) ⟧ ⨾ s] = (tvar (fvar y 0)) [s].
+Proof. names; reflexivity. Qed.
+
+(** Substitutions nested in substitutions are converted all the way down. *)
+Example nested_var_var x y z (M : tm 0) :
+  M [⟦ x := ((tvar (fvar y 0)) [⟦ y := (tvar (fvar z 0)) ⟧]) ⟧] = M [⟦ x as (fvar z 0) ⟧].
+Proof. names; reflexivity. Qed.
+
+Example nested_var_term x y (u M : tm 0) (s : sub 0 0) :
+  M [⟦ x := ((tvar (fvar y 0)) [⟦ y := u ⟧ ⨾ s]) ⟧] = M [⟦ x := (u [s]) ⟧].
+Proof. names; reflexivity. Qed.
+
 (** A payload with an atom in it is materialised. *)
 Example mat_atom x y (N L M : tm 0) (s : sub 0 0) :
   M [⟦ x := N ⟧] [⟦ y := L ⟧] [s] = M [⟦ x := (N [⟦ y := L ⟧ ⨾ s]); y := (L [s]) | s ⟧].

@@ -115,6 +115,12 @@ Section Conv.
 Variable nf : list (N * (N * aexpN)).
 Variable vf : list (N * (lexp * N)).
 
+(** [cC]: the conversion of the nested payloads [C]. *)
+Variable cC : aexpN -> aexpN.
+
+Definition tbind (u : N) (p : aexpN) : texpN :=
+  match nlook u vf with Some (h, i) => NLookE h i p | None => NBindE u p end.
+
 Fixpoint aconv (e : aexpN) : aexpN :=
   match e with
   | NId => NId
@@ -130,12 +136,8 @@ with tconv (t : texpN) : texpN :=
   | NBindE u p =>
       let p' := aconv p in
       match nlook u nf with
-      | Some (u', C) => NBindE u' (NCompose p' C)
-      | None =>
-          match nlook u vf with
-          | Some (h, i) => NLookE h i p'
-          | None => NBindE u p'
-          end
+      | Some (u', C) => tbind u' (NCompose p' (cC C))
+      | None => tbind u p'
       end
   | NShiftE h t => NShiftE h t
   | NLookE h i a => NLookE h i (aconv a)
@@ -158,6 +160,7 @@ Hypothesis Hvf : Forall (fun '(k, (h, i)) => exists K (w : var K),
 
 Local Notation B := (cbase tv sub).
 
+
 Lemma tres_bind u p : rtarget_result (tden (NBindE u p))
   = match bnth Te u with Some x => inr (x, den p) | None => inl (mk_rvar None 0) end.
 Proof. cbn [tedenB]; destruct (bnth Te u); reflexivity. Qed.
@@ -166,6 +169,19 @@ Lemma tres_look h i a : rtarget_result (tden (NLookE h i a)) = rapply (den a) (m
 Proof.
   change (tden (NLookE h i a)) with (rapply_target (den a) (RRename (mk_rvar (ldenB Le h) (N.to_nat i)))).
   unfold rapply_target; destruct (rapply _ _) as [w|[u ρ]]; reflexivity.
+Qed.
+
+Hypothesis HcC : forall C v, drel B (rapply (den C) v) (rapply (den (cC C)) v).
+
+(** A term [u] with the payload [p], against [tbind u p]. *)
+Lemma tbind_sound u p : drel B (rtarget_result (tden (NBindE u p))) (rtarget_result (tden (tbind u p))).
+Proof.
+  unfold tbind; destruct (nlook u vf) as [[h i]|] eqn:Ev; [|apply DEq].
+  pose proof (nlook_in _ _ _ Ev) as Hin; rewrite Forall_forall in Hvf.
+  destruct (Hvf _ Hin) as [K [w [Ew Hw]]].
+  rewrite tres_bind, Ew; apply DBase; right.
+  exists K, w, (den p); split; [reflexivity|].
+  rewrite tres_look, Hw; reflexivity.
 Qed.
 
 Theorem conv_sound :
@@ -189,23 +205,39 @@ Proof.
     assert (Hp : forall x, drel B (inr (x, den p)) (inr (x, den (aconv p)))).
     { intros x; rewrite <- (rcompose_identity_r (den p)), <- (rcompose_identity_r (den (aconv p))).
       apply DPay, IH. }
-    destruct (nlook u nf) as [[u' C]|] eqn:En.
+    destruct (nlook u nf) as [[u' C]|] eqn:En; (eapply DTrans; [|apply tbind_sound]).
     + pose proof (nlook_in _ _ _ En) as Hin; rewrite Forall_forall in Hnf.
       destruct (Hnf _ Hin) as [K [M [c [x' [Ec [Ex' Ex]]]]]].
       rewrite !tres_bind, Ex, Ex'; eapply DTrans; [apply Hp|].
-      apply DBase; left.
-      exists K, M, x', c, (den (aconv p)); split; [reflexivity|].
-      cbn [aedenB]; rewrite Ec; reflexivity.
-    + destruct (nlook u vf) as [[h i]|] eqn:Ev.
-      * pose proof (nlook_in _ _ _ Ev) as Hin; rewrite Forall_forall in Hvf.
-        destruct (Hvf _ Hin) as [K [w [Ew Hw]]].
-        rewrite tres_bind, Ew; eapply DTrans; [apply Hp|].
-        apply DBase; right.
-        exists K, w, (den (aconv p)); split; [reflexivity|].
-        rewrite tres_look, Hw; reflexivity.
-      * rewrite !tres_bind; destruct (bnth Te u); [apply Hp|apply DEq].
+      eapply DTrans; [apply DBase; left; exists K, M, x', c, (den (aconv p)); split; reflexivity|].
+      cbn [aedenB]; rewrite Ec, <- (rcompose_identity_r (rcompose _ (den C))), <- (rcompose_identity_r (rcompose _ (den (cC C)))).
+      apply DPay; intros v; rewrite <- !rcomp_rapply.
+      apply (drel_rcomp B (cbase_rcomp tv sub)), HcC.
+    + rewrite !tres_bind; destruct (bnth Te u); [apply Hp|apply DEq].
   - intros h t _; apply DEq.
   - intros h i a IH; cbn [tconv]; rewrite !tres_look; apply IH.
 Qed.
 
 End Conv.
+
+(** Conversion to depth [f]: the nested payloads converted to depth
+    [f - 1]. *)
+Fixpoint aconvn (nf : list (N * (N * aexpN))) (vf : list (N * (lexp * N))) (f : nat) : aexpN -> aexpN :=
+  match f with
+  | O => aconv nf vf (fun C => C)
+  | S f => aconv nf vf (aconvn nf vf f)
+  end.
+
+Theorem aconvn_sound nf vf {term} (tv : forall K, var K -> term K) (sub : forall K M, adj term K M -> term K -> term M)
+    Le Te Ae :
+  Forall (fun '(k, (k', C)) => exists K M (c : adj term K M) (u : term K),
+            adj_raw c = aedenB Le Te Ae C /\ bnth Te k' = Some (existT term K u)
+            /\ bnth Te k = Some (existT term M (sub K M c u))) nf ->
+  Forall (fun '(k, (h, i)) => exists K (w : var K),
+            bnth Te k = Some (existT term K (tv K w)) /\ var_raw w = mk_rvar (ldenB Le h) (N.to_nat i)) vf ->
+  forall f e v, drel (cbase tv sub) (rapply (aedenB Le Te Ae e) v) (rapply (aedenB Le Te Ae (aconvn nf vf f e)) v).
+Proof.
+  intros Hn Hv f; induction f as [|f IH]; cbn [aconvn].
+  - apply (conv_sound nf vf (fun C => C) tv sub Le Te Ae Hn Hv (fun C v => DEq _ _)).
+  - apply (conv_sound nf vf (aconvn nf vf f) tv sub Le Te Ae Hn Hv IH).
+Qed.

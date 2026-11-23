@@ -101,42 +101,46 @@ compute, so closed equations hold by `vm_compute` (`Tests/CoreTests.v`).
 an abbreviation for the Kleisli extension of the library's `apply` at the
 top, users push it through their own constructors with `cbn`, and a
 syntax's `Subst` functor contributes monad laws and its substitution law,
-in four rewrite databases. One pass of `names`:
+in three rewrite databases. `names` makes one pass:
 
 1. rewrites with `names_pre` to a fixpoint: going under a binder lifts
    the adjustment (`kleisli (apply a) (ext_under e) = kleisli (apply (lift
    a)) (ext_shift e)`, and the same for `apply` on a variable), and nested
    substitutions fuse (`t [a] [b] = t [a ⨾ b]`);
-2. rewrites with `names_var`: substituting into a variable is the core
-   node `eval tvar (fun K ρ u => u [ρ]) a v` (`(tvar v) [a]`, and
-   `apply a ext_here v` as `cbn` leaves it); then with `names_node`: a
-   substitution `t [a]` is the core node `csubst L a t`, which carries
-   the syntax's law `L` (`Names.SubstLaw`), and a variable `tvar w` is
-   the node `cvar L w`;
-3. in each substitution node `csubst L a t`, outer ones first, converts
-   `a` before normalising it (`Conv.aconv`): a term that is a variable
-   `cvar L w` with a payload `W` becomes a look-up of `w` through `W`
-   (`x as w⟨| W ⟩`), and a term that is a substitution `csubst L c u`
-   becomes `u` with `c` in its payload (`u⟨| W ∘ c ⟩`); the result is
-   normalised and shown, and the law's `sl_rel` makes the rewrite;
-4. rewrites every other adjustment built from context forms, `⨾`, `⟦⟧`,
-   `at_scope` and `share` (anything else is an atom) to its normal form
+2. rewrites with `names_node`: a substitution `t [a]` (and `apply a
+   ext_here v` as `cbn` leaves it) is the core node `csubst L a t`, which
+   carries the syntax's law `L` (`Names.SubstLaw`);
+3. normalises (`names_norm`). For each node not inside an adjustment, it
+   converts `a` (`Conv.aconvn`): a term that is a variable `tvar w` with a
+   payload `W` becomes a look-up of `w` through `W` (`x as w⟨| W ⟩`), and
+   a term that is a substitution `csubst L c u` becomes `u` with `c` in
+   its payload (`u⟨| W ∘ c ⟩`), all the way down through the `c`s. The
+   result is normalised and shown, and the law's `sl_rel` makes the
+   rewrite, in the nodes with that adjustment only. Every other
+   adjustment built from context forms, `⨾`, `⟦⟧`, `at_scope` and `share`
+   (anything else is an atom) is rewritten to its normal form
    (`docs/hnorm.md`), shown as context forms;
-5. in each substitution node, outer ones first and then those inside
-   them, turns each term with a payload `u⟨| b ⟩` into the term
-   `csubst L b u` with the identity payload (the law's `sl_rel` again),
-   so that the payloads the normaliser worked on are substitutions again,
-   which reductions outside `names` can work on;
-6. evaluates `apply_var a v` and `eval` nodes whose variable `v` is
-   concrete and whose result the normal form of `a` determines: a
+4. evaluates each node `csubst L a (tvar v)` (`names_vars`), by the law's
+   `sl_var`, when the normal form of `a` determines where `v` goes: a
    variable `w` gives `tvar w`; a term `u` with payload `b` gives
-   `u [b]`;
-7. rewrites with `names_post`: the nodes back to `t [a]` and `tvar w`,
-   `t [⟦⟧] = t`, and an `eval` node left is shown as `(tvar v) [a]`
-   again.
+   `csubst L b u`; and a look-up stuck at `w` through `b` (say, an atom)
+   gives `csubst L b (tvar w)`;
+5. materialises (`names_mats`): in each node, and then in the nodes this
+   makes, each term with a payload `u⟨| b ⟩` becomes the term `csubst L b
+   u` with the identity payload (the law's `sl_rel` again), so that the
+   payloads the normaliser worked on are substitutions again, which
+   reductions outside `names` can work on;
+6. evaluates `apply_var a v` and `eval` left in the goal in the same way;
+7. rewrites with `names_post`: the nodes back to `t [a]`, and `t [⟦⟧] =
+   t`.
 
-`names` repeats passes until nothing changes; a pass after the first only
-finds work in the terms that steps 5 and 6 put in the goal.
+Each step's output needs nothing from the steps before it: step 3 leaves
+no substitution or variable in a normalised adjustment's terms, so step 4
+gives a variable, or a node whose term is neither and whose adjustment is
+a normal form (or part of one), and the payloads of a normal form are
+normal forms, so step 5 makes only normal nodes. A second `names` changes
+nothing in the examples (`Examples/Lambda.v`, `Examples/STLC.v`,
+`Tests/NamesTests.v`).
 
 The law `sl_rel` is about adjustments whose results on each variable are
 related by `drel (lawbase tvar sub)` (`Conv`): a variable with a payload
