@@ -105,7 +105,7 @@ Proof. reflexivity. Qed.
 
 (** What a target check says about the result it gives. *)
 Lemma tscope_result M t :
-  (forall u rho, t = TBind u rho -> nwf false rho) -> tscope_t M cnone t = rwf M (rpack (tresult t)).
+  (forall u rho, t = TBind u rho -> nwf rho) -> tscope_t M cnone t = rwf M (rpack (tresult t)).
 Proof.
   destruct t as [[y|] j|u [r es]]; intros Hw; try reflexivity.
   cbn [tscope_t tresult rpack rwf]; unfold scoped; rewrite radj_n_to_adj by apply (Hw u _ eq_refl).
@@ -113,23 +113,23 @@ Proof.
 Qed.
 
 (** The absolute targets of an entry, and their results. *)
-Lemma entry_target_result Q r (es : atrie entry) k h ts len p t :
-  nlocal Q (NAdj r es) -> aget k es = Some (Entry h ts len p) -> In t (klist (klift r ts)) ->
-  exists i, i < len /\ napply (NAdj r es) (mk_rvar h i) = tresult t /\ Q h = true.
+Lemma entry_target_result r (es : atrie entry) k h ts len p t :
+  nlocal (NAdj r es) -> aget k es = Some (Entry h ts len p) -> In t (klist (klift r ts)) ->
+  exists i, i < len /\ napply (NAdj r es) (mk_rvar h i) = tresult t.
 Proof.
   intros Hl E Ht; pose proof Hl as [_ [_ [Hent _]]].
   destruct (Hent _ _ E) as [[_ [G [Hlen _]]] _].
   rewrite klist_klift in Ht by apply kgood_inv, G; apply in_map_iff in Ht as [t0 [<- Ht0]].
   destruct (In_nth_error _ _ Ht0) as [i Ei].
   assert (Et : knth ts i = Some t0) by (rewrite knth_spec by apply kgood_shape, G; exact Ei).
-  destruct (target_result _ r es k h ts len p i t0 Hl E Et) as [Hn HQ].
-  exists i; split; [|split; [exact Hn|exact HQ]].
+  pose proof (target_result r es k h ts len p i t0 Hl E Et) as Hn.
+  exists i; split; [|exact Hn].
   rewrite <- Hlen, (klength_spec _ (kgood_shape _ G)); apply nth_error_Some; rewrite Ei; discriminate.
 Qed.
 
 (** Where an adjustment sends a variable, by cases on its entry. *)
-Lemma napply_cases Q r (es : atrie entry) v :
-  nlocal Q (NAdj r es) ->
+Lemma napply_cases r (es : atrie entry) v :
+  nlocal (NAdj r es) ->
   (aget (label_key (v_label v)) es = None /\ napply (NAdj r es) v = inl (mk_rvar (v_label v) (dval r (label_key (v_label v)) + v_index v)))
   \/ exists ts len p, aget (label_key (v_label v)) es = Some (Entry (v_label v) ts len p)
        /\ ((v_index v < len /\ exists t, In t (klist (klift r ts)) /\ napply (NAdj r es) v = tresult t)
@@ -153,10 +153,10 @@ Theorem scoped_spec N M a :
 Proof.
   unfold scoped, rapply; pose proof (radj_local a) as Hl; pose proof (radj_wf a) as Hw.
   destruct (radj_n a) as [r es]; rewrite pscopedc_eq; cbv beta.
-  rewrite andb_true_iff, (targets_check (tscope_t M) (tscope_unshift M) Qall r es Hl).
+  rewrite andb_true_iff, (targets_check (tscope_t M) (tscope_unshift M) r es Hl).
   set (kN := label_key None).
-  assert (Hpay : forall v t u rho, napply (NAdj r es) v = tresult t -> t = TBind u rho -> nwf false rho)
-    by (intros v t u rho E ->; apply (nwf_payload false _ v u rho Hw eq_refl E)).
+  assert (Hpay : forall v t u rho, napply (NAdj r es) v = tresult t -> t = TBind u rho -> nwf rho)
+    by (intros v t u rho E ->; apply (nwf_payload _ v u rho Hw E)).
   (* the bound label's entry, as a pair *)
   assert (Hcase : forall i, napply (NAdj r es) (mk_rvar None i)
                   = match aget kN es with
@@ -173,7 +173,7 @@ Proof.
       split.
       * intros i Hi; rewrite Hcase; cbn [eapply].
         destruct (Nat.ltb_spec i len); [lia|]; cbn [rpack]; f_equal; f_equal; fold kN; lia.
-      * intros v Hv; destruct (napply_cases Qall r es v Hl) as [[E En]|[ts' [len' [p' [E [[_ [t [Htt En]]]|[Hi En]]]]]]];
+      * intros v Hv; destruct (napply_cases r es v Hl) as [[E En]|[ts' [len' [p' [E [[_ [t [Htt En]]]|[Hi En]]]]]]];
           rewrite En.
         -- destruct v as [[x|] i]; [reflexivity|]; cbn [v_label] in E; fold kN in E.
            rewrite EN in E; discriminate.
@@ -184,7 +184,7 @@ Proof.
     + apply andb_true_iff in Ht as [_ Heq]; apply Nat.eqb_eq in Heq.
       split.
       * intros i Hi; rewrite Hcase; cbn [rpack]; f_equal; f_equal; lia.
-      * intros v Hv; destruct (napply_cases Qall r es v Hl) as [[_ En]|[ts' [len' [p' [E [[_ [t [Htt En]]]|[Hi En]]]]]]];
+      * intros v Hv; destruct (napply_cases r es v Hl) as [[_ En]|[ts' [len' [p' [E [[_ [t [Htt En]]]|[Hi En]]]]]]];
           rewrite En.
         -- destruct v as [[x|] i]; [reflexivity|]; cbn [rpack rwf wf_var v_label v_index] in *; apply Nat.ltb_lt in Hv; apply Nat.ltb_lt; fold kN; cbn [v_index]; lia.
         -- rewrite <- tscope_result; [apply (Hc _ _ E t Htt)|intros u rho Et; apply (Hpay v t u rho En Et)].
@@ -214,7 +214,7 @@ Proof.
       * pose proof (Ht N ltac:(lia)) as HN; rewrite Hcase in HN; cbn [rpack] in HN; injection HN as HN; change xH with kN in *.
         apply andb_true_iff; split; [reflexivity|apply Nat.eqb_eq; lia].
     + intros k [h ts len p] E t Htt.
-      destruct (entry_target_result Qall r es k h ts len p t Hl E Htt) as [i [Hi [En _]]].
+      destruct (entry_target_result r es k h ts len p t Hl E Htt) as [i [Hi En]].
       assert (Hv : wf_var N (mk_rvar h i) = true).
       { destruct h as [x|]; [reflexivity|]; cbn; apply Nat.ltb_lt.
         pose proof Hl as [_ [_ [Hent _]]]; destruct (Hent _ _ E) as [[Hk _] _]; subst k.

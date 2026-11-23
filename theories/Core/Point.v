@@ -27,13 +27,12 @@ Definition nidentity : nadj := NAdj uniform0 AEmpty.
 Lemma cget_uniform0 k : cget uniform0 k = Some 0.
 Proof. reflexivity. Qed.
 
-Theorem nlocal_identity : nlocal Qall nidentity.
+Theorem nlocal_identity : nlocal nidentity.
 Proof.
-  cbn [nlocal nidentity]; split; [exact I|split; [|split; [|split]]].
+  cbn [nlocal nidentity]; split; [exact I|split; [|split]].
   - intros k v H; cbn in H; discriminate.
   - intros k e H; cbn in H; discriminate.
-  - intros l _; discriminate.
-  - intros l H; discriminate.
+  - intros l; discriminate.
 Qed.
 
 Theorem napply_identity v : napply nidentity v = inl v.
@@ -87,18 +86,18 @@ Proof.
 Qed.
 
 Theorem napply_weaken h a v :
-  nlocal Qall a -> napply (weaken h a) v = rweaken h (napply a v).
+  nlocal a -> napply (weaken h a) v = rweaken h (napply a v).
 Proof.
-  destruct a as [w es]; intros Ha; pose proof Ha as [_ [_ [_ [HQ _]]]].
-  apply napply_weaken_used, HQ; reflexivity.
+  destruct a as [w es]; intros Ha; pose proof Ha as [_ [_ [_ HQ]]].
+  apply napply_weaken_used, HQ.
 Qed.
 
-Theorem nlocal_weaken h a : nlocal Qall a -> nlocal Qall (weaken h a).
+Theorem nlocal_weaken h a : nlocal a -> nlocal (weaken h a).
 Proof.
-  destruct a as [w es]; intros [Hes [Kw [Hent [HQ HnQ]]]].
+  destruct a as [w es]; intros [Hes [Kw [Hent HQ]]].
   split; [exact Hes|split; [apply keyed_cmap2; [apply keyed_cone|exact Kw]|]].
-  split; [exact Hent|split; [|intros l Hl; discriminate]].
-  intros l _; rewrite cget_cadd; specialize (HQ l eq_refl).
+  split; [exact Hent|].
+  intros l; rewrite cget_cadd; specialize (HQ l).
   destruct (cget w (label_key l)); [discriminate|contradiction].
 Qed.
 
@@ -271,7 +270,7 @@ Proof.
 Qed.
 
 Theorem napply_lower w es w' d v :
-  nlocal Qall (NAdj w es) -> (forall k, dval w' k + dval d k = dval w k) -> oval (c_def d) = 0 ->
+  nlocal (NAdj w es) -> (forall k, dval w' k + dval d k = dval w k) -> oval (c_def d) = 0 ->
   napply (lower w' d (NAdj w es)) v = napply (NAdj w es) v.
 Proof.
   intros Ha Hs Hdef; pose proof Ha as [Hes [_ [Hent _]]].
@@ -464,13 +463,13 @@ Lemma napply_oapply w es v :
 Proof. cbn [napply]; destruct (aget _ es); reflexivity. Qed.
 
 (** At the top level every label is used, so the root counts are total. *)
-Lemma nlocal_total w (es : atrie entry) : nlocal Qall (NAdj w es) -> forall k, cget w k <> None.
+Lemma nlocal_total w (es : atrie entry) : nlocal (NAdj w es) -> forall k, cget w k <> None.
 Proof.
-  intros [_ [Hkey [_ [Hq _]]]] k; unfold cget.
+  intros [_ [Hkey [_ Hq]]] k; unfold cget.
   destruct (get k (c_exc w)) as [v|] eqn:E.
-  - destruct (Hkey _ _ E) as [l ->]; specialize (Hq l eq_refl); unfold cget in Hq; rewrite E in Hq; exact Hq.
+  - destruct (Hkey _ _ E) as [l ->]; specialize (Hq l); unfold cget in Hq; rewrite E in Hq; exact Hq.
   - destruct (fresh_label (c_exc w) (c_exc w)) as [l [El _]].
-    specialize (Hq l eq_refl); unfold cget in Hq; rewrite El in Hq; exact Hq.
+    specialize (Hq l); unfold cget in Hq; rewrite El in Hq; exact Hq.
 Qed.
 
 Lemma cle_cmin_l a b : cle (cmin a b) a.
@@ -607,7 +606,7 @@ Qed.
 
 
 Theorem napply_extend h t a v :
-  nlocal Qall a -> nfin a ->
+  nlocal a -> nfin a ->
   napply (extend h t a) v
   = if rvar_eqb v (mk_rvar h 0) then tresult t else napply a (unshift_rvar (mk_rvar h 0) v).
 Proof.
@@ -708,7 +707,7 @@ Proof.
 Qed.
 
 Theorem nlocal_extend h t a :
-  nlocal Qall a -> nfin a -> keyed (tuses t) -> nlocal Qall (extend h t a).
+  nlocal a -> nfin a -> keyed (tuses t) -> nlocal (extend h t a).
 Proof.
   destruct a as [w es]; intros Ha Hf Hk.
   pose proof (nlocal_total w es Ha) as Htot.
@@ -727,20 +726,19 @@ Proof.
     by exact (entry_ok_lower w es w' d Hes (fun k e E => proj1 (Hent k e E))).
   assert (Hoh : forall e, aget kh es' = Some e -> entry_ok kh e) by (intro; apply Hok').
   destruct (ainsert_spec h t' es' Hes' Hoh) as [Hes'' Hg'']; fold kh in Hg''.
-  change (nlocal Qall (NAdj w' (ainsert h t' es'))).
+  change (nlocal (NAdj w' (ainsert h t' es'))).
   set (es'' := ainsert h t' es') in *.
   assert (Ekh : aget kh es'' = econs h t' (aget kh es')) by (rewrite Hg'', Pos.eqb_refl; reflexivity).
   split; [exact Hes''|split; [apply keyed_cmap2; assumption|split]].
-  2: { split; [|intros l Hl; discriminate].
-       intros l _; unfold w'; rewrite cget_cmin; specialize (Htot (label_key l)).
+  2: { intros l; unfold w'; rewrite cget_cmin; specialize (Htot (label_key l)).
        destruct (cget w _); [destruct (cget (tuses t) _); discriminate|contradiction]. }
-  intros k e E; rewrite Hg'' in E; split; [|split; [reflexivity|]].
+  intros k e E; rewrite Hg'' in E; split.
   { destruct (Pos.eqb_spec k kh) as [->|]; [exact (entry_ok_econs h t' _ Hoh e E)|exact (Hok' k e E)]. }
   apply (aann_zero es'' k Hes'').
   (* Where the root count does not drop, the old witness still serves. *)
   assert (Hold : dval d k = 0 -> exists k2 e2, aget k2 es'' = Some e2 /\ cget (uses e2) k = Some 0).
   { intros Hd; destruct (aget k es) as [e0|] eqn:E0.
-    - destruct (Hent k e0 E0) as [_ [_ Z0]]; apply (aann_zero es k Hes) in Z0 as [k2 [e2 [E2 Z2]]].
+    - destruct (Hent k e0 E0) as [_ Z0]; apply (aann_zero es k Hes) in Z0 as [k2 [e2 [E2 Z2]]].
       assert (Ze : cget (uses (unshift d e2)) k = Some 0)
         by (rewrite uses_unshift, Z2; unfold dval, oval in Hd; destruct (cget d k); cbn in *; [rewrite Hd|]; reflexivity).
       assert (E2' : aget k2 es' = Some (unshift d e2)) by (rewrite Hg', E2; reflexivity).
@@ -795,7 +793,7 @@ Proof.
 Qed.
 
 Theorem napply_lift h a v :
-  nlocal Qall a -> nfin a ->
+  nlocal a -> nfin a ->
   napply (lift h a) v
   = if rvar_eqb v (mk_rvar h 0) then inl (mk_rvar h 0)
     else rweaken h (napply a (unshift_rvar (mk_rvar h 0) v)).
@@ -805,7 +803,7 @@ Proof.
   destruct (rvar_eqb v _); [reflexivity|]; apply napply_weaken, Ha.
 Qed.
 
-Theorem nlocal_lift h a : nlocal Qall a -> nfin a -> nlocal Qall (lift h a).
+Theorem nlocal_lift h a : nlocal a -> nfin a -> nlocal (lift h a).
 Proof.
   intros Ha Hf; apply nlocal_extend; [apply nlocal_weaken, Ha|apply nfin_weaken, Hf|apply keyed_cone].
 Qed.

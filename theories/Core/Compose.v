@@ -1,8 +1,7 @@
 (** * Composition
 
     [compose a b] is [b] followed by [a]: a variable [b] sends to [y] goes
-    where [a] sends [y], and a payload [(u, rho)] becomes
-    [(u, a ∘ rho)], where only [rho]'s named labels matter.
+    where [a] sends [y], and a payload [(u, rho)] becomes [(u, a ∘ rho)].
 
     The composition is eager but pruned (Prune.v).  Above the thresholds
     [th] (the lengths of [a]'s explicit targets), [a] is the pure shift
@@ -119,24 +118,18 @@ Definition ecomp : option label -> kseq target -> nat -> nat -> entry := ecomp_w
 
 Definition bl0 : tree nat := th_tree.
 
-(** In a payload ([pay]), the bound label's inputs do not matter: the
-    composite gets no entry, identity start or gap for it. *)
-Definition skipN (pay : bool) (k : positive) : bool := pay && Pos.eqb k (label_key None).
-
 (** Add [a]'s entries for labels the composite has no entry for. *)
-Definition add_aonly (pay : bool) (W : counts) (es : atrie entry) : atrie entry :=
+Definition add_aonly (W : counts) (es : atrie entry) : atrie entry :=
   fold_right (fun e es =>
                 let h := elabel e in
-                if skipN pay (label_key h) then es else
                 match aget (label_key h) es with
                 | Some _ => es
                 | None => aupdate (label_key h) (fun _ => adrop h (dval W (label_key h))) es
                 end) es aentries.
 
 (** Identity starts of the labels with no entry of [a]. *)
-Definition jstarts (pay : bool) (W : counts) : counts :=
-  let c := fold_right (fun e c => cset c (label_key (elabel e)) None) (ctotal wa W) aentries in
-  if pay then cset c (label_key None) None else c.
+Definition jstarts (W : counts) : counts :=
+  fold_right (fun e c => cset c (label_key (elabel e)) None) (ctotal wa W) aentries.
 
 (** Remove an entry that is the identity relative to the root. *)
 Definition drop_ident (R : counts) (es : atrie entry) (k : positive) : atrie entry :=
@@ -160,12 +153,12 @@ Definition add_gap_at (I R : counts) (es : atrie entry) (k : positive) : atrie e
             then aupdate k (fun _ => agap k (dval I k)) es else es
   end.
 
-Definition finish (pay : bool) (W : counts) (es : atrie entry) (visited : list positive) : nadj :=
-  let es1 := add_aonly pay W es in
-  let R := cmin (aann es1) (jstarts pay W) in
+Definition finish (W : counts) (es : atrie entry) (visited : list positive) : nadj :=
+  let es1 := add_aonly W es in
+  let R := cmin (aann es1) (jstarts W) in
   let keys_a := map (fun e => label_key (elabel e)) aentries in
   let I := ctotal wa W in
-  let WK := filter (fun k => negb (skipN pay k)) (map fst (elements (c_exc W))) in
+  let WK := map fst (elements (c_exc W)) in
   let es2 := fold_left (add_gap_at I R) WK es1 in
   let es3 := fold_left (drop_ident R) (visited ++ keys_a) es2 in
   NAdj R (arebase R es3).
@@ -174,13 +167,13 @@ Definition finish (pay : bool) (W : counts) (es : atrie entry) (visited : list p
 
 (** [thc], [tauc] and [bl] are [th], [tau] and [bl0], computed once by
     [ncomp] below. *)
-Fixpoint ncomp_with (thc tauc : counts) (bl : tree nat) (pay : bool) (b : nadj) (B : counts) {struct b} : nadj :=
+Fixpoint ncomp_with (thc tauc : counts) (bl : tree nat) (b : nadj) (B : counts) {struct b} : nadj :=
   match b with
   | NAdj r es =>
       let tc := fun (B' : counts) (t : target) =>
                   match t with
                   | TVar y j => rtarget (napply a (mk_rvar y (dval B' (label_key y) + j)))
-                  | TBind u rho => TBind u (ncomp_with thc tauc bl false rho B')
+                  | TBind u rho => TBind u (ncomp_with thc tauc bl rho B')
                   end in
       let ec := fun (B' : counts) (e : entry) =>
                   match e with
@@ -188,18 +181,18 @@ Fixpoint ncomp_with (thc tauc : counts) (bl : tree nat) (pay : bool) (b : nadj) 
                       ecomp_with thc tauc h (kmap thc tauc tc bl B' ts) len (dval B' (label_key h) + p)
                   end in
       let P := cadd B r in
-      finish pay P (atmap thc tauc ec bl P es) (@atvisit entry bl P (fun k => k) es)
+      finish P (atmap thc tauc ec bl P es) (@atvisit entry bl P (fun k => k) es)
   end.
 
-Definition ncomp (pay : bool) (b : nadj) (B : counts) : nadj := ncomp_with th tau bl0 pay b B.
+Definition ncomp (b : nadj) (B : counts) : nadj := ncomp_with th tau bl0 b B.
 
-Definition compose (b : nadj) : nadj := ncomp false b cnone.
+Definition compose (b : nadj) : nadj := ncomp b cnone.
 
 (** One level of the traversal, with the recursion through payloads named. *)
 Definition tcF (B : counts) (t : target) : target :=
   match t with
   | TVar y j => rtarget (napply a (mk_rvar y (dval B (label_key y) + j)))
-  | TBind u rho => TBind u (ncomp false rho B)
+  | TBind u rho => TBind u (ncomp rho B)
   end.
 
 Definition ecF (B : counts) (e : entry) : entry :=
@@ -207,9 +200,9 @@ Definition ecF (B : counts) (e : entry) : entry :=
   | Entry h ts len p => ecomp h (kmap th tau tcF bl0 B ts) len (dval B (label_key h) + p)
   end.
 
-Lemma ncomp_eq pay r es B :
-  ncomp pay (NAdj r es) B
-  = finish pay (cadd B r) (atmap th tau ecF bl0 (cadd B r) es) (@atvisit entry bl0 (cadd B r) (fun k => k) es).
+Lemma ncomp_eq r es B :
+  ncomp (NAdj r es) B
+  = finish (cadd B r) (atmap th tau ecF bl0 (cadd B r) es) (@atvisit entry bl0 (cadd B r) (fun k => k) es).
 Proof. reflexivity. Qed.
 
 (** ** Base independence *)
@@ -222,7 +215,7 @@ Lemma kmap_rebase F bl B (ts : kseq target) :
   kmap th tau F bl B ts = kmap th tau F bl cnone (klift B ts).
 Proof. destruct ts as [|c w t s]; [reflexivity|]; cbn [klift kmap]; rewrite cadd_cnone ; reflexivity. Qed.
 
-Lemma ncomp_rebase pay r es B : ncomp pay (NAdj r es) B = ncomp pay (NAdj (cadd B r) es) cnone.
+Lemma ncomp_rebase r es B : ncomp (NAdj r es) B = ncomp (NAdj (cadd B r) es) cnone.
 Proof. rewrite !ncomp_eq, (cadd_cnone (cadd B r)); reflexivity. Qed.
 
 Lemma tcF_rebase B t : tcF B t = tcF cnone (unshift B t).
@@ -233,10 +226,10 @@ Proof. destruct e as [h ts len p]; cbn [ecF unshift entry_based eunshift]; rewri
 
 (** ** Proofs: [a] above the thresholds *)
 
-Hypothesis Ha : nlocal Qall a.
+Hypothesis Ha : nlocal a.
 
 Lemma esa_key k e : aget k esa = Some e -> k = label_key (elabel e).
-Proof. unfold esa; destruct a as [w es]; cbn; apply (entry_label Qall w es), Ha. Qed.
+Proof. unfold esa; destruct a as [w es]; cbn; apply (entry_label w es), Ha. Qed.
 
 Lemma aentries_get e : In e aentries -> aget (label_key (elabel e)) esa = Some e.
 Proof.
@@ -331,7 +324,7 @@ Proof.
   unfold thv, tauv, dval; rewrite cget_th, cget_tau; unfold wa, esa.
   destruct a as [w es] eqn:Ea; cbn [napply v_label v_index wa nroot esa nentries] in *.
   destruct (aget (label_key h) es) as [[h' ts len p]|] eqn:E; intros Hj.
-  - pose proof (entry_label Qall w es _ _ Ha E) as Hk; cbn in Hk; apply label_key_inj in Hk; subst h'.
+  - pose proof (entry_label w es _ _ Ha E) as Hk; cbn in Hk; apply label_key_inj in Hk; subst h'.
     cbn [eapply]; destruct (Nat.eqb_spec len 0) as [->|Hl]; cbn [oval] in *.
     + destruct (Nat.ltb_spec j 0); [lia|]; f_equal; f_equal; lia.
     + destruct (Nat.ltb_spec j len); [lia|]; f_equal; f_equal; unfold dval; lia.
@@ -557,14 +550,13 @@ Qed.
 
 (** ** Proofs: the steps of [finish] *)
 
-Theorem add_aonly_spec pay W es :
+Theorem add_aonly_spec W es :
   ainv es ->
-  ainv (add_aonly pay W es)
-  /\ forall k, aget k (add_aonly pay W es)
+  ainv (add_aonly W es)
+  /\ forall k, aget k (add_aonly W es)
                = match aget k es with
                  | Some e => Some e
-                 | None => if skipN pay k then None else
-                           match aget k esa with
+                 | None => match aget k esa with
                            | Some ea => adrop (elabel ea) (dval W k)
                            | None => None
                            end
@@ -573,8 +565,7 @@ Proof.
   intros Hes.
   set (step := fun (e : entry) (es : atrie entry) =>
                  let h := elabel e in
-                 if skipN pay (label_key h) then es else
-                 match aget (label_key h) es with
+                  match aget (label_key h) es with
                  | Some _ => es
                  | None => aupdate (label_key h) (fun _ => adrop h (dval W (label_key h))) es
                  end).
@@ -583,7 +574,7 @@ Proof.
             /\ forall k, aget k (fold_right step es L)
                          = match aget k es with
                            | Some e => Some e
-                           | None => if existsb (fun e => Pos.eqb (label_key (elabel e)) k) L && negb (skipN pay k)
+                           | None => if existsb (fun e => Pos.eqb (label_key (elabel e)) k) L
                                      then match aget k esa with
                                           | Some ea => adrop (elabel ea) (dval W k)
                                           | None => None
@@ -595,27 +586,22 @@ Proof.
     - destruct (IH (fun e' H' => HL e' (or_intror H'))) as [Hi Hg].
       set (es' := fold_right step es L) in *.
       pose proof (aentries_get e (HL e (or_introl eq_refl))) as Ge.
-      change (step e es') with (if skipN pay (label_key (elabel e)) then es' else match aget (label_key (elabel e)) es' with Some _ => es' | None => aupdate (label_key (elabel e)) (fun _ => adrop (elabel e) (dval W (label_key (elabel e)))) es' end).
-      destruct (skipN pay (label_key (elabel e))) eqn:Sk.
+      change (step e es') with (match aget (label_key (elabel e)) es' with Some _ => es' | None => aupdate (label_key (elabel e)) (fun _ => adrop (elabel e) (dval W (label_key (elabel e)))) es' end).
+      destruct (aget (label_key (elabel e)) es') as [e0|] eqn:E0.
       + split; [exact Hi|intro k; rewrite Hg].
         destruct (Pos.eqb_spec (label_key (elabel e)) k) as [<-|]; cbn [orb]; [|reflexivity].
-        rewrite Sk, !andb_false_r; reflexivity.
-      + destruct (aget (label_key (elabel e)) es') as [e0|] eqn:E0.
-        * split; [exact Hi|intro k; rewrite Hg].
-          destruct (Pos.eqb_spec (label_key (elabel e)) k) as [<-|]; cbn [orb]; [|reflexivity].
-          rewrite Sk; cbn [negb andb]; rewrite Hg, Sk, andb_true_r in E0.
-          destruct (aget _ es) as [e1|]; [reflexivity|].
-          destruct (existsb _ L); cbn [andb orb negb] in *; [reflexivity|discriminate].
-        * destruct (aupdate_spec (label_key (elabel e)) (fun _ => adrop (elabel e) (dval W (label_key (elabel e)))) es' Hi)
-            as [Ha' Hg'].
-          split; [exact Ha'|intro k; rewrite Hg', Pos.eqb_sym].
-          destruct (Pos.eqb_spec (label_key (elabel e)) k) as [<-|]; cbn [orb].
-          -- rewrite Hg in E0; rewrite Ge, Sk; cbn [negb andb].
-             destruct (aget _ es); [discriminate|reflexivity].
-          -- rewrite Hg; reflexivity. }
+        rewrite Hg in E0.
+        destruct (aget _ es) as [e1|]; [reflexivity|].
+        destruct (existsb _ L); cbn [orb] in *; [reflexivity|discriminate].
+      + destruct (aupdate_spec (label_key (elabel e)) (fun _ => adrop (elabel e) (dval W (label_key (elabel e)))) es' Hi)
+          as [Ha' Hg'].
+        split; [exact Ha'|intro k; rewrite Hg', Pos.eqb_sym].
+        destruct (Pos.eqb_spec (label_key (elabel e)) k) as [<-|]; cbn [orb].
+        * rewrite Hg in E0; rewrite Ge.
+          destruct (aget _ es); [discriminate|reflexivity].
+        * rewrite Hg; reflexivity. }
   destruct (H aentries (fun e H => H)) as [Hi Hg]; split; [exact Hi|intro k].
   unfold add_aonly; fold step; rewrite Hg; destruct (aget k es); [reflexivity|].
-  destruct (skipN pay k); [rewrite andb_false_r; reflexivity|rewrite andb_true_r].
   destruct (existsb _ aentries) eqn:X; destruct (aget k esa) as [ea|] eqn:E; try reflexivity.
   exfalso; assert (Hx : existsb (fun e => Pos.eqb (label_key (elabel e)) k) aentries = true)
     by (apply existsb_exists; exists ea; split; [apply (aentries_in _ _ E)|rewrite <- (esa_key _ _ E), Pos.eqb_refl; reflexivity]).
@@ -747,9 +733,9 @@ Proof.
     exists k; split; [apply in_map_iff; exists (k, v); split; [reflexivity|apply In_elements, E]|apply Pos.eqb_refl].
 Qed.
 
-Lemma cget_jstarts pay W k :
-  cget (jstarts pay W) k
-  = if skipN pay k then None else match aget k esa with Some _ => None | None => cget (ctotal wa W) k end.
+Lemma cget_jstarts W k :
+  cget (jstarts W) k
+  = match aget k esa with Some _ => None | None => cget (ctotal wa W) k end.
 Proof.
   assert (H : forall L, (forall e, In e L -> In e aentries) ->
             cget (fold_right (fun e c => cset c (label_key (elabel e)) None) (ctotal wa W) L) k
@@ -757,11 +743,7 @@ Proof.
   { induction L as [|e L IH]; intros HL; cbn [fold_right existsb]; [reflexivity|].
     rewrite cget_cset, Pos.eqb_sym; destruct (Pos.eqb _ _); [reflexivity|].
     apply IH; intros; apply HL; right; assumption. }
-  unfold jstarts, skipN.
-  assert (Hc : forall c, cget (if pay then cset c (label_key None) None else c) k
-                         = if pay && Pos.eqb k (label_key None) then None else cget c k)
-    by (intro c; destruct pay; [rewrite cget_cset; reflexivity|reflexivity]).
-  rewrite Hc, H by auto; destruct (pay && _); [reflexivity|].
+  unfold jstarts; rewrite H by auto.
   destruct (existsb _ aentries) eqn:X.
   - apply existsb_exists in X as [e [Hin Hk]]; apply Pos.eqb_eq in Hk; subst k.
     rewrite (aentries_get e Hin); reflexivity.
@@ -814,21 +796,20 @@ Definition es_good (es : atrie entry) : Prop :=
 
 (** Labels with no entry anywhere that [W] does not weaken are used no
     lower than their identity start. *)
-Definition no_low (pay : bool) (W : counts) (es : atrie entry) : Prop :=
-  forall k n, skipN pay k = false -> get k (c_exc W) = None -> aget k (add_aonly pay W es) = None ->
-              cget (aann (add_aonly pay W es)) k = Some n -> dval (ctotal wa W) k <= n.
+Definition no_low (W : counts) (es : atrie entry) : Prop :=
+  forall k n, get k (c_exc W) = None -> aget k (add_aonly W es) = None ->
+              cget (aann (add_aonly W es)) k = Some n -> dval (ctotal wa W) k <= n.
 
-Lemma aget_add_aonly_good pay W es k e :
-  es_good es -> aget k (add_aonly pay W es) = Some e ->
+Lemma aget_add_aonly_good W es k e :
+  es_good es -> aget k (add_aonly W es) = Some e ->
   k = label_key (elabel e) /\ entry_good (elabel e) e
   /\ forall i, eabs e i = cf W es (elabel e) i.
 Proof.
-  intros [Hes Hg] E; rewrite (proj2 (add_aonly_spec pay W es Hes)) in E.
+  intros [Hes Hg] E; rewrite (proj2 (add_aonly_spec W es Hes)) in E.
   destruct (aget k es) as [e0|] eqn:E0.
   - injection E as <-; destruct (Hg _ _ E0) as [Hk Hgood]; split; [exact Hk|split; [exact Hgood|]].
     intro i; unfold cf; rewrite <- Hk, E0; reflexivity.
-  - destruct (skipN pay k); [discriminate|].
-    destruct (aget k esa) as [ea|] eqn:Ea; [|discriminate].
+  - destruct (aget k esa) as [ea|] eqn:Ea; [|discriminate].
     pose proof (esa_key _ _ Ea) as Hk.
     destruct (adrop_spec _ _ _ E) as [Hgood [_ Hm]].
     assert (He : elabel e = elabel ea) by (destruct e; destruct Hgood as [-> _]; reflexivity).
@@ -839,35 +820,34 @@ Qed.
 
 Section Finish.
 
-Variables (pay : bool) (W : counts) (es : atrie entry) (vis : list positive).
+Variables (W : counts) (es : atrie entry) (vis : list positive).
 Hypothesis Hgood : es_good es.
 
-Definition es1 : atrie entry := add_aonly pay W es.
-Definition R : counts := cmin (aann es1) (jstarts pay W).
+Definition es1 : atrie entry := add_aonly W es.
+Definition R : counts := cmin (aann es1) (jstarts W).
 Definition Istart : counts := ctotal wa W.
-Definition WK : list positive := filter (fun k => negb (skipN pay k)) (map fst (elements (c_exc W))).
+Definition WK : list positive := map fst (elements (c_exc W)).
 Definition D : list positive := vis ++ map (fun e => label_key (elabel e)) aentries.
 Definition es2 : atrie entry := fold_left (add_gap_at Istart R) WK es1.
 Definition es3 : atrie entry := fold_left (drop_ident R) D es2.
 
-Lemma finish_eq : finish pay W es vis = NAdj R (arebase R es3).
+Lemma finish_eq : finish W es vis = NAdj R (arebase R es3).
 Proof. reflexivity. Qed.
 
 Lemma Hes : ainv es.
 Proof. apply Hgood. Qed.
 
 Lemma Hes1 : ainv es1.
-Proof. apply (add_aonly_spec pay W es Hes). Qed.
+Proof. apply (add_aonly_spec W es Hes). Qed.
 
 Lemma Hg1 k : aget k es1 = match aget k es with
                             | Some e => Some e
-                            | None => if skipN pay k then None else
-                                      match aget k esa with
+                            | None => match aget k esa with
                                       | Some ea => adrop (elabel ea) (dval W k)
                                       | None => None
                                       end
                             end.
-Proof. apply (add_aonly_spec pay W es Hes). Qed.
+Proof. apply (add_aonly_spec W es Hes). Qed.
 
 Lemma Hes2 : ainv es2.
 Proof. apply (fold_keyed (add_gap_at Istart R) (gapf Istart R) (add_gap_step Istart R) (gapf_idem Istart R) WK es1 Hes1). Qed.
@@ -923,10 +903,10 @@ Lemma HR : cle R (aann es3).
 Proof. apply cle_aann; [exact Hes3|exact Hcle]. Qed.
 
 Theorem napply_finish h i :
-  skipN pay (label_key h) = false -> no_low pay W es ->
-  napply (finish pay W es vis) (mk_rvar h i) = cf W es h i.
+  no_low W es ->
+  napply (finish W es vis) (mk_rvar h i) = cf W es h i.
 Proof.
-  intros Hh Hlow; rewrite finish_eq.
+  intros Hlow; rewrite finish_eq.
   pose proof Hes1 as Hes1; pose proof HR as HR; pose proof Hcle as Hcle; pose proof Hsrc as Hsrc;
     pose proof Hgap as Hgap; pose proof Hg1 as Hg1; pose proof Hg2 as Hg2; pose proof Hg3 as Hg3.
   set (kh := label_key h).
@@ -934,7 +914,6 @@ Proof.
   assert (Hnone : aget kh es1 = None ->
                   aget kh es = None /\ aget kh esa = None /\ cf W es h i = inl (mk_rvar h (dval Istart kh + i))).
   { intros E1; rewrite Hg1 in E1; destruct (aget kh es) as [e0|] eqn:E0; [discriminate|].
-    unfold kh in E1; rewrite Hh in E1; fold kh in E1.
     destruct (aget kh esa) as [ea|] eqn:Ea.
     - exfalso; unfold adrop in E1; rewrite <- (esa_key _ _ Ea), Ea in E1; destruct ea as [h1 tsa lena pa]; discriminate.
     - split; [reflexivity|split; [reflexivity|]].
@@ -946,7 +925,7 @@ Proof.
   cbn [napply v_label v_index]; rewrite aget_arebase by (exact Hes3 || exact HR); fold kh.
   destruct (aget kh es3) as [e|] eqn:E3; cbn [option_map].
   - destruct (Hsrc kh e E3) as [E1|[E1 [Hlt Ag]]].
-    + destruct (aget_add_aonly_good pay W es kh e Hgood E1) as [Hk [Hge Hm]].
+    + destruct (aget_add_aonly_good W es kh e Hgood E1) as [Hk [Hge Hm]].
       apply label_key_inj in Hk; rewrite <- Hk in Hge, Hm.
       change (shift R e) with (eshift R e); rewrite (eapply_eshift R h e i Hge (Hcle _ _ E3)), Hm; reflexivity.
     + destruct (Hgap kh e Ag) as [He Hk]; apply label_key_inj in Hk.
@@ -964,12 +943,12 @@ Proof.
           destruct (oeqb (cget R kh) (Some p)) eqn:Eq; try discriminate;
           apply oeqb_spec in Eq; eauto. }
       destruct Hd as [h1 [p [-> Hp]]].
-      destruct (aget_add_aonly_good pay W es kh _ Hgood E1) as [Hk [_ Hm]]; cbn [elabel] in Hk, Hm.
+      destruct (aget_add_aonly_good W es kh _ Hgood E1) as [Hk [_ Hm]]; cbn [elabel] in Hk, Hm.
       apply label_key_inj in Hk; subst h1; rewrite <- Hm; cbn [eabs lapp klist length Nat.ltb].
       destruct (Nat.ltb_spec i 0); [lia|]; unfold dval; rewrite Hp; cbn; f_equal; f_equal; lia.
     + destruct (Hnone eq_refl) as [_ [Ea ->]].
-      assert (HJ : cget (jstarts pay W) kh = Some (dval Istart kh))
-        by (rewrite cget_jstarts; unfold kh; rewrite Hh; fold kh; rewrite Ea; unfold Istart, dval; rewrite cget_ctotal; reflexivity).
+      assert (HJ : cget (jstarts W) kh = Some (dval Istart kh))
+        by (rewrite cget_jstarts; rewrite Ea; unfold Istart, dval; rewrite cget_ctotal; reflexivity).
       assert (HRI : dval R kh <= dval Istart kh)
         by (unfold R, dval at 1; rewrite cget_cmin, HJ; destruct (cget (aann es1) kh); cbn; lia).
       assert (HIR : dval Istart kh <= dval R kh).
@@ -982,11 +961,11 @@ Proof.
         - assert (Hw0 : get kh (c_exc W) = None).
           { destruct (get kh (c_exc W)) eqn:G; [exfalso|reflexivity].
             apply Bool.not_true_iff_false in Hw; apply Hw, existsb_exists; exists kh.
-            split; [|apply Pos.eqb_refl]; apply filter_In; split; [|unfold kh; rewrite Hh; reflexivity].
+            split; [|apply Pos.eqb_refl].
             apply in_map_iff; exists (kh, o); split; [reflexivity|apply In_elements, G]. }
           unfold R, dval at 2; rewrite cget_cmin, HJ.
           destruct (cget (aann es1) kh) as [n|] eqn:Eu; cbn; [|lia].
-          specialize (Hlow kh n Hh Hw0 E1 Eu); fold Istart in Hlow; lia. }
+          specialize (Hlow kh n Hw0 E1 Eu); fold Istart in Hlow; lia. }
       f_equal; f_equal; lia.
 Qed.
 
@@ -1032,7 +1011,6 @@ Qed.
 Lemma keyed_es1 k e : aget k es1 = Some e -> keyed (uses e).
 Proof.
   intros E; rewrite Hg1 in E; destruct (aget k es) as [e0|] eqn:E0; [injection E as <-; apply (Hkey _ _ E0)|].
-  destruct (skipN pay k); [discriminate|].
   destruct (aget k esa) as [ea|]; [apply (keyed_adrop _ _ _ E)|discriminate].
 Qed.
 
@@ -1042,13 +1020,11 @@ Proof.
   intros e He; destruct (aelems_aget t e He) as [k E]; apply (H _ _ E).
 Qed.
 
-Lemma keyed_jstarts : keyed (jstarts pay W).
+Lemma keyed_jstarts : keyed (jstarts W).
 Proof.
   unfold jstarts.
-  assert (H : forall L, keyed (fold_right (fun (e : entry) c => cset c (label_key (elabel e)) None) (ctotal wa W) L))
-    by (induction L as [|e L IH]; cbn [fold_right];
-        [apply keyed_cmap2; [apply keyed_wa|exact HkW]|apply keyed_cset; [exact IH|eauto]]).
-  destruct pay; [apply keyed_cset; [apply H|eauto]|apply H].
+  induction aentries as [|e L IH]; cbn [fold_right];
+    [apply keyed_cmap2; [apply keyed_wa|exact HkW]|apply keyed_cset; [exact IH|eauto]].
 Qed.
 
 Lemma keyed_R : keyed R.
@@ -1057,17 +1033,17 @@ Proof. apply keyed_cmap2; [apply keyed_aann; [exact Hes1|exact keyed_es1]|exact 
 Hypothesis Hfa : nfin a.
 Hypothesis HW0 : c_def W = Some 0.
 
-Lemma nfin_finish : nfin (finish pay W es vis).
+Lemma nfin_finish : nfin (finish W es vis).
 Proof.
   rewrite finish_eq; unfold nfin, R; cbn [nroot].
   unfold cmin, cmap2; cbn [c_def].
-  assert (HJ : c_def (jstarts pay W) = Some 0).
+  assert (HJ : c_def (jstarts W) = Some 0).
   { unfold jstarts.
     assert (Hd : forall L, c_def (fold_right (fun (e : entry) c => cset c (label_key (elabel e)) None) (ctotal wa W) L)
                            = Some (oval (c_def wa) + oval (c_def W)))
       by (induction L as [|e L IH]; [reflexivity|exact IH]).
     unfold nfin in Hfa; fold wa in Hfa.
-    destruct pay; [unfold cset; cbn [c_def]|]; rewrite Hd, Hfa, HW0; reflexivity. }
+    rewrite Hd, Hfa, HW0; reflexivity. }
   rewrite HJ; destruct (c_def (aann es1)); cbn; [f_equal; lia|reflexivity].
 Qed.
 
@@ -1078,7 +1054,7 @@ Proof.
 Qed.
 
 Lemma es1_good k e : aget k es1 = Some e -> k = label_key (elabel e) /\ entry_good (elabel e) e.
-Proof. intros E; destruct (aget_add_aonly_good pay W es k e Hgood E) as [Hk [Hg _]]; split; assumption. Qed.
+Proof. intros E; destruct (aget_add_aonly_good W es k e Hgood E) as [Hk [Hg _]]; split; assumption. Qed.
 
 (** A minimum of [es1] is still attained in [es3], unless it was attained
     only by an entry for that very label which was removed. *)
@@ -1105,8 +1081,7 @@ Proof.
     destruct (existsb _ D), (existsb _ WK); cbn [gapf] in E3 |- *; congruence.
 Qed.
 
-Hypothesis Hpay : pay = true -> aget (label_key None) es = None.
-Hypothesis Hatt : forall k, skipN pay k = false -> aget k es <> None -> aget k esa = None ->
+Hypothesis Hatt : forall k, aget k es <> None -> aget k esa = None ->
                     exists n, cget (aann es1) k = Some n /\ n <= dval Istart k.
 Hypothesis Hvis : forall k h p, aget k es = Some (Entry h KNil 0 p) -> ~ In k vis -> aget k esa = None ->
                     dval Istart k < p.
@@ -1123,12 +1098,12 @@ Proof.
   rewrite (ainv_ann es1 Hes1); destruct (lmin_le _ e k m (aget_in _ _ _ E) Em) as [u [Eu _]]; eauto.
 Qed.
 
-Lemma J_cases k : cget (jstarts pay W) k = None \/ (cget (jstarts pay W) k = Some (dval Istart k)
-                                                   /\ skipN pay k = false /\ aget k esa = None).
+Lemma J_cases k : cget (jstarts W) k = None \/ (cget (jstarts W) k = Some (dval Istart k)
+                                                   /\ aget k esa = None).
 Proof.
-  rewrite cget_jstarts; destruct (skipN pay k) eqn:Sk; [left; reflexivity|].
+  rewrite cget_jstarts.
   destruct (aget k esa); [left; reflexivity|right].
-  split; [unfold Istart, dval; rewrite cget_ctotal; reflexivity|split; reflexivity].
+  split; [unfold Istart, dval; rewrite cget_ctotal; reflexivity|reflexivity].
 Qed.
 
 (** At a label with an entry, the new root is the minimum over [es1]. *)
@@ -1138,23 +1113,17 @@ Proof.
   unfold R; rewrite cget_cmin.
   destruct (Hsrc k e3 E3) as [E1|[E1 [Hlt _]]].
   - destruct (U_some k e3 E1) as [u Eu]; exists u; split; [exact Eu|rewrite Eu].
-    destruct (J_cases k) as [->|[-> [Sk Ea]]]; [reflexivity|].
+    destruct (J_cases k) as [->|[-> Ea]]; [reflexivity|].
     assert (Hes_k : aget k es <> None).
-    { rewrite Hg1 in E1; destruct (aget k es); [discriminate|]; rewrite Sk, Ea in E1; discriminate. }
-    destruct (Hatt k Sk Hes_k Ea) as [n [En Hn]]; rewrite Eu in En; injection En as <-.
+    { rewrite Hg1 in E1; destruct (aget k es); [discriminate|]; rewrite Ea in E1; discriminate. }
+    destruct (Hatt k Hes_k Ea) as [n [En Hn]]; rewrite Eu in En; injection En as <-.
     cbn; f_equal; lia.
-  - assert (Sk : skipN pay k = false).
-    { destruct (skipN pay k) eqn:Sk; [exfalso|reflexivity].
-      assert (Hw : existsb (Pos.eqb k) WK = false).
-      { apply Bool.not_true_iff_false; intros Hx; apply existsb_exists in Hx as [k' [Hin Hk']].
-        apply Pos.eqb_eq in Hk'; subst k'; apply filter_In in Hin as [_ Hn]; rewrite Sk in Hn; discriminate. }
-      rewrite Hg3, Hg2, Hw, E1 in E3; destruct (existsb _ D); cbn in E3; discriminate. }
-    assert (Ea : aget k esa = None).
-    { rewrite Hg1 in E1; destruct (aget k es); [discriminate|]; rewrite Sk in E1.
+  - assert (Ea : aget k esa = None).
+    { rewrite Hg1 in E1; destruct (aget k es); [discriminate|].
       destruct (aget k esa) as [ea|] eqn:Ea; [exfalso|reflexivity].
       unfold adrop in E1; rewrite <- (esa_key _ _ Ea), Ea in E1; destruct ea as [h1 tsa lena pa]; discriminate. }
-    assert (HJ : cget (jstarts pay W) k = Some (dval Istart k))
-      by (rewrite cget_jstarts, Sk, Ea; unfold Istart, dval; rewrite cget_ctotal; reflexivity).
+    assert (HJ : cget (jstarts W) k = Some (dval Istart k))
+      by (rewrite cget_jstarts, Ea; unfold Istart, dval; rewrite cget_ctotal; reflexivity).
     unfold R in Hlt; unfold dval at 1 in Hlt; rewrite cget_cmin, HJ in Hlt; rewrite HJ.
     destruct (cget (aann es1) k) as [u|] eqn:Eu; cbn in Hlt |- *; [|lia].
     exists u; split; [reflexivity|f_equal; lia].
@@ -1167,36 +1136,15 @@ Proof.
   split; [reflexivity|split; [apply kgood_nil|split; [reflexivity|intros [Hc _]; lia]]].
 Qed.
 
-Lemma WK_skip k : existsb (Pos.eqb k) WK = true -> skipN pay k = false.
-Proof.
-  intros Hx; apply existsb_exists in Hx as [k' [Hin Hk']]; apply Pos.eqb_eq in Hk'; subst k'.
-  apply filter_In in Hin as [_ Hn]; destruct (skipN pay k); [discriminate|reflexivity].
-Qed.
-
-Lemma es1_not_skipped k e : aget k es1 = Some e -> skipN pay k = false.
-Proof.
-  intros E; rewrite Hg1 in E; destruct (skipN pay k) eqn:Sk; [|reflexivity].
-  exfalso; unfold skipN in Sk; apply andb_prop in Sk as [Hp Hk]; apply Pos.eqb_eq in Hk; subst k.
-  rewrite (Hpay Hp) in E; discriminate.
-Qed.
-
-Lemma es3_not_skipped k e : aget k es3 = Some e -> skipN pay k = false.
-Proof.
-  intros E; destruct (Hsrc k e E) as [E1|[E1 _]]; [apply (es1_not_skipped _ _ E1)|].
-  rewrite Hg3, Hg2, E1 in E.
-  destruct (existsb (Pos.eqb k) WK) eqn:Hw; [apply WK_skip, Hw|].
-  destruct (existsb _ D); cbn in E; discriminate.
-Qed.
-
 Lemma a_key_in_D k ea : aget k esa = Some ea -> existsb (Pos.eqb k) D = true.
 Proof.
   intros Ea; apply existsb_exists; exists k; split; [|apply Pos.eqb_refl].
   apply in_or_app; right; apply in_map_iff; exists ea; split; [symmetry; apply (esa_key _ _ Ea)|apply (aentries_in _ _ Ea)].
 Qed.
 
-Lemma R_le_I k : skipN pay k = false -> aget k esa = None -> dval R k <= dval Istart k.
+Lemma R_le_I k : aget k esa = None -> dval R k <= dval Istart k.
 Proof.
-  intros Sk Ea; unfold R, dval at 1; rewrite cget_cmin, cget_jstarts, Sk, Ea.
+  intros Ea; unfold R, dval at 1; rewrite cget_cmin, cget_jstarts, Ea.
   unfold Istart, dval; rewrite cget_ctotal; destruct (cget (aann es1) k); cbn; lia.
 Qed.
 
@@ -1220,14 +1168,14 @@ Proof.
     + assert (Ea : aget k esa = None)
         by (destruct (aget k esa) as [ea|] eqn:Ea; [rewrite (a_key_in_D _ _ Ea) in HD; discriminate|reflexivity]).
       assert (Ees : aget k es = Some (Entry h KNil 0 p)).
-      { rewrite Hg1 in E1; destruct (aget k es); [exact E1|]; destruct (skipN pay k); [discriminate|].
+      { rewrite Hg1 in E1; destruct (aget k es); [exact E1|].
         rewrite Ea in E1; discriminate. }
       assert (Hnv : ~ In k vis).
       { intros Hin; assert (existsb (Pos.eqb k) D = true)
           by (apply existsb_exists; exists k; split; [apply in_or_app; left; exact Hin|apply Pos.eqb_refl]).
         congruence. }
       pose proof (Hvis _ _ _ Ees Hnv Ea) as Hv.
-      pose proof (R_le_I k (es1_not_skipped _ _ E1) Ea); lia.
+      pose proof (R_le_I k Ea); lia.
   - destruct (Hgap k e Ag) as [He _]; rewrite He; cbn [epass]; right; exact Hlt.
 Qed.
 
@@ -1272,18 +1220,18 @@ Proof.
   cbn [arebase aann] in Hl |- *; rewrite cget_csub, Hl, ER; cbn; f_equal; lia.
 Qed.
 
-Theorem nlocal_finish : nlocal (Qof pay) (finish pay W es vis).
+Theorem nlocal_finish : nlocal (finish W es vis).
 Proof.
   rewrite finish_eq; cbn [nlocal].
   assert (Hes4 : ainv (arebase R es3)) by (apply ainv_arebase; [exact Hes3|exact HR]).
   assert (Hget4 : forall k, aget k (arebase R es3) = option_map (shift R) (aget k es3))
     by (intro k; apply aget_arebase; [exact Hes3|exact HR]).
-  split; [exact Hes4|split; [exact keyed_R|split; [|split]]].
+  split; [exact Hes4|split; [exact keyed_R|split]].
   - intros k e E; rewrite Hget4 in E.
     destruct (aget k es3) as [e3|] eqn:E3; [|discriminate]; injection E as <-.
     destruct (es3_good k e3 E3) as [Hk Hge].
     pose proof (es3_nontrivial k e3 E3) as Hnt; pose proof (Hcle k e3 E3) as Hc.
-    split; [|split].
+    split.
     + destruct e3 as [h ts len p]; cbn [elabel elen epass] in *; destruct Hge as [_ [G [Hl Hs]]].
       cbn [shift entry_based eshift entry_ok].
       split; [symmetry; exact Hk|].
@@ -1291,49 +1239,16 @@ Proof.
       split; [rewrite <- Hl; destruct ts; reflexivity|].
       split; [subst k; destruct Hnt as [Hn|Hn]; [left; exact Hn|right; lia]|].
       apply (strip_shift R h ts len p G Hc Hs).
-    + unfold Qof; destruct (Bool.bool_dec pay true) as [Hp|Hp];
-        [rewrite Hp|apply Bool.not_true_iff_false in Hp; rewrite Hp; reflexivity].
-      pose proof (es3_not_skipped k e3 E3) as Sk; unfold skipN in Sk; rewrite Hk, Hp in Sk.
-      change (Qnamed (elabel (eshift R e3)) = true); replace (elabel (eshift R e3)) with (elabel e3) by (destruct e3; reflexivity).
-      destruct (elabel e3) as [s|]; [reflexivity|]; cbn [andb] in Sk; rewrite Pos.eqb_refl in Sk; discriminate.
     + destruct (R_eq_U k ltac:(rewrite E3; discriminate)) as [u [Eu ER]].
       apply (ann_es4 k u); [left; rewrite E3; discriminate|exact Eu|exact ER].
-  - intros l Hl; unfold R; rewrite cget_cmin.
+  - intros l; unfold R; rewrite cget_cmin.
     destruct (J_cases (label_key l)) as [HJ|[HJ _]]; [|rewrite HJ; destruct (cget (aann es1) _); discriminate].
-    rewrite cget_jstarts in HJ; destruct (skipN pay (label_key l)) eqn:Sk.
-    + exfalso; unfold skipN in Sk; apply andb_prop in Sk as [Hp Hk]; apply Pos.eqb_eq, label_key_inj in Hk; subst l.
-      unfold Qof in Hl; rewrite Hp in Hl; discriminate.
-    + destruct (aget (label_key l) esa) as [ea|] eqn:Ea; [|unfold Istart in HJ; rewrite cget_ctotal in HJ; discriminate].
-      assert (E1 : exists e1, aget (label_key l) es1 = Some e1).
-      { rewrite Hg1; destruct (aget (label_key l) es) as [e0|]; [eauto|]; rewrite Sk, Ea.
-        unfold adrop; rewrite <- (esa_key _ _ Ea), Ea; destruct ea as [h1 tsa lena pa]; eauto. }
-      destruct E1 as [e1 E1]; destruct (U_some _ _ E1) as [u ->]; destruct (cget (jstarts pay W) _); discriminate.
-  - intros l Hl; unfold Qof in Hl; destruct (Bool.bool_dec pay true) as [Hp|Hp];
-      [rewrite Hp in Hl|apply Bool.not_true_iff_false in Hp; rewrite Hp in Hl; discriminate].
-    destruct l as [s|]; [discriminate|].
-    set (kN := label_key None).
-    assert (Sk : skipN pay kN = true) by (unfold skipN; rewrite Hp, Pos.eqb_refl; reflexivity).
-    assert (HJ : cget (jstarts pay W) kN = None) by (rewrite cget_jstarts, Sk; reflexivity).
-    assert (E1 : aget kN es1 = None)
-      by (destruct (aget kN es1) as [e1|] eqn:E1; [rewrite (es1_not_skipped _ _ E1) in Sk; discriminate|reflexivity]).
-    assert (ER : cget R kN = cget (aann es1) kN) by (unfold R; rewrite cget_cmin, HJ; destruct (cget (aann es1) kN); reflexivity).
-    destruct (cget (aann es1) kN) as [u|] eqn:Eu.
-    + right; split; [rewrite ER; discriminate|].
-      apply (ann_es4 kN u); [right; exact E1|exact Eu|rewrite ER; reflexivity].
-    + left; split; [rewrite ER; reflexivity|].
-      assert (H3 : cget (aann es3) kN = None).
-      { rewrite (ainv_ann es3 Hes3); apply lmin_none; intros e He.
-        destruct (aelems_aget es3 e He) as [k E3].
-        destruct (Hsrc k e E3) as [E1'|[_ [_ Ag]]].
-        - destruct (cget (uses e) kN) as [m|] eqn:Em; [|reflexivity]; exfalso.
-          rewrite (ainv_ann es1 Hes1) in Eu.
-          destruct (lmin_le _ e kN m (aget_in _ _ _ E1') Em) as [n [En _]]; congruence.
-        - destruct (Hgap k e Ag) as [He' Hk]; rewrite He'; cbn [uses entry_based euses ksann].
-          rewrite cget_cmin, cget_cnone, cget_cone.
-          destruct (Pos.eqb_spec kN (label_key (elabel e))) as [Ek|]; [|destruct (Some 0); reflexivity].
-          exfalso; rewrite <- Ek in Hk; subst k; rewrite (es3_not_skipped _ _ E3) in Sk; discriminate. }
-      destruct es3 as [|c l o r] eqn:Ees3; [reflexivity|].
-      cbn [arebase aann] in H3 |- *; rewrite cget_csub, H3; reflexivity.
+    rewrite cget_jstarts in HJ.
+    destruct (aget (label_key l) esa) as [ea|] eqn:Ea; [|unfold Istart in HJ; rewrite cget_ctotal in HJ; discriminate].
+    assert (E1 : exists e1, aget (label_key l) es1 = Some e1).
+    { rewrite Hg1; destruct (aget (label_key l) es) as [e0|]; [eauto|]; rewrite Ea.
+      unfold adrop; rewrite <- (esa_key _ _ Ea), Ea; destruct ea as [h1 tsa lena pa]; eauto. }
+    destruct E1 as [e1 E1]; destruct (U_some _ _ E1) as [u ->]; destruct (cget (jstarts W) _); discriminate.
 Qed.
 
 End Finish.
@@ -1342,7 +1257,7 @@ End Finish.
 
 (** What composition does to a result of [b]. *)
 Definition rcomp (r : result) : result :=
-  match r with inl y => napply a y | inr (u, rho) => inr (u, ncomp false rho cnone) end.
+  match r with inl y => napply a y | inr (u, rho) => inr (u, ncomp rho cnone) end.
 
 Lemma tresult_rtarget r : tresult (rtarget r) = r.
 Proof. destruct r as [[l i]|[u rho]]; reflexivity. Qed.
@@ -1560,7 +1475,7 @@ Proof. destruct rs as [[l i]|[u rho]]; reflexivity. Qed.
 Lemma cle_napply_a v : cle wa (uses (rtarget (napply a v))).
 Proof.
   change (cle wa (tuses (rtarget (napply a v)))); rewrite tuses_rtarget.
-  unfold wa; destruct a as [w es'] eqn:E; apply (cle_result Qall w es' v Ha).
+  unfold wa; destruct a as [w es'] eqn:E; apply (cle_result w es' v Ha).
 Qed.
 
 Lemma alist_ge h t : In t (alist h) -> cle wa (uses t).
@@ -1695,18 +1610,15 @@ Proof.
 Qed.
 
 (** Where the root is unused, nothing below uses it. *)
-Lemma root_covers Q w (es' : atrie entry) k :
-  nlocal Q (NAdj w es') -> nfin (NAdj w es') -> cget w k = None ->
+Lemma root_covers w (es' : atrie entry) k :
+  nlocal (NAdj w es') -> nfin (NAdj w es') -> cget w k = None ->
   forall k' e, aget k' es' = Some e -> cget (uses e) k = None.
 Proof.
-  intros Hl Hf Hw k' e E; pose proof Hl as [Hes [Hkey [_ [HQ HnQ]]]].
+  intros Hl Hf Hw k' e E; pose proof Hl as [Hes [Hkey [_ HQ]]].
   destruct (cget (uses e) k) as [m|] eqn:Em; [exfalso|reflexivity].
   destruct (key_label k) as [l|] eqn:Kl.
   - destruct (Pos.eqb_spec (label_key l) k) as [<-|Hne].
-    + destruct (Q l) eqn:Ql; [exact (HQ l Ql Hw)|].
-      destruct (HnQ l Ql) as [[_ Ha']|[Hn _]]; [|contradiction].
-      rewrite (ainv_ann es' Hes) in Ha'.
-      destruct (lmin_le _ e _ m (aget_in _ _ _ E) Em) as [n [En _]]; congruence.
+    + exact (HQ l Hw).
     + unfold cget in Hw; destruct (get k (c_exc w)) as [v|] eqn:G.
       * destruct (Hkey k v G) as [l' ->]; rewrite key_label_spec in Kl; injection Kl as ->; congruence.
       * unfold nfin in Hf; cbn [nroot] in Hf; congruence.
@@ -1719,23 +1631,23 @@ Qed.
 
 Section Step.
 
-Variables (pay : bool) (r : counts) (es : atrie entry).
+Variables (r : counts) (es : atrie entry).
 Local Notation b := (NAdj r es).
-Hypothesis Hb : nwf pay b.
+Hypothesis Hb : nwf b.
 
 (** What is known of payload targets one level down. *)
 Definition Pd_t (t : target) : Prop :=
-  match t with TVar _ _ => True | TBind _ rho => nwf false rho /\ nnest rho < nnest b end.
+  match t with TVar _ _ => True | TBind _ rho => nwf rho /\ nnest rho < nnest b end.
 
 Definition Pd_e (z : entry) : Prop :=
   match z with
   | Entry h ts len p => kgood ts /\ klength ts = len /\ strip_ok z /\ forall t, In t (klist ts) -> Pd_t t
   end.
 
-Hypothesis IH3 : forall rho, nnest rho < nnest b -> nwf false rho -> cle th (nroot rho) ->
-                 ncomp false rho cnone = nmove rho.
+Hypothesis IH3 : forall rho, nnest rho < nnest b -> nwf rho -> cle th (nroot rho) ->
+                 ncomp rho cnone = nmove rho.
 
-Lemma Hloc : nlocal (Qof pay) b.
+Lemma Hloc : nlocal b.
 Proof. apply nwf_local with (1 := Hb). Qed.
 
 Lemma b_entries_good : forall k e, aget k (nentries b) = Some e -> kgood (etargets e).
@@ -1760,9 +1672,9 @@ Proof.
     destruct (unshift r t0) as [y j|u rho] eqn:Eu; [exact Logic.I|].
     destruct (In_nth_error _ _ Ht0) as [i Ei].
     assert (Et : knth ts i = Some t0) by (rewrite knth_spec by apply kgood_shape, G; exact Ei).
-    destruct (target_result _ r es k h ts len p i t0 Hl E Et) as [Hn HQ].
+    pose proof (target_result r es k h ts len p i t0 Hl E Et) as Hn.
     change (tunshift r t0) with (unshift r t0) in Hn; rewrite Eu in Hn; cbn [tresult] in Hn.
-    split; [apply (nwf_payload _ _ (mk_rvar h i) u rho Hb HQ Hn)|].
+    split; [apply (nwf_payload _ (mk_rvar h i) u rho Hb Hn)|].
     apply (nest_napply b (mk_rvar h i) u rho b_entries_good Hn).
 Qed.
 
@@ -1869,23 +1781,20 @@ Proof.
   - cbn [napply v_label v_index]; rewrite E0; reflexivity.
 Qed.
 
-Lemma ncomp_b : ncomp pay b cnone = finish pay r esC (@atvisit entry bl0 r (fun k => k) es).
+Lemma ncomp_b : ncomp b cnone = finish r esC (@atvisit entry bl0 r (fun k => k) es).
 Proof.
   rewrite ncomp_eq, cadd_cnone; reflexivity.
 Qed.
 
 Theorem napply_ncomp_b v :
-  Qof pay (v_label v) = true -> no_low pay r esC ->
-  napply (ncomp pay b cnone) v = rcomp (napply b v).
+  no_low r esC ->
+  napply (ncomp b cnone) v = rcomp (napply b v).
 Proof.
-  intros HQ Hlow; destruct v as [h i]; cbn [v_label] in HQ.
-  rewrite ncomp_b, napply_finish; [apply cf_esC|exact es_good_esC| |exact Hlow].
-  unfold skipN; destruct pay eqn:Hp; [|reflexivity].
-  destruct h as [s|]; [|discriminate].
-  cbn [andb]; apply Pos.eqb_neq; intro E; apply label_key_inj in E; discriminate.
+  intros Hlow; destruct v as [h i].
+  rewrite ncomp_b, napply_finish; [apply cf_esC|exact es_good_esC|exact Hlow].
 Qed.
 
-Hypothesis IH4 : forall rho, nnest rho < nnest b -> nwf false rho -> cle wa (nroot (ncomp false rho cnone)).
+Hypothesis IH4 : forall rho, nnest rho < nnest b -> nwf rho -> cle wa (nroot (ncomp rho cnone)).
 
 Lemma tcF_ge t : Pd_t t -> cle wa (uses (tcF cnone t)).
 Proof.
@@ -1910,20 +1819,20 @@ Proof.
   cbn [option_map] in E; injection E as <-; apply ecF_ge, (Pd_entries k e0 E0).
 Qed.
 
-Lemma es1_ge k e : aget k (es1 pay r esC) = Some e -> cle wa (uses e).
+Lemma es1_ge k e : aget k (es1 r esC) = Some e -> cle wa (uses e).
 Proof.
-  intros E; rewrite (Hg1 pay r esC es_good_esC) in E.
+  intros E; rewrite (Hg1 r esC es_good_esC) in E.
   destruct (aget k esC) as [e0|] eqn:E0; [injection E as <-; apply (esC_ge _ _ E0)|].
-  destruct (skipN pay k); [discriminate|]; destruct (aget k esa); [apply (adrop_ge _ _ _ E)|discriminate].
+  destruct (aget k esa); [apply (adrop_ge _ _ _ E)|discriminate].
 Qed.
 
-Lemma U_ge : cle wa (aann (es1 pay r esC)).
-Proof. apply cle_aann; [apply (Hes1 pay r esC es_good_esC)|exact es1_ge]. Qed.
+Lemma U_ge : cle wa (aann (es1 r esC)).
+Proof. apply cle_aann; [apply (Hes1 r esC es_good_esC)|exact es1_ge]. Qed.
 
-Lemma no_low_esC : no_low pay r esC.
+Lemma no_low_esC : no_low r esC.
 Proof.
-  intros k n _ Hw _ Hn; unfold dval; rewrite cget_ctotal; cbn [oval].
-  pose proof (nwf_fin _ _ Hb) as Hf; unfold nfin in Hf; cbn [nroot] in Hf.
+  intros k n Hw _ Hn; unfold dval; rewrite cget_ctotal; cbn [oval].
+  pose proof (nwf_fin _ Hb) as Hf; unfold nfin in Hf; cbn [nroot] in Hf.
   assert (Hr : cget r k = Some 0) by (unfold cget; rewrite Hw; exact Hf).
   rewrite Hr; cbn [oval].
   destruct (cget wa k) as [w|] eqn:Ew; [|exfalso; exact (wa_total k Ew)].
@@ -1932,29 +1841,29 @@ Qed.
 
 (** One level of [ncomp] means [b] followed by [a]. *)
 Theorem napply_ncomp v :
-  Qof pay (v_label v) = true -> napply (ncomp pay b cnone) v = rcomp (napply b v).
-Proof. intros HQ; apply napply_ncomp_b; [exact HQ|exact no_low_esC]. Qed.
+  napply (ncomp b cnone) v = rcomp (napply b v).
+Proof. apply napply_ncomp_b, no_low_esC. Qed.
 
 (** The new root is above [a]'s. *)
-Theorem root_ge : cle wa (nroot (ncomp pay b cnone)).
+Theorem root_ge : cle wa (nroot (ncomp b cnone)).
 Proof.
   rewrite ncomp_b, finish_eq; cbn [nroot]; unfold R.
   intros k n m Hn Hm; rewrite cget_cmin in Hm.
   destruct (omin_some_or _ _ _ Hm) as [Hu|Hj]; [apply (U_ge k n m Hn Hu)|].
-  rewrite cget_jstarts in Hj; destruct (skipN pay k); [discriminate|].
+  rewrite cget_jstarts in Hj.
   destruct (aget k esa); [discriminate|]; rewrite cget_ctotal, Hn in Hj; injection Hj as <-; cbn; lia.
 Qed.
 
 (** *** Keyedness *)
 
-Hypothesis Hwa : nwf false a.
-Hypothesis IH1 : forall rho, nnest rho < nnest b -> nwf false rho -> nlocal Qall (ncomp false rho cnone).
+Hypothesis Hwa : nwf a.
+Hypothesis IH1 : forall rho, nnest rho < nnest b -> nwf rho -> nlocal (ncomp rho cnone).
 
-Lemma keyed_root Q (c : nadj) : nlocal Q c -> keyed (nroot c).
+Lemma keyed_root (c : nadj) : nlocal c -> keyed (nroot c).
 Proof. destruct c as [w es']; intros [_ [Hk _]]; exact Hk. Qed.
 
 Lemma keyed_a_result v u rho : napply a v = inr (u, rho) -> keyed (nroot rho).
-Proof. intros E; apply (keyed_root Qall), (nwf_local false), (nwf_payload false a v u rho Hwa eq_refl E). Qed.
+Proof. intros E; apply keyed_root, nwf_local, (nwf_payload a v u rho Hwa E). Qed.
 
 Lemma keyed_a_target k e t :
   aget k esa = Some e -> In t (klist (etargets e)) -> keyed (tuses (tunshift wa t)).
@@ -1965,7 +1874,7 @@ Proof.
   assert (Et : knth ts i = Some t) by (rewrite knth_spec by apply kgood_shape, G; exact Ei).
   assert (Hn : napply a (mk_rvar h i) = tresult (tunshift wa t)).
   { unfold esa, wa in *; destruct a as [w es'] eqn:Eqa; cbn [nentries nroot] in *.
-    apply (target_result Qall w es' _ h ts len p i t Ha Ea Et). }
+    apply (target_result w es' _ h ts len p i t Ha Ea Et). }
   destruct (tunshift wa t) as [y j|u rho] eqn:Eu; [apply keyed_cone|].
   apply (keyed_a_result _ _ _ Hn).
 Qed.
@@ -1981,7 +1890,7 @@ Lemma keyed_tcF t : Pd_t t -> keyed (tuses (tcF cnone t)).
 Proof.
   intros HP; destruct t as [y j|u rho]; cbn [tcF].
   - rewrite tuses_rtarget; destruct (napply a _) as [v|[u rho]] eqn:E; [apply keyed_cone|apply (keyed_a_result _ _ _ E)].
-  - destruct HP as [Hw Hn]; apply (keyed_root Qall), IH1; assumption.
+  - destruct HP as [Hw Hn]; apply keyed_root, IH1; assumption.
 Qed.
 
 Lemma keyed_esC k e : aget k esC = Some e -> keyed (uses e).
@@ -2002,14 +1911,6 @@ Proof.
   pose proof (ecomp_targets h _ p t G1) as Hc; rewrite Ec in Hc; cbn [etargets] in Hc.
   destruct (Hc Ht) as [Ht1|Ht1]; [rewrite E1 in Ht1; apply in_map_iff in Ht1 as [t0 [<- Ht0]]|apply (keyed_alist h t Ht1)].
   apply keyed_tcF; destruct HP as [_ [_ [_ HPt]]]; apply HPt, Ht0.
-Qed.
-
-Lemma Hpay_esC : pay = true -> aget (label_key None) esC = None.
-Proof.
-  intros Hp; rewrite (proj2 esC_spec); destruct (aget (label_key None) es) as [e0|] eqn:E0; [|reflexivity].
-  exfalso; pose proof Hloc as [_ [_ [Hent _]]]; destruct (Hent _ _ E0) as [Hok [HQ _]].
-  destruct e0 as [h ts len p]; destruct Hok as [Hk _]; apply label_key_inj in Hk; subst h.
-  unfold Qof in HQ; rewrite Hp in HQ; discriminate.
 Qed.
 
 (** *** Unvisited entries were moved *)
@@ -2034,9 +1935,9 @@ Qed.
 
 (** *** Labels [a] does not move are not pushed up too far *)
 
-Hypothesis IH5 : forall rho, nnest rho < nnest b -> nwf false rho ->
+Hypothesis IH5 : forall rho, nnest rho < nnest b -> nwf rho ->
                  forall k m, aget k esa = None -> cget (nroot rho) k = Some m ->
-                 exists m', cget (nroot (ncomp false rho cnone)) k = Some m' /\ m' <= dval wa k + m.
+                 exists m', cget (nroot (ncomp rho cnone)) k = Some m' /\ m' <= dval wa k + m.
 
 Lemma tcF_bound t k m :
   Pd_t t -> aget k esa = None -> cget (uses t) k = Some m ->
@@ -2054,7 +1955,7 @@ Qed.
 
 Lemma witness_bound k m :
   aget k esa = None -> cget r k = Some m -> cget (aann es) k = Some 0 ->
-  exists n, cget (aann (es1 pay r esC)) k = Some n /\ n <= dval wa k + m.
+  exists n, cget (aann (es1 r esC)) k = Some n /\ n <= dval wa k + m.
 Proof.
   intros Ea Hr Hz; pose proof Hloc as [Hes _].
   apply (aann_zero es k Hes) in Hz as [k2 [e2 [E2 Z2]]].
@@ -2081,25 +1982,25 @@ Proof.
         as [m' [Em' Hm']].
       exists m'; split; [exact Em'|lia]. }
   destruct Hc as [m' [Em' Hm']].
-  assert (E1' : aget k2 (es1 pay r esC) = Some (ecF cnone (Entry h2 ts2 len2 p2))).
-  { rewrite (Hg1 pay r esC es_good_esC), (proj2 esC_spec), E2; cbn [option_map].
+  assert (E1' : aget k2 (es1 r esC) = Some (ecF cnone (Entry h2 ts2 len2 p2))).
+  { rewrite (Hg1 r esC es_good_esC), (proj2 esC_spec), E2; cbn [option_map].
     change (eunshift r e2) with (unshift r e2).
     first [rewrite Ez; reflexivity | rewrite <- Ez; reflexivity | reflexivity]. }
-  rewrite (ainv_ann _ (Hes1 pay r esC es_good_esC)).
+  rewrite (ainv_ann _ (Hes1 r esC es_good_esC)).
   destruct (lmin_le _ _ k m' (aget_in _ _ _ E1') Em') as [n [En Hn]].
   exists n; split; [exact En|lia].
 Qed.
 
 Lemma Hatt_esC k :
-  skipN pay k = false -> aget k esC <> None -> aget k esa = None ->
-  exists n, cget (aann (es1 pay r esC)) k = Some n /\ n <= dval (ctotal wa r) k.
+  aget k esC <> None -> aget k esa = None ->
+  exists n, cget (aann (es1 r esC)) k = Some n /\ n <= dval (ctotal wa r) k.
 Proof.
-  intros _ HC Ea; rewrite (proj2 esC_spec) in HC.
+  intros HC Ea; rewrite (proj2 esC_spec) in HC.
   destruct (aget k es) as [e0|] eqn:E0; [|contradiction].
-  pose proof Hloc as [_ [_ [Hent [HQ _]]]].
-  destruct (Hent _ _ E0) as [Hok [HQe Hz]].
+  pose proof Hloc as [_ [_ [Hent HQ]]].
+  destruct (Hent _ _ E0) as [Hok Hz].
   assert (Hk : k = label_key (elabel e0)) by (destruct e0; destruct Hok as [Hk _]; symmetry; exact Hk).
-  destruct (cget r k) as [m|] eqn:Hr; [|exfalso; rewrite Hk in Hr; exact (HQ _ HQe Hr)].
+  destruct (cget r k) as [m|] eqn:Hr; [|exfalso; rewrite Hk in Hr; exact (HQ _ Hr)].
   destruct (witness_bound k m Ea Hr Hz) as [n [En Hn]].
   exists n; split; [exact En|unfold dval; rewrite cget_ctotal, Hr; cbn [oval]; unfold dval in Hn; lia].
 Qed.
@@ -2107,66 +2008,56 @@ Qed.
 (** *** The normal form of one level *)
 
 Lemma Hfa_wf : nfin a.
-Proof. apply (nwf_fin false a Hwa). Qed.
+Proof. apply (nwf_fin a Hwa). Qed.
 
 Lemma HW0_b : c_def r = Some 0.
-Proof. apply (nwf_fin _ _ Hb). Qed.
+Proof. apply (nwf_fin _ Hb). Qed.
 
 Lemma keyed_r : keyed r.
-Proof. apply (keyed_root _ b Hloc). Qed.
+Proof. apply (keyed_root b Hloc). Qed.
 
-Theorem nlocal_ncomp : nlocal (Qof pay) (ncomp pay b cnone).
+Theorem nlocal_ncomp : nlocal (ncomp b cnone).
 Proof.
   rewrite ncomp_b; fold vis.
-  apply (nlocal_finish pay r esC vis es_good_esC keyed_esC keyed_r (fun k e Ea t Ht => keyed_a_target k e t Ea Ht) Hfa_wf HW0_b
-           Hpay_esC Hatt_esC Hvis_esC).
+  apply (nlocal_finish r esC vis es_good_esC keyed_esC keyed_r (fun k e Ea t Ht => keyed_a_target k e t Ea Ht) Hfa_wf HW0_b
+           Hatt_esC Hvis_esC).
 Qed.
 
-Theorem nfin_ncomp : nfin (ncomp pay b cnone).
+Theorem nfin_ncomp : nfin (ncomp b cnone).
 Proof. rewrite ncomp_b; apply nfin_finish; [exact Hfa_wf|exact HW0_b]. Qed.
 
 (** The new root of a label [a] does not move is at most where [a] sends
     the old one. *)
 Theorem root_le k m :
   aget k esa = None -> cget r k = Some m ->
-  exists m', cget (nroot (ncomp pay b cnone)) k = Some m' /\ m' <= dval wa k + m.
+  exists m', cget (nroot (ncomp b cnone)) k = Some m' /\ m' <= dval wa k + m.
 Proof.
   intros Ea Hr; rewrite ncomp_b, finish_eq; cbn [nroot]; unfold R; rewrite cget_cmin, cget_jstarts.
-  destruct (skipN pay k) eqn:Sk.
-  - unfold skipN in Sk; apply andb_prop in Sk as [Hp Hk]; apply Pos.eqb_eq in Hk; subst k.
-    pose proof Hloc as [_ [_ [_ [_ HnQ]]]].
-    assert (HQ : Qof pay None = false) by (unfold Qof; rewrite Hp; reflexivity).
-    destruct (HnQ None HQ) as [[Hn _]|[_ Hz]]; [rewrite Hr in Hn; discriminate|].
-    destruct (witness_bound _ m Ea Hr Hz) as [n [En Hn]]; rewrite En; cbn [omin]; eexists; split; [reflexivity|lia].
-  - rewrite Ea, cget_ctotal, Hr; cbn [oval].
-    destruct (cget (aann (es1 pay r esC)) k); cbn; eexists; split; [reflexivity|unfold dval; lia|reflexivity|unfold dval; lia].
+  rewrite Ea, cget_ctotal, Hr; cbn [oval].
+  destruct (cget (aann (es1 r esC)) k); cbn; eexists; split; [reflexivity|unfold dval; lia|reflexivity|unfold dval; lia].
 Qed.
 
 (** *** Above the thresholds, a whole level is moved *)
 
-Lemma nlocal_nmove : nlocal (Qof pay) (nmove b).
+Lemma nlocal_nmove : nlocal (nmove b).
 Proof.
-  pose proof Hloc as [Hes [Hkey [Hent [HQ HnQ]]]]; cbn [nmove nlocal].
+  pose proof Hloc as [Hes [Hkey [Hent HQ]]]; cbn [nmove nlocal].
   split; [exact Hes|split; [apply keyed_cmap2; [apply keyed_tau|apply keyed_cmap2; [exact Hkey|apply keyed_th]]|]].
-  split; [exact Hent|split].
-  - intros l Hl; rewrite cget_cadd, cget_csub; specialize (HQ l Hl).
-    destruct (cget r (label_key l)); [destruct (cget tau _), (cget th _); discriminate|contradiction].
-  - intros l Hl; rewrite cget_cadd, cget_csub.
-    destruct (HnQ l Hl) as [[Hn Ha']|[Hn Ha']]; [left; rewrite Hn; split; [destruct (cget tau _); reflexivity|exact Ha']|].
-    right; split; [|exact Ha'].
-    destruct (cget r (label_key l)); [destruct (cget tau _), (cget th _); discriminate|contradiction].
+  split; [exact Hent|].
+  intros l; rewrite cget_cadd, cget_csub; specialize (HQ l).
+  destruct (cget r (label_key l)); [destruct (cget tau _), (cget th _); discriminate|contradiction].
 Qed.
 
 Lemma dval_move k p : cget r k = Some p -> dval (cadd tau (csub r th)) k = dval tau k + (p - dval th k).
 Proof. intros Hr; unfold dval; rewrite cget_cadd, cget_csub, Hr; destruct (cget th k), (cget tau k); reflexivity. Qed.
 
 Lemma napply_nmove v :
-  cle th r -> Qof pay (v_label v) = true -> napply (nmove b) v = rcomp (napply b v).
+  cle th r -> napply (nmove b) v = rcomp (napply b v).
 Proof.
-  intros Hc HQv; pose proof Hloc as Hl; pose proof Hl as [Hes [_ [Hent [HQ _]]]].
+  intros Hc; pose proof Hloc as Hl; pose proof Hl as [Hes [_ [Hent HQ]]].
   destruct v as [h i]; cbn [v_label v_index] in *; cbn [nmove napply v_label v_index].
   set (kh := label_key h).
-  assert (Hr : exists q, cget r kh = Some q) by (destruct (cget r kh) eqn:E; [eauto|exfalso; exact (HQ h HQv E)]).
+  assert (Hr : exists q, cget r kh = Some q) by (destruct (cget r kh) eqn:E; [eauto|exfalso; exact (HQ h E)]).
   destruct Hr as [q Hq].
   assert (Hthq : dval th kh <= q) by (unfold dval; destruct (cget th kh) as [t|] eqn:Et; cbn; [apply (Hc kh t q Et Hq)|lia]).
   assert (Hshift : forall j, q <= j -> napply a (mk_rvar h j) = inl (mk_rvar h (j - thv h + tauv h)))
@@ -2182,7 +2073,7 @@ Proof.
                      exists p0, cget r k = Some p0 /\ cget r k = Some p0 /\ forall t, cget th k = Some t -> t <= p0).
       { intros k Hk; destruct (cget r k) as [p0|] eqn:Ek.
         - exists p0; split; [reflexivity|split; [reflexivity|intros t Et'; apply (Hc k t p0 Et' Ek)]].
-        - exfalso; pose proof (root_covers _ r es k Hl HW0_b Ek kh _ E0) as Hn.
+        - exfalso; pose proof (root_covers r es k Hl HW0_b Ek kh _ E0) as Hn.
           rewrite uses_entry_klist in Hn by exact G.
           destruct (cget (uses t0) k) as [m|] eqn:Em; [|contradiction].
           destruct (lmin_le _ t0 k m Hin Em) as [n [En _]]; rewrite En in Hn.
@@ -2203,25 +2094,25 @@ Proof.
     rewrite Hshift by lia; rewrite (dval_move kh q Hq); unfold thv, tauv; fold kh; f_equal; f_equal; lia.
 Qed.
 
-Theorem ncomp_moved : cle th r -> ncomp pay b cnone = nmove b.
+Theorem ncomp_moved : cle th r -> ncomp b cnone = nmove b.
 Proof.
-  intros Hc; apply (ncanonical (Qof pay)); [exact nlocal_ncomp|exact nlocal_nmove|].
-  intros v Hv; rewrite napply_ncomp, napply_nmove by assumption; reflexivity.
+  intros Hc; apply ncanonical; [exact nlocal_ncomp|exact nlocal_nmove|].
+  intros v; rewrite napply_ncomp, napply_nmove by assumption; reflexivity.
 Qed.
 
 (** *** Deep well-formedness *)
 
-Hypothesis IH0 : forall rho, nnest rho < nnest b -> nwf false rho -> nwf false (ncomp false rho cnone).
+Hypothesis IH0 : forall rho, nnest rho < nnest b -> nwf rho -> nwf (ncomp rho cnone).
 
-Theorem nwf_ncomp : nwf pay (ncomp pay b cnone).
+Theorem nwf_ncomp : nwf (ncomp b cnone).
 Proof.
   apply nwf_intro; [exact nlocal_ncomp|exact nfin_ncomp|].
-  intros v u rho' Hv E; rewrite napply_ncomp in E by exact Hv.
+  intros v u rho' E; rewrite napply_ncomp in E.
   destruct (napply b v) as [y|[u0 rho]] eqn:Eb; cbn [rcomp] in E.
-  - apply (nwf_payload false a y u rho' Hwa eq_refl E).
+  - apply (nwf_payload a y u rho' Hwa E).
   - injection E as -> <-; apply IH0.
     + apply (nest_napply b v u rho b_entries_good Eb).
-    + apply (nwf_payload _ _ v u rho Hb Hv Eb).
+    + apply (nwf_payload _ v u rho Hb Eb).
 Qed.
 
 End Step.
@@ -2230,42 +2121,42 @@ End Step.
 
 Section Main.
 
-Hypothesis Hwa : nwf false a.
+Hypothesis Hwa : nwf a.
 
-Definition comp_ok (pay : bool) (b : nadj) : Prop :=
-  nwf pay (ncomp pay b cnone)
-  /\ (forall v, Qof pay (v_label v) = true -> napply (ncomp pay b cnone) v = rcomp (napply b v))
-  /\ (cle th (nroot b) -> ncomp pay b cnone = nmove b)
-  /\ cle wa (nroot (ncomp pay b cnone))
+Definition comp_ok (b : nadj) : Prop :=
+  nwf (ncomp b cnone)
+  /\ (forall v, napply (ncomp b cnone) v = rcomp (napply b v))
+  /\ (cle th (nroot b) -> ncomp b cnone = nmove b)
+  /\ cle wa (nroot (ncomp b cnone))
   /\ (forall k m, aget k esa = None -> cget (nroot b) k = Some m ->
-      exists m', cget (nroot (ncomp pay b cnone)) k = Some m' /\ m' <= dval wa k + m).
+      exists m', cget (nroot (ncomp b cnone)) k = Some m' /\ m' <= dval wa k + m).
 
-Lemma comp_ok_lt n : forall pay b, nnest b < n -> nwf pay b -> comp_ok pay b.
+Lemma comp_ok_lt n : forall b, nnest b < n -> nwf b -> comp_ok b.
 Proof.
-  induction n as [|n IHn]; intros pay [r es] Hn Hb; [lia|].
-  assert (IH : forall rho, nnest rho < nnest (NAdj r es) -> nwf false rho -> comp_ok false rho)
+  induction n as [|n IHn]; intros [r es] Hn Hb; [lia|].
+  assert (IH : forall rho, nnest rho < nnest (NAdj r es) -> nwf rho -> comp_ok rho)
     by (intros rho Hr Hw; apply IHn; [lia|exact Hw]).
-  assert (IH0 : forall rho, nnest rho < nnest (NAdj r es) -> nwf false rho -> nwf false (ncomp false rho cnone))
+  assert (IH0 : forall rho, nnest rho < nnest (NAdj r es) -> nwf rho -> nwf (ncomp rho cnone))
     by (intros rho Hr Hw; apply (IH rho Hr Hw)).
-  assert (IH1 : forall rho, nnest rho < nnest (NAdj r es) -> nwf false rho -> nlocal Qall (ncomp false rho cnone))
-    by (intros rho Hr Hw; apply (nwf_local false), (IH rho Hr Hw)).
-  assert (IH3 : forall rho, nnest rho < nnest (NAdj r es) -> nwf false rho -> cle th (nroot rho) ->
-                ncomp false rho cnone = nmove rho)
+  assert (IH1 : forall rho, nnest rho < nnest (NAdj r es) -> nwf rho -> nlocal (ncomp rho cnone))
+    by (intros rho Hr Hw; apply nwf_local, (IH rho Hr Hw)).
+  assert (IH3 : forall rho, nnest rho < nnest (NAdj r es) -> nwf rho -> cle th (nroot rho) ->
+                ncomp rho cnone = nmove rho)
     by (intros rho Hr Hw; apply (IH rho Hr Hw)).
-  assert (IH4 : forall rho, nnest rho < nnest (NAdj r es) -> nwf false rho -> cle wa (nroot (ncomp false rho cnone)))
+  assert (IH4 : forall rho, nnest rho < nnest (NAdj r es) -> nwf rho -> cle wa (nroot (ncomp rho cnone)))
     by (intros rho Hr Hw; apply (IH rho Hr Hw)).
-  assert (IH5 : forall rho, nnest rho < nnest (NAdj r es) -> nwf false rho ->
+  assert (IH5 : forall rho, nnest rho < nnest (NAdj r es) -> nwf rho ->
                 forall k m, aget k esa = None -> cget (nroot rho) k = Some m ->
-                exists m', cget (nroot (ncomp false rho cnone)) k = Some m' /\ m' <= dval wa k + m)
+                exists m', cget (nroot (ncomp rho cnone)) k = Some m' /\ m' <= dval wa k + m)
     by (intros rho Hr Hw; apply (IH rho Hr Hw)).
-  split; [apply (nwf_ncomp pay r es Hb IH3 IH4 Hwa IH1 IH5 IH0)|].
-  split; [intros v Hv; apply (napply_ncomp pay r es Hb IH3 IH4 v Hv)|].
-  split; [apply (ncomp_moved pay r es Hb IH3 IH4 Hwa IH1 IH5)|].
-  split; [apply (root_ge pay r es Hb IH3 IH4)|].
+  split; [apply (nwf_ncomp r es Hb IH3 IH4 Hwa IH1 IH5 IH0)|].
+  split; [intros v; apply (napply_ncomp r es Hb IH3 IH4 v)|].
+  split; [apply (ncomp_moved r es Hb IH3 IH4 Hwa IH1 IH5)|].
+  split; [apply (root_ge r es Hb IH3 IH4)|].
   intros k m Ea Hr; eapply root_le; eassumption.
 Qed.
 
-Theorem comp_correct pay b : nwf pay b -> comp_ok pay b.
+Theorem comp_correct b : nwf b -> comp_ok b.
 Proof. apply (comp_ok_lt (S (nnest b))); lia. Qed.
 
 End Main.
@@ -2276,11 +2167,11 @@ End Compose.
 (** ** The top level *)
 
 Theorem compose_spec {T} (a b : @nadj T) :
-  nwf false a -> nwf false b ->
-  nwf false (compose a b) /\ forall v, napply (compose a b) v = rcomp a (napply b v).
+  nwf a -> nwf b ->
+  nwf (compose a b) /\ forall v, napply (compose a b) v = rcomp a (napply b v).
 Proof.
-  intros Ha Hb; destruct (comp_correct a (nwf_local _ _ Ha) Ha false b Hb) as [Hw [Hm _]].
-  split; [exact Hw|intros v; apply Hm; reflexivity].
+  intros Ha Hb; destruct (comp_correct a (nwf_local _ Ha) Ha b Hb) as [Hw [Hm _]].
+  split; [exact Hw|exact Hm].
 Qed.
 
 (** * The point operations stay deeply well formed *)
@@ -2315,29 +2206,27 @@ Proof.
   destruct (cget d k); cbn; f_equal; lia.
 Qed.
 
-Lemma nwf_cadd n : forall pay w (es : atrie entry) d,
-  nnest (NAdj w es) < n -> nwf pay (NAdj w es) -> keyed d -> c_def d = None -> nwf pay (NAdj (cadd d w) es).
+Lemma nwf_cadd n : forall w (es : atrie entry) d,
+  nnest (NAdj w es) < n -> nwf (NAdj w es) -> keyed d -> c_def d = None -> nwf (NAdj (cadd d w) es).
 Proof.
-  induction n as [|n IH]; intros pay w es d Hn Hb Kd Dd; [lia|].
-  pose proof (nwf_local _ _ Hb) as Hl; pose proof (nwf_fin _ _ Hb) as Hf.
+  induction n as [|n IH]; intros w es d Hn Hb Kd Dd; [lia|].
+  pose proof (nwf_local _ Hb) as Hl; pose proof (nwf_fin _ Hb) as Hf.
   apply nwf_intro.
-  - destruct Hl as [Hes [Kw [Hent [HQ HnQ]]]].
-    split; [exact Hes|split; [apply keyed_cmap2; assumption|split; [exact Hent|split]]].
-    + intros l Hq; rewrite cget_cadd; specialize (HQ l Hq); destruct (cget w _); [discriminate|contradiction].
-    + intros l Hq; rewrite cget_cadd; destruct (HnQ l Hq) as [[-> H]|[H1 H]]; [left; split; [destruct (cget d _); reflexivity|exact H]|].
-      right; split; [destruct (cget w _); [discriminate|contradiction]|exact H].
+  - destruct Hl as [Hes [Kw [Hent HQ]]].
+    split; [exact Hes|split; [apply keyed_cmap2; assumption|split; [exact Hent|]]].
+    intros l; rewrite cget_cadd; specialize (HQ l); destruct (cget w _); [discriminate|contradiction].
   - unfold nfin in *; cbn [nroot c_def cadd cmap2] in *; rewrite Dd, Hf; reflexivity.
-  - intros v u rho' Hq E.
+  - intros v u rho' E.
     destruct (napply_root_payload w _ es v u rho' E) as [k [e [r0 [es0 [Ek [Et [-> E0]]]]]]].
     assert (G : kgood (etargets e)).
     { destruct Hl as [_ [_ [Hent _]]]; destruct (Hent k e Ek) as [Hok _]; destruct e; apply Hok. }
     rewrite cadd_assoc_covered.
-    + apply IH; [|exact (nwf_payload _ _ v u _ Hb Hq E0)|exact Kd|exact Dd].
+    + apply IH; [|exact (nwf_payload _ v u _ Hb E0)|exact Kd|exact Dd].
       assert (HG : forall k' e', aget k' (nentries (NAdj w es)) = Some e' -> kgood (etargets e')).
       { intros k' e' E'; destruct Hl as [_ [_ [Hent _]]]; destruct (Hent k' e' E') as [Hok _]; destruct e'; apply Hok. }
       pose proof (nest_napply (NAdj w es) v u _ HG E0) as Hlt; cbn [nnest] in *; lia.
     + intros k' Hk' Hw.
-      pose proof (root_covers (Qof pay) w es k' Hl Hf Hw k e Ek) as Hcv.
+      pose proof (root_covers w es k' Hl Hf Hw k e Ek) as Hcv.
       destruct e as [h ts len p]; rewrite uses_entry_klist in Hcv by exact G.
       cbn [etargets] in Et; pose proof (knth_in _ _ _ G Et) as Hin.
       destruct (cget r0 k') as [x|] eqn:Ex; [|contradiction].
@@ -2346,37 +2235,36 @@ Proof.
       destruct (cget (cone _ p) k'); discriminate.
 Qed.
 
-Theorem nwf_identity : nwf false (@nidentity T).
+Theorem nwf_identity : nwf (@nidentity T).
 Proof.
   apply nwf_intro; [apply nlocal_identity|apply nfin_identity|].
-  intros v u rho _ E; rewrite napply_identity in E; discriminate.
+  intros v u rho E; rewrite napply_identity in E; discriminate.
 Qed.
 
-Theorem nwf_weaken h (a : nadj) : nwf false a -> nwf false (weaken h a).
+Theorem nwf_weaken h (a : nadj) : nwf a -> nwf (weaken h a).
 Proof.
   destruct a as [w es]; intros Ha; cbn [weaken].
   apply (nwf_cadd (S (nnest (NAdj w es)))); [cbn [nnest]; lia|exact Ha|apply keyed_cone|reflexivity].
 Qed.
 
-(** A target is deeply well formed: a payload's adjustment is a named-only
-    normal form. *)
+(** A target is deeply well formed: a payload's adjustment is. *)
 Definition twf (t : target) : Prop :=
-  match t with TVar _ _ => True | TBind _ rho => nwf false rho end.
+  match t with TVar _ _ => True | TBind _ rho => nwf rho end.
 
 Theorem nwf_extend h (t : target) (a : nadj) :
-  nwf false a -> twf t -> nwf false (extend h t a).
+  nwf a -> twf t -> nwf (extend h t a).
 Proof.
-  intros Ha Ht; pose proof (nwf_local _ _ Ha) as Hl; pose proof (nwf_fin _ _ Ha) as Hf.
+  intros Ha Ht; pose proof (nwf_local _ Ha) as Hl; pose proof (nwf_fin _ Ha) as Hf.
   assert (Hk : keyed (tuses t))
-    by (destruct t as [y j|u [r es]]; [apply keyed_cone|cbn in Ht; destruct (nwf_local _ _ Ht) as [_ [Hk _]]; exact Hk]).
+    by (destruct t as [y j|u [r es]]; [apply keyed_cone|cbn in Ht; destruct (nwf_local _ Ht) as [_ [Hk _]]; exact Hk]).
   apply nwf_intro; [apply nlocal_extend; assumption|apply nfin_extend, Hf|].
-  intros v u rho _ E; rewrite napply_extend in E by assumption.
+  intros v u rho E; rewrite napply_extend in E by assumption.
   destruct (rvar_eqb v _).
   - destruct t as [y j|u' rho']; cbn in E; [discriminate|injection E as -> <-; exact Ht].
-  - apply (nwf_payload _ _ _ u rho Ha eq_refl E).
+  - apply (nwf_payload _ _ u rho Ha E).
 Qed.
 
-Theorem nwf_lift h (a : nadj) : nwf false a -> nwf false (lift h a).
+Theorem nwf_lift h (a : nadj) : nwf a -> nwf (lift h a).
 Proof. intros Ha; apply nwf_extend; [apply nwf_weaken, Ha|exact Logic.I]. Qed.
 
 End PointWf.

@@ -1,8 +1,8 @@
 (** * Deep well-formedness
 
     An adjustment is deeply well formed when it is in normal form at every
-    level: its payloads, made absolute, are named-only normal forms, and so
-    on down.  This is decided by a structural check [nwfc], so that a proof
+    level: its payloads, made absolute, are normal forms, and so on down.
+    This is decided by a structural check [nwfc], so that a proof
     of it can be kept in SProp and still be used; [nwf] is that check
     succeeding, and the lemmas below give its meaning: the one-level normal
     form, finitely many labels moved, and every payload result deeply well
@@ -208,13 +208,12 @@ Proof.
 Qed.
 
 
-Lemma target_result Q r (es : atrie entry) k h ts len p i t :
-  nlocal Q (NAdj r es) -> aget k es = Some (Entry h ts len p) -> knth ts i = Some t ->
-  napply (NAdj r es) (mk_rvar h i) = tresult (tunshift r t) /\ Q h = true.
+Lemma target_result r (es : atrie entry) k h ts len p i t :
+  nlocal (NAdj r es) -> aget k es = Some (Entry h ts len p) -> knth ts i = Some t ->
+  napply (NAdj r es) (mk_rvar h i) = tresult (tunshift r t).
 Proof.
   intros Hl E Et; pose proof Hl as [_ [_ [Hent _]]].
-  destruct (Hent _ _ E) as [[Hk [G [Hlen _]]] [HQ _]]; cbn [elabel] in HQ.
-  split; [|exact HQ].
+  destruct (Hent _ _ E) as [[Hk [G [Hlen _]]] _].
   cbn [napply v_label v_index]; rewrite Hk, E; cbn [eapply].
   assert (Hi : i < len)
     by (rewrite <- Hlen, (klength_spec _ (kgood_shape _ G)); apply nth_error_Some;
@@ -225,35 +224,35 @@ Qed.
 
 (** ** The check *)
 
-(** [nwfc pay rt b] checks [b] with its root counts read through [rt]: the
+(** [nwfc rt b] checks [b] with its root counts read through [rt]: the
     identity at the top, adding the base for a payload. *)
-Fixpoint nwfc (pay : bool) (rt : counts -> counts) (b : nadj) {struct b} : bool :=
+Fixpoint nwfc (rt : counts -> counts) (b : nadj) {struct b} : bool :=
   match b with
   | NAdj r es =>
       let R := rt r in
-      nlocalb pay (NAdj R es) && oeqb (c_def R) (Some 0)
+      nlocalb (NAdj R es) && oeqb (c_def R) (Some 0)
       && aallF (fun B e =>
                   match e with
                   | Entry _ ts _ _ =>
                       kallF (fun B' t => match t with
                                          | TVar _ _ => true
-                                         | TBind _ rho => nwfc false (cadd B') rho
+                                         | TBind _ rho => nwfc (cadd B') rho
                                          end) B ts
                   end) R es
   end.
 
-(** Deeply well formed: [pay] says it is a payload's adjustment. *)
-Definition nwf (pay : bool) (b : nadj) : Prop := nwfc pay (fun r => r) b = true.
+(** Deeply well formed. *)
+Definition nwf (b : nadj) : Prop := nwfc (fun r => r) b = true.
 
 Definition tcheck (B : counts) (t : target) : bool :=
-  match t with TVar _ _ => true | TBind _ rho => nwfc false (cadd B) rho end.
+  match t with TVar _ _ => true | TBind _ rho => nwfc (cadd B) rho end.
 
 Definition echeck (B : counts) (e : entry) : bool :=
   match e with Entry _ ts _ _ => kallF tcheck B ts end.
 
-Lemma nwfc_eq pay rt r es :
-  nwfc pay rt (NAdj r es)
-  = nlocalb pay (NAdj (rt r) es) && oeqb (c_def (rt r)) (Some 0) && aallF echeck (rt r) es.
+Lemma nwfc_eq rt r es :
+  nwfc rt (NAdj r es)
+  = nlocalb (NAdj (rt r) es) && oeqb (c_def (rt r)) (Some 0) && aallF echeck (rt r) es.
 Proof. reflexivity. Qed.
 
 Lemma tcheck_unshift B t : tcheck B t = tcheck cnone (unshift B t).
@@ -268,18 +267,18 @@ Proof.
   rewrite (cadd_cnone (cadd B a)); reflexivity.
 Qed.
 
-Lemma tcheck_payload u r es : tcheck cnone (TBind u (NAdj r es)) = true <-> nwf false (NAdj r es).
+Lemma tcheck_payload u r es : tcheck cnone (TBind u (NAdj r es)) = true <-> nwf (NAdj r es).
 Proof. cbn [tcheck]; unfold nwf; rewrite !nwfc_eq, cadd_cnone; reflexivity. Qed.
 
 (** ** What [nwf] means *)
 
-Lemma nwf_local pay b : nwf pay b -> nlocal (Qof pay) b.
+Lemma nwf_local b : nwf b -> nlocal b.
 Proof.
   destruct b as [r es]; unfold nwf; rewrite nwfc_eq; cbv beta; intros H.
   apply andb_prop in H as [H _]; apply andb_prop in H as [H _]; apply nlocalb_spec, H.
 Qed.
 
-Lemma nwf_fin pay b : nwf pay b -> nfin b.
+Lemma nwf_fin b : nwf b -> nfin b.
 Proof.
   destruct b as [r es]; unfold nwf; rewrite nwfc_eq; cbv beta; intros H.
   apply andb_prop in H as [H _]; apply andb_prop in H as [_ H]; apply oeqb_spec, H.
@@ -288,8 +287,8 @@ Qed.
 (** A check on every target, as a statement about the entries made
     absolute. *)
 Lemma targets_check (F : counts -> target -> bool) (HF : forall B t, F B t = F cnone (unshift B t))
-      Q r (es : atrie entry) :
-  nlocal Q (NAdj r es) ->
+      r (es : atrie entry) :
+  nlocal (NAdj r es) ->
   aallF (fun B e => match e with Entry _ ts _ _ => kallF F B ts end) r es = true
   <-> forall k e, aget k es = Some e ->
       forall t, In t (klist (klift r (etargets e))) -> F cnone t = true.
@@ -316,19 +315,19 @@ Proof.
   - intros H e He; apply Hent; [exact He|]; destruct (aelems_aget es e He) as [k E]; apply (H k e E).
 Qed.
 
-Lemma nwf_targets pay r (es : atrie entry) :
-  nlocal (Qof pay) (NAdj r es) ->
+Lemma nwf_targets r (es : atrie entry) :
+  nlocal (NAdj r es) ->
   aallF echeck r es = true
   <-> forall k e, aget k es = Some e ->
       forall t, In t (klist (klift r (etargets e))) -> tcheck cnone t = true.
 Proof. apply (targets_check tcheck tcheck_unshift). Qed.
 
-Lemma nwf_payload pay b v u rho :
-  nwf pay b -> Qof pay (v_label v) = true -> napply b v = inr (u, rho) -> nwf false rho.
+Lemma nwf_payload b v u rho :
+  nwf b -> napply b v = inr (u, rho) -> nwf rho.
 Proof.
-  intros Hw _ E; pose proof (nwf_local pay b Hw) as Hl.
+  intros Hw E; pose proof (nwf_local b Hw) as Hl.
   destruct b as [r es]; unfold nwf in Hw; rewrite nwfc_eq in Hw; cbv beta in Hw; apply andb_prop in Hw as [_ Hw].
-  pose proof (proj1 (nwf_targets pay r es Hl) Hw) as Hw2; clear Hw; rename Hw2 into Hw.
+  pose proof (proj1 (nwf_targets r es Hl) Hw) as Hw2; clear Hw; rename Hw2 into Hw.
   cbn [napply] in E; destruct (aget _ es) as [e|] eqn:Ek; [|discriminate].
   pose proof Hl as [_ [_ [Hent _]]]; destruct (Hent _ e Ek) as [Hok _].
   destruct e as [h ts len p]; destruct Hok as [_ [G _]]; cbn [eapply] in E.
@@ -339,22 +338,22 @@ Proof.
   rewrite klist_klift by apply kgood_inv, G; apply in_map, (knth_in _ _ _ G Et).
 Qed.
 
-Lemma nwf_intro pay b :
-  nlocal (Qof pay) b -> nfin b ->
-  (forall v u rho, Qof pay (v_label v) = true -> napply b v = inr (u, rho) -> nwf false rho) ->
-  nwf pay b.
+Lemma nwf_intro b :
+  nlocal b -> nfin b ->
+  (forall v u rho, napply b v = inr (u, rho) -> nwf rho) ->
+  nwf b.
 Proof.
   intros Hl Hf Hp; destruct b as [r es]; unfold nwf; rewrite nwfc_eq; cbv beta.
-  unfold nfin in Hf; cbn [nroot] in Hf; rewrite (proj2 (nlocalb_spec pay _) Hl), (proj2 (oeqb_spec _ _) Hf); cbn [andb].
-  apply (nwf_targets pay r es Hl); intros k e E t Ht.
-  pose proof Hl as [_ [_ [Hent _]]]; destruct (Hent k e E) as [Hok [HQ _]].
+  unfold nfin in Hf; cbn [nroot] in Hf; rewrite (proj2 (nlocalb_spec _) Hl), (proj2 (oeqb_spec _ _) Hf); cbn [andb].
+  apply (nwf_targets r es Hl); intros k e E t Ht.
+  pose proof Hl as [_ [_ [Hent _]]]; destruct (Hent k e E) as [Hok _].
   destruct e as [h ts len p]; destruct Hok as [_ [G _]]; cbn [etargets elabel] in *.
   rewrite klist_klift in Ht by apply kgood_inv, G; apply in_map_iff in Ht as [t0 [<- Ht0]].
   destruct (In_nth_error _ _ Ht0) as [i Ei].
   assert (Et : knth ts i = Some t0) by (rewrite knth_spec by apply kgood_shape, G; exact Ei).
-  destruct (target_result _ r es k h ts len p i t0 Hl E Et) as [Hn _].
+  pose proof (target_result r es k h ts len p i t0 Hl E Et) as Hn.
   destruct t0 as [y j|u0 [r0 es0]]; [reflexivity|]; cbn [tunshift tresult] in Hn |- *.
-  apply (tcheck_payload u0), (Hp (mk_rvar h i) u0 _ HQ Hn).
+  apply (tcheck_payload u0), (Hp (mk_rvar h i) u0 _ Hn).
 Qed.
 
 End Deep.

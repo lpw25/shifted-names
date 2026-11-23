@@ -34,27 +34,27 @@ Local Notation target := (@target T).
 
 (** A raw adjustment scoped from [K] to [M]. *)
 Definition aok (K M : nat) (x : nadj) : bool :=
-  nwfc false (fun r => r) x && (scoped_tail K M x && pscopedc M (fun r => r) x).
+  nwfc (fun r => r) x && (scoped_tail K M x && pscopedc M (fun r => r) x).
 
 (** An adjustment with its root read through [rt] (a lazy base,
     Lookup.v). *)
 Definition absn (rt : counts -> lbase) (x : nadj) : nadj :=
   match x with NAdj r es => NAdj (lcounts (rt r)) es end.
 
-Lemma aok_wf K M x : aok K M x = true -> nwf false x.
+Lemma aok_wf K M x : aok K M x = true -> nwf x.
 Proof. unfold aok; rewrite andb_true_iff; intros [H _]; exact H. Qed.
 
-Lemma aok_local K M x : aok K M x = true -> nlocal Qall x.
-Proof. intros H; apply (nwf_local false), (aok_wf K M), H. Qed.
+Lemma aok_local K M x : aok K M x = true -> nlocal x.
+Proof. intros H; apply nwf_local, (aok_wf K M), H. Qed.
 
 Lemma aok_scoped K M (a : radj T) : aok K M (radj_n a) = scoped K M a.
 Proof. unfold aok, scoped; rewrite (radj_wf a); reflexivity. Qed.
 
 (** Where a lookup ends up: an entry found over base [Be]. *)
-Lemma found_entry Q R (es : atrie entry) k Be h ts len p :
-  nlocal Q (NAdj R es) ->
+Lemma found_entry R (es : atrie entry) k Be h ts len p :
+  nlocal (NAdj R es) ->
   option_map (unshift R) (aget k es) = Some (unshift Be (Entry h ts len p)) ->
-  label_key h = k /\ Q h = true /\ kgood ts /\ klength ts = len
+  label_key h = k /\ kgood ts /\ klength ts = len
   /\ (forall i Bt t, i < len -> option_map (unshift Be) (knth ts i) = Some (unshift Bt t) ->
                      napply (NAdj R es) (mk_rvar h i) = tresult (unshift Bt t))
   /\ (forall i, len <= i -> napply (NAdj R es) (mk_rvar h i)
@@ -63,11 +63,11 @@ Lemma found_entry Q R (es : atrie entry) k Be h ts len p :
 Proof.
   intros Hl E; pose proof Hl as [_ [_ [Hent _]]].
   destruct (aget k es) as [e0|] eqn:E0; [|discriminate]; cbn in E; injection E as E.
-  destruct e0 as [h0 ts0 len0 p0]; destruct (Hent _ _ E0) as [[Hk [G0 [Hl0 _]]] [HQ _]].
+  destruct e0 as [h0 ts0 len0 p0]; destruct (Hent _ _ E0) as [[Hk [G0 [Hl0 _]]] _].
   cbn [unshift entry_based eunshift] in E; injection E as -> Ets -> Ep.
   assert (G : kgood ts) by (apply (kgood_unlift Be); rewrite <- Ets; apply kgood_klift, G0).
   assert (Hlen : klength ts = len) by (rewrite <- Hl0, <- (klength_klift R ts0), Ets, klength_klift; reflexivity).
-  subst k; split; [reflexivity|split; [exact HQ|split; [exact G|split; [exact Hlen|split; [|split]]]]].
+  subst k; split; [reflexivity|split; [exact G|split; [exact Hlen|split; [|split]]]].
   - intros i Bt t Hi Et; cbn [napply v_label v_index]; rewrite E0; cbn [eapply].
     destruct (Nat.ltb_spec i len); [|lia].
     rewrite <- (knth_klift Be ts i G), <- Ets, knth_klift in Et by exact G0.
@@ -96,7 +96,7 @@ Proof.
   assert (Hs : scoped K M a = true) by (rewrite <- aok_scoped; exact Hx).
   pose proof (proj2 (proj1 (scoped_spec K M a) Hs) v Hv) as H; unfold rapply in H; cbn [radj_n a] in H.
   destruct (napply x v) as [w|[u y]] eqn:E; [exact H|].
-  assert (Hy : nwf false y) by exact (nwf_payload false x v u y Hw eq_refl E).
+  assert (Hy : nwf y) by exact (nwf_payload x v u y Hw E).
   cbn [rpack result_wf rwf] in H; rewrite <- aok_scoped, radj_n_to_adj in H by exact Hy; exact H.
 Qed.
 
@@ -165,15 +165,15 @@ Proof.
   pose proof (ext_depth_L e); lia.
 Qed.
 
-Lemma aok_squash K M (X : nadj) (Hx : Is_true_s (aok K M X)) : Squash (nlocal Qall X).
+Lemma aok_squash K M (X : nadj) (Hx : Is_true_s (aok K M X)) : Squash (nlocal X).
 Proof. apply Is_true_s_elim in Hx; exact (squash (aok_local _ _ _ Hx)). Qed.
 
 Lemma found_at R (es : atrie entry) v' Be h ts len p :
-  nlocal Qall (NAdj R es) ->
+  nlocal (NAdj R es) ->
   option_map (unshift R) (aget (label_key (v_label v')) es) = Some (unshift (lcounts Be) (Entry h ts len p)) ->
   h = v_label v'.
 Proof.
-  intros Hl H1; destruct (found_entry _ _ _ _ _ _ _ _ _ Hl H1) as [Hk _]; apply label_key_inj, Hk.
+  intros Hl H1; destruct (found_entry _ _ _ _ _ _ _ _ Hl H1) as [Hk _]; apply label_key_inj, Hk.
 Qed.
 
 (** A variable found as a target. *)
@@ -189,7 +189,7 @@ Proof.
   destruct H1 as [H1], H2 as [H2]; apply Is_true_s_elim in Hx, HL; apply Nat.eqb_eq in HL.
   apply Is_true_s_intro; pose proof (aok_local _ _ _ Hx) as Hl.
   pose proof (found_at _ _ _ _ _ _ _ _ Hl H1) as Eh.
-  destruct (found_entry _ _ _ _ _ _ _ _ _ Hl H1) as [_ [_ [_ [_ [Ht _]]]]].
+  destruct (found_entry _ _ _ _ _ _ _ _ Hl H1) as [_ [_ [_ [Ht _]]]].
   pose proof (res_wf Kx Mx _ v' Hx Hv') as Hr; rewrite (rvar_eta v'), <- Eh, (Ht _ (lcounts Bt) _ Hi H2) in Hr; cbn in Hr.
   pose proof (ext_depth_L e); apply (wf_eq L ((s + ext_depth e) + Mx)); [lia|apply up_wf, Hr].
 Qed.
@@ -205,7 +205,7 @@ Proof.
   destruct H1 as [H1], H2 as [H2]; apply Is_true_s_elim in Hx.
   apply Is_true_s_intro; pose proof (aok_local _ _ _ Hx) as Hl.
   pose proof (found_at _ _ _ _ _ _ _ _ Hl H1) as Eh.
-  destruct (found_entry _ _ _ _ _ _ _ _ _ Hl H1) as [_ [_ [_ [_ [Ht _]]]]].
+  destruct (found_entry _ _ _ _ _ _ _ _ Hl H1) as [_ [_ [_ [Ht _]]]].
   pose proof (res_wf Kx Mx _ v' Hx Hv') as Hr; rewrite (rvar_eta v'), <- Eh, (Ht _ (lcounts Bt) _ Hi H2) in Hr.
   destruct rho as [r0 es0]; exact Hr.
 Qed.
@@ -221,7 +221,7 @@ Proof.
   destruct H1 as [H1]; apply Is_true_s_elim in Hx, HL; apply Nat.eqb_eq in HL.
   apply Is_true_s_intro; pose proof (aok_local _ _ _ Hx) as Hl.
   pose proof (found_at _ _ _ _ _ _ _ _ Hl H1) as Eh.
-  destruct (found_entry _ _ _ _ _ _ _ _ _ Hl H1) as [_ [_ [_ [_ [_ [Hp _]]]]]].
+  destruct (found_entry _ _ _ _ _ _ _ _ Hl H1) as [_ [_ [_ [_ [Hp _]]]]].
   pose proof (res_wf Kx Mx _ v' Hx Hv') as Hr; rewrite (rvar_eta v'), <- Eh, (Hp (v_index v') ltac:(lia)) in Hr; cbn in Hr.
   pose proof (ext_depth_L e); apply (wf_eq L ((s + ext_depth e) + Mx)); [lia|apply up_wf, Hr].
 Qed.
@@ -239,13 +239,13 @@ Proof.
 Qed.
 
 (** A target is always there below the length. *)
-Lemma W_absurd Q R (es : atrie entry) k i Be h ts len p
-  (Hl : Squash (nlocal Q (NAdj R es)))
+Lemma W_absurd R (es : atrie entry) k i Be h ts len p
+  (Hl : Squash (nlocal (NAdj R es)))
   (H1 : Squash (option_map (unshift R) (aget k es) = Some (unshift (lcounts Be) (Entry h ts len p))))
   (Hi : i < len) (H2 : Squash (knth ts i = None)) : sEmpty.
 Proof.
   destruct Hl as [Hl], H1 as [H1], H2 as [H2].
-  destruct (found_entry _ _ _ _ _ _ _ _ _ Hl H1) as [_ [_ [_ [_ [_ [_ Hn]]]]]].
+  destruct (found_entry _ _ _ _ _ _ _ _ Hl H1) as [_ [_ [_ [_ [_ Hn]]]]].
   exfalso; exact (Hn i Hi H2).
 Qed.
 
@@ -289,7 +289,7 @@ Fixpoint gapply (rt : counts -> lbase) (x : nadj) (Kx Mx s L0 : nat) (HL : Is_tr
                                          (W_pay Kx Mx (lcounts (rt r)) es v' Hv' Be h ts len p Bt u rho Hx H1 Hi H2))
                                       ext_here (projT2 u)
                           end)
-                       (fun H2 => match W_absurd Qall (lcounts (rt r)) es _ (v_index v') Be h ts len p (aok_squash Kx Mx _ Hx) H1 Hi H2
+                       (fun H2 => match W_absurd (lcounts (rt r)) es _ (v_index v') Be h ts len p (aok_squash Kx Mx _ Hx) H1 Hi H2
                                   with end)
                  | Specif.right Hi =>
                      tvar (mk_var (up (s + ext_depth e) (mk_rvar h (ldval Be (label_key h) + (v_index v' - len + p))))
@@ -371,7 +371,7 @@ Proof.
                                          (W_pay Kx Mx (lcounts (rt r)) es _ Hv' Be h ts len p Bt u rho Hx H1 Hi H2))
                                       ext_here (projT2 u)
                           end)
-                       (fun H2 => match W_absurd Qall (lcounts (rt r)) es _ _ Be h ts len p (aok_squash Kx Mx _ Hx) H1 Hi H2
+                       (fun H2 => match W_absurd (lcounts (rt r)) es _ _ Be h ts len p (aok_squash Kx Mx _ Hx) H1 Hi H2
                                   with end)
                  | Specif.right Hi =>
                      tvar (mk_var (up (s + ext_depth e) (mk_rvar h (ldval Be (label_key h) + (v_index (down (ext_depth e) (var_raw v)) - len + p))))
@@ -400,7 +400,7 @@ Proof.
       intros Be [h ts len p] H1 Hy'.
       assert (Loc : option_map (unshift R) (aget (label_key (v_label v')) es) = Some (unshift (lcounts Be) (Entry h ts len p)))
         by (rewrite E1, Hy'; reflexivity).
-      destruct (found_entry _ _ _ _ _ _ _ _ _ Hl Loc) as [Hk [_ [G [Hlen [Ht [Hp Hnn]]]]]].
+      destruct (found_entry _ _ _ _ _ _ _ _ Hl Loc) as [Hk [G [Hlen [Ht [Hp Hnn]]]]].
       apply label_key_inj in Hk; subst h; rewrite (rvar_eta v') in En.
       destruct (lt_dec (v_index v') len) as [Hi|Hi].
       * destruct (option_cases (knth ts (v_index v'))) as [[t Et]|Et]; [|exfalso; exact (Hnn _ Hi Et)].
@@ -416,7 +416,7 @@ Proof.
       intros Be [h ts len p] H1 Hy'.
       assert (Loc : option_map (unshift R) (aget (label_key (v_label v')) es) = Some (unshift (lcounts Be) (Entry h ts len p)))
         by (rewrite E1, Hy'; reflexivity).
-      destruct (found_entry _ _ _ _ _ _ _ _ _ Hl Loc) as [Hk [_ [G [Hlen [Ht [Hp Hnn]]]]]].
+      destruct (found_entry _ _ _ _ _ _ _ _ Hl Loc) as [Hk [G [Hlen [Ht [Hp Hnn]]]]].
       apply label_key_inj in Hk; subst h; rewrite (rvar_eta v') in En.
       destruct (lt_dec (v_index v') len) as [Hi|Hi].
       * destruct (option_cases (knth ts (v_index v'))) as [[t Et]|Et]; [|exfalso; exact (Hnn _ Hi Et)].
@@ -580,13 +580,13 @@ Lemma napply_rcompose (a b : radj P) v :
 Proof. cbn [radj_n rcompose]; rewrite (proj2 (compose_spec _ _ (radj_wf a) (radj_wf b))); reflexivity. Qed.
 
 Lemma napply_nweaken h (x : nadj) v :
-  nwf false x -> napply (Point.weaken h x) v
+  nwf x -> napply (Point.weaken h x) v
   = match napply x v with
     | inl w => inl (shift_rvar (mk_rvar h 0) w)
     | inr (u, y) => inr (u, Point.weaken h y)
     end.
 Proof.
-  intros Hx; rewrite napply_weaken by apply (nwf_local false _ Hx).
+  intros Hx; rewrite napply_weaken by apply (nwf_local _ Hx).
   destruct (napply x v) as [w|[u [r es]]]; cbn [rweaken]; [rewrite rweaken_var|]; reflexivity.
 Qed.
 
@@ -660,7 +660,7 @@ Lemma gapply0_weaken n :
 Proof.
   induction n as [|n IH]; intros ρ Hd Kx Mx d L HL HL' Hx Hx' K L' e v; [lia|].
   pose proof (Is_true_s_elim Hx) as Hx0; pose proof (Is_true_s_elim Hx') as Hx0'.
-  assert (Hn : nwf false ρ) by apply (aok_wf _ _ ρ Hx0).
+  assert (Hn : nwf ρ) by apply (aok_wf _ _ ρ Hx0).
   destruct (option_cases (v_label (var_raw v))) as [[y Hy]|Hl]
     ; [|destruct (lt_dec (v_index (var_raw v)) (ext_depth e)) as [Hb|Hb]].
   2: { pose proof (W_inner e (var_raw v) Hl Hb) as H.
@@ -800,7 +800,7 @@ Proof. symmetry; exact (kleisli_assoc _ _ _ g f _ _ ext_here t). Qed.
 Ltac sqa := apply Is_true_s_intro.
 
 Lemma napply_ncompose (a : radj P) (x : nadj) v :
-  nwf false x ->
+  nwf x ->
   napply (Compose.compose (radj_n a) x) v
   = match napply x v with
     | inl w => napply (radj_n a) w
@@ -985,7 +985,7 @@ Proof.
   - assert (H' : Is_true_s (wf_var M (up (ext_depth (@ext_here N M)) w))) by (cbn; rewrite up0; exact (Is_true_s_intro H)).
     rewrite (apply_var a ext_here v w H' Hout) by (rewrite Hd; exact E).
     f_equal; apply var_eq; apply up0.
-  - assert (Hx : nwf false x) by exact (nwf_payload false _ _ u x (radj_wf (adj_raw a)) eq_refl E).
+  - assert (Hx : nwf x) by exact (nwf_payload _ _ u x (radj_wf (adj_raw a)) E).
     assert (Hρ : aok (projT1 u) M x = true) by (apply (top_payload_ok a (var_raw v) u x); [apply Is_true_s_elim, var_ok|exact E]).
     rewrite (apply_pay a ext_here v u x (W_tHL ext_here) (Is_true_s_intro Hρ) Hout) by (rewrite Hd; exact E).
     cbn [projT1 projT2].

@@ -24,7 +24,7 @@ Import ListNotations.
 (** ** The type of adjustments *)
 
 Record radj (T : Type) : Type :=
-  mk_radj { radj_n : @nadj T; radj_ok : Is_true_s (nwfc false (fun r => r) radj_n) }.
+  mk_radj { radj_n : @nadj T; radj_ok : Is_true_s (nwfc (fun r => r) radj_n) }.
 
 Arguments mk_radj {T} _ _.
 Arguments radj_n {T} _.
@@ -39,27 +39,27 @@ Context {T : Type}.
 
 Implicit Types (a b c ρ : radj T) (v w : rvar) (h l : option label).
 
-Lemma radj_wf a : nwf false (radj_n a).
+Lemma radj_wf a : nwf (radj_n a).
 Proof. apply Is_true_s_elim, radj_ok. Qed.
 
-Lemma radj_local a : nlocal Qall (radj_n a).
-Proof. apply (nwf_local false), radj_wf. Qed.
+Lemma radj_local a : nlocal (radj_n a).
+Proof. apply nwf_local, radj_wf. Qed.
 
 Lemma radj_fin a : nfin (radj_n a).
-Proof. apply (nwf_fin false), radj_wf. Qed.
+Proof. apply nwf_fin, radj_wf. Qed.
 
 (** ** Packaging the payloads of results *)
 
 (** Only used on payloads that are deeply well formed; the fallback is
     never reached. *)
-Definition asel (x : @nadj T) : @nadj T := if nwfc false (fun r => r) x then x else nidentity.
+Definition asel (x : @nadj T) : @nadj T := if nwfc (fun r => r) x then x else nidentity.
 
-Lemma asel_ok x : nwfc false (fun r => r) (asel x) = true.
-Proof. unfold asel; destruct (nwfc false _ x) eqn:E; [exact E|apply (@nwf_identity T)]. Qed.
+Lemma asel_ok x : nwfc (fun r => r) (asel x) = true.
+Proof. unfold asel; destruct (nwfc _ x) eqn:E; [exact E|apply (@nwf_identity T)]. Qed.
 
 Definition rto_adj (x : @nadj T) : radj T := mk_radj (asel x) (Is_true_s_intro (asel_ok x)).
 
-Lemma radj_n_to_adj x : nwf false x -> radj_n (rto_adj x) = x.
+Lemma radj_n_to_adj x : nwf x -> radj_n (rto_adj x) = x.
 Proof. intros H; cbn; unfold asel; unfold nwf in H; rewrite H; reflexivity. Qed.
 
 Lemma rto_adj_n a : rto_adj (radj_n a) = a.
@@ -80,7 +80,7 @@ Proof.
   f_equal; f_equal; apply radj_eq; assumption.
 Qed.
 
-Lemma lower_rpack r : (forall u x, r = inr (u, x) -> nwf false x) -> lower (rpack r) = r.
+Lemma lower_rpack r : (forall u x, r = inr (u, x) -> nwf x) -> lower (rpack r) = r.
 Proof.
   destruct r as [w|[u x]]; [reflexivity|]; intros H; cbn [rpack lower].
   f_equal; f_equal; apply radj_n_to_adj, (H u x eq_refl).
@@ -91,13 +91,13 @@ Qed.
 Definition rapply a v : rresult := rpack (napply (radj_n a) v).
 
 Lemma lower_rapply a v : lower (rapply a v) = napply (radj_n a) v.
-Proof. apply lower_rpack; intros u x E; apply (nwf_payload false _ v u x (radj_wf a) eq_refl E). Qed.
+Proof. apply lower_rpack; intros u x E; apply (nwf_payload _ v u x (radj_wf a) E). Qed.
 
 (** Adjustments are equal when they act the same. *)
 Theorem rextensionality a b : (forall v, rapply a v = rapply b v) -> a = b.
 Proof.
-  intros H; apply radj_eq, (ncanonical Qall); try apply radj_local.
-  intros v _; rewrite <- !lower_rapply, H; reflexivity.
+  intros H; apply radj_eq, ncanonical; try apply radj_local.
+  intros v; rewrite <- !lower_rapply, H; reflexivity.
 Qed.
 
 (** ** Nesting depth *)
@@ -125,7 +125,7 @@ Definition rcompose a b : radj T :=
     (Is_true_s_intro (proj1 (compose_spec _ _ (radj_wf a) (radj_wf b)))).
 
 Lemma rpack_rcomp a r :
-  (forall u x, r = inr (u, x) -> nwf false x) ->
+  (forall u x, r = inr (u, x) -> nwf x) ->
   rpack (rcomp (radj_n a) r)
   = match rpack r with inl w => rapply a w | inr (u, ρ) => inr (u, rcompose a ρ) end.
 Proof.
@@ -140,7 +140,7 @@ Theorem rapply_compose a b v :
 Proof.
   unfold rapply at 1; cbn [radj_n rcompose].
   rewrite (proj2 (compose_spec _ _ (radj_wf a) (radj_wf b))).
-  apply rpack_rcomp; intros u x E; apply (nwf_payload false _ v u x (radj_wf b) eq_refl E).
+  apply rpack_rcomp; intros u x E; apply (nwf_payload _ v u x (radj_wf b) E).
 Qed.
 
 (** ** The category laws *)
@@ -188,13 +188,13 @@ Proof.
 Qed.
 
 Lemma rpack_rweaken h r :
-  (forall u x, r = inr (u, x) -> nwf false x) ->
+  (forall u x, r = inr (u, x) -> nwf x) ->
   rpack (rweaken h r)
   = match rpack r with inl w => inl (shift_rvar (mk_rvar h 0) w) | inr (u, ρ) => inr (u, rpush_outer h ρ) end.
 Proof.
   intros H; destruct r as [w|[u [r es]]]; cbn [rweaken rpack]; [rewrite rweaken_var; reflexivity|].
   f_equal; f_equal; apply radj_eq; cbn [radj_n rpush_outer].
-  assert (Hw : nwf false (weaken h (NAdj r es))) by (apply nwf_weaken, (H u _ eq_refl)).
+  assert (Hw : nwf (weaken h (NAdj r es))) by (apply nwf_weaken, (H u _ eq_refl)).
   rewrite (radj_n_to_adj (NAdj r es)) by apply (H u _ eq_refl); apply radj_n_to_adj, Hw.
 Qed.
 
@@ -203,7 +203,7 @@ Theorem rapply_push_outer h a v :
   = match rapply a v with inl w => inl (shift_rvar (mk_rvar h 0) w) | inr (u, ρ) => inr (u, rpush_outer h ρ) end.
 Proof.
   unfold rapply at 1; cbn [radj_n rpush_outer]; rewrite napply_weaken by apply radj_local.
-  apply rpack_rweaken; intros u x E; apply (nwf_payload false _ v u x (radj_wf a) eq_refl E).
+  apply rpack_rweaken; intros u x E; apply (nwf_payload _ v u x (radj_wf a) E).
 Qed.
 
 (** ** Input entries: [rpush_inner h t a] sends the innermost [h] to [t] and
