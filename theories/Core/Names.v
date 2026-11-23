@@ -61,7 +61,10 @@ Record SubstLaw (term : nat -> Type) (tv : forall K, var K -> term K) (sub : for
     sub N M a (tv N v) = Indexed.eval (tv M) (fun K ρ u => sub K M ρ u) a v;
   sl_rel : forall N M (a a' : adj term N M),
     (forall v : var N, drel (lawbase tv sub) (rapply (adj_raw a) (var_raw v)) (rapply (adj_raw a') (var_raw v))) ->
-    forall t, sub N M a t = sub N M a' t }.
+    forall t, sub N M a t = sub N M a' t;
+  sl_res : forall N N' M (a : adj term N M) (v : var N) (a' : adj term N' M) (v' : var N'),
+    drel (lawbase tv sub) (rapply (adj_raw a) (var_raw v)) (rapply (adj_raw a') (var_raw v')) ->
+    sub N M a (tv N v) = sub N' M a' (tv N' v') }.
 
 Definition csubst {term tv sub} (L : SubstLaw term tv sub) {N M} (a : adj term N M) (t : term N) : term M :=
   sub N M a t.
@@ -71,22 +74,44 @@ Lemma csubst_rel {term tv sub} (L : SubstLaw term tv sub) {N M} (a a' : adj term
   forall t, csubst L a t = csubst L a' t.
 Proof. apply (sl_rel _ _ _ L). Qed.
 
-(** A node substituting into a variable, evaluated: a variable, or the
-    term with its payload as a node.  [names] recognises a term that is a
-    variable syntactically: [tv K w], or what [tv] unfolds to. *)
-Lemma node_rename {term tv sub} (L : SubstLaw term tv sub) {N M} (a : adj term N M) (v : var N) (w : var M) :
-  apply_var a v = Rename w -> csubst L a (tv N v) = tv M w.
-Proof. intros H; unfold csubst; rewrite (sl_var _ _ _ L); apply (eval_rename _ _ _ _ _ H). Qed.
-
+(** A node substituting into a variable, evaluated from what its
+    adjustment's result is related to: a variable, a term with its
+    payload (as a node), or the result of another node on a variable.
+    [names] recognises a term that is a variable syntactically: [tv K w],
+    or what [tv] unfolds to. *)
 Lemma node_look {term tv sub} (L : SubstLaw term tv sub) {N M K} (a : adj term N M) (v : var N) (b : adj term K M)
     (w : var K) :
-  rapply (adj_raw a) (var_raw v) = rapply (adj_raw b) (var_raw w) -> csubst L a (tv N v) = csubst L b (tv K w).
-Proof. intros H; unfold csubst; rewrite !(sl_var _ _ _ L); unfold Indexed.eval; rewrite (apply_var_same a v b w H); reflexivity. Qed.
+  drel (lawbase tv sub) (rapply (adj_raw a) (var_raw v)) (rapply (adj_raw b) (var_raw w)) ->
+  csubst L a (tv N v) = csubst L b (tv K w).
+Proof. apply (sl_res _ _ _ L). Qed.
 
-Lemma node_bind {term tv sub} (L : SubstLaw term tv sub) {N M} (a : adj term N M) (v : var N) K (u : term K)
+(** The first variable sent to [t], the rest by [a]. *)
+#[local] Transparent in_bound.
+Lemma in_bound_here {T : nat -> Type} {N M} (t : target T M) (a : adj T N M) :
+  rapply (adj_raw (in_bound t a)) (var_raw (@bvar (S N) 0 stt)) = rtarget_result (to_target t).
+Proof. unfold in_bound; cbn [adj_raw]; rewrite rapply_push_inner; reflexivity. Qed.
+#[local] Opaque in_bound.
+
+Lemma node_target {term tv sub} (L : SubstLaw term tv sub) {N M} (a : adj term N M) (v : var N) (t : target term M) :
+  drel (lawbase tv sub) (rapply (adj_raw a) (var_raw v)) (rtarget_result (to_target t)) ->
+  csubst L a (tv N v) = match t with Rename w => tv M w | Bind u b => csubst L b u end.
+Proof.
+  intros H; rewrite (node_look L a v (in_bound t a) bvar0) by (rewrite in_bound_here; exact H).
+  unfold csubst; rewrite (sl_var _ _ _ L); unfold Indexed.eval.
+  pose proof (in_bound_here t a) as E; destruct t as [w|K u b]; cbn [to_target rtarget_result] in E.
+  - match goal with |- context [apply_var ?x ?y] => rewrite (apply_var_rename x y w E) end; reflexivity.
+  - match goal with |- context [apply_var ?x ?y] => rewrite (apply_var_bind x y u b E) end; reflexivity.
+Qed.
+
+Lemma node_var {term tv sub} (L : SubstLaw term tv sub) {N M} (a : adj term N M) (v : var N) (w : var M) :
+  drel (lawbase tv sub) (rapply (adj_raw a) (var_raw v)) (inl (var_raw w)) -> csubst L a (tv N v) = tv M w.
+Proof. apply (node_target L a v (Rename w)). Qed.
+
+Lemma node_term {term tv sub} (L : SubstLaw term tv sub) {N M} (a : adj term N M) (v : var N) K (u : term K)
     (b : adj term K M) :
-  apply_var a v = Bind u b -> csubst L a (tv N v) = csubst L b u.
-Proof. intros H; unfold csubst; rewrite (sl_var _ _ _ L); exact (eval_bind (tv M) (fun K ρ u => sub K M ρ u) a v K u b H). Qed.
+  drel (lawbase tv sub) (rapply (adj_raw a) (var_raw v)) (inr (existT term K u, adj_raw b)) ->
+  csubst L a (tv N v) = csubst L b u.
+Proof. apply (node_target L a v (Bind u b)). Qed.
 
 (** Materialising: the term [u⟨b⟩] related to [u [b]]. *)
 Lemma mat_bridge {term} (tv : forall K, var K -> term K) (sub : forall N M, adj term N M -> term N -> term M)
@@ -125,6 +150,19 @@ Proof.
   intros Hn Hv -> <- v.
   refine (drel_mono _ _ (cbase_lawbase tv sub) _ _ (aconvn_sound nf vf tv sub Le Te Ae Hn Hv f e v)).
 Qed.
+
+(** The same for one variable, whose result in the converted adjustment
+    is [r]. *)
+Lemma conv_res {term} (tv : forall K, var K -> term K) (sub : forall N M, adj term N M -> term N -> term M)
+    nf vf Le Te Ae (A : radj {K & term K}) f e v r :
+  Forall (fun '(k, (k', C)) => exists K M (c : adj term K M) (u : term K),
+            adj_raw c = aedenB Le Te Ae C /\ bnth Te k' = Some (existT term K u)
+            /\ bnth Te k = Some (existT term M (sub K M c u))) nf ->
+  Forall (fun '(k, (h, i)) => exists K (w : var K),
+            bnth Te k = Some (existT term K (tv K w)) /\ var_raw w = mk_rvar (ldenB Le h) (N.to_nat i)) vf ->
+  A = aedenB Le Te Ae e -> rapply (aedenB Le Te Ae (aconvn nf vf f e)) v = r ->
+  drel (lawbase tv sub) (rapply A v) r.
+Proof. intros Hn Hv HA <-; exact (conv_rel tv sub nf vf Le Te Ae A _ f e Hn Hv HA eq_refl v). Qed.
 
 Lemma share_intro_r {T N M K L} (a : adj T N M) (A : adj T K L) (f : adj T K L -> adj T N M) :
   (forall r, adj_raw r = adj_raw A -> a = f r) -> a = Indexed.share A f.
@@ -761,7 +799,7 @@ Ltac2 univs (t : constr) : unit :=
   let _ := '(@SLookB $t) in let _ := '(@share_intro_p $t) in let _ := '(@adj_raw $t) in
   let _ := '(@Adjustment.radj $p) in let _ := '(@adj_eq $t) in let _ := '(@apply_var_bind $t) in
   let _ := '(@CRoot $t) in let _ := '(@CShare $t) in let _ := '(@chain_intro $t) in
-  let _ := '(@hshowDB_sound $p) in let _ := '(@hbindB_show_sound $p) in let _ := '(@hlook_varB_sound $p) in
+  let _ := '(@hshowDB_sound $p) in let _ := '(@hlookB_term $p) in let _ := '(@hlookB_var $p) in let _ := '(@hlookB_look $p) in
   let _ := '(@aedenB $p) in let _ := '(@braun $p) in let _ := '(@BN $p) in let _ := '(@BE $p) in
   let _ := '(@F2_one (radj $p)) in let _ := '(@F2_app (radj $p)) in let _ := '(@F_one (radj $p)) in let _ := '(@F_app (radj $p)) in
   ().
@@ -1518,6 +1556,23 @@ Ltac2 rec cands_skip (p : constr -> bool) (skip : constr -> bool) (inside : cons
     if skip c then (if inside c then go acc else acc) else add_new c acc
   else go acc.
 
+(** The result of [hlook_showN], read back. *)
+Ltac2 Type vsh := [ SVar (constr, constr) | STerm (constr, shown) | SLook (constr, constr, shown) ].
+
+Ltac2 vm_vshow (c : constr) : (vsh * constr) option :=
+  let res := Std.eval_vm None c in
+  lazy_match! res with
+  | Some (VSVarN ?h ?j) => Some (SVar h j, res)
+  | Some (VSTermN ?u (?sh, ?r)) => Some (STerm u (mk_shown sh r), res)
+  | Some (VSLookN ?g ?j (?sh, ?r)) => Some (SLook g j (mk_shown sh r), res)
+  | None => None
+  end.
+
+(** The variable [v] at scope [k], from its reified label and index. *)
+Ltac2 mk_var (labs : constr array) (ns : nats) (k : constr) (h : constr) (j : constr) : constr :=
+  let jn := nat_lit ns (int_of_n j) in
+  if is_lnone h then '(@bvar $k $jn stt) else let x := lab_env labs h in '(@fvar $k $x $jn).
+
 (** ** Variables *)
 
 Ltac2 rec nth_c (l : constr list) (i : int) : constr := List.nth l i.
@@ -1543,48 +1598,39 @@ Ltac2 var_eq (t : constr) (id : ident) : unit :=
           let rty := '(radj $pt) in
           let atoms := Array.to_list (en.(e_atoms)) in
           univs ty;
-          let res := Std.eval_vm None '(hlook_varN (order_of $l) $nt $e $eh $i) in
-          lazy_match! res with
-          | Some (?h', ?j) =>
-              let w := if is_lnone h' then '(@bvar $m $j stt)
-                       else let x := lab_env (en.(e_labs)) h' in '(@fvar $m $x $j) in
+          let look_p := '(hlook_showN (order_of $l) (List.length $te) (List.length $ae) $e $eh $i) in
+          match vm_vshow '(hlook_showN (order_of $l) $nt $nb $e $eh $i) with
+          | Some (SVar h' j, res) =>
+              let w := mk_var (en.(e_labs)) (en.(e_ns)) m h' j in
+              let hres := vm_eq constr:(option vshowN) look_p res in
+              let at_ := btree rty atoms in
+              let q := '(fun (Ae : braun (radj $pt)) (hLe : $lt = bof $le) (hTe : $tt = bof $te) (hAe : Ae = bof ($ae ++ []))
+                           => hlookB_var $le $te $ae [] $lt $tt Ae hLe hTe hAe $l $e $eh $i $h' $j $hl $hres) in
               assert_by id '(apply_var $a $v = Rename $w) (fun () =>
                 refine_c (fun () => '(apply_var_rename _ _ _ _));
-                let hv := vm_eq '(option (lexp * nat)) '(hlook_varN (order_of $l) (List.length $te) $e $eh $i) res in
-                let at_ := btree rty atoms in
-                Std.exact_no_check
-                  (app constr:(@hlook_varB_sound)
-                     [pt; le; te; ae; lt; tt; at_; l; e; eh; i; h'; j;
-                      refl constr:(braun label) lt; refl '(braun $pt) tt; refl '(braun (radj $pt)) at_; hl; hv]))
-          | None =>
-              match vm_pay '(hlook_payN (order_of $l) $nt $nb $e $eh $i) with
-              | Some (u, sh) =>
-                  let (shd, root) := (sh.(sh_c), sh.(sh_root)) in
-                  let terms := en.(e_terms) in
-                  let x := nth_c terms (int_of_n u) in
-                  let (kx, ux) := term_parts x in
-                  let rd := render_term ty '(adj $ty $kx $m) (en.(e_ns)) (en.(e_labs)) (Array.of_list terms) (en.(e_atoms)) (en.(e_nb)) (sh.(sh_l)) root in
-                  let b := rd.(rd_term) in
-                  let pty := constr:((N * (list aexpN * aexpN))%type) in
-                  let hp := vm_eq '(option $pty)
-                              '(hlook_payN (order_of $l) (List.length $te) (List.length $ae) $e $eh $i)
-                              (some pty (app constr:(@pair N (list aexpN * aexpN)) [u; sh.(sh_val)])) in
-                  let q := '(fun (rs : list (radj $pt)) (Ae : braun (radj $pt))
-                                 (hLe : $lt = bof $le) (hTe : $tt = bof $te) (hAe : Ae = bof ($ae ++ rs))
-                                 (hs : Forall2 (fun z0 d0 => z0 = aedenB $lt $tt Ae d0) rs $shd) =>
-                               hbindB_show_sound $le $te $ae rs $lt $tt Ae hLe hTe hAe $l $e $eh $i $u $shd $root $x
-                                 $hl $hp hs eq_refl) in
-                  let srel := '(fun (Ae : braun (radj $pt)) (z0 : radj $pt) (d0 : aexpN) => z0 = aedenB $lt $tt Ae d0) in
-                  let p := '(fun y : adj $ty $kx $m => rapply (adj_raw $a) (var_raw $v) = inr ($x, adj_raw y)) in
-                  let pf := share_proof ty kx m p rd (fun rs hs _ =>
-                    let rsl := list_of rty rs in
-                    let at_ := btree rty (List.append atoms rs) in
-                    app q [rsl; at_; refl constr:(braun label) lt; refl '(braun $pt) tt; refl '(braun (radj $pt)) at_;
-                           forall2_proof rty constr:(aexpN) (app srel [at_]) rs (sh.(sh_l)) hs]) in
-                  let fin := app constr:(@apply_var_bind) [ty; n; m; kx; a; v; ux; b; pf] in
-                  assert_by id '(apply_var $a $v = Bind $ux $b) (fun () => Std.exact_no_check fin)
-              | None => Control.zero Not_found
-              end
+                Std.exact_no_check (app q [at_; refl constr:(braun label) lt; refl '(braun $pt) tt; refl '(braun (radj $pt)) at_]))
+          | Some (STerm u sh, res) =>
+              let (shd, root) := (sh.(sh_c), sh.(sh_root)) in
+              let terms := en.(e_terms) in
+              let x := nth_c terms (int_of_n u) in
+              let (kx, ux) := term_parts x in
+              let rd := render_term ty '(adj $ty $kx $m) (en.(e_ns)) (en.(e_labs)) (Array.of_list terms) (en.(e_atoms)) (en.(e_nb)) (sh.(sh_l)) root in
+              let b := rd.(rd_term) in
+              let hres := vm_eq constr:(option vshowN) look_p res in
+              let q := '(fun (rs : list (radj $pt)) (Ae : braun (radj $pt))
+                             (hLe : $lt = bof $le) (hTe : $tt = bof $te) (hAe : Ae = bof ($ae ++ rs))
+                             (hs : Forall2 (fun z0 d0 => z0 = aedenB $lt $tt Ae d0) rs $shd) =>
+                           hlookB_term $le $te $ae rs $lt $tt Ae hLe hTe hAe $l $e $eh $i $u $shd $root $x $hl $hres hs eq_refl) in
+              let srel := '(fun (Ae : braun (radj $pt)) (z0 : radj $pt) (d0 : aexpN) => z0 = aedenB $lt $tt Ae d0) in
+              let p := '(fun y : adj $ty $kx $m => rapply (adj_raw $a) (var_raw $v) = inr ($x, adj_raw y)) in
+              let pf := share_proof ty kx m p rd (fun rs hs _ =>
+                let rsl := list_of rty rs in
+                let at_ := btree rty (List.append atoms rs) in
+                app q [rsl; at_; refl constr:(braun label) lt; refl '(braun $pt) tt; refl '(braun (radj $pt)) at_;
+                       forall2_proof rty constr:(aexpN) (app srel [at_]) rs (sh.(sh_l)) hs]) in
+              let fin := app constr:(@apply_var_bind) [ty; n; m; kx; a; v; ux; b; pf] in
+              assert_by id '(apply_var $a $v = Bind $ux $b) (fun () => Std.exact_no_check fin)
+          | _ => Control.zero Not_found
           end
   end.
 
@@ -1610,38 +1656,6 @@ Ltac2 names_apply () : unit :=
         let id := fresh @E in var_eq t id; rewrite_with (Control.hyp id); Std.clear [id]
     end).
 
-(** [f] applied to [args], with the [λ]s of [f] reduced. *)
-Ltac2 rec beta_app (f : constr) (args : constr list) : constr :=
-  match args with
-  | [] => f
-  | x :: rest =>
-      match Constr.Unsafe.kind f with
-      | Constr.Unsafe.Lambda _ b => beta_app (Constr.Unsafe.substnl [x] 0 b) rest
-      | _ => app f args
-      end
-  end.
-
-(** [eval f g a v] nodes whose variable [a]'s normal form renames are
-    evaluated to [f w]. *)
-Ltac2 names_eval () : unit :=
-  Notations.repeat0 (fun () =>
-    match! goal with
-    | [ |- context [ @eval _ _ _ _ ?f ?g ?a ?v ] ] =>
-        let id := fresh @E in
-        var_eq '(Indexed.apply_var $a $v) id;
-        let hid := Control.hyp id in
-        lazy_match! Constr.type hid with
-        | _ = Rename ?w =>
-            let r := match Constr.Unsafe.kind f with
-                     | Constr.Unsafe.Lambda _ b => Constr.Unsafe.substnl [w] 0 b
-                     | _ => app f [w]
-                     end in
-            rewrite_with '(eval_rename $f $g $a $v $w $hid : _ = $r); Std.clear [id]
-        | @eq _ _ (@Bind _ _ ?k ?x ?rho) =>
-            let r := beta_app g [k; rho; x] in
-            rewrite_with '(eval_bind $f $g $a $v $k $x $rho $hid : _ = $r); Std.clear [id]
-        end
-    end).
 
 (** ** Materialising
 
@@ -1766,16 +1780,27 @@ Ltac2 var_term (heads : constr list) (u : constr) : (constr * constr) option :=
     u], are converted ([aconv]): a variable to a look-up through its
     payload, a substitution to [u] with [c] in its payload.  The result
     is normalised and shown, by the law's [sl_rel]. *)
-Ltac2 conv_one (node : constr) : constr :=
+Ltac2 conv_one (node : constr) : unit :=
   let (_, na) := split_app node in
-  let (term, vr, sub, lw, n, m, a) :=
-    (Array.get na 0, Array.get na 1, Array.get na 2, Array.get na 3, Array.get na 4, Array.get na 5, Array.get na 6) in
+  let (term, vr, sub, lw, n, m, a, t) :=
+    (Array.get na 0, Array.get na 1, Array.get na 2, Array.get na 3, Array.get na 4, Array.get na 5,
+     Array.get na 6, Array.get na 7) in
   let ty := term in
   let pt := raw_ty ty in
   let s := new_st () in
   let e := reify_adj s ty n m a in
   let cs := constr:(@csubst) in
   let vh := var_heads vr in
+  (* the node's variable, when it is on one written out *)
+  let vv := match var_term vh t with
+            | Some (_, v) =>
+                Control.plus (fun () =>
+                  let (vf, va) := split_app (reify_var s v) in
+                  if Constr.equal vf (s.(heads).(r_NVarE)) then
+                    Some (v, Array.get va 0, nat_lit (s.(ns)) (int_of_n (Array.get va 1)))
+                  else None) (fun _ => None)
+            | None => None
+            end in
   (* the terms of [a], then those of the nested substitutions found, in
      rounds *)
   let one acc ki :=
@@ -1810,42 +1835,62 @@ Ltac2 conv_one (node : constr) : constr :=
     let acc := List.fold_left one acc (List.combine (List.init (Int.sub sz k0) (fun k => Int.add k0 k)) items) in
     rounds sz acc in
   let (nfs, vfs) := rounds 0 ([], []) in
-  match (nfs, vfs) with
-  | ([], []) => Control.zero Not_found
-  | _ =>
-      let en := finish s ty in
-      let ns := en.(e_ns) in
-      let nt := nat_lit ns (en.(e_nt)) in
-      let nb := nat_lit ns (en.(e_nb)) in
-      let l := en.(e_l) in
-      let defs := en.(e_defs) in
-      let nfty := constr:((N * (N * aexpN))%type) in
-      let vfty := constr:((N * (lexp * N))%type) in
-      let (pnn, pna, pvl, pln) := (constr:(@pair N (N * aexpN)), constr:(@pair N aexpN), constr:(@pair N (lexp * N)),
-                                   constr:(@pair lexp N)) in
-      let nfi := List.map (fun (k, k', ce, _, _, _, _, _) => app pnn [n_lit k; app pna [n_lit k'; ce]]) nfs in
-      let vfi := List.map (fun (k, h, i, _, _, _) => app pvl [n_lit k; app pln [h; i]]) vfs in
-      let (nfc, vfc) := (list_of nfty nfi, list_of vfty vfi) in
-      let fuel := nat_lit ns (List.length nfs) in
-      let ce := '(aconvn $nfc $vfc $fuel $e) in
+  (match (vv, nfs, vfs) with (None, [], []) => Control.zero Not_found | _ => () end);
+  let en := finish s ty in
+  let ns := en.(e_ns) in
+  let nt := nat_lit ns (en.(e_nt)) in
+  let nb := nat_lit ns (en.(e_nb)) in
+  let l := en.(e_l) in
+  let defs := en.(e_defs) in
+  let nfty := constr:((N * (N * aexpN))%type) in
+  let vfty := constr:((N * (lexp * N))%type) in
+  let (pnn, pna, pvl, pln) := (constr:(@pair N (N * aexpN)), constr:(@pair N aexpN), constr:(@pair N (lexp * N)),
+                               constr:(@pair lexp N)) in
+  let nfi := List.map (fun (k, k', ce, _, _, _, _, _) => app pnn [n_lit k; app pna [n_lit k'; ce]]) nfs in
+  let vfi := List.map (fun (k, h, i, _, _, _) => app pvl [n_lit k; app pln [h; i]]) vfs in
+  let (nfc, vfc) := (list_of nfty nfi, list_of vfty vfi) in
+  let fuel := nat_lit ns (List.length nfs) in
+  let ce := '(aconvn $nfc $vfc $fuel $e) in
+  let terms := en.(e_terms) in
+  let (le, te, ae, hl) := (en.(e_le), en.(e_te), en.(e_ae), en.(e_hl)) in
+  let (lt, tt) := (en.(e_lt), en.(e_tt)) in
+  let rty := '(radj $pt) in
+  let atoms := Array.to_list (en.(e_atoms)) in
+  (* the facts the conversion uses: [hv] for the variables, [hn at_] for
+     the nested substitutions *)
+  let prn := '(fun (Ae : braun (radj $pt)) (x : N * (N * aexpN)) => let '(k, (k', C)) := x in
+                 exists K M (c : adj $ty K M) (u : $ty K), adj_raw c = aedenB $lt $tt Ae C
+                   /\ bnth $tt k' = Some (existT $ty K u) /\ bnth $tt k = Some (existT $ty M ($sub K M c u))) in
+  let prv := '(fun x : N * (lexp * N) => let '(k, (h, i)) := x in
+                 exists K (w : var K), bnth $tt k = Some (existT $ty K ($vr K w))
+                   /\ var_raw w = mk_rvar (ldenB $lt h) (N.to_nat i)) in
+  let vproofs := List.map (fun (k, h, i, kw, w, it) =>
+      app constr:(@var_fact) [term; vr; sub; lw; lt; tt; n_lit k; h; i; kw; w;
+        refl '(option $pt) (app constr:(@Some) [pt; it]);
+        refl constr:(rvar) (app constr:(@var_raw) [kw; w])]) vfs in
+  let hv := forall_proof vfty prv vfi vproofs in
+  let hn at_ :=
+    let nproofs := List.map (fun (k, k', ce, kc, mc, c, u', it) =>
+        app constr:(@nest_fact) [term; vr; sub; lw; lt; tt; at_; ce; kc; mc; c; u'; n_lit k; n_lit k';
+                   refl rty (app constr:(@adj_raw) [ty; kc; mc; c]);
+                   refl '(option $pt) (app constr:(@Some) [pt; raw_term ty kc u']);
+                   refl '(option $pt) (app constr:(@Some) [pt; it])]) nfs in
+    forall_proof nfty (app prn [at_]) nfi nproofs in
+  let srel := '(fun (Ae : braun (radj $pt)) (z0 : radj $pt) (d0 : aexpN) => z0 = aedenB $lt $tt Ae d0) in
+  (* the arguments of a proof under the shared definitions [rs] *)
+  let env_args rs := 
+    let at_ := btree rty (List.append atoms rs) in
+    (at_, [list_of rty rs; at_; refl constr:(braun label) lt; refl '(braun $pt) tt; refl '(braun (radj $pt)) at_;
+           hn at_; hv]) in
+  let adj_path () :=
       match vm_show '(hshowDN (order_of $l) $nt $nb $defs $ce) with
       | Some sh =>
           let (shd, root) := (sh.(sh_c), sh.(sh_root)) in
-          let terms := en.(e_terms) in
           let rd := render_term ty '(adj $ty $n $m) ns (en.(e_labs)) (Array.of_list terms) (en.(e_atoms)) (en.(e_nb)) (sh.(sh_l)) root in
           let a' := rd.(rd_term) in
           (if Constr.equal a a' then Control.zero Not_found else ());
-          let (le, te, ae, hl) := (en.(e_le), en.(e_te), en.(e_ae), en.(e_hl)) in
-          let (lt, tt) := (en.(e_lt), en.(e_tt)) in
           let sty := constr:((list aexpN * aexpN)%type) in
           let ht := vm_eq '(option $sty) '(hshowDN (order_of $l) (List.length $te) (List.length $ae) $defs $ce) (some sty (sh.(sh_val))) in
-          let rty := '(radj $pt) in
-          let prn := '(fun (Ae : braun (radj $pt)) (x : N * (N * aexpN)) => let '(k, (k', C)) := x in
-                         exists K M (c : adj $ty K M) (u : $ty K), adj_raw c = aedenB $lt $tt Ae C
-                           /\ bnth $tt k' = Some (existT $ty K u) /\ bnth $tt k = Some (existT $ty M ($sub K M c u))) in
-          let prv := '(fun x : N * (lexp * N) => let '(k, (h, i)) := x in
-                         exists K (w : var K), bnth $tt k = Some (existT $ty K ($vr K w))
-                           /\ var_raw w = mk_rvar (ldenB $lt h) (N.to_nat i)) in
           let q := '(fun (rs : list (radj $pt)) (Ae : braun (radj $pt))
                          (hLe : $lt = bof $le) (hTe : $tt = bof $te) (hAe : Ae = bof ($ae ++ rs))
                          (hn : Forall ($prn Ae) $nfc) (hv : Forall $prv $vfc)
@@ -1856,27 +1901,12 @@ Ltac2 conv_one (node : constr) : constr :=
                          (var_raw v)) in
           let hrel := '(fun (Ae : braun (radj $pt)) (x : radj $pt) (od : option aexpN) =>
                           match od with Some d => x = aedenB $lt $tt Ae d | None => True end) in
-          let srel := '(fun (Ae : braun (radj $pt)) (z0 : radj $pt) (d0 : aexpN) => z0 = aedenB $lt $tt Ae d0) in
-          let vproofs := List.map (fun (k, h, i, kw, w, it) =>
-              app constr:(@var_fact) [term; vr; sub; lw; lt; tt; n_lit k; h; i; kw; w;
-                refl '(option $pt) (app constr:(@Some) [pt; it]);
-                refl constr:(rvar) (app constr:(@var_raw) [kw; w])]) vfs in
-          let hv := forall_proof vfty prv vfi vproofs in
           let p := '(fun y : adj $ty $n $m => forall v : var $n, drel (lawbase $vr $sub) (rapply (adj_raw $a) (var_raw v)) (rapply (adj_raw y) (var_raw v))) in
-          let atoms := Array.to_list (en.(e_atoms)) in
           let pf := share_proof ty n m p rd (fun rs hs _ =>
-            let rsl := list_of rty rs in
-            let at_ := btree rty (List.append atoms rs) in
+            let (at_, args) := env_args rs in
             let hd := defs_proof ty (app hrel [at_]) atoms (en.(e_defl)) in
             let hsp := forall2_proof rty constr:(aexpN) (app srel [at_]) rs (sh.(sh_l)) hs in
-            let nproofs := List.map (fun (k, k', ce, kc, mc, c, u', it) =>
-                app constr:(@nest_fact) [term; vr; sub; lw; lt; tt; at_; ce; kc; mc; c; u'; n_lit k; n_lit k';
-                           refl rty (app constr:(@adj_raw) [ty; kc; mc; c]);
-                           refl '(option $pt) (app constr:(@Some) [pt; raw_term ty kc u']);
-                           refl '(option $pt) (app constr:(@Some) [pt; it])]) nfs in
-            let hn := forall_proof nfty (app prn [at_]) nfi nproofs in
-            app q [rsl; at_; refl constr:(braun label) lt; refl '(braun $pt) tt; refl '(braun (radj $pt)) at_;
-                   hn; hv; hd; hsp]) in
+            app q (List.append args [hd; hsp])) in
           let hid := fresh @H in
           assert_by hid '(forall v : var $n, drel (lawbase $vr $sub) (rapply (adj_raw $a) (var_raw v)) (rapply (adj_raw $a') (var_raw v)))
             (fun () => Std.exact_no_check pf);
@@ -1886,95 +1916,76 @@ Ltac2 conv_one (node : constr) : constr :=
           assert_by eid ety (fun () => Std.exact_no_check '(@csubst_rel $term $vr $sub $lw $n $m $a $a' $hh));
           Std.clear [hid];
           Control.progress (fun () => rewrite_all_instances (Control.hyp eid));
-          Std.clear [eid];
-          a'
+          Std.clear [eid]
       | None => Control.zero Not_found
-      end
-  end.
-
-
-(** [vm_look c], for [c : option (lexp * N * (list aexpN * aexpN))]. *)
-Ltac2 vm_look (c : constr) : (constr * constr * shown) option :=
-  lazy_match! Std.eval_vm None c with
-  | Some (?g, ?j, (?sh, ?r)) => Some (g, j, mk_shown sh r)
-  | None => None
-  end.
-
-(** A node [csubst L a (tv N v)] whose adjustment's normal form gets
-    stuck looking [v] up, at a variable [w] looked up through [b]: the
-    rewrite to [csubst L b (tv K w)]. *)
-Ltac2 look_node (node : constr) : unit :=
-  let (_, na) := split_app node in
-  let (term, vr, sub, lw, n, m, a, t) :=
-    (Array.get na 0, Array.get na 1, Array.get na 2, Array.get na 3, Array.get na 4, Array.get na 5,
-     Array.get na 6, Array.get na 7) in
-  let v := match var_term (var_heads vr) t with Some (_, v) => v | None => Control.zero Not_found end in
-  let ty := term in
-  let s := new_st () in
-  let (eh, i) :=
-    let (vf, va) := split_app (reify_var s v) in
-    if Constr.equal vf (s.(heads).(r_NVarE)) then (Array.get va 0, nat_lit (s.(ns)) (int_of_n (Array.get va 1)))
-    else Control.zero Not_found in
-  let e := reify_adj s ty n m a in
-  let en := finish s ty in
-  let nt := nat_lit (en.(e_ns)) (en.(e_nt)) in
-  let nb := nat_lit (en.(e_ns)) (en.(e_nb)) in
-  let (le, te, ae, l, hl) := (en.(e_le), en.(e_te), en.(e_ae), en.(e_l), en.(e_hl)) in
-  let (lt, tt) := (en.(e_lt), en.(e_tt)) in
-  let pt := raw_ty ty in
-  let rty := '(radj $pt) in
-  let atoms := Array.to_list (en.(e_atoms)) in
-  univs ty;
-  match vm_look '(hlook_lookN (order_of $l) $nt $nb $e $eh $i) with
-  | Some (g, j, sh) =>
-      let (shd, root) := (sh.(sh_c), sh.(sh_root)) in
-      let terms := en.(e_terms) in
-      let shs := List.mapi (fun i d => (Int.add (en.(e_nb)) i, d)) (sh.(sh_l)) in
-      let (rd, _) := render_all ty (en.(e_ns)) (en.(e_labs)) (en.(e_atoms)) (en.(e_nb)) shs [(root, None, m)]
-                       (given_scopes (Array.of_list terms)) (given_terms (Array.of_list terms)) in
-      let k := rd.(rd_n) in
-      let b := rd.(rd_term) in
-      let jn := nat_lit (en.(e_ns)) (int_of_n j) in
-      let w := if is_lnone g then '(@bvar $k $jn stt)
-               else let x := lab_env (en.(e_labs)) g in '(@fvar $k $x $jn) in
-      let lty := constr:((lexp * N * (list aexpN * aexpN))%type) in
-      let hp := vm_eq '(option $lty)
-                  '(hlook_lookN (order_of $l) (List.length $te) (List.length $ae) $e $eh $i)
-                  (let sv := sh.(sh_val) in some lty '($g, $j, $sv)) in
-      let q := '(fun (rs : list (radj $pt)) (Ae : braun (radj $pt))
-                     (hLe : $lt = bof $le) (hTe : $tt = bof $te) (hAe : Ae = bof ($ae ++ rs))
-                     (hs : Forall2 (fun z0 d0 => z0 = aedenB $lt $tt Ae d0) rs $shd) =>
-                   hlookB_look_sound $le $te $ae rs $lt $tt Ae hLe hTe hAe $l $e $eh $i $g $j $shd $root $hl $hp hs) in
-      let srel := '(fun (Ae : braun (radj $pt)) (z0 : radj $pt) (d0 : aexpN) => z0 = aedenB $lt $tt Ae d0) in
-      let p := '(fun y : adj $ty $k $m => rapply (adj_raw $a) (var_raw $v) = rapply (adj_raw y) (var_raw $w)) in
-      let pf := share_proof ty k m p rd (fun rs hs _ =>
-        let rsl := list_of rty rs in
-        let at_ := btree rty (List.append atoms rs) in
-        app q [rsl; at_; refl constr:(braun label) lt; refl '(braun $pt) tt; refl '(braun (radj $pt)) at_;
-               forall2_proof rty constr:(aexpN) (app srel [at_]) rs (sh.(sh_l)) hs]) in
-      let eqn := app constr:(@node_look) [term; vr; sub; lw; n; m; k; a; v; b; w; pf] in
-      rewrite_with (Constr.Unsafe.make (Constr.Unsafe.Cast eqn Constr.Cast.default
-                      '($node = csubst $lw $b ($vr $k $w))))
-  | None => Control.zero Not_found
-  end.
-
-(** A node substituting into a variable, evaluated when the normal form of
-    its adjustment sends the variable to a variable or a term. *)
-Ltac2 eval_node (node : constr) : unit :=
-  let (_, na) := split_app node in
-  let (term, vr, sub, lw, n, m, a, t) :=
-    (Array.get na 0, Array.get na 1, Array.get na 2, Array.get na 3, Array.get na 4, Array.get na 5,
-     Array.get na 6, Array.get na 7) in
-  let v := match var_term (var_heads vr) t with Some (_, v) => v | None => Control.zero Not_found end in
-  let id := fresh @E in
-  if Control.plus (fun () => var_eq (app constr:(@apply_var) [term; n; m; a; v]) id; false) (fun _ => true) then
-    look_node node else
-  let hid := Control.hyp id in
-  lazy_match! Constr.type hid with
-  | _ = Rename ?w =>
-      rewrite_with '(@node_rename $term $vr $sub $lw $n $m $a $v $w $hid : $node = $vr $m $w); Std.clear [id]
-  | @eq _ _ (@Bind _ _ ?k ?x ?rho) =>
-      rewrite_with '(@node_bind $term $vr $sub $lw $n $m $a $v $k $x $rho $hid : $node = csubst $lw $rho $x); Std.clear [id]
+      end in
+  (* a node on a variable: the normal form followed from it, once *)
+  let var_path v eh i :=
+      let vty := constr:(option vshowN) in
+      let look := '(hlook_showN (order_of $l) $nt $nb $ce $eh $i) in
+      let look_p := '(hlook_showN (order_of $l) (List.length $te) (List.length $ae) $ce $eh $i) in
+      let r := '(fun (rs : list (radj $pt)) (Ae : braun (radj $pt)) (hn : Forall ($prn Ae) $nfc) (hv : Forall $prv $vfc) z
+                     (hz : rapply (aedenB $lt $tt Ae $ce) (mk_rvar (ldenB $lt $eh) $i) = z) =>
+                   conv_res $vr $sub $nfc $vfc $lt $tt Ae _ $fuel $e (mk_rvar (ldenB $lt $eh) $i) z hn hv eq_refl hz) in
+      match vm_vshow look with
+      | Some (SVar h' j, res) =>
+          let w := mk_var (en.(e_labs)) ns m h' j in
+          let hres := vm_eq vty look_p res in
+          let (at_, args) := env_args [] in
+          let q := '(fun (rs : list (radj $pt)) (Ae : braun (radj $pt))
+                         (hLe : $lt = bof $le) (hTe : $tt = bof $te) (hAe : Ae = bof ($ae ++ rs))
+                         (hn : Forall ($prn Ae) $nfc) (hv : Forall $prv $vfc) =>
+                       $r rs Ae hn hv _ (hlookB_var $le $te $ae rs $lt $tt Ae hLe hTe hAe $l $ce $eh $i $h' $j $hl $hres)) in
+          let pf := app q args in
+          rewrite_with (Constr.Unsafe.make (Constr.Unsafe.Cast
+            (app constr:(@node_var) [term; vr; sub; lw; n; m; a; v; w; pf]) Constr.Cast.default '($node = $vr $m $w)))
+      | Some (STerm u sh, res) =>
+          let (shd, root) := (sh.(sh_c), sh.(sh_root)) in
+          let x := nth_c terms (int_of_n u) in
+          let (kx, ux) := term_parts x in
+          let rd := render_term ty '(adj $ty $kx $m) ns (en.(e_labs)) (Array.of_list terms) (en.(e_atoms)) (en.(e_nb)) (sh.(sh_l)) root in
+          let b := rd.(rd_term) in
+          let hres := vm_eq vty look_p res in
+          let q := '(fun (rs : list (radj $pt)) (Ae : braun (radj $pt))
+                         (hLe : $lt = bof $le) (hTe : $tt = bof $te) (hAe : Ae = bof ($ae ++ rs))
+                         (hn : Forall ($prn Ae) $nfc) (hv : Forall $prv $vfc)
+                         (hs : Forall2 (fun z0 d0 => z0 = aedenB $lt $tt Ae d0) rs $shd) =>
+                       $r rs Ae hn hv _ (hlookB_term $le $te $ae rs $lt $tt Ae hLe hTe hAe $l $ce $eh $i $u $shd $root $x
+                                            $hl $hres hs eq_refl)) in
+          let p := '(fun y : adj $ty $kx $m => drel (lawbase $vr $sub) (rapply (adj_raw $a) (var_raw $v)) (inr ($x, adj_raw y))) in
+          let pf := share_proof ty kx m p rd (fun rs hs _ =>
+            let (at_, args) := env_args rs in
+            app q (List.append args [forall2_proof rty constr:(aexpN) (app srel [at_]) rs (sh.(sh_l)) hs])) in
+          rewrite_with (Constr.Unsafe.make (Constr.Unsafe.Cast
+            (app constr:(@node_term) [term; vr; sub; lw; n; m; a; v; kx; ux; b; pf]) Constr.Cast.default
+            '($node = csubst $lw $b $ux)))
+      | Some (SLook g j sh, res) =>
+          let (shd, root) := (sh.(sh_c), sh.(sh_root)) in
+          let shs := List.mapi (fun i d => (Int.add (en.(e_nb)) i, d)) (sh.(sh_l)) in
+          let (rd, _) := render_all ty ns (en.(e_labs)) (en.(e_atoms)) (en.(e_nb)) shs [(root, None, m)]
+                           (given_scopes (Array.of_list terms)) (given_terms (Array.of_list terms)) in
+          let k := rd.(rd_n) in
+          let b := rd.(rd_term) in
+          let w := mk_var (en.(e_labs)) ns k g j in
+          let hres := vm_eq vty look_p res in
+          let q := '(fun (rs : list (radj $pt)) (Ae : braun (radj $pt))
+                         (hLe : $lt = bof $le) (hTe : $tt = bof $te) (hAe : Ae = bof ($ae ++ rs))
+                         (hn : Forall ($prn Ae) $nfc) (hv : Forall $prv $vfc)
+                         (hs : Forall2 (fun z0 d0 => z0 = aedenB $lt $tt Ae d0) rs $shd) =>
+                       $r rs Ae hn hv _ (hlookB_look $le $te $ae rs $lt $tt Ae hLe hTe hAe $l $ce $eh $i $g $j $shd $root
+                                            $hl $hres hs)) in
+          let p := '(fun y : adj $ty $k $m => drel (lawbase $vr $sub) (rapply (adj_raw $a) (var_raw $v)) (rapply (adj_raw y) (var_raw $w))) in
+          let pf := share_proof ty k m p rd (fun rs hs _ =>
+            let (at_, args) := env_args rs in
+            app q (List.append args [forall2_proof rty constr:(aexpN) (app srel [at_]) rs (sh.(sh_l)) hs])) in
+          rewrite_with (Constr.Unsafe.make (Constr.Unsafe.Cast
+            (app constr:(@node_look) [term; vr; sub; lw; n; m; k; a; v; b; w; pf]) Constr.Cast.default
+            '($node = csubst $lw $b ($vr $k $w))))
+      | None => Control.zero Not_found
+      end in
+  match vv with
+  | Some (v, eh, i) => Control.plus (fun () => var_path v eh i) (fun _ => match (nfs, vfs) with ([], []) => Control.zero Not_found | _ => adj_path () end)
+  | None => adj_path ()
   end.
 
 (** ** The passes *)
@@ -2008,13 +2019,21 @@ Ltac2 node_rw (node : constr) (h : constr) : unit :=
     '((fun t => f_equal (fun x => @csubst $term $vr $sub $lw $n $m x t) $h)
       : forall t, @csubst $term $vr $sub $lw $n $m $a t = @csubst $term $vr $sub $lw $n $m $b t).
 
+(** A node on a variable written out. *)
+Ltac2 is_var_node (c : constr) : bool :=
+  let (_, na) := split_app c in
+  match var_term (var_heads (Array.get na 1)) (Array.get na 7) with Some _ => true | None => false end.
+
 (** Pass 1: each node's adjustment, with its nested substitutions and its
-    variables converted to payloads and look-ups, normalised; and each
-    other adjustment normalised.  (A node's adjustment is taken once:
-    the rewrite changes the nodes that share it.) *)
+    variables converted to payloads and look-ups, normalised, and a node
+    on a variable evaluated (the normal form followed from the variable);
+    and each other adjustment normalised.  Nodes on variables go first,
+    each on its own; another node's adjustment is taken once, as the
+    rewrite changes the nodes that share it. *)
 Ltac2 names_norm () : unit :=
   let cs := constr:(@csubst) in
   let xs := List.rev (outer cs (adj_heads ()) (Control.goal ()) []) in
+  let (vs, xs) := List.partition (fun x => if is_csubst_in cs x then is_var_node x else false) xs in
   let rec dedup xs seen :=
     match xs with
     | [] => []
@@ -2024,19 +2043,10 @@ Ltac2 names_norm () : unit :=
     end in
   each (fun x =>
     if is_csubst_in cs x then
-      Control.plus (fun () => let _ := conv_one x in ()) (fun _ => let _ := show_adj_with (node_rw x) (node_adj x) in ())
-    else let _ := show_adj x in ()) (dedup xs []).
+      Control.plus (fun () => conv_one x) (fun _ => let _ := show_adj_with (node_rw x) (node_adj x) in ())
+    else let _ := show_adj x in ()) (List.append vs (dedup xs [])).
 
-(** Pass 2: each node substituting into a variable, evaluated. *)
-Ltac2 names_vars () : unit :=
-  let cs := constr:(@csubst) in
-  let isv c := if is_csubst_in cs c then
-                 let (_, na) := split_app c in
-                 match var_term (var_heads (Array.get na 1)) (Array.get na 7) with Some _ => true | None => false end
-               else false in
-  each eval_node (cands_all isv (Control.goal ()) []).
-
-(** Pass 3: each node's payloads materialised, then those of the nodes
+(** Pass 2: each node's payloads materialised, then those of the nodes
     this makes. *)
 Ltac2 rec mat_node (node : constr) : unit :=
   let (f, na) := split_app node in
@@ -2063,29 +2073,29 @@ Ltac2 names_mats () : unit :=
        [csubst L a t];
     3. normalises ([names_norm]): in each node's adjustment, the terms
        that are substitutions become payloads and those that are
-       variables look-ups, all the way down ([conv_one]), and the result
-       is normalised; any other adjustment is normalised;
-    4. evaluates each node substituting into a variable ([names_vars]);
-    5. materialises payloads as substitutions, [u⟨b⟩] becoming [u [b]]
+       variables look-ups, all the way down ([conv_one]); then a node on
+       a variable [v] becomes what the normal form, followed from [v],
+       gives (a variable, a term with its payload, or a variable looked
+       up through the rest), and any other node's adjustment, and any
+       other adjustment, is normalised;
+    4. materialises payloads as substitutions, [u⟨b⟩] becoming [u [b]]
        ([names_mats]);
-    6. evaluates [apply_var a v] and [eval] nodes for variables the normal
-       form of [a] renames or sends to a term;
-    7. rewrites with [names_post]: the nodes back, and identity
+    5. evaluates [apply_var a v] for variables the normal form of [a]
+       renames or sends to a term;
+    6. rewrites with [names_post]: the nodes back, and identity
        substitutions go.
     Each step's results need nothing from the ones before: a payload's
     normal form is normal, and what a node on a variable becomes is a
-    variable, or a node with a term that is not one and a normal
-    adjustment. *)
+    variable, or a node whose term is not one and whose adjustment is
+    normal. *)
 Ltac2 autorw (db : ident) : unit := Std.autorewrite false None [db] (concl ()).
 
 Ltac2 names_pass () : unit :=
   (autorw @names_pre);
   (autorw @names_node);
   (names_norm ());
-  (names_vars ());
   (names_mats ());
   (names_apply ());
-  (names_eval ());
   (autorw @names_post).
 
 (** [names] commits to what it does: a failure after it does not backtrack

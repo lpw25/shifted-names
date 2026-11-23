@@ -1312,10 +1312,29 @@ Theorem subst_rel {N M} (a a' : adj term N M) :
   forall t, t [a] = t [a'].
 Proof. intros H; apply subst_rv; intros v; apply drel_rv, H. Qed.
 
+(** The same for one variable: related results, read at the output
+    scope, give the same term. *)
+Theorem subst_res {N N' M} (a : adj term N M) (v : var N) (a' : adj term N' M) (v' : var N') :
+  drel (lawbase tv0 sub0) (rapply (adj_raw a) (var_raw v)) (rapply (adj_raw a') (var_raw v')) ->
+  (tvar v) [a] = (tvar v') [a'].
+Proof.
+  intros H; destruct (drel_rv M _ _ H) as [_ Hrv].
+  rewrite !kleisli_var.
+  assert (Hout : forall K (w : var K), outer (ext_depth (@ext_here K M)) (var_raw w)) by (intros; unfold outer; cbn; lia).
+  pose proof (rvn_gapply0 _ _ _ _ _ top_HL (top_aok a) ext_here v (W_tHL ext_here) (Hout _ v)) as R1.
+  pose proof (rvn_gapply0 _ _ _ _ _ top_HL (top_aok a') ext_here v' (W_tHL ext_here) (Hout _ v')) as R2.
+  rewrite <- (apply_gapply0 a top_HL (top_aok a)) in R1.
+  rewrite <- (apply_gapply0 a' top_HL (top_aok a')) in R2.
+  cbn [ext_depth] in R1, R2; rewrite down0 in R1, R2.
+  rewrite <- lower_rapply in R1, R2.
+  exact (rvn_det _ _ _ _ _ _ _ _ (Hrv _ _ _ _ R1) R2).
+Qed.
+
 End Rel.
 
 (** Substitution as the node [names] works on. *)
-Definition subst_law : SubstLaw term tv0 sub0 := {| sl_var := @subst_tvar_eval; sl_rel := @subst_rel |}.
+Definition subst_law : SubstLaw term tv0 sub0 :=
+  {| sl_var := @subst_tvar_eval; sl_rel := @subst_rel; sl_res := @subst_res |}.
 
 Lemma subst_csubst {N M} (a : adj term N M) (t : term N) : t [a] = csubst subst_law a t.
 Proof. reflexivity. Qed.

@@ -127,14 +127,20 @@ End Bridge.
 Definition hshowDN (F : order) (n base : nat) (defs : list (option aexpN)) (e : aexpN) : option (list aexpN * aexpN) :=
   option_map enc_show (HShow.hshowD F n base (map (option_map adec) defs) (adec e)).
 
-Definition hlook_varN (F : order) (n : nat) (e : aexpN) (h : lexp) (i : nat) : option (lexp * nat) :=
-  hlook_var F n (adec e) h i.
+Inductive vshowN : Type :=
+| VSVarN (h : lexp) (j : N)
+| VSTermN (u : N) (s : list aexpN * aexpN)
+| VSLookN (g : lexp) (j : N) (s : list aexpN * aexpN).
 
-Definition hlook_payN (F : order) (n base : nat) (e : aexpN) (h : lexp) (i : nat) : option (N * (list aexpN * aexpN)) :=
-  option_map (fun p => (N.of_nat (fst p), enc_show (snd p))) (hlook_pay F n base (adec e) h i).
+Definition enc_vshow (v : vshow) : vshowN :=
+  match v with
+  | VSVar h j => VSVarN h (N.of_nat j)
+  | VSTerm u s => VSTermN (N.of_nat u) (enc_show s)
+  | VSLook g j s => VSLookN g (N.of_nat j) (enc_show s)
+  end.
 
-Definition hlook_lookN (F : order) (n base : nat) (e : aexpN) (h : lexp) (i : nat) : option (lexp * N * (list aexpN * aexpN)) :=
-  option_map (fun p => let '(g, j, x) := p in (g, N.of_nat j, enc_show x)) (hlook_look F n base (adec e) h i).
+Definition hlook_showN (F : order) (n base : nat) (e : aexpN) (h : lexp) (i : nat) : option vshowN :=
+  option_map enc_vshow (hlook_show F n base (adec e) h i).
 
 Definition hmat_targetN (F : order) (n base : nat) (e : aexpN) : option (N * (list aexpN * aexpN)) :=
   option_map (fun p => (N.of_nat (fst p), enc_show (snd p))) (hmat_target F n base (adec e)).
@@ -180,28 +186,39 @@ Proof.
   rewrite den_dec; exact (fun H => H).
 Qed.
 
-Theorem hbindB_show_sound l e h i u shN rN x : lfacts_okB Le l ->
-  hlook_payN (order_of l) (List.length te) (List.length ae) e h i = Some (u, (shN, rN)) ->
+Theorem hlookB_var l e h i h' j : lfacts_okB Le l ->
+  hlook_showN (order_of l) (List.length te) (List.length ae) e h i = Some (VSVarN h' j) ->
+  rapply (den e) (mk_rvar (ldenB Le h) i) = inl (mk_rvar (ldenB Le h') (N.to_nat j)).
+Proof.
+  intros Hl E; unfold hlook_showN in E.
+  destruct (hlook_show _ _ _ _ _ _) as [[h0 j0|u0 [sh r]|g0 j0 [sh r]]|] eqn:E0; try discriminate.
+  injection E as <- <-; rewrite den_dec, HLe, !ldenB_bof, Nat2N.id.
+  apply (hlook_show_var le te ae rs l _ _ _ h0 j0 (lfacts_den l Hl) E0).
+Qed.
+
+Theorem hlookB_term l e h i u shN rN x : lfacts_okB Le l ->
+  hlook_showN (order_of l) (List.length te) (List.length ae) e h i = Some (VSTermN u (shN, rN)) ->
   Forall2 (fun y d => y = den d) rs shN -> bnth Te u = Some x ->
   rapply (den e) (mk_rvar (ldenB Le h) i) = inr (x, den rN).
 Proof.
-  intros Hl E Hs Hx; unfold hlook_payN in E.
-  destruct (hlook_pay _ _ _ _ _ _) as [[u0 [sh r]]|] eqn:E0; [|discriminate]; injection E as <- <- <-.
+  intros Hl E Hs Hx; unfold hlook_showN in E.
+  destruct (hlook_show _ _ _ _ _ _) as [[h0 j0|u0 [sh r]|g0 j0 [sh r]]|] eqn:E0; try discriminate.
+  injection E as <- <- <-.
   rewrite den_dec, den_enc, HLe, ldenB_bof.
-  apply (hbind_show_sound le te ae rs l _ _ _ u0 sh r x (lfacts_den l Hl) E0 (shares_den _ Hs)).
+  apply (hlook_show_term le te ae rs l _ _ _ u0 sh r x (lfacts_den l Hl) E0 (shares_den _ Hs)).
   rewrite HTe, bnth_bof, Nat2N.id in Hx; exact Hx.
 Qed.
 
-
-Theorem hlookB_look_sound l e h i g j shN rN : lfacts_okB Le l ->
-  hlook_lookN (order_of l) (List.length te) (List.length ae) e h i = Some (g, j, (shN, rN)) ->
+Theorem hlookB_look l e h i g j shN rN : lfacts_okB Le l ->
+  hlook_showN (order_of l) (List.length te) (List.length ae) e h i = Some (VSLookN g j (shN, rN)) ->
   Forall2 (fun y d => y = den d) rs shN ->
   rapply (den e) (mk_rvar (ldenB Le h) i) = rapply (den rN) (mk_rvar (ldenB Le g) (N.to_nat j)).
 Proof.
-  intros Hl E Hs; unfold hlook_lookN in E.
-  destruct (hlook_look _ _ _ _ _ _) as [[[g0 j0] [sh r]]|] eqn:E0; [|discriminate]; injection E as <- <- <- <-.
+  intros Hl E Hs; unfold hlook_showN in E.
+  destruct (hlook_show _ _ _ _ _ _) as [[h0 j0|u0 [sh r]|g0 j0 [sh r]]|] eqn:E0; try discriminate.
+  injection E as <- <- <- <-.
   rewrite den_dec, den_enc, HLe, !ldenB_bof, Nat2N.id.
-  apply (hlook_look_sound le te ae rs l _ _ _ g0 j0 sh r (lfacts_den l Hl) E0 (shares_den _ Hs)).
+  apply (hlook_show_look le te ae rs l _ _ _ g0 j0 sh r (lfacts_den l Hl) E0 (shares_den _ Hs)).
 Qed.
 
 Section MatB.
@@ -234,12 +251,4 @@ End MatB.
 
 End Sound.
 
-Theorem hlook_varB_sound {T} (le : list label) (te : list T) (ae : list (radj T))
-    Le Te Ae l e h i h' j :
-  Le = bof le -> Te = bof te -> Ae = bof ae -> lfacts_okB Le l ->
-  hlook_varN (order_of l) (List.length te) e h i = Some (h', j) ->
-  rapply (aedenB Le Te Ae e) (mk_rvar (ldenB Le h) i) = inl (mk_rvar (ldenB Le h') j).
-Proof.
-  intros -> -> -> Hl E; rewrite aedenB_bof, !ldenB_bof.
-  apply (hlook_var_sound le te ae l _ h i h' j (lfacts_okB_bof _ _ Hl) E).
-Qed.
+

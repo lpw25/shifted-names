@@ -264,67 +264,24 @@ Proof.
   destruct (F2_nth _ _ _ s d Hs Hd) as [x0 [Hx0 ->]]; apply nth_error_nth, Hx0.
 Qed.
 
-(** ** A variable sent to a term: the term and its payload, shown *)
+(** ** Where a variable goes
 
-Definition hlook_pay (F : order) (n base : nat) (e : aexp) (h : lexp) (i : nat) : option (nat * (list aexp * aexp)) :=
+    The normal form of [e] followed from [hᵢ], once: to a variable, to a
+    term with its payload (shown), or stuck at [g_j] looked up through
+    the rest of the word (shown). *)
+
+Inductive vshow : Type :=
+| VSVar (h : lexp) (j : nat)
+| VSTerm (u : nat) (s : list aexp * aexp)
+| VSLook (g : lexp) (j : nat) (s : list aexp * aexp).
+
+Definition hlook_show (F : order) (n base : nat) (e : aexp) (h : lexp) (i : nat) : option vshow :=
   if inp n base e then
     let '(w, T0) := HNorm.norm F e [] HNorm.st0 in
     match HNorm.lookup F h i w T0 with
-    | (HNorm.VTerm u p, T1) =>
-        match HDisplay.display F base T1 p with
-        | Some (sh, r) => Some (u, (sh, r))
-        | None => None
-        end
-    | _ => None
-    end
-  else None.
-
-Theorem hbind_show_sound l e h i u sh r x : lfacts_ok lenv l ->
-  hlook_pay (order_of l) (List.length tenv) (List.length aenv) e h i = Some (u, (sh, r)) ->
-  Forall2 (fun y d => y = aeden d) rs sh -> nth_error tenv u = Some x ->
-  rapply (aeden e) (mk_rvar (lden lenv h) i) = inr (x, aeden r).
-Proof.
-  intros Hl H Hs Hx; unfold hlook_pay, inp in H.
-  destruct (aok _ e) eqn:Ha; [|discriminate]; destruct (CRange.inrange _ _ e) eqn:Ar; [|discriminate]; cbn [andb] in H.
-  set (F := order_of l) in *.
-  destruct (HNorm.norm F e [] HNorm.st0) as [w T0] eqn:En; destruct (HNorm.lookup F h i w T0) as [v T1] eqn:El.
-  destruct v as [|u' p|]; try discriminate.
-  destruct (HDisplay.display F (List.length aenv) T1 p) as [[sh0 r0]|] eqn:Ed; [|discriminate].
-  injection H as -> -> ->.
-  pose proof (order_of_irrefl l lenv Hl) as Hirr; pose proof (order_of_trans l lenv Hl) as Htr.
-  set (K := kmodel lenv tenv (aenv ++ rs)).
-  pose proof (kcons lenv tenv (aenv ++ rs) _ (order_of_ok lenv l Hl)) as HM.
-  destruct (kden lenv tenv (aenv ++ rs) (List.length tenv) (le_n _)) as [Ka _].
-  destruct (proj1 (norm_spec_all F Hirr Htr) e [] HNorm.st0 [] w T0 Inv_st0 (RWNil _) En) as [I1 [_ R1]].
-  destruct (lookup_spec F Hirr Htr T0 h w _ I1 R1 i _ T1 El) as [I2 [_ R2]].
-  pose proof (klookup lenv tenv (aenv ++ rs) l e h i Hl Ha) as Kl; fold F in Kl.
-  destruct (RVal_term _ _ _ _ R2) as [cp [Ecp Rp]]; rewrite Ecp in Kl.
-  pose proof (CRange.lookup_ok _ _ F h i _ (proj1 (CRange.norm_ok _ _ F) e [] Ar (Forall_nil _))) as Ov.
-  rewrite Ecp in Ov; inversion Ov as [|? ? _ Op|]; subst.
-  destruct (HDisplaySound.display_s_aok F K (List.length aenv) (List.length tenv) true T1 p sh r cp I2 Rp Op Ed)
-    as [Osh Or].
-  pose proof (HDisplaySound.display_sound F K (List.length aenv) (List.length tenv) T1 p sh r cp I2 Rp Op Ed
-                (shares_model l _ sh Hl (le_n _) Hs Osh) ridentity) as D.
-  rewrite (Ka r Or), rcompose_identity_l in D; unfold K in D.
-  rewrite vden_term, <- D in Kl.
-  cbn [K kmodel cterm] in Kl; unfold kterm in Kl; rewrite Hx in Kl; unfold rapply_target in Kl.
-  destruct (rapply (aeden e) _) as [w'|[u' ρ]]; [discriminate|injection Kl as -> ->; reflexivity].
-Qed.
-
-
-(** ** A variable whose lookup is stuck: the variable it is looked up as,
-    and the adjustment it is looked up through, shown *)
-
-Definition hlook_look (F : order) (n base : nat) (e : aexp) (h : lexp) (i : nat) : option (lexp * nat * (list aexp * aexp)) :=
-  if inp n base e then
-    let '(w, T0) := HNorm.norm F e [] HNorm.st0 in
-    match HNorm.lookup F h i w T0 with
-    | (HNorm.VLook g j x, T1) =>
-        match HDisplay.display F base T1 x with
-        | Some (sh, r) => Some (g, j, (sh, r))
-        | None => None
-        end
-    | _ => None
+    | (HNorm.VVar h' j, _) => Some (VSVar h' j)
+    | (HNorm.VTerm u p, T1) => option_map (VSTerm u) (HDisplay.display F base T1 p)
+    | (HNorm.VLook g j x, T1) => option_map (VSLook g j) (HDisplay.display F base T1 x)
     end
   else None.
 
@@ -335,37 +292,90 @@ Proof.
     try discriminate; injection E; intros; subst; reflexivity.
 Qed.
 
-Theorem hlook_look_sound l e h i g j sh r : lfacts_ok lenv l ->
-  hlook_look (order_of l) (List.length tenv) (List.length aenv) e h i = Some (g, j, (sh, r)) ->
-  Forall2 (fun y d => y = aeden d) rs sh ->
-  rapply (aeden e) (mk_rvar (lden lenv h) i) = rapply (aeden r) (mk_rvar (lden lenv g) j).
+(** The common start of the three proofs: what [follow] gives, related
+    to the [CNorm] lookup, whose meaning [klookup] gives. *)
+Lemma hlook_show_spec l e h i r : lfacts_ok lenv l ->
+  hlook_show (order_of l) (List.length tenv) (List.length aenv) e h i = Some r ->
+  exists v T1 cv, RVal T1 v cv /\ Inv T1
+    /\ CNorm.lookup (order_of l) h i (CNorm.norm (order_of l) e []) = cv
+    /\ CRange.VOk (List.length tenv) (List.length aenv) cv
+    /\ rapply_target (aeden e) (RRename (mk_rvar (lden lenv h) i)) = @vden (kmodel lenv tenv (aenv ++ rs)) cv ridentity
+    /\ match v with
+       | HNorm.VVar h' j => r = VSVar h' j
+       | HNorm.VTerm u p => option_map (VSTerm u) (HDisplay.display (order_of l) (List.length aenv) T1 p) = Some r
+       | HNorm.VLook g j x => option_map (VSLook g j) (HDisplay.display (order_of l) (List.length aenv) T1 x) = Some r
+       end.
 Proof.
-  intros Hl H Hs; unfold hlook_look, inp in H.
+  intros Hl H; unfold hlook_show, inp in H.
   destruct (aok _ e) eqn:Ha; [|discriminate]; destruct (CRange.inrange _ _ e) eqn:Ar; [|discriminate]; cbn [andb] in H.
   set (F := order_of l) in *.
   destruct (HNorm.norm F e [] HNorm.st0) as [w T0] eqn:En; destruct (HNorm.lookup F h i w T0) as [v T1] eqn:El.
-  destruct v as [| |g' j' x]; try discriminate.
-  destruct (HDisplay.display F (List.length aenv) T1 x) as [[sh0 r0]|] eqn:Ed; [|discriminate].
-  injection H as -> -> -> ->.
   pose proof (order_of_irrefl l lenv Hl) as Hirr; pose proof (order_of_trans l lenv Hl) as Htr.
-  set (K := kmodel lenv tenv (aenv ++ rs)).
-  pose proof (kcons lenv tenv (aenv ++ rs) _ (order_of_ok lenv l Hl)) as HM.
-  destruct (kden lenv tenv (aenv ++ rs) (List.length tenv) (le_n _)) as [Ka _].
   destruct (proj1 (norm_spec_all F Hirr Htr) e [] HNorm.st0 [] w T0 Inv_st0 (RWNil _) En) as [I1 [_ R1]].
   destruct (lookup_spec F Hirr Htr T0 h w _ I1 R1 i _ T1 El) as [I2 [_ R2]].
   pose proof (klookup lenv tenv (aenv ++ rs) l e h i Hl Ha) as Kl; fold F in Kl.
-  assert (Ecx : exists cx, CNorm.lookup F h i (CNorm.norm F e []) = CNorm.VLook g j cx /\ RId T1 x cx)
-    by (inversion R2; subst; eexists; split; [reflexivity|eassumption]).
-  destruct Ecx as [cx [Ecx Hx]]; rewrite Ecx in Kl.
   pose proof (CRange.lookup_ok _ _ F h i _ (proj1 (CRange.norm_ok _ _ F) e [] Ar (Forall_nil _))) as Ov.
-  rewrite Ecx in Ov; inversion Ov as [| |? ? ? Ox]; subst.
+  exists v, T1, (CNorm.lookup F h i (CNorm.norm F e [])).
+  split; [exact R2|split; [exact I2|split; [reflexivity|split; [exact Ov|split; [symmetry; exact Kl|]]]]].
+  destruct v; [injection H as <-|exact H|exact H]; reflexivity.
+Qed.
+
+Theorem hlook_show_var l e h i h' j : lfacts_ok lenv l ->
+  hlook_show (order_of l) (List.length tenv) (List.length aenv) e h i = Some (VSVar h' j) ->
+  rapply (aeden e) (mk_rvar (lden lenv h) i) = inl (mk_rvar (lden lenv h') j).
+Proof.
+  intros Hl H; destruct (hlook_show_spec l e h i _ Hl H) as [v [T1 [cv [R2 [_ [_ [_ [Kl Hv]]]]]]]].
+  destruct v as [g k| |]; [|destruct (HDisplay.display _ _ _ _) as [[? ?]|]; discriminate..].
+  injection Hv as <- <-.
+  rewrite (RVal_var _ _ _ _ R2), vden_var, kname in Kl; unfold rapply_target in Kl; rewrite rapply_identity in Kl.
+  destruct (rapply (aeden e) _) as [u|[u ρ]]; [injection Kl as <-; reflexivity|discriminate].
+Qed.
+
+Theorem hlook_show_term l e h i u sh r x : lfacts_ok lenv l ->
+  hlook_show (order_of l) (List.length tenv) (List.length aenv) e h i = Some (VSTerm u (sh, r)) ->
+  Forall2 (fun y d => y = aeden d) rs sh -> nth_error tenv u = Some x ->
+  rapply (aeden e) (mk_rvar (lden lenv h) i) = inr (x, aeden r).
+Proof.
+  intros Hl H Hs Hx; destruct (hlook_show_spec l e h i _ Hl H) as [v [T1 [cv [R2 [I2 [Ecv [Ov [Kl Hv]]]]]]]].
+  destruct v as [|u' p|]; [discriminate| |destruct (HDisplay.display _ _ _ _) as [[? ?]|]; discriminate].
+  destruct (HDisplay.display _ _ _ p) as [[sh0 r0]|] eqn:Ed; [|discriminate]; cbn [option_map] in Hv; injection Hv as -> -> ->.
+  set (F := order_of l) in *; set (K := kmodel lenv tenv (aenv ++ rs)).
+  pose proof (kcons lenv tenv (aenv ++ rs) _ (order_of_ok lenv l Hl)) as HM.
+  destruct (kden lenv tenv (aenv ++ rs) (List.length tenv) (le_n _)) as [Ka _].
+  destruct (RVal_term _ _ _ _ R2) as [cp [Ecp Rp]]; subst cv; rewrite Ecp in Kl, Ov.
+  inversion Ov as [|? ? _ Op|]; subst.
+  destruct (HDisplaySound.display_s_aok F K (List.length aenv) (List.length tenv) true T1 p sh r cp I2 Rp Op Ed)
+    as [Osh Or].
+  pose proof (HDisplaySound.display_sound F K (List.length aenv) (List.length tenv) T1 p sh r cp I2 Rp Op Ed
+                (shares_model l _ sh Hl (le_n _) Hs Osh) ridentity) as D.
+  rewrite (Ka r Or), rcompose_identity_l in D; unfold K in D.
+  rewrite vden_term, <- D in Kl.
+  cbn [K kmodel cterm] in Kl; unfold kterm in Kl; rewrite Hx in Kl; unfold rapply_target in Kl.
+  destruct (rapply (aeden e) _) as [w'|[u' ρ]]; [discriminate|injection Kl as -> ->; reflexivity].
+Qed.
+
+Theorem hlook_show_look l e h i g j sh r : lfacts_ok lenv l ->
+  hlook_show (order_of l) (List.length tenv) (List.length aenv) e h i = Some (VSLook g j (sh, r)) ->
+  Forall2 (fun y d => y = aeden d) rs sh ->
+  rapply (aeden e) (mk_rvar (lden lenv h) i) = rapply (aeden r) (mk_rvar (lden lenv g) j).
+Proof.
+  intros Hl H Hs; destruct (hlook_show_spec l e h i _ Hl H) as [v [T1 [cv [R2 [I2 [Ecv [Ov [Kl Hv]]]]]]]].
+  destruct v as [| |g' j' x]; [discriminate|destruct (HDisplay.display _ _ _ _) as [[? ?]|]; discriminate|].
+  destruct (HDisplay.display _ _ _ x) as [[sh0 r0]|] eqn:Ed; [|discriminate]; cbn [option_map] in Hv; injection Hv as -> -> -> ->.
+  set (F := order_of l) in *; set (K := kmodel lenv tenv (aenv ++ rs)).
+  pose proof (kcons lenv tenv (aenv ++ rs) _ (order_of_ok lenv l Hl)) as HM.
+  destruct (kden lenv tenv (aenv ++ rs) (List.length tenv) (le_n _)) as [Ka _].
+  assert (Ecx : exists cx, cv = CNorm.VLook g j cx /\ RId T1 x cx)
+    by (inversion R2; subst; eexists; split; [reflexivity|eassumption]).
+  destruct Ecx as [cx [-> Hx]].
+  inversion Ov as [| |? ? ? Ox]; subst.
   destruct (HDisplaySound.display_s_aok F K (List.length aenv) (List.length tenv) true T1 x sh r cx I2 Hx Ox Ed)
     as [Osh Or].
   pose proof (HDisplaySound.display_sound F K (List.length aenv) (List.length tenv) T1 x sh r cx I2 Hx Ox Ed
                 (shares_model l _ sh Hl (le_n _) Hs Osh) ridentity) as D.
   rewrite (Ka r Or), rcompose_identity_l in D; unfold K in D.
   rewrite vden_look, kname, <- D in Kl.
-  symmetry; apply rapply_target_rename_inj, Kl.
+  apply rapply_target_rename_inj, Kl.
 Qed.
 
 Lemma RWord_fst S w cw : RWord S w cw -> Forall2 (RStep S) (map fst w) cw.

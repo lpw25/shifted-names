@@ -114,47 +114,52 @@ in three rewrite databases. `names` makes one pass:
    converts `a` (`Conv.aconvn`): a term that is a variable `tvar w` with a
    payload `W` becomes a look-up of `w` through `W` (`x as w⟨| W ⟩`), and
    a term that is a substitution `csubst L c u` becomes `u` with `c` in
-   its payload (`u⟨| W ∘ c ⟩`), all the way down through the `c`s. The
-   result is normalised and shown, and the law's `sl_rel` makes the
-   rewrite, in the nodes with that adjustment only. Every other
-   adjustment built from context forms, `⨾`, `⟦⟧`, `at_scope` and `share`
-   (anything else is an atom) is rewritten to its normal form
-   (`docs/hnorm.md`), shown as context forms;
-4. evaluates each node `csubst L a (tvar v)` (`names_vars`), by the law's
-   `sl_var`, when the normal form of `a` determines where `v` goes: a
-   variable `w` gives `tvar w`; a term `u` with payload `b` gives
-   `csubst L b u`; and a look-up stuck at `w` through `b` (say, an atom)
-   gives `csubst L b (tvar w)`;
-5. materialises (`names_mats`): in each node, and then in the nodes this
+   its payload (`u⟨| W ∘ c ⟩`), all the way down through the `c`s. A node
+   on a variable, `csubst L a (tvar v)`, is the look-up of `v` through
+   `a`: the normal form of the converted `a` is followed from `v` once
+   (`HNorm.follow`, through `HShow.hlook_show`), to a variable `w`
+   (giving `tvar w`), a term `u` with a payload `b` (giving `csubst L b
+   u`), or `w` looked up through the rest `b` of the word, say an atom
+   (giving `csubst L b (tvar w)`); the law's `sl_res` makes the rewrite.
+   Any other node's converted adjustment is normalised and shown, and the
+   law's `sl_rel` makes the rewrite, in the nodes with that adjustment
+   only. Every other adjustment built from context forms, `⨾`, `⟦⟧`,
+   `at_scope` and `share` (anything else is an atom) is rewritten to its
+   normal form (`docs/hnorm.md`), shown as context forms;
+4. materialises (`names_mats`): in each node, and then in the nodes this
    makes, each term with a payload `u⟨| b ⟩` becomes the term `csubst L b
    u` with the identity payload (the law's `sl_rel` again), so that the
    payloads the normaliser worked on are substitutions again, which
    reductions outside `names` can work on;
-6. evaluates `apply_var a v` and `eval` left in the goal in the same way;
-7. rewrites with `names_post`: the nodes back to `t [a]`, and `t [⟦⟧] =
+5. evaluates `apply_var a v` left in the goal in the same way as a node
+   on a variable (for an adjustment of any family, with no law);
+6. rewrites with `names_post`: the nodes back to `t [a]`, and `t [⟦⟧] =
    t`.
 
 Each step's output needs nothing from the steps before it: step 3 leaves
-no substitution or variable in a normalised adjustment's terms, so step 4
-gives a variable, or a node whose term is neither and whose adjustment is
-a normal form (or part of one), and the payloads of a normal form are
-normal forms, so step 5 makes only normal nodes. A second `names` changes
-nothing in the examples (`Examples/Lambda.v`, `Examples/STLC.v`,
-`Tests/NamesTests.v`).
+no substitution or variable in a normalised adjustment's terms, and what
+a node on a variable becomes is a variable, or a node whose term is not a
+variable or a substitution and whose adjustment is part of a normal form;
+the payloads of a normal form are normal forms, so step 4 makes only
+normal nodes. A second `names` changes nothing in the examples
+(`Examples/Lambda.v`, `Examples/STLC.v`, `Tests/NamesTests.v`).
 
-The law `sl_rel` is about adjustments whose results on each variable are
-related by `drel (lawbase tvar sub)` (`Conv`): a variable with a payload
-`W` against where `W` sends it, `u [c]` with a payload `W` against `u`
-with `W ∘ c`, and `u` with `c` against `u [c]` with the identity, also
-inside payloads (an entry changed after an atom changes the payloads of
-the atom's terms) and in steps. The `Subst` functor proves it
-(`Subst.subst_rel`) by showing that each step keeps the term a
-well-scoped result gives (`Subst.rv_le`): one composition lemma for the
-functor (`comp_gapply`) covers the first two bases, and a step inside a
-payload keeps the payload scoped because a variable result is related
-only to itself (`drel_inl`).
+The laws `sl_rel` and `sl_res` are about results related by `drel
+(lawbase tvar sub)` (`Conv`): a variable with a payload `W` against
+where `W` sends it, `u [c]` with a payload `W` against `u` with `W ∘ c`,
+and `u` with `c` against `u [c]` with the identity, also inside payloads
+(an entry changed after an atom changes the payloads of the atom's
+terms) and in steps. `sl_rel` says adjustments whose results on each
+variable are related give the same substitution; `sl_res` says that
+related results of two adjustments on two variables give the same term
+when the variables are substituted. The `Subst` functor proves both
+(`Subst.subst_rel`, `Subst.subst_res`) by showing that each step keeps
+the term a well-scoped result gives (`Subst.rv_le`): one composition
+lemma for the functor (`comp_gapply`) covers the first two bases, and a
+step inside a payload keeps the payload scoped because a variable result
+is related only to itself (`drel_inl`).
 
-For each adjustment, steps 3 and 4 reify the syntax as it is written, with no
+For each adjustment, steps 3 to 5 reify the syntax as it is written, with no
 reduction (label, adjustment and term atoms, `share`d definitions as
 atoms with their definitions, and the order facts `label_lt x y` in the
 context), as an expression with binary indices (`HShow.aexpN`): the
@@ -174,10 +179,11 @@ the environments are Braun trees indexed by the binary indices
 facts are proved as balanced trees. Terms are read with their scope, so
 the rendering finds the scopes of payloads from them. An adjustment
 whose normal form cannot be shown (for example one whose scopes the
-rendering cannot find) is left as it is. Step 6 reads the result off `HNorm`'s lookup
-(`hlook_varB_sound`, `hbindB_show_sound`); step 3's conversion is proved
-to relate the two adjustments variable by variable (`Conv.conv_sound`),
-and step 5 changes entries of `HNorm` words, proved the same way
+rendering cannot find) is left as it is. A node on a variable, and
+step 5, read the result off `HNorm`'s lookup (`hlookB_var`,
+`hlookB_term`, `hlookB_look`); step 3's conversion is proved to relate
+the two adjustments variable by variable (`Conv.conv_sound`), and step 4
+changes entries of `HNorm` words, proved the same way
 (`hmatB_show_sound`); the law turns these into equal substitutions.
 
 Every comparison between labels goes through `lcmp`, which knows concrete
