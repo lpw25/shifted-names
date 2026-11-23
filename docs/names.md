@@ -8,6 +8,34 @@ This note covers three things:
 The design summary in `docs/design.md` covers the same pipeline more
 briefly. The benchmark figures are in the last section.
 
+## Vocabulary
+
+**Adjustment.** An adjustment `a : adj T N M` sends each variable of
+scope `N` to a *result*. A result is either:
+- a variable of scope `M`; or
+- a term `u : T K` together with a *payload* `ρ : adj T K M`, meaning
+  "`u`, substituted by `ρ`".
+
+The notation `x := u⟨| ρ ⟩` writes such an entry, and `x := u` is the
+case where `ρ` is the identity.
+
+**Normal form.** The normaliser (`HNorm`) represents an adjustment as a
+*word*: a list of steps, each an entry, a weakening or an atom. Every
+entry's payload is itself a word. Words are hash-consed in a state, so a
+payload that occurs many times is stored once.
+
+**Display.** The display (`HDisplay`) writes a word back as an expression
+over context forms, `⨾` and shared definitions (`share r := … in`). It
+has two ways to show entries:
+- **One cell at a time.** An entry is shown over the rest of the word,
+  with its payload visible: `⟦ x := u⟨| p ⟩ | rest ⟧`.
+- **A run.** A run of entries whose payload is exactly the rest of the
+  word after the run is shown as a composition, with no payloads visible:
+  `⟦ x1 := u1; …; xk := uk ⟧ ⨾ rest`.
+
+A cell that is referred to more than once is shown once, as a shared
+definition.
+
 ## The steps
 
 `names` makes one pass over the goal. Each step runs once, over the whole
@@ -18,8 +46,11 @@ goal, and its output needs nothing from the steps before it.
    the syntax's constructors, and `names` knows nothing about them.
 1. **`names_pre`.** This rewrites with the monad laws a syntax's `Subst`
    functor adds:
-   - going under a binder lifts the adjustment;
-   - nested substitutions fuse: `t [a] [b] = t [a ⨾ b]`.
+   - **Going under a binder lifts the adjustment.** This puts what `cbn`
+     leaves under a binder, a Kleisli extension at a shifted extension,
+     back in the form `t [lift a]`.
+   - **A substitution applied to a substitution fuses:** `t [a] [b] = t
+     [a ⨾ b]`.
 
    The rewrites are plain `autorewrite`, with no setoid rewriting.
 2. **`names_node`.** A substitution `t [a]` becomes the node `csubst L a
@@ -34,16 +65,17 @@ goal, and its output needs nothing from the steps before it.
       adjustments and terms become atoms, and `share` definitions are
       kept. Terms are read with their scope. Order facts `label_lt x y`
       come from the context.
-   2. **Convert** (`Conv.aconvn`).
-      - A term that is a substitution `csubst L c u` becomes `u` with `c`
-        in its payload.
-      - A term that is a variable `tvar w` becomes a look-up of `w`
-        through its payload.
+   2. **Convert** (`Conv.aconvn`). This acts on the terms *inside* `a`,
+      the values of its entries:
+      - a term that is a substitution, `x := u [c]`, becomes `u` with `c`
+        in its payload;
+      - a term that is a variable, `x := tvar w`, becomes a look-up of
+        `w` through its payload.
 
       This goes all the way down: the terms of each `c` are converted
       too.
-   3. **If `t` is a variable `v`**, normalise the converted expression
-      (`HNorm.norm`) and follow it from `v` once (`HNorm.follow`, through
+   3. **If `t` is a variable `v`**, normalise the converted expression and
+      follow it from `v` once (`HNorm.follow`, through
       `HShow.hlook_show`). There are three outcomes:
       - a variable `w`, so the node becomes `tvar w`;
       - a term `u` with a payload `b`, so it becomes `csubst L b u`;
@@ -51,20 +83,37 @@ goal, and its output needs nothing from the steps before it.
         it becomes `csubst L b (tvar w)`.
 
       The rewrite is the law's `sl_res`.
-   4. **Otherwise**, normalise and display the result with shared
-      definitions (`HDisplay`). The rewrite is the law's `sl_rel`, and it
-      applies to the nodes with that adjustment only.
+   4. **Otherwise**, normalise and display. The rewrite is the law's
+      `sl_rel`, and it applies to the nodes with that adjustment only.
 
-   An adjustment outside a node is reified, normalised and displayed the
-   same way. It is not converted, and it is rewritten by equality
+   An adjustment outside a node, such as one side of `a ⨾ b = c`, is
+   reified, normalised and displayed the same way. It is not converted,
+   because it has no law to justify that, and it is rewritten by equality
    (`adj_eq`).
-4. **Materialise** (`names_mats`). In each node, each term with a payload
-   `u⟨| b ⟩` becomes the term `csubst L b u` with the identity payload
-   (`sl_rel` again). Then the same happens in the nodes this makes.
+4. **Materialise** (`names_mats`). Each term with a payload `u⟨| b ⟩` in a
+   node's adjustment becomes the term `csubst L b u` with the identity
+   payload (`sl_rel` again). Then the same happens in the nodes this
+   makes.
 5. **`names_apply`.** This handles `apply_var a v` left in the goal, for
    an adjustment of any family, with no law. It uses the same
    `hlook_show` as step 3.3.
 6. **`names_post`.** The nodes go back to `t [a]`, and `t [⟦⟧] = t`.
+
+**Why steps 1 and 3 both handle nested substitutions.** They handle
+substitutions in different positions:
+- **Step 1** handles a substitution applied to the *result* of another:
+  `t [a] [b]`, the node's own term being a node.
+- **Step 3.2** handles substitutions used as *values inside* an
+  adjustment, as in `⟦ x := u [c] ⟧`.
+
+Without step 1, `t [a] [b]` would stay as two nodes, each normalised on
+its own, and `t [a] [b] = t [a ⨾ b]` would not be decided. Step 3 could
+do the fusion instead, but that would need the composition law in
+`SubstLaw`, and step 1 is needed anyway for the lifting rewrite. The two
+are the same law, at the node and at a single variable:
+- the per-variable form of `t [a] [b] = t [a ⨾ b]` is `nbase`, which says
+  `u [c]` with payload `W` is `u` with payload `W ∘ c`;
+- step 3.2 applies `nbase` with `W` the entry's payload.
 
 **What the kernel checks.** Each rewrite's proof is built directly, as a
 term:
@@ -94,63 +143,110 @@ change. It is not proved.
 
 ## What could be simpler
 
-1. **Materialise only the payloads the display shows.** This is the
-   important one, because it is also a performance bug (see the
-   benchmarks).
-   - **The problem.** Step 4 works on the normaliser's word, not on the
-     displayed expression, so it materialises payloads the user never
-     sees. The normal form of `⟦x1 := f1⟧ ⨾ … ⨾ ⟦xn := fn⟧` has, on
-     entry `i`, the payload "the substitutions after `i`". The display
-     shows the word compactly, as the composition itself, with no
-     payloads. Step 4 still finds the payload of `x1`, turns it into
-     `f1 [⟦ x2 := … ⟧ …]`, and does the same again inside that payload.
-     No sharing survives, so the output has 2ⁿ − 1 entries.
-   - **The fix.** Make materialisation a function on the shown
-     expression. Every `NBindE u p` with `p` not the identity becomes a
-     new term `u [p]`, with the payload's own shown payloads materialised
-     first. Shared definitions stay shared, so the new terms refer to
-     them. This would happen inside step 3, before rendering, so a node
-     needs one rewrite instead of one per payload. It would replace
-     `mat_one`, `names_mats`, `HShow.hmat_target`/`hmat_display` and the
-     word-level proofs (`paid_matw`, `hmat_show_sound`, `mat_bridge`):
-     about 250 lines.
-   - **The cost.** A shown payload can sit under a composition or a
-     lift, as in `(u, W ∘ c)`. Materialising it there relates `(u, W ∘
-     c)` to `(u [c], W)`. That is the materialising base with a context
-     `W`, which `Conv.lawbase` does not have. One fix is to add it and
-     prove it in `Subst` like `nbase_rv`; the catch is that well-scopedness
-     of `W` has to be carried in the base. The other is to materialise
-     only payloads in direct positions: inner entries of context forms,
-     their tails, and shared definitions. Those need no new base, and
-     they are what the display produces for payloads it shows.
-2. **One reification per node.** If materialising is folded into step 3,
-   each node is reified once and rewritten once. Steps 3 and 4 become one
-   step, and the tactic is: pre-rewrite; per node, reify, convert,
-   normalise (and follow, for a node on a variable), display,
-   materialise, render, rewrite; post-rewrite.
-3. **The two proof routes for normalising.**
-   - A node is rewritten by `sl_rel` from a per-variable relation, after
-     conversion.
-   - A free adjustment is rewritten by `adj_eq` from a denotation
-     equality, without conversion.
+### 1. Materialise what the display shows, in step 3
 
-   They share the normaliser and display call but duplicate about 40
-   lines of proof plumbing in `conv_one` and `show_adj_with`. A free
-   adjustment could go through the node route with the trivial
-   conversion and a relation that is equality.
-4. **`names_apply`.** It duplicates `conv_one`'s variable path for the
-   variable and term cases, about 50 lines, because it has no law. It
-   could be the variable path with the conversion lists empty and a
-   "law" for targets. Alternatively, `apply_var` goals could be dropped
-   from `names`: only `Tests/NamesTests.v` uses them.
-5. **The law.** `SubstLaw` has three fields: `sl_var`, `sl_rel` and
-   `sl_res`. `sl_rel` follows from `sl_res` given extensionality of
-   substitution in the variables. That trades one field for another, so
-   there is little gain unless extensionality is wanted anyway.
-6. **Ltac2 hygiene.** `Control.plus` leaves choice points: a later
-   failure re-runs everything after every earlier `plus`, which is
-   exponential. All uses are now `attempt`, built on `Control.case`, which
-   leaves none. Any new code should use `attempt` too.
+**What step 4 does now.** For a node, `mat_one` takes these steps:
+1. Reify the node's adjustment, already in normal form after step 3.
+2. Normalise it again.
+3. Find the first entry of the *word* with a payload that is not the
+   identity.
+4. Display that payload on its own (`hmat_target`), and the rest with the
+   entry's term replaced by a new term (`hmat_display`).
+5. Render both, and rewrite.
+
+It repeats this per payload, then recurses into the new nodes.
+
+**What goes wrong.** Two things, both artefacts of doing this one
+payload at a time on the word:
+- **It materialises payloads the user never saw.** The normal form of
+  `⟦x1 := f1⟧ ⨾ … ⨾ ⟦xn := fn⟧` gives entry `i` the payload "the
+  substitutions after `i`". Every entry has a payload, but the display
+  shows the word as a run, the composition itself, with none visible.
+  Step 3 leaves the goal unchanged here. Step 4 still finds the payload
+  of `x1` and writes it out as a term `f1 [⟦ x2 := … ⟧ …]`, which turns
+  the compact composition into a context form with explicit terms.
+- **It loses sharing.** The payload is displayed on its own, with fresh
+  shared definitions. Once it is inside the term `f1 […]`, it is opaque
+  to the normaliser. So the entries `x2, x3, …`, whose payloads are the
+  same suffixes, each get their own copy, and the recursion into the new
+  nodes materialises every copy again. The output has 2ⁿ − 1 entries.
+
+Neither is necessary. The normal form shares every suffix, and the
+display already writes it in linear size.
+
+**The proposal.** Materialise after displaying, on the shown expression:
+1. Every shown entry `x := u⟨| p ⟩` becomes `x := u [p]`.
+2. The entries inside `p`, and inside the shared definitions, are
+   materialised the same way.
+3. A shared definition stays a shared definition, so `p = r`, a
+   reference to one, becomes `u [r]`, with no copy.
+
+This would happen in step 3, before rendering. The chain above has
+nothing shown, so it stays exactly as written.
+
+**Why no new law is needed.** The display shows a payload only on an
+entry over the rest of the word, `AInner h (TBindE u p) rest`. Its other
+forms are a run, an atom step or a weakening, composed *before* the
+rest: `rcompose rest X`, where `X` is the run, atom or weakening. Since
+`rapply (rcompose a b) v` applies `b` first, nothing is ever applied
+after such an entry. So that variable's result is exactly `(u, p)`, and
+materialising it is the existing base `matbase`: `u` with payload `p`
+against `u [p]` with the identity. That holds:
+- at the top of the expression;
+- in a shared definition;
+- inside a payload, where it is the same statement one level down
+  (`DPay`).
+
+**What it removes.** `mat_one`, `names_mats`, `HShow.hmat_target` /
+`hmat_display` and the word-level proofs (`paid_matw`, `hmat_show_sound`,
+`mat_bridge`): about 250 lines. A node then needs one reification and one
+rewrite instead of one per payload.
+
+### 2. One route for proving a normalisation
+
+There are two ways a normalised adjustment is rewritten into the goal:
+- **Inside a node** `csubst L a t`, by `sl_rel`. Its premise is a
+  relation between `a` and its normal form, variable by variable, after
+  conversion.
+- **Elsewhere** (an adjustment equation, or an adjustment under an opaque
+  function), by `adj_eq`. Its premise is plain equality of the two
+  adjustments' raw representations.
+
+Both call the same normaliser and display, but the proof plumbing is
+duplicated: the lambda that assembles the soundness proof, the facts for
+shared definitions and atoms, and the `share` chain. That is about 40
+lines each in `conv_one` and `show_adj_with`. The second route could be
+the first with no conversion and equality as the relation. This is a
+tidy-up only.
+
+### 3. `names_apply`
+
+**What it is.** `names_apply` handles goals that mention `apply_var a v`
+directly, for example in `Tests/NamesTests.v`:
+
+```coq
+apply_var (⟦ · \ x ⟧ : adj T (S N) N) bvar0 = Rename x
+```
+
+There, `T` is any family of terms with no substitution and no law.
+Without a law there are no nodes, so this cannot go through step 3.
+
+**What could change.** Its code repeats step 3.3's read-back and proof
+assembly for the variable and term outcomes, about 50 lines. Two
+options:
+- share the read-back with step 3.3, parametrised by the final lemma;
+- drop `apply_var` goals from `names`, since nothing outside the tests
+  needs them.
+
+### Smaller points
+
+- **The law.** `SubstLaw` has three fields: `sl_var`, `sl_rel` and
+  `sl_res`. `sl_rel` follows from `sl_res` given extensionality of
+  substitution in the variables. That trades one field for another.
+- **Ltac2 hygiene.** `Control.plus` leaves choice points: a later
+  failure re-runs everything after every earlier `plus`, which is
+  exponential. All uses are now `attempt`, built on `Control.case`, which
+  leaves none. Any new code should use `attempt` too.
 
 ## Completeness
 
@@ -168,18 +264,6 @@ normaliser's own words.
 The display is a function of the normal word. So when two sides of `a =
 b` are equal in all such models, they have the same normal word and the
 same display, and `names; reflexivity` closes the goal.
-
-What this does not cover:
-- **Atoms are syntactic.** Two terms that are convertible but written
-  differently are different atoms.
-- **Labels are generic beyond the order facts.** A comprehension model may
-  treat two labels of unknown order as unrelated. An equation that holds
-  for all concrete labels only by cases (`x = y` or not) is not decided.
-  `STLC.renaming1'` does this case split by hand with
-  `label_compare_spec`. With an order fact for every pair of labels, I
-  expect the concrete adjustments with generic atoms to separate
-  different normal words. Then the comprehension-model completeness
-  would carry over to the concrete semantics. That is not proved.
 
 ### 2. Substitutions on opaque terms (argued)
 
@@ -219,23 +303,62 @@ algebra's equations. The term model in `CComplete` is already the
 explicit-substitution syntax in normal form, so this looks like one
 induction on words. It is not done.
 
-### 3. What `names` does not attempt
+### 3. What is not covered, and why
 
-- Pushing substitutions through constructors. That is the user's `cbn`.
-- Non-literal variables: `(tvar v) [a]` for a variable `v` in the
-  context is a node on an atom, and is not evaluated.
-- Nodes under a binder that uses the binder's variable (the candidates
-  must be closed terms). An example is a substitution inside `fun x =>
-  … t [a x] …`.
-- Case splits on labels, as above.
+- **Equations that need a case split on labels.**
+  - *Example.* `⟦ x; y | a ⟧ = ⟦ y; x | a ⟧`, lifting `a` past a
+    binder for `x` and one for `y`, in either order
+    (`NamesTests.lift_free_comm_cases`). It holds for all `x` and `y`:
+    - if `x = y`, the two sides are the same;
+    - if not, lifts on different labels commute.
+
+    But no single normal form covers both cases.
+  - *Why.* The normaliser's models (comprehension models) allow two
+    labels with no order fact between them to be unrelated, so steps on
+    them do not commute. Concrete labels are always equal or ordered, so
+    the equation holds in every concrete model but not in every
+    comprehension model.
+  - *Workaround.* The user case-splits with `label_compare_spec x y`,
+    which adds `x = y`, `label_lt x y` or `label_lt y x` to the context,
+    and `names` then decides each case. (Many equations that look as if
+    they need this do not. For example, `t [⟦ x \ y ⟧] [⟦ y \ x ⟧] = t`
+    and opening a binder as `y` and then renaming `y` to `x` both go
+    through without a split, and `STLC.v` no longer case-splits.)
+  - *Possible fix.* Do the case split inside `names`. That is at most
+    three cases per pair of unordered labels that matter, so exponential
+    in the number of such pairs.
+- **Variables that are not written out.**
+  - *Example.* `(tvar v) [⟦ x := u ⟧]` for `v : var N` a variable of the
+    context. The result depends on whether `v` is `x`, which is not
+    known.
+  - *What happens.* The node is treated like a node on an opaque term:
+    its adjustment is normalised, but the node is not evaluated. So
+    `(tvar v) [a] = (tvar v) [b]` is decided when `a` and `b` have the
+    same normal form. It is not decided when they agree only on the one
+    variable `v`.
+- **Substitutions under a binder that uses the bound variable.**
+  - *Example.* `map (fun z => t [⟦ x := tvar z ⟧]) l`. The node
+    `t [⟦ x := tvar z ⟧]` mentions the bound `z`.
+  - *Why.* A rewrite cannot abstract a subterm that mentions a bound
+    variable, so `names` only takes closed nodes. A node under a binder
+    that does not mention the binder is fine.
+  - *Possible fix.* Normalise under the binder by generalising over its
+    variable, as `setoid_rewrite` does, but that is setoid rewriting.
+- **Atoms equal only up to computation.**
+  - *Example.* An atom `f (1 + 1)` against `f 2`.
+  - *Why.* Atoms are compared syntactically: no reduction happens when
+    reifying. So these two are different atoms, and an equation that
+    needs them equal is not decided.
+  - *Workaround.* The user normalises those subterms first.
 
 ## Benchmarks
 
 The families below run on the current branch ("new") and on the commit
-before the single-pass work (20ed942, "old"). The goals have the form `P
-(…) -> True`, so `names` has one rewrite to make. Times are tactic time +
-`Qed`. A dash means not measured. "Rewrite by type" is the figure before
-the variable-path fix described under "Problems found".
+before the single-pass work (20ed942, "old").
+`tests/bench/names/run.sh FAMILY N…` runs them. The goals have the form
+`P (…) -> True`, so `names` has one rewrite to make. Times are tactic
+time + `Qed`. A dash means not measured. "Rewrite by type" is the figure
+before the variable-path fix described under "Problems found".
 
 | family | n | new | old |
 |---|---|---|---|
@@ -268,13 +391,17 @@ Earlier recorded baselines were D100 at 0.46 + 0.35 s, D300 at 1.5 +
   without a check and rewritten from the hypothesis, as the other
   rewrites already were (`rewrite_by`).
 - **Exponential materialisation (not fixed).** This is behind SN, MO and
-  MV: the normaliser's word for a chain of n substitutions gives every
-  entry the rest of the chain as its payload, and step 4 materialises
-  all of them, with no sharing (see "What could be simpler", item 1).
-  The normal form itself is linear: step 3 alone shows SN as the chain
-  it is.
-- **Superlinear deep nesting (not fixed).** At about n², NS is the one
-  family with a clearly superlinear tactic time. Each nested node's term
-  is compared and checked again in full: each `nest_fact` repeats a term
-  of size up to n. VT's `Qed` (0.57 s at 100, 3.0 s at 300) is mildly
-  superlinear too.
+  MV. See "What could be simpler", section 1.
+- **Superlinear deep nesting (not fixed).** NS is about n² on the tactic
+  side and worse on `Qed`. On the tactic side, the term table compares a
+  new term against the existing ones one at a time, by full syntactic
+  comparison (`tbl_add`). Each nested substitution's whole term, all the
+  levels below it, is entered as a term, so the comparisons add up to
+  about n². Two ways to avoid this:
+  - key the table so a lookup is not a scan;
+  - do not enter a nested node's whole term: conversion needs only its
+    base term and its reified adjustment, plus one fact tying the
+    entry's term to them.
+
+  I have not yet located the `Qed` cost. Conversion is linear in
+  principle, so this is an artefact to be fixed, not a limit.

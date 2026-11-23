@@ -74,7 +74,7 @@ Qed.
 Corollary renaming1' {Γ e A} x y B : Γ & y ~ B ⊢ e [⟦ x \ y ⟧] ~ A -> Γ & x ~ B ⊢ e ~ A.
 Proof.
   intros H; apply (conv _ (renaming1 y x _ H)).
-  destruct (label_compare_spec x y) as [<-|Hxy|Hxy]; names; reflexivity.
+  names; reflexivity.
 Qed.
 
 Corollary substitution1 {Γ e e' A} x B : Γ & x ~ B ⊢ e ~ A -> Γ ⊢ e' ~ B -> Γ ⊢ e [⟦ x := e' ⟧] ~ A.
@@ -90,5 +90,5 @@ Qed.
 Lemma LAM' x {Γ body A B} : Γ & x ~ A ⊢ body [⟦ · \ x ⟧] ~ B -> Γ ⊢ tlam body ~ Fn A B.
 Proof.
   intros H; apply LAM; intros y; apply (renaming1' y x).
-  apply (conv _ H); destruct (label_compare_spec x y) as [<-|Hxy|Hxy]; names; reflexivity.
+  apply (conv _ H); names; reflexivity.
 Qed.
