@@ -14,8 +14,7 @@
 
     A variable is sent either to a variable or to a payload [(u, ρ)]: a term
     [u] together with an adjustment [ρ] still to be applied to it, which
-    acts on all of [u]'s variables, bound ones too.  (The names [rpadj],
-    [rpcompose] and the rest are kept as abbreviations.) *)
+    acts on all of [u]'s variables, bound ones too. *)
 
 From Stdlib Require Import PArith Arith List Lia Bool StrictProp.
 From ShiftedNames.Core Require Export Strict.
@@ -253,45 +252,7 @@ Proof.
   destruct (rvar_eqb_spec v (mk_rvar h 0)) as [->|]; reflexivity.
 Qed.
 
-(** ** The payload names, as the plain ones *)
-
-Lemma rpdepth_payload a v u ρ : v_label v <> None -> rapply a v = inr (u, ρ) -> rdepth ρ < rdepth a.
-Proof. intros _; apply rdepth_payload. Qed.
-
-Lemma lower_rpapply a v : v_label v <> None -> lower (rapply a v) = napply (radj_n a) v.
-Proof. intros _; apply lower_rapply. Qed.
-
-Theorem rpapply_pcompose a ρ v :
-  v_label v <> None ->
-  rapply (rcompose a ρ) v
-  = match rapply ρ v with inl w => rapply a w | inr (u, ρ') => inr (u, rcompose a ρ') end.
-Proof. intros _; apply rapply_compose. Qed.
-
-Theorem rpapply_pshift h ρ v :
-  v_label v <> None ->
-  rapply (rpush_outer h ρ) v
-  = match rapply ρ v with inl w => inl (shift_rvar (mk_rvar h 0) w) | inr (u, ρ') => inr (u, rpush_outer h ρ') end.
-Proof. intros _; apply rapply_push_outer. Qed.
-
 End Adjustment.
 
 Arguments rtarget T : clear implicits.
 Arguments rresult T : clear implicits.
-
-Notation rpadj := radj (only parsing).
-Notation rpadj_n := radj_n (only parsing).
-Notation rpadj_wf := radj_wf (only parsing).
-Notation rpadj_eq := radj_eq (only parsing).
-Notation rpadj_local := radj_local (only parsing).
-Notation rpcompose := rcompose (only parsing).
-Notation rpshift := rpush_outer (only parsing).
-Notation rpidentity := ridentity (only parsing).
-Notation rpapply := rapply (only parsing).
-Notation rto_padj := rto_adj (only parsing).
-Notation rpadj_n_to_padj := radj_n_to_adj (only parsing).
-Notation rto_padj_padj_n := rto_adj_n (only parsing).
-Notation rpdepth := rdepth (only parsing).
-Notation rpcompose_identity := rcompose_identity_l (only parsing).
-Notation rpcompose_compose := rcompose_assoc (only parsing).
-Notation pidentity_n := nidentity (only parsing).
-Notation mk_rpadj := mk_radj (only parsing).

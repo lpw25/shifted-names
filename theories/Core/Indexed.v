@@ -269,11 +269,64 @@ Definition vshift_free {M} (y : label) (v : var M) : var M := mk_var _ (vshift_f
 
 Definition vdummy {M} : var M := fvar EmptyString 0.
 
+(** *** Input contexts
+
+    A slot is a position in the output context: [slot K] for an output
+    context of [K] entries, innermost first.  The output context binds a
+    name for each of its positions written [y as a], and input entries
+    refer to slots by those names. *)
+
+(** Input contexts, innermost entry first, built by adding entries on the
+    outside: [ictx K M Nb N P] goes from a tail with [Nb] inputs to [N]
+    inputs, into the output scope [M], with [K] slots and [P] positional
+    entries.  A term [u] of [x := u] is in the output scope, with the
+    identity payload; [x := u⟨ Q | σ ⟩] gives [u], of any scope, the
+    payload [Q] over [σ]: an input context with no positional entries,
+    whose entries may name the slots too. *)
+Inductive ictx (K M : nat) : nat -> nat -> nat -> Type :=
+| IEmpty {N} : ictx K M N N 0
+| IPosF {Nb N P} (i : ictx K M Nb N P) (x : label) : ictx K M Nb N (S P)
+| IPosB {Nb N P} (i : ictx K M (S Nb) N P) : ictx K M Nb N (S P)
+| IRenF {Nb N P} (i : ictx K M Nb N P) (x : label) (c : slot K) : ictx K M Nb N P
+| IRenB {Nb N P} (i : ictx K M (S Nb) N P) (c : slot K) : ictx K M Nb N P
+| ISubF {Nb N P} (i : ictx K M Nb N P) (x : label) (u : T M) : ictx K M Nb N P
+| ISubB {Nb N P} (i : ictx K M (S Nb) N P) (u : T M) : ictx K M Nb N P
+| ISubFP {Nb N P L Lb} (i : ictx K M Nb N P) (x : label) (u : T L) (q : ictx K M Lb L 0) (σ : adj T Lb M) : ictx K M Nb N P
+| ISubBP {Nb N P L Lb} (i : ictx K M (S Nb) N P) (u : T L) (q : ictx K M Lb L 0) (σ : adj T Lb M) : ictx K M Nb N P.
+
+Arguments IEmpty {K M N}.
+Arguments IPosF {K M Nb N P} i x.
+Arguments IPosB {K M Nb N P} i.
+Arguments IRenF {K M Nb N P} i x c.
+Arguments IRenB {K M Nb N P} i c.
+Arguments ISubF {K M Nb N P} i x u.
+Arguments ISubB {K M Nb N P} i u.
+Arguments ISubFP {K M Nb N P L Lb} i x u q σ.
+Arguments ISubBP {K M Nb N P L Lb} i u q σ.
+
+(** The input context over [X], with [env] the variables of the slots and
+    [pos] those of the positional ones, both innermost first. *)
+Fixpoint ictx_den {K M Nb N P} (i : ictx K M Nb N P) (env : list (var M))
+  : list (var M) -> adj T Nb M -> adj T N M :=
+  let f (c : slot K) := nth (slot_ix c) env vdummy in
+  match i in ictx _ _ Nb N P return list (var M) -> adj T Nb M -> adj T N M with
+  | IEmpty => fun _ X => X
+  | @IPosF _ _ _ _ P i x => fun pos X => ictx_den i env pos (in_free x (Rename (nth P pos vdummy)) X)
+  | @IPosB _ _ _ _ P i => fun pos X => ictx_den i env pos (in_bound (Rename (nth P pos vdummy)) X)
+  | IRenF i x c => fun pos X => ictx_den i env pos (in_free x (Rename (f c)) X)
+  | IRenB i c => fun pos X => ictx_den i env pos (in_bound (Rename (f c)) X)
+  | ISubF i x u => fun pos X => ictx_den i env pos (in_free x (Bind u identity) X)
+  | ISubB i u => fun pos X => ictx_den i env pos (in_bound (Bind u identity) X)
+  | ISubFP i x u q σ => fun pos X => ictx_den i env pos (in_free x (Bind u (ictx_den q env nil σ)) X)
+  | ISubBP i u q σ => fun pos X => ictx_den i env pos (in_bound (Bind u (ictx_den q env nil σ)) X)
+  end.
+
 (** *** The short form *)
 
 (** [sctx Nb Mb N M] goes from a tail [adj Nb Mb] to [adj N M].  A term
     [u] of [x := u] is in the scope [Mb] of its entry, with the identity
-    payload; [x := u⟨| r ⟩] gives its payload [r] from the term's scope. *)
+    payload; [x := u⟨ Q | σ ⟩] gives [u] the payload [Q] over [σ], an input
+    context with no slots to name. *)
 Inductive sctx : nat -> nat -> nat -> nat -> Type :=
 | SEmpty {N M} : sctx N M N M
 | SLiftF {Nb Mb N M} (s : sctx Nb Mb N M) (x : label) : sctx Nb Mb N M
@@ -282,8 +335,8 @@ Inductive sctx : nat -> nat -> nat -> nat -> Type :=
 | SSubB {Nb Mb N M} (s : sctx (S Nb) Mb N M) (u : T Mb) : sctx Nb Mb N M
 | SRenF {Nb Mb N M} (s : sctx Nb Mb N M) (x : label) (w : var Mb) : sctx Nb Mb N M
 | SRenB {Nb Mb N M} (s : sctx (S Nb) Mb N M) (w : var Mb) : sctx Nb Mb N M
-| SSubFA {Nb Mb N M K} (s : sctx Nb Mb N M) (x : label) (u : T K) (r : adj T K Mb) : sctx Nb Mb N M
-| SSubBA {Nb Mb N M K} (s : sctx (S Nb) Mb N M) (u : T K) (r : adj T K Mb) : sctx Nb Mb N M
+| SSubFP {Nb Mb N M L Lb} (s : sctx Nb Mb N M) (x : label) (u : T L) (q : ictx 0 Mb Lb L 0) (σ : adj T Lb Mb) : sctx Nb Mb N M
+| SSubBP {Nb Mb N M L Lb} (s : sctx (S Nb) Mb N M) (u : T L) (q : ictx 0 Mb Lb L 0) (σ : adj T Lb Mb) : sctx Nb Mb N M
 | SLookF {Nb Mb N M K} (s : sctx Nb Mb N M) (x : label) (w : var K) (r : adj T K Mb) : sctx Nb Mb N M
 | SLookB {Nb Mb N M K} (s : sctx (S Nb) Mb N M) (w : var K) (r : adj T K Mb) : sctx Nb Mb N M.
 
@@ -301,33 +354,13 @@ Fixpoint sctx_den {Nb Mb N M} (s : sctx Nb Mb N M) : adj T Nb Mb -> adj T N M :=
   | SSubB s u => fun X => sctx_den s (in_bound (Bind u identity) X)
   | SRenF s x w => fun X => sctx_den s (in_free x (Rename w) X)
   | SRenB s w => fun X => sctx_den s (in_bound (Rename w) X)
-  | SSubFA s x u r => fun X => sctx_den s (in_free x (Bind u r) X)
-  | SSubBA s u r => fun X => sctx_den s (in_bound (Bind u r) X)
+  | SSubFP s x u q σ => fun X => sctx_den s (in_free x (Bind u (ictx_den q nil nil σ)) X)
+  | SSubBP s u q σ => fun X => sctx_den s (in_bound (Bind u (ictx_den q nil nil σ)) X)
   | SLookF s x w r => fun X => sctx_den s (in_look_free x r w X)
   | SLookB s w r => fun X => sctx_den s (in_look_bound r w X)
   end.
 
-(** *** The full form
-
-    A slot is a position in the output context: [slot K] for an output
-    context of [K] entries, innermost first.  The output context binds a
-    name for each of its positions written [y as a], and input entries
-    refer to slots by those names.  A term is in the output scope. *)
-
-(** Input contexts, innermost entry first, built by adding entries on the
-    outside: [ictx K M Nb N P] goes from a tail with [Nb] inputs to [N]
-    inputs, into the output scope [M], with [K] slots and [P] positional
-    entries. *)
-Inductive ictx (K M : nat) : nat -> nat -> nat -> Type :=
-| IEmpty {N} : ictx K M N N 0
-| IPosF {Nb N P} (i : ictx K M Nb N P) (x : label) : ictx K M Nb N (S P)
-| IPosB {Nb N P} (i : ictx K M (S Nb) N P) : ictx K M Nb N (S P)
-| IRenF {Nb N P} (i : ictx K M Nb N P) (x : label) (c : slot K) : ictx K M Nb N P
-| IRenB {Nb N P} (i : ictx K M (S Nb) N P) (c : slot K) : ictx K M Nb N P
-| ISubF {Nb N P} (i : ictx K M Nb N P) (x : label) (u : T M) : ictx K M Nb N P
-| ISubB {Nb N P} (i : ictx K M (S Nb) N P) (u : T M) : ictx K M Nb N P
-| ISubFA {Nb N P L} (i : ictx K M Nb N P) (x : label) (u : T L) (r : adj T L M) : ictx K M Nb N P
-| ISubBA {Nb N P L} (i : ictx K M (S Nb) N P) (u : T L) (r : adj T L M) : ictx K M Nb N P.
+(** *** The full form *)
 
 (** Output contexts, innermost entry first, over the input context: the
     indices are the positional outputs so far, the output scope at the
@@ -343,15 +376,6 @@ Inductive octx (K Nt N M P : nat) : nat -> nat -> nat -> option tname -> Type :=
 | OShort (s : sctx Nt Nt N M) : octx K Nt N M P 0 Nt 0 None
 | OShortT (c : sclosed N M) : octx K Nt N M P 0 Nt 0 None.
 
-Arguments IEmpty {K M N}.
-Arguments IPosF {K M Nb N P} i x.
-Arguments IPosB {K M Nb N P} i.
-Arguments IRenF {K M Nb N P} i x c.
-Arguments IRenB {K M Nb N P} i c.
-Arguments ISubF {K M Nb N P} i x u.
-Arguments ISubB {K M Nb N P} i u.
-Arguments ISubFA {K M Nb N P L} i x u r.
-Arguments ISubBA {K M Nb N P L} i u r.
 Arguments OEnd {K Nt N M P} i.
 Arguments OEndT {K Nt N M P} g i.
 Arguments OPosF {K Nt N M P Po J n b} o y.
@@ -360,23 +384,6 @@ Arguments ONamF {K Nt N M P Po J n b} y k.
 Arguments ONamB {K Nt N M P Po J n b} k.
 Arguments OShort {K Nt N M P} s.
 Arguments OShortT {K Nt N M P} c.
-
-(** The input context over [X], with [env] the variables of the slots and
-    [pos] those of the positional ones, both innermost first. *)
-Fixpoint ictx_den {K M Nb N P} (i : ictx K M Nb N P) (env : list (var M))
-  : list (var M) -> adj T Nb M -> adj T N M :=
-  let f (c : slot K) := nth (slot_ix c) env vdummy in
-  match i in ictx _ _ Nb N P return list (var M) -> adj T Nb M -> adj T N M with
-  | IEmpty => fun _ X => X
-  | @IPosF _ _ _ _ P i x => fun pos X => ictx_den i env pos (in_free x (Rename (nth P pos vdummy)) X)
-  | @IPosB _ _ _ _ P i => fun pos X => ictx_den i env pos (in_bound (Rename (nth P pos vdummy)) X)
-  | IRenF i x c => fun pos X => ictx_den i env pos (in_free x (Rename (f c)) X)
-  | IRenB i c => fun pos X => ictx_den i env pos (in_bound (Rename (f c)) X)
-  | ISubF i x u => fun pos X => ictx_den i env pos (in_free x (Bind u identity) X)
-  | ISubB i u => fun pos X => ictx_den i env pos (in_bound (Bind u identity) X)
-  | ISubFA i x u r => fun pos X => ictx_den i env pos (in_free x (Bind u r) X)
-  | ISubBA i u r => fun pos X => ictx_den i env pos (in_bound (Bind u r) X)
-  end.
 
 (** The slot at position [n] of an output context of [K] entries. *)
 Definition slot_at {K n} (H : S n <= K) : slot K := mk_slot K n (Is_true_s_intro (proj2 (Nat.ltb_lt n K) H)).
@@ -434,8 +441,8 @@ Arguments IRenF {T K M Nb N P} i x c.
 Arguments IRenB {T K M Nb N P} i c.
 Arguments ISubF {T K M Nb N P} i x u.
 Arguments ISubB {T K M Nb N P} i u.
-Arguments ISubFA {T K M Nb N P L} i x u r.
-Arguments ISubBA {T K M Nb N P L} i u r.
+Arguments ISubFP {T K M Nb N P L Lb} i x u q σ.
+Arguments ISubBP {T K M Nb N P L Lb} i u q σ.
 Arguments OEnd {T K Nt N M P} i.
 Arguments OEndT {T K Nt N M P} g i.
 Arguments OPosF {T K Nt N M P Po J n b} o y.
@@ -451,8 +458,8 @@ Arguments SSubF {T Nb Mb N M} s x u.
 Arguments SSubB {T Nb Mb N M} s u.
 Arguments SRenF {T Nb Mb N M} s x w%_var.
 Arguments SRenB {T Nb Mb N M} s w%_var.
-Arguments SSubFA {T Nb Mb N M K} s x u r.
-Arguments SSubBA {T Nb Mb N M K} s u r.
+Arguments SSubFP {T Nb Mb N M L Lb} s x u q σ.
+Arguments SSubBP {T Nb Mb N M L Lb} s u q σ.
 Arguments SLookF {T Nb Mb N M K} s x w%_var r.
 Arguments SLookB {T Nb Mb N M K} s w%_var r.
 Arguments STail {T N M Nb Mb} s σ.
@@ -469,8 +476,10 @@ Class CEnt (C R : Type) := cent : C -> label -> R.
 Class CBnd (C R : Type) := cbnd : C -> R.
 Class CSub (U C R : Type) := csub : C -> label -> U -> R.
 Class CSubB (U C R : Type) := csubb : C -> U -> R.
-Class CSubA (T : nat -> Type) (M : nat) (C R : Type) := csuba : C -> label -> forall {L}, T L -> adj T L M -> R.
-Class CSubBA (T : nat -> Type) (M : nat) (C R : Type) := csubba : C -> forall {L}, T L -> adj T L M -> R.
+Class CSubP (T : nat -> Type) (K M : nat) (C R : Type) :=
+  csubp : C -> label -> forall {L Lb}, T L -> @ictx T K M Lb L 0 -> adj T Lb M -> R.
+Class CSubBP (T : nat -> Type) (K M : nat) (C R : Type) :=
+  csubbp : C -> forall {L Lb}, T L -> @ictx T K M Lb L 0 -> adj T Lb M -> R.
 Class CRen (V C R : Type) := cren : C -> label -> V -> R.
 Class CRenB (V C R : Type) := crenb : C -> V -> R.
 #[export] Instance cnil_full {T K M N} : CNil (@ictx T K M N N 0) := IEmpty.
@@ -483,10 +492,14 @@ Class CRenB (V C R : Type) := crenb : C -> V -> R.
 #[export] Instance csub_short {T Nb Mb N M} : CSub (T Mb) (@sctx T Nb Mb N M) (sctx Nb Mb N M) := SSubF.
 #[export] Instance csubb_full {T K M Nb N P} : CSubB (T M) (@ictx T K M (S Nb) N P) (ictx K M Nb N P) := ISubB.
 #[export] Instance csubb_short {T Nb Mb N M} : CSubB (T Mb) (@sctx T (S Nb) Mb N M) (sctx Nb Mb N M) := SSubB.
-#[export] Instance csuba_full {T K M Nb N P} : CSubA T M (@ictx T K M Nb N P) (ictx K M Nb N P) := fun i x L u r => @ISubFA T K M Nb N P L i x u r.
-#[export] Instance csuba_short {T Nb Mb N M} : CSubA T Mb (@sctx T Nb Mb N M) (sctx Nb Mb N M) := fun s x L u r => @SSubFA T Nb Mb N M L s x u r.
-#[export] Instance csubba_full {T K M Nb N P} : CSubBA T M (@ictx T K M (S Nb) N P) (ictx K M Nb N P) := fun i L u r => @ISubBA T K M Nb N P L i u r.
-#[export] Instance csubba_short {T Nb Mb N M} : CSubBA T Mb (@sctx T (S Nb) Mb N M) (sctx Nb Mb N M) := fun s L u r => @SSubBA T Nb Mb N M L s u r.
+#[export] Instance csubp_full {T K M Nb N P} : CSubP T K M (@ictx T K M Nb N P) (ictx K M Nb N P) :=
+  fun i x L Lb u q σ => @ISubFP T K M Nb N P L Lb i x u q σ.
+#[export] Instance csubp_short {T Nb Mb N M} : CSubP T 0 Mb (@sctx T Nb Mb N M) (sctx Nb Mb N M) :=
+  fun s x L Lb u q σ => @SSubFP T Nb Mb N M L Lb s x u q σ.
+#[export] Instance csubbp_full {T K M Nb N P} : CSubBP T K M (@ictx T K M (S Nb) N P) (ictx K M Nb N P) :=
+  fun i L Lb u q σ => @ISubBP T K M Nb N P L Lb i u q σ.
+#[export] Instance csubbp_short {T Nb Mb N M} : CSubBP T 0 Mb (@sctx T (S Nb) Mb N M) (sctx Nb Mb N M) :=
+  fun s L Lb u q σ => @SSubBP T Nb Mb N M L Lb s u q σ.
 #[export] Instance cren_full {T K M Nb N P} : CRen (slot K) (@ictx T K M Nb N P) (ictx K M Nb N P) := IRenF.
 #[export] Instance cren_short {T Nb Mb N M} : CRen (var Mb) (@sctx T Nb Mb N M) (sctx Nb Mb N M) := SRenF.
 #[export] Instance crenb_full {T K M Nb N P} : CRenB (slot K) (@ictx T K M (S Nb) N P) (ictx K M Nb N P) := IRenB.
@@ -519,14 +532,30 @@ Notation "i ; x 'as' w" := (SRenF i x w) (only printing, in custom adj_in at lev
 Notation "i ; '·' 'as' w" := (SRenB i w) (only printing, in custom adj_in at level 2, left associativity, w constr at level 1).
 Notation "x 'as' w" := (SRenF SEmpty x w) (only printing, in custom adj_in at level 1, x constr at level 0, w constr at level 1).
 Notation "'·' 'as' w" := (SRenB SEmpty w) (only printing, in custom adj_in at level 1, w constr at level 1).
-Notation "i ; x ':=' u '⟨' '|' r '⟩'" := (SSubFA i x u r) (only printing, in custom adj_in at level 2, left associativity, x constr at level 0, u constr at level 0, r constr at level 200, format "i ;  x  :=  u '⟨' '|'  r  '⟩'").
-Notation "i ; '·' ':=' u '⟨' '|' r '⟩'" := (SSubBA i u r) (only printing, in custom adj_in at level 2, left associativity, u constr at level 0, r constr at level 200, format "i ;  ·  :=  u '⟨' '|'  r  '⟩'").
-Notation "x ':=' u '⟨' '|' r '⟩'" := (SSubFA SEmpty x u r) (only printing, in custom adj_in at level 1, x constr at level 0, u constr at level 0, r constr at level 200, format "x  :=  u '⟨' '|'  r  '⟩'").
-Notation "'·' ':=' u '⟨' '|' r '⟩'" := (SSubBA SEmpty u r) (only printing, in custom adj_in at level 1, u constr at level 0, r constr at level 200, format "·  :=  u '⟨' '|'  r  '⟩'").
-Notation "i ; x ':=' u '⟨' '|' r '⟩'" := (ISubFA i x u r) (only printing, in custom adj_in at level 2, left associativity, x constr at level 0, u constr at level 0, r constr at level 200, format "i ;  x  :=  u '⟨' '|'  r  '⟩'").
-Notation "i ; '·' ':=' u '⟨' '|' r '⟩'" := (ISubBA i u r) (only printing, in custom adj_in at level 2, left associativity, u constr at level 0, r constr at level 200, format "i ;  ·  :=  u '⟨' '|'  r  '⟩'").
-Notation "x ':=' u '⟨' '|' r '⟩'" := (ISubFA IEmpty x u r) (only printing, in custom adj_in at level 1, x constr at level 0, u constr at level 0, r constr at level 200, format "x  :=  u '⟨' '|'  r  '⟩'").
-Notation "'·' ':=' u '⟨' '|' r '⟩'" := (ISubBA IEmpty u r) (only printing, in custom adj_in at level 1, u constr at level 0, r constr at level 200, format "·  :=  u '⟨' '|'  r  '⟩'").
+Notation "i ; x ':=' u '⟨' q '|' σ '⟩'" := (ISubFP i x u q σ) (only printing, in custom adj_in at level 2, left associativity, x constr at level 0, u constr at level 0, q custom adj_in at level 2, σ constr at level 200, format "i ;  x  :=  u '⟨'  q  '|'  σ  '⟩'").
+Notation "i ; x ':=' u '⟨' q '⟩'" := (ISubFP i x u q identity) (only printing, in custom adj_in at level 2, left associativity, x constr at level 0, u constr at level 0, q custom adj_in at level 2, format "i ;  x  :=  u '⟨'  q  '⟩'").
+Notation "i ; x ':=' u '⟨' '|' σ '⟩'" := (ISubFP i x u IEmpty σ) (only printing, in custom adj_in at level 2, left associativity, x constr at level 0, u constr at level 0, σ constr at level 200, format "i ;  x  :=  u '⟨' '|'  σ  '⟩'").
+Notation "i ; '·' ':=' u '⟨' q '|' σ '⟩'" := (ISubBP i u q σ) (only printing, in custom adj_in at level 2, left associativity, u constr at level 0, q custom adj_in at level 2, σ constr at level 200, format "i ;  ·  :=  u '⟨'  q  '|'  σ  '⟩'").
+Notation "i ; '·' ':=' u '⟨' q '⟩'" := (ISubBP i u q identity) (only printing, in custom adj_in at level 2, left associativity, u constr at level 0, q custom adj_in at level 2, format "i ;  ·  :=  u '⟨'  q  '⟩'").
+Notation "i ; '·' ':=' u '⟨' '|' σ '⟩'" := (ISubBP i u IEmpty σ) (only printing, in custom adj_in at level 2, left associativity, u constr at level 0, σ constr at level 200, format "i ;  ·  :=  u '⟨' '|'  σ  '⟩'").
+Notation "x ':=' u '⟨' q '|' σ '⟩'" := (ISubFP IEmpty x u q σ) (only printing, in custom adj_in at level 1, x constr at level 0, u constr at level 0, q custom adj_in at level 2, σ constr at level 200, format "x  :=  u '⟨'  q  '|'  σ  '⟩'").
+Notation "x ':=' u '⟨' q '⟩'" := (ISubFP IEmpty x u q identity) (only printing, in custom adj_in at level 1, x constr at level 0, u constr at level 0, q custom adj_in at level 2, format "x  :=  u '⟨'  q  '⟩'").
+Notation "x ':=' u '⟨' '|' σ '⟩'" := (ISubFP IEmpty x u IEmpty σ) (only printing, in custom adj_in at level 1, x constr at level 0, u constr at level 0, σ constr at level 200, format "x  :=  u '⟨' '|'  σ  '⟩'").
+Notation "'·' ':=' u '⟨' q '|' σ '⟩'" := (ISubBP IEmpty u q σ) (only printing, in custom adj_in at level 1, u constr at level 0, q custom adj_in at level 2, σ constr at level 200, format "·  :=  u '⟨'  q  '|'  σ  '⟩'").
+Notation "'·' ':=' u '⟨' q '⟩'" := (ISubBP IEmpty u q identity) (only printing, in custom adj_in at level 1, u constr at level 0, q custom adj_in at level 2, format "·  :=  u '⟨'  q  '⟩'").
+Notation "'·' ':=' u '⟨' '|' σ '⟩'" := (ISubBP IEmpty u IEmpty σ) (only printing, in custom adj_in at level 1, u constr at level 0, σ constr at level 200, format "·  :=  u '⟨' '|'  σ  '⟩'").
+Notation "i ; x ':=' u '⟨' q '|' σ '⟩'" := (SSubFP i x u q σ) (only printing, in custom adj_in at level 2, left associativity, x constr at level 0, u constr at level 0, q custom adj_in at level 2, σ constr at level 200, format "i ;  x  :=  u '⟨'  q  '|'  σ  '⟩'").
+Notation "i ; x ':=' u '⟨' q '⟩'" := (SSubFP i x u q identity) (only printing, in custom adj_in at level 2, left associativity, x constr at level 0, u constr at level 0, q custom adj_in at level 2, format "i ;  x  :=  u '⟨'  q  '⟩'").
+Notation "i ; x ':=' u '⟨' '|' σ '⟩'" := (SSubFP i x u IEmpty σ) (only printing, in custom adj_in at level 2, left associativity, x constr at level 0, u constr at level 0, σ constr at level 200, format "i ;  x  :=  u '⟨' '|'  σ  '⟩'").
+Notation "i ; '·' ':=' u '⟨' q '|' σ '⟩'" := (SSubBP i u q σ) (only printing, in custom adj_in at level 2, left associativity, u constr at level 0, q custom adj_in at level 2, σ constr at level 200, format "i ;  ·  :=  u '⟨'  q  '|'  σ  '⟩'").
+Notation "i ; '·' ':=' u '⟨' q '⟩'" := (SSubBP i u q identity) (only printing, in custom adj_in at level 2, left associativity, u constr at level 0, q custom adj_in at level 2, format "i ;  ·  :=  u '⟨'  q  '⟩'").
+Notation "i ; '·' ':=' u '⟨' '|' σ '⟩'" := (SSubBP i u IEmpty σ) (only printing, in custom adj_in at level 2, left associativity, u constr at level 0, σ constr at level 200, format "i ;  ·  :=  u '⟨' '|'  σ  '⟩'").
+Notation "x ':=' u '⟨' q '|' σ '⟩'" := (SSubFP SEmpty x u q σ) (only printing, in custom adj_in at level 1, x constr at level 0, u constr at level 0, q custom adj_in at level 2, σ constr at level 200, format "x  :=  u '⟨'  q  '|'  σ  '⟩'").
+Notation "x ':=' u '⟨' q '⟩'" := (SSubFP SEmpty x u q identity) (only printing, in custom adj_in at level 1, x constr at level 0, u constr at level 0, q custom adj_in at level 2, format "x  :=  u '⟨'  q  '⟩'").
+Notation "x ':=' u '⟨' '|' σ '⟩'" := (SSubFP SEmpty x u IEmpty σ) (only printing, in custom adj_in at level 1, x constr at level 0, u constr at level 0, σ constr at level 200, format "x  :=  u '⟨' '|'  σ  '⟩'").
+Notation "'·' ':=' u '⟨' q '|' σ '⟩'" := (SSubBP SEmpty u q σ) (only printing, in custom adj_in at level 1, u constr at level 0, q custom adj_in at level 2, σ constr at level 200, format "·  :=  u '⟨'  q  '|'  σ  '⟩'").
+Notation "'·' ':=' u '⟨' q '⟩'" := (SSubBP SEmpty u q identity) (only printing, in custom adj_in at level 1, u constr at level 0, q custom adj_in at level 2, format "·  :=  u '⟨'  q  '⟩'").
+Notation "'·' ':=' u '⟨' '|' σ '⟩'" := (SSubBP SEmpty u IEmpty σ) (only printing, in custom adj_in at level 1, u constr at level 0, σ constr at level 200, format "·  :=  u '⟨' '|'  σ  '⟩'").
 Notation "i ; x 'as' w '⟨' '|' r '⟩'" := (SLookF i x w r) (in custom adj_in at level 2, left associativity, x constr at level 0, w constr at level 1, r constr at level 200, format "i ;  x  as  w '⟨' '|'  r  '⟩'").
 Notation "i ; '·' 'as' w '⟨' '|' r '⟩'" := (SLookB i w r) (in custom adj_in at level 2, left associativity, w constr at level 1, r constr at level 200, format "i ;  ·  as  w '⟨' '|'  r  '⟩'").
 Notation "x 'as' w '⟨' '|' r '⟩'" := (SLookF SEmpty x w r) (in custom adj_in at level 1, x constr at level 0, w constr at level 1, r constr at level 200, format "x  as  w '⟨' '|'  r  '⟩'").
@@ -557,10 +586,19 @@ Notation "'·'" := (cbnd cnil) (in custom adj_in at level 1).
 Notation "'·' 'as' v" := (crenb cnil v) (in custom adj_in at level 1, v constr at level 1).
 Notation "'·' ':=' u" := (csubb cnil u) (in custom adj_in at level 1, u constr at level 0).
 
-Notation "i ; x ':=' u '⟨' '|' r '⟩'" := (csuba i x u r) (in custom adj_in at level 2, left associativity, x constr at level 0, u constr at level 0, r constr at level 200).
-Notation "i ; '·' ':=' u '⟨' '|' r '⟩'" := (csubba i u r) (in custom adj_in at level 2, left associativity, u constr at level 0, r constr at level 200).
-Notation "x ':=' u '⟨' '|' r '⟩'" := (csuba cnil x u r) (in custom adj_in at level 1, x constr at level 0, u constr at level 0, r constr at level 200).
-Notation "'·' ':=' u '⟨' '|' r '⟩'" := (csubba cnil u r) (in custom adj_in at level 1, u constr at level 0, r constr at level 200).
+
+Notation "i ; x ':=' u '⟨' q '|' σ '⟩'" := (csubp i x u q σ) (in custom adj_in at level 2, left associativity, x constr at level 0, u constr at level 0, q custom adj_in at level 2, σ constr at level 200).
+Notation "i ; x ':=' u '⟨' q '⟩'" := (csubp i x u q identity) (in custom adj_in at level 2, left associativity, x constr at level 0, u constr at level 0, q custom adj_in at level 2).
+Notation "i ; x ':=' u '⟨' '|' σ '⟩'" := (csubp i x u cnil σ) (in custom adj_in at level 2, left associativity, x constr at level 0, u constr at level 0, σ constr at level 200).
+Notation "i ; '·' ':=' u '⟨' q '|' σ '⟩'" := (csubbp i u q σ) (in custom adj_in at level 2, left associativity, u constr at level 0, q custom adj_in at level 2, σ constr at level 200).
+Notation "i ; '·' ':=' u '⟨' q '⟩'" := (csubbp i u q identity) (in custom adj_in at level 2, left associativity, u constr at level 0, q custom adj_in at level 2).
+Notation "i ; '·' ':=' u '⟨' '|' σ '⟩'" := (csubbp i u cnil σ) (in custom adj_in at level 2, left associativity, u constr at level 0, σ constr at level 200).
+Notation "x ':=' u '⟨' q '|' σ '⟩'" := (csubp cnil x u q σ) (in custom adj_in at level 1, x constr at level 0, u constr at level 0, q custom adj_in at level 2, σ constr at level 200).
+Notation "x ':=' u '⟨' q '⟩'" := (csubp cnil x u q identity) (in custom adj_in at level 1, x constr at level 0, u constr at level 0, q custom adj_in at level 2).
+Notation "x ':=' u '⟨' '|' σ '⟩'" := (csubp cnil x u cnil σ) (in custom adj_in at level 1, x constr at level 0, u constr at level 0, σ constr at level 200).
+Notation "'·' ':=' u '⟨' q '|' σ '⟩'" := (csubbp cnil u q σ) (in custom adj_in at level 1, u constr at level 0, q custom adj_in at level 2, σ constr at level 200).
+Notation "'·' ':=' u '⟨' q '⟩'" := (csubbp cnil u q identity) (in custom adj_in at level 1, u constr at level 0, q custom adj_in at level 2).
+Notation "'·' ':=' u '⟨' '|' σ '⟩'" := (csubbp cnil u cnil σ) (in custom adj_in at level 1, u constr at level 0, σ constr at level 200).
 
 Notation "o ; y" := (OPosF o y) (in custom adj_out at level 4, left associativity, y constr at level 0).
 Notation "o ; y 'as' a" := (ONamF y (fun a => o)) (in custom adj_out at level 4, left associativity, y constr at level 0, a name).

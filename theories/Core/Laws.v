@@ -7,8 +7,8 @@
     against an input entry, and composition distributes over the
     constructors.
 
-    Payloads need no side conditions: weakening a payload adjustment is
-    composing it with [rshift] ([rpshift_as_pcompose]). *)
+    Payloads need no side conditions: weakening an adjustment is composing
+    it with [rshift] ([rpush_outer_as_compose]). *)
 
 From Stdlib Require Import Arith List Lia Bool.
 From ShiftedNames.Core Require Import Label Var Adjustment.
@@ -18,7 +18,7 @@ Section Laws.
 
 Context {T : Type}.
 
-Implicit Types (a b c : radj T) (ρ : rpadj T) (v w : rvar) (h l : option label)
+Implicit Types (a b c ρ : radj T) (v w : rvar) (h l : option label)
   (t : rtarget T).
 
 (** ** Shifting *)
@@ -41,9 +41,6 @@ Qed.
 
 Theorem rpush_outer_as_compose h a : rpush_outer h a = rcompose (rshift h) a.
 Proof. apply (rpush_outer_as_compose_depth h (S (rdepth a))); lia. Qed.
-
-Theorem rpshift_as_pcompose h ρ : rpshift h ρ = rpcompose (rshift h) ρ.
-Proof. apply rpush_outer_as_compose. Qed.
 
 (** ** Reordering entries *)
 
@@ -90,7 +87,7 @@ Qed.
 Definition rshift_target h t : rtarget T :=
   match t with
   | RRename w => RRename (shift_rvar (mk_rvar h 0) w)
-  | RBind u ρ => RBind u (rpshift h ρ)
+  | RBind u ρ => RBind u (rpush_outer h ρ)
   end.
 
 (** Output entries move inside input entries; the target is shifted past the
@@ -115,7 +112,7 @@ Definition rapply_target a t : rtarget T :=
       | inl u => RRename u
       | inr p => RBind (fst p) (snd p)
       end
-  | RBind u ρ => RBind u (rpcompose a ρ)
+  | RBind u ρ => RBind u (rcompose a ρ)
   end.
 
 Theorem rcompose_push_inner_r a h t b :
@@ -181,7 +178,7 @@ Proof.
       * exfalso; destruct w as [h i]; unfold shift_rvar in Heq; cbn in Heq.
         revert Heq; case_vars.
       * rewrite unshift_shift_rvar; reflexivity.
-    + cbn [fst snd]; rewrite !rpshift_as_pcompose, !rpcompose_compose, rcompose_lift_shift.
+    + cbn [fst snd]; rewrite !rpush_outer_as_compose, !rcompose_assoc, rcompose_lift_shift.
       reflexivity.
 Qed.
 
@@ -192,7 +189,7 @@ Qed.
 Theorem rlift_free l a :
   (forall i, rapply a (mk_rvar l i) = inl (mk_rvar l i)) ->
   (forall v w, v_label v <> l -> rapply a v = inl w -> v_label w <> l) ->
-  (forall v p, rapply a v = inr p -> rpshift l (snd p) = snd p) ->
+  (forall v p, rapply a v = inr p -> rpush_outer l (snd p) = snd p) ->
   rlift l a = a.
 Proof.
   intros Hl Hw Hp; apply rextensionality; intro v.
