@@ -10,8 +10,9 @@ git log.
 - Users define their syntax as an indexed inductive `term : nat → Type`
   and write **one** function, a Relative.v-style Kleisli extension, plus a
   handful of laws proved by routine induction.
-- The library gives `subst : adj (term 0) N M → term N → term M` with all
-  the substitution laws, for every syntax.
+- The library gives `subst : adj term N M → term N → term M` with all
+  the substitution laws, for every syntax. An adjustment's terms are of
+  any scope: a term carries a payload, an adjustment from its own scope.
 - Payloads and their lazy adjustments are invisible to users.
 - No fuel anywhere: not at runtime, not in goals.
 - Adjustments are canonical: equal meaning implies Leibniz equality, so
@@ -59,8 +60,8 @@ and instantiation and their inverse laws.
 Adjustments are written and printed as context forms. Contexts list their
 innermost entry first, and the bound label is written `·`.
 
-    ⟦ a as x; y := u⟨ b as z ⟩ | Γ \ b as z; a as x | Γ[σ] ⟧     (full form)
-    ⟦ ·; a; y := u | σ ⟧                                       (short form)
+    ⟦ a as x; y := u⟨| r ⟩ | Γ \ a as x | Γ[σ] ⟧             (full form)
+    ⟦ ·; a; y := u | σ ⟧                                     (short form)
 
 - **Full form.** The input context sends each input to a slot (`a as x`),
   to a term (`y := u`), or, written alone, to the output written alone in
@@ -73,10 +74,12 @@ innermost entry first, and the bound label is written `·`.
   contexts, linked), `x := u` a substitution, `| σ` the tail. `⟦ · | σ ⟧`
   is `σ` under a binder (`lift σ` abbreviates it), `⟦ x := u ⟧`
   substitutes, `⟦ · := u ⟧` instantiates.
-- **Terms.** A substituted term's free names go to the output tail, past
-  the slots, unless a payload context `u⟨ … ⟩` sends them to slots
-  (`x as c`) or substitutes them. With payload contexts, every adjustment
-  is a single context form over the identity tail.
+- **Terms.** A substituted term `x := u` is in the scope of its entry
+  (the output scope, in a full form), with the identity payload: its
+  variables, bound and named, are the entry's. `x := u⟨| r ⟩` gives a
+  term `u` of any scope `K` the payload `r : adj term K M`, an adjustment
+  from `u`'s scope to the entry's, and `u⟨ c ⟩` is `u⟨| ⟦ c ⟧ ⟩`. A
+  payload is applied lazily: `u⟨| r ⟩` means `u [r]`.
 - **Slots** are positions in the output context: `slot K` for `K`
   output entries, innermost first. `y as a` binds a name for a position,
   and inputs refer to slots by those names. A slot means its position in
@@ -105,46 +108,47 @@ in four rewrite databases. One pass of `names`:
    a)) (ext_shift e)`, and the same for `apply` on a variable), and nested
    substitutions fuse (`t [a] [b] = t [a ⨾ b]`);
 2. rewrites with `names_var`: substituting into a variable is the core
-   node `eval tvar psubst a v` (`(tvar v) [a]`, and `apply a ext_here
-   v` as `cbn` leaves it); then with `names_node`: a substitution
-   `t [a]` is the core node `csubst L a t`, which carries the syntax's
-   law `L` (`Names.SubstLaw`), and a closed variable `tvar w` is the node
-   `cvar L w`;
+   node `eval tvar (fun K ρ u => u [ρ]) a v` (`(tvar v) [a]`, and
+   `apply a ext_here v` as `cbn` leaves it); then with `names_node`: a
+   substitution `t [a]` is the core node `csubst L a t`, which carries
+   the syntax's law `L` (`Names.SubstLaw`), and a variable `tvar w` is
+   the node `cvar L w`;
 3. in each substitution node `csubst L a t`, outer ones first, converts
    `a` before normalising it (`Conv.aconv`): a term that is a variable
-   `cvar L w` with a payload `W ∘ id` becomes a look-up of `w` through `W`
-   (`x as w⟨| W ⟩`), and, when `a` is into the closed scope, a term that
-   is a substitution `csubst L c u` into the closed scope becomes `u`
-   with `c` in its payload (`u⟨W ∘ (c ∘ id)⟩`); the result is normalised
-   and shown, and the law's `sl_rel` makes the rewrite;
+   `cvar L w` with a payload `W` becomes a look-up of `w` through `W`
+   (`x as w⟨| W ⟩`), and a term that is a substitution `csubst L c u`
+   becomes `u` with `c` in its payload (`u⟨| W ∘ c ⟩`); the result is
+   normalised and shown, and the law's `sl_rel` makes the rewrite;
 4. rewrites every other adjustment built from context forms, `⨾`, `⟦⟧`,
    `at_scope` and `share` (anything else is an atom) to its normal form
    (`docs/hnorm.md`), shown as context forms;
-5. in each substitution node into the closed scope, outer ones first and
-   then those inside them, turns each term with a payload `u⟨| b ⟩` into
-   the term `csubst L b u` (the law's `sl_rel` again), so that the
-   payloads the normaliser worked on are substitutions again, which
-   reductions outside `names` can work on;
+5. in each substitution node, outer ones first and then those inside
+   them, turns each term with a payload `u⟨| b ⟩` into the term
+   `csubst L b u` with the identity payload (the law's `sl_rel` again),
+   so that the payloads the normaliser worked on are substitutions again,
+   which reductions outside `names` can work on;
 6. evaluates `apply_var a v` and `eval` nodes whose variable `v` is
    concrete and whose result the normal form of `a` determines: a
-   variable `w` gives `tvar w`; a term `u` with payload adjustment `ρ`
-   gives `psubst ρ u`, with `ρ` shown as `pcompose b pid`;
+   variable `w` gives `tvar w`; a term `u` with payload `b` gives
+   `u [b]`;
 7. rewrites with `names_post`: the nodes back to `t [a]` and `tvar w`,
-   `t [⟦⟧] = t`, `psubst (pcompose b ρ) u = (psubst ρ u) [b]`,
-   `psubst pid u = u`, and an `eval` node left is shown as
-   `(tvar v) [a]` again.
+   `t [⟦⟧] = t`, and an `eval` node left is shown as `(tvar v) [a]`
+   again.
 
 `names` repeats passes until nothing changes; a pass after the first only
 finds work in the terms that steps 5 and 6 put in the goal.
 
 The law `sl_rel` is about adjustments whose results on each variable are
-related by `drel (lawbase var g)` (`Conv`): a variable with a payload
-`W ∘ id` against where `W` sends it, `u [c]` with a payload `W ∘ id`
-against `u` with `W ∘ (c ∘ id)`, and `u` with `c ∘ id` against `u [c]`,
-also inside payloads (an entry changed after an atom changes the
-payloads of the atom's terms) and in steps. The `Subst` functor proves it
-by showing that each step keeps the term a well-scoped result gives
-(`Subst.rv_le`).
+related by `drel (lawbase tvar sub)` (`Conv`): a variable with a payload
+`W` against where `W` sends it, `u [c]` with a payload `W` against `u`
+with `W ∘ c`, and `u` with `c` against `u [c]` with the identity, also
+inside payloads (an entry changed after an atom changes the payloads of
+the atom's terms) and in steps. The `Subst` functor proves it
+(`Subst.subst_rel`) by showing that each step keeps the term a
+well-scoped result gives (`Subst.rv_le`): one composition lemma for the
+functor (`comp_gapply`) covers the first two bases, and a step inside a
+payload keeps the payload scoped because a variable result is related
+only to itself (`drel_inl`).
 
 For each adjustment, steps 3 and 4 reify the syntax as it is written, with no
 reduction (label, adjustment and term atoms, `share`d definitions as
@@ -163,9 +167,10 @@ binds each definition once (`Names.chain_intro`) and checks the
 expressions against both sides by conversion. In what the kernel checks,
 the environments are Braun trees indexed by the binary indices
 (`HShowB`), so that looking up an atom is logarithmic, and lists of
-facts are proved as balanced trees. An adjustment whose normal form
-cannot be shown (for example a payload with a payload atom) is left as
-it is. Step 6 reads the result off `HNorm`'s lookup
+facts are proved as balanced trees. Terms are read with their scope, so
+the rendering finds the scopes of payloads from them. An adjustment
+whose normal form cannot be shown (for example one whose scopes the
+rendering cannot find) is left as it is. Step 6 reads the result off `HNorm`'s lookup
 (`hlook_varB_sound`, `hbindB_show_sound`); step 3's conversion is proved
 to relate the two adjustments variable by variable (`Conv.conv_sound`),
 and step 5 changes entries of `HNorm` words, proved the same way
@@ -189,7 +194,7 @@ stored on nodes are weakenings, kept as counts.
 nadj    = NAdj (root : counts) (entries : atrie entry)
 entry   = Entry h (targets : kseq target) (len : nat) (p : nat)
 target  = TVar y j        -- j relative to the counts above
-        | TBind u ρ       -- a closed term with a pending adjustment ρ
+        | TBind u ρ       -- a term with a pending adjustment ρ of its variables
 ```
 
 - **An entry for label `h`** sends `hᵢ` to its `i`-th target for `i < len`,
@@ -208,8 +213,10 @@ target  = TVar y j        -- j relative to the counts above
   spine are all stored relative to it.
 - **The root** is the global weakening. A label without an entry is the
   identity relative to it, so weakening is an O(1)-path update at the root.
-- **Payloads.** `ρ` in `TBind u ρ` has no entry for the bound label, and its
-  root takes the place of a leaf's counts.
+- **Payloads.** `ρ` in `TBind u ρ` is an adjustment from `u`'s scope; its
+  root takes the place of a leaf's counts. The raw terms are `{K & term
+  K}`, and a scoped adjustment's payloads are scoped from their term's
+  scope into the output scope (`Scoped.v`).
 
 ### Normal form
 
@@ -245,7 +252,7 @@ determined by the meaning (`napply`), which gives canonicity.
     `y` from its children (`araise`);
   - the entry's frame is known only lazily, so the target is shifted into
     it with `ldval`.
-  A payload target uses every named label, so it goes through `aupdate`,
+  A payload target uses every label, so it goes through `aupdate`,
   which rebuilds the path. Consing onto the entry's skew sequence lowers
   the head base at `t`'s labels and moves the O(log n) trees by the
   difference; only merging two trees builds a new node over them.
@@ -256,8 +263,7 @@ Each has a meaning theorem and keeps `nwf`.
 ### Composition (`Compose.v`)
 
 `compose a b` is `b` followed by `a`. A variable result goes where `a` sends
-it, and a payload `(u, ρ)` becomes `(u, a ∘ ρ)`, where only `ρ`'s named
-labels matter.
+it, and a payload `(u, ρ)` becomes `(u, a ∘ ρ)`.
 
 **`a` as a pure shift above thresholds.** Let `a`'s entry for `y` be
 `(len_y, p_y)` over root `w` (with no entry, `(0, 0)`). Then, for an absolute
@@ -274,7 +280,7 @@ under them (`Prune.v`).
   change, and nothing below it is visited.
 - Otherwise:
   - leaves are looked up in `a`;
-  - payloads recurse with the payload flag, which skips the bound label;
+  - payloads recurse;
   - counts are rebuilt with the smart constructors.
 
 Per label `h`:
@@ -335,7 +341,7 @@ map · its key lengths).
 | `apply` on a payload result | the lookup, then `kleisli` over the payload term, looking up its variables lazily over the payload's base |
 | weaken `y` | O(\|y\|) at the root |
 | extend `h` with a variable `y_j` | O((\|h\| + log n) · (\|h\| + \|y\|)): the root and the trie path patched at `h` and `y`, the cons onto `h`'s sequence; plus, amortised, merging two trees of the sequence |
-| extend `h` with a payload | O(\|h\| · m): the payload uses every named label, so the root drops everywhere and the path is rebuilt |
+| extend `h` with a payload | O(\|h\| · m): the payload uses every label, so the root drops everywhere and the path is rebuilt |
 | lift `y` | as weaken plus extend with `y_0` |
 | compose | below |
 
@@ -370,7 +376,7 @@ per-entry and per-node costs above.
 Its composite `a ∘ ρ` contains `a`'s entries, which are rebuilt rather than
 shared with `a`'s trie. Sharing would only help in typical cases: the root
 is a global minimum, and when the composite discards part of `a` (a dropped
-prefix holding a payload target, which uses every named label), the root
+prefix holding a payload target, which uses every label), the root
 can change at any number of labels, which then all have to be checked.
 So the worst case is O((P + 1) · E_a) under this normal form either way.
 
@@ -397,5 +403,6 @@ Assumptions` is closed for:
 - `subst_compose` and `subst_identity` (through the λ example's
   `subst_subst` and `subst_id`);
 - `topen_tclose` and `tclose_topen`;
-- `nf_eq_sound`, and the λ example's `topen_subst_lift` and
-  `inst_subst_lift`, proved with `names`.
+- `subst_rel`, the law `names` uses, and the λ example's theorems proved
+  with `names`, among them the de Bruijn substitution lemma
+  (`inst_inst`), whose terms have bound variables.

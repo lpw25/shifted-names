@@ -1885,17 +1885,17 @@ Ltac2 names_mat () : unit := let cs := constr:(@csubst) in each_until_fail (is_c
        nested substitutions first, then substituting into variables; and
        with [names_node], substitutions to nodes ([csubst]);
     2. in each node, outer ones first, converts terms that are variables
-       to look-ups and (into the closed scope) terms that are
-       substitutions to payloads, and normalises the result ([conv_one]);
+       to look-ups and terms that are substitutions to payloads, and
+       normalises the result ([conv_one]);
     3. rewrites every adjustment built from context forms and [∘] to its
        normal form, shown as context forms;
-    4. materialises payloads in nodes into the closed scope as
-       substitutions, outer nodes first and then those inside them;
+    4. materialises payloads in nodes as substitutions ([u⟨b⟩] becomes
+       [u [b]] with the identity payload), outer nodes first and then
+       those inside them;
     5. evaluates [apply_var a v] and [eval] nodes for variables the normal
        form of [a] renames or sends to a term;
     6. rewrites with [names_post]: the nodes back, identity substitutions
-       go, a payload result [u⟨b ∘ id⟩] becomes [subst b u], and an
-       [eval] node left is shown as a substitution again;
+       go, and an [eval] node left is shown as a substitution again;
     and repeats this until nothing changes: a pass after the first only
     finds work in terms that payload results put in the goal (normal
     forms already produced are not normalised again). *)

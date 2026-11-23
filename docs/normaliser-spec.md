@@ -6,16 +6,16 @@ stated, does not count.
 
 ## Inputs
 
-- **Adjustment expressions.** `aexp` / `texp` / `pexp` of
-  `Core/Normalise.v` (identity, adjustment atoms `σ`, composition,
-  outer and inner pushes, lifts, variables, terms `u[p]` with payloads,
-  payload atoms, payload composition and shifts), plus `share`.
+- **Adjustment expressions.** `aexp` / `texp` of `Core/Normalise.v`
+  (identity, adjustment atoms `σ`, composition, outer and inner pushes,
+  lifts, variables, terms `u[p]` whose payload `p` is again an
+  adjustment expression, look-ups and shifts), plus `share`.
 - **Labels:**
   - the bound label `·`;
   - concrete labels (strings);
   - label atoms: Coq terms of type `label` that are not concrete.
 - **Facts in context** about label atoms (`x < y`).
-- **Term atoms, adjustment atoms and payload atoms:** opaque Coq terms.
+- **Term atoms and adjustment atoms:** opaque Coq terms.
 
 ## Meaning and equality
 
@@ -29,8 +29,8 @@ variables, in any arrangement.
   - for each label expression `h`, an infinite sequence of distinct
     variables, which is what `h₀, h₁, …` denote;
   - a strict partial order on label expressions;
-  - a value for each term, adjustment and payload atom, over the
-    model's variables.
+  - a value for each term and adjustment atom, over the model's
+    variables.
 - **Restrictions on a model.**
   - Each fact `x < y` holds in the order, and concrete labels are
     ordered as strings.
@@ -51,8 +51,9 @@ variables, in any arrangement.
   interpretation consistent with the facts is a model.
 - **Equality.** Two expressions are *equal* when they denote the same
   map from variables to results in **every** model.
-- **Payloads without a payload atom** observe only named variables
-  (`Unique.feq`).
+- **Payloads** are adjustments of their term's variables, bound and
+  named alike: a term with a payload means the term read in the
+  environment the payload gives.
 
 **What this gives up.** Equality in every model implies equality in
 every standard interpretation. The converse fails for identities that

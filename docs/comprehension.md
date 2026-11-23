@@ -181,7 +181,8 @@ irreflexive and transitive.
 - `chd h` is `lookup h 0`;
 - `cpush h` is `pushE h`;
 - an atom conses its step;
-- a term atom is the term with its cleaned payload.
+- a term atom is the term with its payload, the environment it is read
+  in.
 
 Normal words are sorted, with no weakening followed by an entry on the
 same label (cancellation) and no absorbable entry. The laws of a

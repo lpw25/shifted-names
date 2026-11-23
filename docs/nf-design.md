@@ -71,8 +71,8 @@ renaming `⟦ x as a | Γ \ x as a | Γ ⟧ = ⟦⟧` is an instance.
 
 **Payloads of terms.** A term `u⟨ρ⟩` in a slot becomes `u⟨ρ ⨾ N⟩`.
 This is a composition, normalised recursively and memoised on the pair
-`(ρ, N)`. A payload with no payload atom observes only named variables,
-so its bound-label part must be removed canonically.
+`(ρ, N)`. A payload is an adjustment of all its term's variables, bound
+and named, so nothing in it is unobservable.
 
 **Atoms and lifts.**
 
@@ -374,8 +374,7 @@ to right.
 word. A value is one of:
 
 - a variable `(g, i)` of that scope;
-- a term `u⟨P⟩`, optionally with a payload atom, where `P` is a normal
-  form;
+- a term `u⟨P⟩`, where `P` is a normal form;
 - a stuck lookup `y⟨X⟩`, where `X` is a normal form and `y` a variable
   of its input. In practice `X` is a suffix of a word.
 
@@ -388,9 +387,6 @@ word. A value is one of:
   rest of the word gives `h₀` after that `W_h`.
 - **Lookups are pushed down:** every lookup is pushed as far as it goes,
   so equal values are equal syntax.
-- **No unobservable payload steps:** a payload with no payload atom
-  observes only named variables, so it has no steps on the bound label
-  before its first atom.
 
 **Sorted** means two things.
 

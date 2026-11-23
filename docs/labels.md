@@ -7,7 +7,7 @@ versions of these notes used an ad hoc notation; it is gone.
 
 ## What adjustments are built from
 
-Every adjustment expression (`aexp` / `texp` / `pexp` of
+Every adjustment expression (`aexp` / `texp` of
 `Core/Normalise.v`) is a sequence of *steps* in front of the identity.
 The bound label `·` is one more label, ordered against every named
 one. There are three kinds of step:
@@ -25,8 +25,7 @@ A **target** is one of:
 
 - a variable `yⱼ`;
 - a term atom with a payload, `u[ρ]`, where `ρ` is again a sequence of
-  steps in front of the identity, possibly starting with a payload
-  atom (`PComp a p` is `p` then `a`);
+  steps in front of the identity: an adjustment of `u`'s variables;
 - a target sent through a weakening, `TShiftE`.
 
 **Each constructor as steps:**
