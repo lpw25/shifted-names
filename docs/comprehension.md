@@ -382,6 +382,6 @@ antichain of about `n` labels are still cubic (`hcost.py`: `advL`,
   `HNorm` normal forms (`HConcrete.hn_eq_t_sound`); proving the display
   itself sound would remove the check. Applying an adjustment to a
   variable (`hlook_var_sound`, `hbind_sound`) and materialising payloads
-  (`Names.node_mat`) are proved directly.
+  (`MatShow.mat_rel`) are proved directly.
 - **Cost:** lookups that keep a step could be made cheaper, for example
   by memoising their payloads per label and cell.

@@ -125,22 +125,21 @@ in three rewrite databases. `names` makes one pass:
    law's `sl_rel` makes the rewrite, in the nodes with that adjustment
    only. Every other adjustment built from context forms, `⨾`, `⟦⟧`,
    `at_scope` and `share` (anything else is an atom) is rewritten to its
-   normal form (`docs/hnorm.md`), shown as context forms;
-4. materialises (`names_mats`): in each node's shown adjustment, each
-   entry with a payload `x := u⟨| b ⟩` becomes `x := u [b]` where it
-   stands, shared definitions included, so that the payloads the
-   normaliser worked on are substitutions again, which reductions outside
-   `names` can work on (`docs/names.md`);
-5. evaluates `apply_var a v` left in the goal in the same way as a node
+   normal form (`docs/hnorm.md`), shown as context forms. In a node's
+   adjustment, each shown entry with a payload `x := u⟨| b ⟩` is rendered
+   as `x := u [b]`, shared definitions included, so that the payloads
+   the normaliser worked on are substitutions again, which reductions
+   outside `names` can work on; a node whose adjustment shows as the
+   identity becomes its term (`docs/names.md`);
+4. evaluates `apply_var a v` left in the goal in the same way as a node
    on a variable (for an adjustment of any family, with no law);
-6. rewrites with `names_post`: the nodes back to `t [a]`, and `t [⟦⟧] =
-   t`.
+5. rewrites with `names_post`: the nodes back to `t [a]`.
 
 Each step's output needs nothing from the steps before it: step 3 leaves
 no substitution or variable in a normalised adjustment's terms, and what
 a node on a variable becomes is a variable, or a node whose term is not a
 variable or a substitution and whose adjustment is part of a normal form;
-the payloads of a normal form are normal forms, so step 4 makes only
+the payloads of a normal form are normal forms, so materialising makes only
 normal nodes. A second `names` changes nothing in the examples
 (`Examples/Lambda.v`, `Examples/STLC.v`, `Tests/NamesTests.v`).
 
@@ -180,12 +179,13 @@ facts are proved as balanced trees. Terms are read with their scope, so
 the rendering finds the scopes of payloads from them. An adjustment
 whose normal form cannot be shown (for example one whose scopes the
 rendering cannot find) is left as it is. A node on a variable, and
-step 5, read the result off `HNorm`'s lookup (`hlookB_var`,
+step 4, read the result off `HNorm`'s lookup (`hlookB_var`,
 `hlookB_term`, `hlookB_look`); step 3's conversion is proved to relate
-the two adjustments variable by variable (`Conv.conv_sound`), and step 4
-is proved the same way, by one lemma per constructor of the shown
-expression (`Names.node_mat`); the law turns these into equal
-substitutions.
+the two adjustments variable by variable (`Conv.conv_sound`), and
+materialising is proved the same way, by one theorem about the rendering
+as data (`MatShow.mat_rel`), with the display's check taking shared
+variables related to the shown definitions (`MatShow.show_rel`); the law
+turns these into equal substitutions.
 
 Every comparison between labels goes through `lcmp`, which knows concrete
 labels, the bound label (the greatest), and the context's facts closed
