@@ -133,6 +133,9 @@ Definition hlook_varN (F : order) (n : nat) (e : aexpN) (h : lexp) (i : nat) : o
 Definition hlook_payN (F : order) (n base : nat) (e : aexpN) (h : lexp) (i : nat) : option (N * (list aexpN * aexpN)) :=
   option_map (fun p => (N.of_nat (fst p), enc_show (snd p))) (hlook_pay F n base (adec e) h i).
 
+Definition hlook_lookN (F : order) (n base : nat) (e : aexpN) (h : lexp) (i : nat) : option (lexp * N * (list aexpN * aexpN)) :=
+  option_map (fun p => let '(g, j, x) := p in (g, N.of_nat j, enc_show x)) (hlook_look F n base (adec e) h i).
+
 Definition hmat_targetN (F : order) (n base : nat) (e : aexpN) : option (N * (list aexpN * aexpN)) :=
   option_map (fun p => (N.of_nat (fst p), enc_show (snd p))) (hmat_target F n base (adec e)).
 
@@ -189,6 +192,17 @@ Proof.
   rewrite HTe, bnth_bof, Nat2N.id in Hx; exact Hx.
 Qed.
 
+
+Theorem hlookB_look_sound l e h i g j shN rN : lfacts_okB Le l ->
+  hlook_lookN (order_of l) (List.length te) (List.length ae) e h i = Some (g, j, (shN, rN)) ->
+  Forall2 (fun y d => y = den d) rs shN ->
+  rapply (den e) (mk_rvar (ldenB Le h) i) = rapply (den rN) (mk_rvar (ldenB Le g) (N.to_nat j)).
+Proof.
+  intros Hl E Hs; unfold hlook_lookN in E.
+  destruct (hlook_look _ _ _ _ _ _) as [[[g0 j0] [sh r]]|] eqn:E0; [|discriminate]; injection E as <- <- <- <-.
+  rewrite den_dec, den_enc, HLe, !ldenB_bof, Nat2N.id.
+  apply (hlook_look_sound le te ae rs l _ _ _ g0 j0 sh r (lfacts_den l Hl) E0 (shares_den _ Hs)).
+Qed.
 
 Section MatB.
 

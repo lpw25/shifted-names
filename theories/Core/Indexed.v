@@ -205,6 +205,14 @@ Definition in_look_bound {N M K} (r : adj T K M) (v : var K) (a : adj T N M) : a
   mk_adj (rpush_inner None (rapply_target (adj_raw r) (RRename (var_raw v))) (adj_raw a))
     (Is_true_s_intro (scoped_push_inner_none N M _ _ (adj_scoped a) (look_wf r v))).
 
+(** Equal results, equal targets. *)
+Lemma apply_var_same {N N' M} (a : adj T N M) (v : var N) (b : adj T N' M) (w : var N') :
+  rapply (adj_raw a) (var_raw v) = rapply (adj_raw b) (var_raw w) -> apply_var a v = apply_var b w.
+Proof.
+  unfold apply_var; generalize (apply_wf a v) (apply_wf b w); unfold apply; intros H1 H2 E.
+  revert H1 H2; rewrite E; destruct (rapply (adj_raw b) (var_raw w)) as [x|[x ρ]]; intros H1 H2; reflexivity.
+Qed.
+
 Lemma apply_var_bind {N M K} (a : adj T N M) (v : var N) (u : T K) (b : adj T K M) :
   rapply (adj_raw a) (var_raw v) = inr (existT T K u, adj_raw b) ->
   apply_var a v = Bind u b.
@@ -614,7 +622,6 @@ Notation "⟦ ⟧" := identity (format "⟦ ⟧").
 (** The rewrite database [names] uses besides normalising adjustments:
     the substitution functor adds its laws, and each syntax its own. *)
 Create Rewrite HintDb names_pre.
-Create Rewrite HintDb names_var.
 Create Rewrite HintDb names_node.
 Create Rewrite HintDb names_post.
 

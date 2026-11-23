@@ -1018,13 +1018,10 @@ Proof. rewrite kleisli_var; symmetry; apply apply_here_eval. Qed.
 
 (** [names] first applies the monad laws that remove a Kleisli extension
     or move work into the adjustment: going under a binder lifts the
-    adjustment and nested substitutions fuse ([names_pre]); then
-    substituting into a variable is the [eval] node ([names_var]).  After
-    normalising adjustments and evaluating [eval] nodes, identity
-    substitutions go, and an [eval] node it cannot evaluate is shown as a
-    substitution again ([names_post]). *)
+    adjustment and nested substitutions fuse ([names_pre]).  The
+    substitutions are then the nodes [names] works on ([names_node],
+    below), and after it identity substitutions go ([names_post]). *)
 Global Hint Rewrite @kleisli_apply_under @apply_under @subst_compose @ext_shift_here @ext_shift_under : names_pre.
-Global Hint Rewrite @subst_tvar_eval @apply_here_eval : names_var.
 
 (** ** The law [names] uses
 
@@ -1034,9 +1031,10 @@ Global Hint Rewrite @subst_tvar_eval @apply_here_eval : names_var.
     scope [M], used under [d] binders ([rv]): a variable, or the term
     substituted by its payload; related results read the same. *)
 
+Notation tv0 := (@tvar) (only parsing).
+
 Section Rel.
 
-Definition tv0 : forall K, var K -> term K := @tvar.
 Definition sub0 : forall N M, adj term N M -> term N -> term M := fun N M a t => t [a].
 
 Definition rvn (M : nat) (r : result) (d L : nat) (HL : Is_true_s (Nat.eqb L (d + M))) (t : term L) : Prop :=
@@ -1289,7 +1287,7 @@ Proof.
   split.
   - change (scoped K M W = true -> result_wf M (rapply W (var_raw w)) = true).
     intros Hs; apply scoped_spec in Hs as [_ Hv]; apply Hv, Is_true_s_elim, var_ok.
-  - unfold rv, rvn; cbn [lower projT1 projT2]; intros d L HL t [Hρ ->]; unfold tv0.
+  - unfold rv, rvn; cbn [lower projT1 projT2]; intros d L HL t [Hρ ->].
     rewrite kleisli_var, lower_rapply.
     assert (Hout : outer (ext_depth (@ext_here K L)) (var_raw w)) by (unfold outer; cbn; lia).
     pose proof (rvn_gapply0 _ _ _ _ _ HL (Is_true_s_intro Hρ) ext_here w (W_HL M d ext_here HL) Hout) as R.
@@ -1317,7 +1315,7 @@ Proof. intros H; apply subst_rv; intros v; apply drel_rv, H. Qed.
 End Rel.
 
 (** Substitution as the node [names] works on. *)
-Definition subst_law : SubstLaw term tv0 sub0 := {| sl_rel := @subst_rel |}.
+Definition subst_law : SubstLaw term tv0 sub0 := {| sl_var := @subst_tvar_eval; sl_rel := @subst_rel |}.
 
 Lemma subst_csubst {N M} (a : adj term N M) (t : term N) : t [a] = csubst subst_law a t.
 Proof. reflexivity. Qed.
@@ -1325,14 +1323,12 @@ Proof. reflexivity. Qed.
 Lemma csubst_subst {N M} (a : adj term N M) (t : term N) : csubst subst_law a t = t [a].
 Proof. reflexivity. Qed.
 
-Lemma tvar_cvar {K} (w : var K) : tvar w = cvar subst_law w.
-Proof. reflexivity. Qed.
 
-Lemma cvar_tvar {K} (w : var K) : cvar subst_law w = tvar w.
-Proof. reflexivity. Qed.
+(** What [cbn] leaves of a substitution into a variable, as a node. *)
+Lemma apply_here_node {N M} (a : adj term N M) (v : var N) : apply a N M ext_here v = csubst subst_law a (tvar v).
+Proof. symmetry; apply kleisli_var. Qed.
 
-Global Hint Rewrite @subst_csubst @tvar_cvar : names_node.
-Global Hint Rewrite @csubst_subst @cvar_tvar : names_post.
-Global Hint Rewrite @subst_identity @eval_fold : names_post.
+Global Hint Rewrite @subst_csubst @apply_here_node : names_node.
+Global Hint Rewrite @csubst_subst @subst_identity : names_post.
 
 End Subst.
