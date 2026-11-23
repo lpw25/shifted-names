@@ -34,6 +34,7 @@ theories/Core/Braun.v
 theories/Core/HShow.v
 theories/Core/HShowB.v
 theories/Core/Conv.v
+theories/Core/MatShow.v
 theories/Core/Names.v
 theories/Core/Context.v
 theories/Core/Syntax.v
