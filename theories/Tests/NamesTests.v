@@ -6,7 +6,7 @@ Open Scope string_scope.
 
 Section Tests.
 
-Context {T : Type}.
+Context {T : nat -> Type}.
 
 (** ** The notation *)
 
@@ -29,7 +29,7 @@ Proof. reflexivity. Qed.
 Fail Definition var_not_slot := (fun (c : var 0) => (⟦ "x" as c \ "x" as d ⟧ : adj T 0 0)).
 Fail Check (fun (W : Type) (Δ : W) (σ : adj T 0 0) => ⟦ "x" | Δ \ "y" | Γ[σ] ⟧).
 Fail Check (fun (σ : adj T 0 0) => ⟦ "x" | tt \ "y" | Γ[σ] ⟧).
-Fail Check (fun (u : T) => (⟦ "y" := u⟨ "x" as c ⟩ ⟧ : adj T 0 0)).
+Fail Check (fun (u : T 0) => (⟦ "y" := u⟨ "x" as c ⟩ ⟧ : adj T 0 0)).
 
 (** ** The binder fragment *)
 
@@ -47,7 +47,7 @@ Proof. names; reflexivity. Qed.
 Example lift_identity' {N} : ⟦ · | @identity T N ⟧ = ⟦⟧.
 Proof. names; reflexivity. Qed.
 
-Example instantiate_lift {N M} (a : adj T N M) (u : T) :
+Example instantiate_lift {N M} (a : adj T N M) (u : T M) :
   ⟦ · | a ⟧ ⨾ ⟦ · := u ⟧ = ⟦ · := u | a ⟧.
 Proof. names; reflexivity. Qed.
 
@@ -75,31 +75,30 @@ Proof. names; reflexivity. Qed.
 
 (** A term substituted before an atom is shown before it, though the
     normal form carries it past. *)
-Example term_before_atom {N M} x (u : T) (s : adj T N M) : ⟦ x := u ⟧ ⨾ ⟦⟧ ⨾ s = ⟦ x := u ⟧ ⨾ s.
+Example term_before_atom {N M} x (u : T N) (s : adj T N M) : ⟦ x := u ⟧ ⨾ ⟦⟧ ⨾ s = ⟦ x := u ⟧ ⨾ s.
 Proof. names; reflexivity. Qed.
 
-Example term_before_atoms {N M} x (u : T) (s : adj T N M) (t : adj T M M) :
+Example term_before_atoms {N M} x (u : T N) (s : adj T N M) (t : adj T M M) :
   ⟦ x := u ⟧ ⨾ ⟦⟧ ⨾ s ⨾ t = ⟦ x := u ⟧ ⨾ (s ⨾ t).
 Proof. names; reflexivity. Qed.
 
-Example term_before_lifted_atom {N M} x y (u : T) (s : adj T N M) :
+Example term_before_lifted_atom {N M} x y (u : T N) (s : adj T N M) :
   ⟦ x | ⟦ y := u ⟧ ⨾ ⟦⟧ ⨾ s ⟧ = ⟦ x | ⟦ y := u ⟧ ⨾ s ⟧.
 Proof. names; reflexivity. Qed.
 
-Example bound_term_before_atom {N M} (u : T) (s : adj T N M) : ⟦ · := u ⟧ ⨾ ⟦⟧ ⨾ s = ⟦ · := u ⟧ ⨾ s.
+Example bound_term_before_atom {N M} (u : T N) (s : adj T N M) : ⟦ · := u ⟧ ⨾ ⟦⟧ ⨾ s = ⟦ · := u ⟧ ⨾ s.
 Proof. names; reflexivity. Qed.
 
 (** Substitutions one after another: each term's payload is what follows
-    it.  The entries of a payload context are simultaneous: in [u1]'s,
-    the names of [u3] are not affected by the entry for [x2]. *)
-Example subst_chain {N} x1 x2 x3 (u1 u2 u3 : T) :
+    it. *)
+Example subst_chain {N} x1 x2 x3 (u1 u2 u3 : T N) :
   label_lt x1 x2 -> label_lt x2 x3 ->
   (⟦ x1 := u1 ⟧ ⨾ ⟦ x2 := u2 ⟧ ⨾ ⟦ x3 := u3 ⟧ : adj T N N)
   = ⟦ x3 := u3; x2 := u2⟨ x3 := u3 ⟩; x1 := u1⟨ x3 := u3; x2 := u2⟨ x3 := u3 ⟩ ⟩ \ ⟧.
 Proof. intros; names; reflexivity. Qed.
 
 (** The payload's labels are compared with the label substituted for. *)
-Example payload_entries_commute {N} x y z (u v w : T) :
+Example payload_entries_commute {N} x y z (u v w : T N) :
   label_lt x y -> label_lt y z ->
   (⟦ z := w⟨ x := u; y := v ⟩ \ ⟧ : adj T N N) = ⟦ z := w⟨ y := v; x := u ⟩ \ ⟧.
 Proof. intros; names; reflexivity. Qed.
@@ -107,7 +106,7 @@ Proof. intros; names; reflexivity. Qed.
 (** A long chain is normalised with each term written once (the
     normal form shares it), and shown as a chain of compositions, however
     it was nested. *)
-Example long_chain {N} x1 x2 x3 x4 x5 x6 x7 x8 x9 x10 x11 x12 (u1 u2 u3 u4 u5 u6 u7 u8 u9 u10 u11 u12 : T) :
+Example long_chain {N} x1 x2 x3 x4 x5 x6 x7 x8 x9 x10 x11 x12 (u1 u2 u3 u4 u5 u6 u7 u8 u9 u10 u11 u12 : T N) :
   label_lt x1 x2 -> label_lt x2 x3 -> label_lt x3 x4 -> label_lt x4 x5 ->
   label_lt x5 x6 -> label_lt x6 x7 -> label_lt x7 x8 -> label_lt x8 x9 ->
   label_lt x9 x10 -> label_lt x10 x11 -> label_lt x11 x12 ->
@@ -117,13 +116,13 @@ Proof. intros; names; reflexivity. Qed.
 
 (** Entries sharing a payload are shown as one form composed with it,
     so a chain of two-entry substitutions stays linear. *)
-Example pair_chain {N} x y (u1 v1 u2 v2 u3 v3 u4 v4 u5 v5 u6 v6 : T) :
+Example pair_chain {N} x y (u1 v1 u2 v2 u3 v3 u4 v4 u5 v5 u6 v6 : T N) :
   label_lt x y ->
   (((((⟦ x := u1; y := v1 ⟧ ⨾ ⟦ x := u2; y := v2 ⟧) ⨾ ⟦ x := u3; y := v3 ⟧) ⨾ ⟦ x := u4; y := v4 ⟧) ⨾ ⟦ x := u5; y := v5 ⟧) ⨾ ⟦ x := u6; y := v6 ⟧ : adj T N N)
   = ⟦ x := u1; y := v1 ⟧ ⨾ (⟦ x := u2; y := v2 ⟧ ⨾ (⟦ x := u3; y := v3 ⟧ ⨾ (⟦ x := u4; y := v4 ⟧ ⨾ (⟦ x := u5; y := v5 ⟧ ⨾ ⟦ x := u6; y := v6 ⟧)))).
 Proof. intros; names; reflexivity. Qed.
 
-Example long_chain_left_alone {N} x1 x2 x3 x4 x5 x6 x7 x8 x9 x10 x11 x12 (u1 u2 u3 u4 u5 u6 u7 u8 u9 u10 u11 u12 : T) (P : adj T N N -> Prop) :
+Example long_chain_left_alone {N} x1 x2 x3 x4 x5 x6 x7 x8 x9 x10 x11 x12 (u1 u2 u3 u4 u5 u6 u7 u8 u9 u10 u11 u12 : T N) (P : adj T N N -> Prop) :
   label_lt x1 x2 -> label_lt x2 x3 -> label_lt x3 x4 -> label_lt x4 x5 ->
   label_lt x5 x6 -> label_lt x6 x7 -> label_lt x7 x8 -> label_lt x8 x9 ->
   label_lt x9 x10 -> label_lt x10 x11 -> label_lt x11 x12 ->
@@ -179,40 +178,38 @@ Proof. intros; names; reflexivity. Qed.
 
 End Tests.
 
-(** Nested context forms.  A slot is a position, so a slot of the form
-    around can be used in a form with as many outputs, where it means that
-    position; slots written by number mean the same as named ones.  Tail
-    names stay local: an inner form must use its own. *)
-Definition T0 := adj nat 0 0.
-Definition nested_ok : adj T0 0 0 := ⟦ "y" := (⟦ "z" := 0⟨ "x" as d ⟩ \ "x" as d ⟧ : T0) \ "x" as c ⟧.
-Definition nested_position : adj T0 0 0 := ⟦ "y" := (⟦ "x" as c \ "x" as d ⟧ : T0) \ "x" as c ⟧.
-Example slot_by_number : (⟦ "x" as (mk_slot 1 0 stt) \ "y" as _ ⟧ : adj nat 0 0) = ⟦ "x" \ "y" ⟧.
-Proof. names; reflexivity. Qed.
-Fail Definition nested_tail (s : T0) : adj T0 0 0 := ⟦ "y" := (⟦ "x" | Γ \ "x" | Δ[s] ⟧ : T0) | Γ \ "x" | Γ[⟦⟧] ⟧.
-Fail Definition slot_in_term : adj (var 0 * nat) 0 0 := ⟦ "y" := (c, 0) \ "x" as c ⟧.
+(** Slots are positions: written by number they mean the same as named
+    ones. *)
+Notation N0 := (fun _ : nat => nat).
 
-(** A term substituted in is in the scope of the output tail, so it is
-    shifted past the slots: in [y := u] below, [u]'s [x₀] is the output's
-    [x₁], not the slot [c]. *)
-Example subst_shifted :
-  match apply (⟦ "x" as c; "y" := 0 \ "x" as c ⟧ : adj nat 0 0) (fvar "y" 0) with
-  | inr (_, ρ) => rpapply ρ (mk_rvar (Some "x") 0)
+(** Constants, as a family of terms of every scope. *)
+Definition C (K : nat) : Type := nat.
+Example slot_by_number : (⟦ "x" as (mk_slot 1 0 stt) \ "y" as _ ⟧ : adj N0 0 0) = ⟦ "x" \ "y" ⟧.
+Proof. names; reflexivity. Qed.
+
+(** A term substituted in is in its entry's scope, the output scope of a
+    full form, with the identity payload: in [y := u] below, [u]'s [x₀]
+    is the output's [x₀]. *)
+Example subst_identity_payload :
+  match apply (⟦ "x" as c; "y" := (0 : C 0) \ "x" as c ⟧ : adj C 0 0) (fvar "y" 0) with
+  | inr (_, ρ) => rapply ρ (mk_rvar (Some "x") 0)
   | inl _ => inl (mk_rvar None 0)
-  end = inl (mk_rvar (Some "x") 1).
+  end = inl (mk_rvar (Some "x") 0).
 Proof. vm_compute; reflexivity. Qed.
 
-(** A payload context sends the term's names to slots. *)
-Example payload_to_slot :
-  match apply (⟦ "y" := 0⟨ "x" as c ⟩ \ "x" as c ⟧ : adj nat 0 0) (fvar "y" 0) with
-  | inr (_, ρ) => (rpapply ρ (mk_rvar (Some "x") 0), rpapply ρ (mk_rvar (Some "x") 1))
-  | inl _ => (inl (mk_rvar None 0), inl (mk_rvar None 0))
-  end = (inl (mk_rvar (Some "x") 0), inl (mk_rvar (Some "x") 1)).
+(** A payload is any adjustment from the term's scope: [u⟨ c ⟩] is
+    [u⟨| ⟦ c ⟧ ⟩]. *)
+Example payload_form :
+  match apply (⟦ "y" := (0 : C 1)⟨ · \ "x" ⟩ \ ⟧ : adj C 0 0) (fvar "y" 0) with
+  | inr (u, ρ) => (projT1 u, rapply ρ (mk_rvar None 0))
+  | inl _ => (0, inl (mk_rvar None 0))
+  end = (1, inl (mk_rvar (Some "x") 0)).
 Proof. vm_compute; reflexivity. Qed.
 
 (** Renamings commute with lifts: the lift moves to the label the renaming
     takes the lifted variable from. *)
 Section Commute.
-Context {T : Type}.
+Context {T : nat -> Type}.
 
 Example open_commutes_lift {N M} x (σ : adj T N M) : ⟦ · \ x ⟧ ⨾ ⟦ x | σ ⟧ = ⟦ · | σ ⟧ ⨾ ⟦ · \ x ⟧.
 Proof. names; reflexivity. Qed.
@@ -229,13 +226,6 @@ End Commute.
 
 (** Lifts are shown grouped: [names] shows both sides below as
     [⟦ · \ x ⟧ ∘ ⟦ · | a ∘ b ⟧]. *)
-Example grouped {N M K} x (a : adj nat M K) (b : adj nat N M) :
+Example grouped {N M K} x (a : adj N0 M K) (b : adj N0 N M) :
   ⟦ · | b ⟧ ⨾ ⟦ · \ x ⟧ ⨾ ⟦ x | a ⟧ = ⟦ · | b ⨾ a ⟧ ⨾ ⟦ · \ x ⟧.
-Proof. names; reflexivity. Qed.
-
-(** Two variables passed around an atom and merged after it: a term's
-    names sent to either are the same. *)
-Example merged_after_atom (σ : adj nat 0 0) (u : nat) :
-  (⟦ "z" := u⟨ "y" as c ⟩; "x" as c; "x" as d \ "x" as c; "x" as d ⟧ : adj nat 0 0) ⨾ ⟦ "x"; "x" | σ ⟧ ⨾ ⟦ "x" as c; "x" as c \ "x" as c ⟧
-  = (⟦ "z" := u⟨ "y" as d ⟩; "x" as c; "x" as d \ "x" as c; "x" as d ⟧ : adj nat 0 0) ⨾ ⟦ "x"; "x" | σ ⟧ ⨾ ⟦ "x" as c; "x" as c \ "x" as c ⟧.
 Proof. names; reflexivity. Qed.

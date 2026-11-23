@@ -1001,6 +1001,10 @@ Theorem subst_tvar_eval {N M} (a : adj term N M) (v : var N) :
   subst a (tvar v) = Indexed.eval tvar (fun K ρ u => u [ρ]) a v.
 Proof. rewrite kleisli_var; apply apply_here_eval. Qed.
 
+Theorem subst_tvar_rename {N M} (a : adj term N M) (v : var N) (w : var M) :
+  Indexed.apply_var a v = Rename w -> subst a (tvar v) = tvar w.
+Proof. intros H; rewrite subst_tvar_eval; unfold Indexed.eval; rewrite H; reflexivity. Qed.
+
 Lemma ext_shift_here {N M} : ext_shift (@ext_here N M) = ext_here.
 Proof. reflexivity. Qed.
 

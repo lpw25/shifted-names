@@ -8,7 +8,7 @@ From ShiftedNames.Core Require Import Trie Label Var Adjustment Indexed.
 Import ListNotations.
 Open Scope string_scope.
 
-Notation ren N M := (adj Empty_set N M).
+Notation ren N M := (adj (fun _ : nat => Empty_set) N M).
 
 (** Closed equalities are decided by computing the representation. *)
 Ltac adj_compute := apply adj_eq, radj_eq; vm_compute; reflexivity.

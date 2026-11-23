@@ -1614,6 +1614,17 @@ Ltac2 names_apply () : unit :=
         let id := fresh @E in var_eq t id; rewrite_with (Control.hyp id); Std.clear [id]
     end).
 
+(** [f] applied to [args], with the [λ]s of [f] reduced. *)
+Ltac2 rec beta_app (f : constr) (args : constr list) : constr :=
+  match args with
+  | [] => f
+  | x :: rest =>
+      match Constr.Unsafe.kind f with
+      | Constr.Unsafe.Lambda _ b => beta_app (Constr.Unsafe.substnl [x] 0 b) rest
+      | _ => app f args
+      end
+  end.
+
 (** [eval f g a v] nodes whose variable [a]'s normal form renames are
     evaluated to [f w]. *)
 Ltac2 names_eval () : unit :=
@@ -1630,7 +1641,9 @@ Ltac2 names_eval () : unit :=
                      | _ => app f [w]
                      end in
             rewrite_with '(eval_rename $f $g $a $v $w $hid : _ = $r); Std.clear [id]
-        | _ = Bind ?x ?rho => rewrite_with '(eval_bind $f $g $a $v _ $x $rho $hid); Std.clear [id]
+        | @eq _ _ (@Bind _ _ ?k ?x ?rho) =>
+            let r := beta_app g [k; rho; x] in
+            rewrite_with '(eval_bind $f $g $a $v $k $x $rho $hid : _ = $r); Std.clear [id]
         end
     end).
 
