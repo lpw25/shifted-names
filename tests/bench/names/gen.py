@@ -29,6 +29,9 @@ if fam == 'D':
 elif fam == 'PC':
     a = lnest(['⟦ %s := (f %d%%N); %s := (f %d%%N) ⟧' % (x(1), 2*i, x(2), 2*i+1) for i in range(1, n+1)])
     print(hdrA + f'Lemma L {{N}} (f : BinNums.N -> T N) (P : adj T N N -> Prop) : P ({a}) -> True.\nProof.\n' + tail())
+elif fam == 'PN':   # an opaque term under a chain of n pairs (payloads shown)
+    a = lnest(['⟦ %s := (f %d%%N); %s := (f %d%%N) ⟧' % (x(1), 2*i, x(2), 2*i+1) for i in range(1, n+1)])
+    print(hdrL + f'Lemma L (M : tm 0) (f : BinNums.N -> tm 0) (P : tm 0 -> Prop) : P (M [{a}]) -> True.\nProof.\n' + tail())
 elif fam == 'SN':   # n nested substitutions on an opaque term
     t = 'M'
     for i in range(1, n+1): t = '(%s [⟦ %s := (f %d%%N) ⟧])' % (t, x(i), i)

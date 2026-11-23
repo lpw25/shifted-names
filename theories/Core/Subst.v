@@ -1334,7 +1334,7 @@ End Rel.
 
 (** Substitution as the node [names] works on. *)
 Definition subst_law : SubstLaw term tv0 sub0 :=
-  {| sl_var := @subst_tvar_eval; sl_rel := @subst_rel; sl_res := @subst_res |}.
+  {| sl_var := @subst_tvar_eval; sl_rel := @subst_rel; sl_res := @subst_res; sl_id := @subst_identity |}.
 
 Lemma subst_csubst {N M} (a : adj term N M) (t : term N) : t [a] = csubst subst_law a t.
 Proof. reflexivity. Qed.
@@ -1348,6 +1348,6 @@ Lemma apply_here_node {N M} (a : adj term N M) (v : var N) : apply a N M ext_her
 Proof. symmetry; apply kleisli_var. Qed.
 
 Global Hint Rewrite @subst_csubst @apply_here_node : names_node.
-Global Hint Rewrite @csubst_subst @subst_identity : names_post.
+Global Hint Rewrite @csubst_subst : names_post.
 
 End Subst.
