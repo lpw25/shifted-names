@@ -116,14 +116,13 @@ Proof. rewrite subst_tvar_eval; exact (subst_identity u). Qed.
 From Stdlib Require Import String.
 Open Scope string_scope.
 
-(** Payloads are input contexts over a base: their entries may name the
-    slots of the output context around them, and the term's own bound
-    variables. *)
-Example payload_slot :
-  (tvar (fvar "x" 0) : tm 0) [⟦ ("x") := (tvar (fvar "y" 0) : tm 0)⟨ ("y") as c ⟩ \ ("z") as c ⟧] = tvar (fvar "z" 0).
-Proof. reflexivity. Qed.
-
+(** A payload is any adjustment from the term's scope, written [u⟨| σ ⟩],
+    or [u⟨ c ⟩] for the context form [⟦ c ⟧]. *)
 Example payload_bound :
   (tvar (fvar "x" 0) : tm 0) [⟦ ("x") := (tapp (tvar bvar0) (tvar (fvar "y" 0)) : tm 1)⟨ · := (tconst 7) ⟩ ⟧]
   = tapp (tconst 7) (tvar (fvar "y" 0)).
+Proof. reflexivity. Qed.
+
+Example payload_explicit (σ : sub 1 0) (u : tm 1) :
+  (⟦ ("x") := u⟨| σ ⟩ ⟧ : sub 0 0) = ⟦ ("x") := u⟨| ⟦ | σ ⟧ ⟩ ⟧.
 Proof. reflexivity. Qed.
