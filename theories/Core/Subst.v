@@ -10,7 +10,7 @@
 
 From Stdlib Require Import PArith Arith List Lia Bool StrictProp.
 From ShiftedNames.Core Require Import Trie Label Var Counts Based Skew ATrie Repr Point Deep Compose
-  Lookup Adjustment Laws Scoped Indexed Syntax.
+  Lookup Adjustment Laws Scoped Indexed Syntax Normalise Conv Names.
 Import ListNotations.
 
 (** ** Arithmetic on variables *)
@@ -1006,5 +1006,329 @@ Proof. reflexivity. Qed.
 
 Lemma ext_shift_under {N M K L} (e : ext N M K L) : ext_shift (ext_under e) = ext_under (ext_shift e).
 Proof. reflexivity. Qed.
+
+
+Theorem eval_fold {N M} (a : adj term N M) (v : var N) :
+  Indexed.eval tvar (fun K ρ u => u [ρ]) a v = subst a (tvar v).
+Proof. rewrite kleisli_var; symmetry; apply apply_here_eval. Qed.
+
+(** [names] first applies the monad laws that remove a Kleisli extension
+    or move work into the adjustment: going under a binder lifts the
+    adjustment and nested substitutions fuse ([names_pre]); then
+    substituting into a variable is the [eval] node ([names_var]).  After
+    normalising adjustments and evaluating [eval] nodes, identity
+    substitutions go, and an [eval] node it cannot evaluate is shown as a
+    substitution again ([names_post]). *)
+Global Hint Rewrite @kleisli_apply_under @apply_under @subst_compose @ext_shift_here @ext_shift_under : names_pre.
+Global Hint Rewrite @subst_tvar_eval @apply_here_eval : names_var.
+
+(** ** The law [names] uses
+
+    Results related by the bases [names] converts and materialises with
+    ([Conv.lawbase]), also inside payloads and in steps ([drel]), give
+    the same substitution ([subst_rel]).  A result is read at the output
+    scope [M], used under [d] binders ([rv]): a variable, or the term
+    substituted by its payload; related results read the same. *)
+
+Section Rel.
+
+Definition tv0 : forall K, var K -> term K := @tvar.
+Definition sub0 : forall N M, adj term N M -> term N -> term M := fun N M a t => t [a].
+
+Definition rvn (M : nat) (r : result) (d L : nat) (HL : Is_true_s (Nat.eqb L (d + M))) (t : term L) : Prop :=
+  match r with
+  | inl w => exists H : wf_var L (up d w) = true, t = tvar (mk_var (up d w) (Is_true_s_intro H))
+  | inr (u, ρ) => exists Hρ : aok (projT1 u) M ρ = true,
+      t = kleisli (gapply0 ρ (projT1 u) M d L HL (Is_true_s_intro Hρ)) ext_here (projT2 u)
+  end.
+
+Definition rv (M : nat) (r : rresult P) := rvn M (lower r).
+
+Lemma rvn_det M r d L HL HL' t t' : rvn M r d L HL t -> rvn M r d L HL' t' -> t = t'.
+Proof. unfold rvn; destruct r as [w|[u ρ]]; intros [H1 ->] [H2 ->]; reflexivity. Qed.
+
+Lemma rvn_cast M r d d' L HL HL' t : d = d' -> rvn M r d L HL t -> rvn M r d' L HL' t.
+Proof. intros <-; exact (fun H => H). Qed.
+
+Lemma inner_or_outer d rv : (v_label rv = None /\ v_index rv < d) \/ outer d rv.
+Proof.
+  destruct rv as [[y|] i]; unfold outer; cbn; [right; discriminate|].
+  destruct (lt_dec i d); [left; auto|right; intros _; lia].
+Qed.
+
+Lemma outer_up d w : outer d (up d w).
+Proof. destruct w as [[y|] i]; unfold outer, up; cbn; [discriminate|intros _; lia]. Qed.
+
+Lemma gapply0_pe x y (E : x = y) Kx Mx s L0 HL Hx Hy : gapply0 x Kx Mx s L0 HL Hx = gapply0 y Kx Mx s L0 HL Hy.
+Proof. subst; reflexivity. Qed.
+
+(** What [gapply0] gives on an input outside the binders crossed. *)
+Lemma rvn_gapply0 x Kx Mx s L0 HL Hx {K L} (e : ext Kx L0 K L) v HL' :
+  outer (ext_depth e) (var_raw v) ->
+  rvn Mx (napply x (down (ext_depth e) (var_raw v))) (s + ext_depth e) L HL' (gapply0 x Kx Mx s L0 HL Hx K L e v).
+Proof.
+  intros Hout; pose proof (gapply0_result x Kx Mx s L0 HL Hx e v Hout) as R.
+  pose proof (Is_true_s_elim Hx) as Hx0.
+  pose proof (outer_down_wf e v Hout) as Hv'.
+  unfold rvn; destruct (napply x _) as [w|[u ρ]] eqn:E.
+  - exists (pay_var_wf x Kx Mx s L0 e _ w Hx0 (proj1 (Nat.eqb_eq _ _) (Is_true_s_elim HL)) Hv' E); apply R.
+  - exists (pay_payload_ok x Kx Mx _ u ρ Hx0 Hv' E); apply R.
+Qed.
+
+(** A morphism that sends the variables outside [s] binders where [W]
+    does, used under [d0] binders. *)
+Definition hrel (W : nadj) (M s d0 : nat) {m L1} (h : morph m L1) : Prop :=
+  forall K L (e : ext m L1 K L) v,
+    (v_label (var_raw v) = None -> v_index (var_raw v) < s + ext_depth e ->
+       exists H : wf_var L (var_raw v) = true, h K L e v = tvar (mk_var (var_raw v) (Is_true_s_intro H)))
+    /\ (outer (s + ext_depth e) (var_raw v) -> forall HL,
+          rvn M (napply W (down (s + ext_depth e) (var_raw v))) (d0 + ext_depth e) L HL (h K L e v)).
+
+Lemma hrel_gapply0 W Mid Mout d0 L1 HL1 Hw : hrel W Mout 0 d0 (gapply0 W Mid Mout d0 L1 HL1 Hw).
+Proof.
+  intros K L e v; split.
+  - intros Hl Hi; pose proof (W_inner e _ Hl Hi) as H.
+    exists (Is_true_s_elim H); apply gapply0_inner; assumption.
+  - intros Hout HL; apply (rvn_gapply0 W Mid Mout d0 L1 HL1 Hw e v HL Hout).
+Qed.
+
+Lemma hrel_rebase W M s d0 {m L1 K0 L0} (e0 : ext m L1 K0 L0) h :
+  hrel W M s d0 h -> hrel W M (s + ext_depth e0) (d0 + ext_depth e0) (rebase_m e0 h).
+Proof.
+  intros Hh K L e v; destruct (Hh K L (ext_app e0 e) v) as [H1 H2].
+  rewrite ext_depth_app in H1, H2; unfold rebase_m; split.
+  - intros Hl Hi; apply H1; [exact Hl|lia].
+  - intros Hout HL.
+    assert (E1 : s + (ext_depth e + ext_depth e0) = s + ext_depth e0 + ext_depth e) by lia.
+    assert (E2 : d0 + (ext_depth e + ext_depth e0) = d0 + ext_depth e0 + ext_depth e) by lia.
+    assert (HL2 : Is_true_s (Nat.eqb L ((d0 + (ext_depth e + ext_depth e0)) + M)))
+      by (apply Is_true_s_intro, Nat.eqb_eq; apply Is_true_s_elim, Nat.eqb_eq in HL; lia).
+    rewrite <- E1 in Hout |- *.
+    exact (rvn_cast _ _ _ _ L HL2 HL _ E2 (H2 Hout HL2)).
+Qed.
+
+(** Substituting with a morphism that sends the variables where [W] does
+    after applying [y] to a payload term is applying [W ∘ y]. *)
+Lemma comp_gapply (W : radj P) M n : forall y, nnest y < n ->
+  forall Kx Mid s m HLm Hy d0 L1 HL1 Hz (h : morph m L1), hrel (radj_n W) M s d0 h ->
+  forall u : term Kx,
+  kleisli h ext_here (kleisli (gapply0 y Kx Mid s m HLm Hy) ext_here u)
+  = kleisli (gapply0 (Compose.compose (radj_n W) y) Kx M d0 L1 HL1 Hz) ext_here u.
+Proof.
+  induction n as [|n IH]; intros y Hn Kx Mid s m HLm Hy d0 L1 HL1 Hz h Hh u; [lia|].
+  rewrite kleisli_comp_here; apply kleisli_ext; intros K L e v; unfold comp_m.
+  pose proof (ext_depth_left m e) as DL; pose proof (ext_depth_right m e) as DR.
+  set (k := ext_depth e) in *.
+  set (el := ext_left m e) in *; set (er := ext_right m e) in *.
+  pose proof (Is_true_s_elim Hy) as Hy0; pose proof (Is_true_s_elim Hz) as Hz0.
+  assert (Hwy : nwf y) by apply (aok_wf _ _ _ Hy0).
+  destruct (inner_or_outer k (var_raw v)) as [[El Hi]|Hr].
+  { assert (Hi1 : v_index (var_raw v) < ext_depth el) by lia.
+    pose proof (W_inner el _ El Hi1) as H0.
+    rewrite (gapply0_inner _ _ _ _ _ _ _ el v H0 El Hi1), kleisli_var.
+    destruct (proj1 (Hh _ _ er (mk_var (var_raw v) H0)) El ltac:(cbn; lia)) as [H3 ->].
+    rewrite (gapply0_inner _ _ _ _ _ _ _ e v (W_inner e _ El Hi) El Hi).
+    f_equal; apply var_eq; reflexivity. }
+  assert (Hrl : outer (ext_depth el) (var_raw v)) by (rewrite DL; exact Hr).
+  pose proof (W_HL M d0 e HL1) as HLR.
+  pose proof (rvn_gapply0 _ _ _ _ _ HL1 Hz e v HLR Hr) as RR.
+  rewrite napply_ncompose in RR by exact Hwy; fold k in RR, HLR.
+  pose proof (W_HL Mid s el HLm) as HLl.
+  pose proof (rvn_gapply0 _ _ _ _ _ HLm Hy el v HLl Hrl) as RL.
+  replace (down (ext_depth el) (var_raw v)) with (down k (var_raw v)) in RL by (rewrite DL; reflexivity).
+  destruct (napply y (down k (var_raw v))) as [w|[u' y']] eqn:E.
+  - (* a variable *)
+    destruct RL as [H1 ->]; rewrite kleisli_var.
+    assert (Hup : outer (s + ext_depth er) (up (s + ext_depth el) w)) by (rewrite DL, DR; apply outer_up).
+    pose proof (W_HL M d0 er HL1) as HLR'.
+    pose proof (proj2 (Hh _ _ er (mk_var _ (Is_true_s_intro H1))) Hup HLR') as H3; cbn [var_raw] in H3.
+    replace (down (s + ext_depth er) (up (s + ext_depth el) w)) with w in H3 by (rewrite DL, DR; symmetry; apply down_up).
+    exact (rvn_det _ _ _ _ _ _ _ _ (rvn_cast _ _ _ (d0 + k) L HLR' HLR _ ltac:(rewrite DR; reflexivity) H3) RR).
+  - (* a payload *)
+    destruct RL as [Hρ' ->]; destruct RR as [Hz' ->].
+    rewrite (kleisli_rebase_here h er).
+    pose proof (hrel_rebase _ M s d0 er h Hh) as Hh'; rewrite DR in Hh'.
+    assert (HLl2 : Is_true_s (Nat.eqb (ext_mid m e) ((s + k) + Mid)))
+      by (apply Is_true_s_intro, Nat.eqb_eq; apply Is_true_s_elim, Nat.eqb_eq in HLl; lia).
+    rewrite (gapply0_s_eq y' _ Mid _ (s + ext_depth el) (s + k) ltac:(lia) HLl HLl2).
+    apply (IH y' ltac:(pose proof (napply_depth_aok _ _ _ _ _ _ Hy0 E); lia) (projT1 u') Mid (s + k) (ext_mid m e) HLl2
+             (Is_true_s_intro Hρ') (d0 + k) L HLR (Is_true_s_intro Hz') (rebase_m er h) Hh' (projT2 u')).
+Qed.
+
+(** ** Related results *)
+
+Definition rv_le (M : nat) (r r' : rresult P) : Prop :=
+  (rwf M r = true -> rwf M r' = true) /\ (forall d L HL t, rv M r d L HL t -> rv M r' d L HL t).
+
+Lemma rv_le_refl M r : rv_le M r r.
+Proof. split; auto. Qed.
+
+Lemma rv_le_trans M r r' r'' : rv_le M r r' -> rv_le M r' r'' -> rv_le M r r''.
+Proof. intros [W1 V1] [W2 V2]; split; auto. Qed.
+
+Theorem subst_rv {N M} (a a' : adj term N M) :
+  (forall v : var N, rv_le M (rapply (adj_raw a) (var_raw v)) (rapply (adj_raw a') (var_raw v))) ->
+  forall t, t [a] = t [a'].
+Proof.
+  intros H t; apply kleisli_ext; intros K L e v.
+  destruct (inner_or_outer (ext_depth e) (var_raw v)) as [[El Hi]|Hr].
+  { rewrite (apply_inner a e v (W_inner e _ El Hi) El Hi), (apply_inner a' e v (W_inner e _ El Hi) El Hi); reflexivity. }
+  all: pose proof (outer_down_wf e v Hr) as Hv'.
+  all: pose proof (rvn_gapply0 _ _ _ _ _ top_HL (top_aok a) e v (W_tHL e) Hr) as R1.
+  all: pose proof (rvn_gapply0 _ _ _ _ _ top_HL (top_aok a') e v (W_tHL e) Hr) as R2.
+  all: rewrite <- (apply_gapply0 a top_HL (top_aok a)) in R1.
+  all: rewrite <- (apply_gapply0 a' top_HL (top_aok a')) in R2.
+  all: rewrite <- lower_rapply in R1, R2.
+  all: destruct (H (mk_var (down (ext_depth e) (var_raw v)) (Is_true_s_intro Hv'))) as [_ Hrv].
+  all: exact (rvn_det _ _ _ _ _ _ _ _ (Hrv _ _ _ _ R1) R2).
+Qed.
+
+Lemma lawbase_not_inl w r' : ~ lawbase tv0 sub0 (inl w) r'.
+Proof.
+  intros [[K [M [u [c [E _]]]]]|[[K [M [u [c [W [E _]]]]]]|[K [w' [W [E _]]]]]]; discriminate.
+Qed.
+
+(** A variable is related only to itself. *)
+Lemma drel_inl r r' : drel (lawbase tv0 sub0) r r' -> forall w, r = inl w -> r' = inl w.
+Proof.
+  induction 1 as [r|r r' Hb|u W W' ρ _ _|r r' r'' _ IH1 _ IH2]; intros w E.
+  - exact E.
+  - subst; destruct (lawbase_not_inl _ _ Hb).
+  - discriminate.
+  - apply IH2, IH1, E.
+Qed.
+
+Lemma rv_le_pay M (W W' : radj P) :
+  (forall v, drel (lawbase tv0 sub0) (rapply W v) (rapply W' v)) -> (forall v, rv_le M (rapply W v) (rapply W' v)) ->
+  forall n ρ u, rdepth ρ < n -> rv_le M (inr (u, rcompose W ρ)) (inr (u, rcompose W' ρ)).
+Proof.
+  intros HW IHW n; induction n as [|n IH]; intros ρ u Hn; [lia|].
+  assert (Wf : rwf M (inr (u, rcompose W ρ)) = true -> rwf M (inr (u, rcompose W' ρ)) = true).
+  { change (scoped (projT1 u) M (rcompose W ρ) = true -> scoped (projT1 u) M (rcompose W' ρ) = true).
+    intros Hs; apply scoped_spec in Hs as [Ht Hv]; apply scoped_spec; split.
+    - intros i Hi; specialize (Ht i Hi); rewrite rapply_compose in Ht |- *.
+      destruct (rapply ρ (mk_rvar None i)) as [w|[u' ρ']] eqn:E; [|discriminate].
+      exact (drel_inl _ _ (HW w) _ Ht).
+    - intros v Hv0; specialize (Hv v Hv0); rewrite rapply_compose in Hv |- *.
+      destruct (rapply ρ v) as [w|[u' ρ']] eqn:E; [apply (proj1 (IHW w)), Hv|].
+      apply (proj1 (IH ρ' u' ltac:(pose proof (rdepth_payload ρ v u' ρ' E); lia))), Hv. }
+  split; [exact Wf|].
+  unfold rv, rvn; cbn [lower]; intros d L HL t [Hρ ->].
+  assert (Hρ' : aok (projT1 u) M (radj_n (rcompose W' ρ)) = true)
+    by (rewrite aok_scoped; apply Wf; change (aok (projT1 u) M (radj_n (rcompose W ρ)) = true) in Hρ;
+        rewrite aok_scoped in Hρ; exact Hρ).
+  exists Hρ'.
+  apply kleisli_ext; intros K' L' e v.
+  destruct (inner_or_outer (ext_depth e) (var_raw v)) as [[El Hi]|Hr].
+  { rewrite !(gapply0_inner _ _ _ _ _ _ _ e v (W_inner e _ El Hi) El Hi); reflexivity. }
+  all: pose proof (W_HL M d e HL) as HL2.
+  all: pose proof (rvn_gapply0 _ _ _ _ _ HL (Is_true_s_intro Hρ) e v HL2 Hr) as R1.
+  all: pose proof (rvn_gapply0 _ _ _ _ _ HL (Is_true_s_intro Hρ') e v HL2 Hr) as R2.
+  all: rewrite <- lower_rapply, rapply_compose in R1, R2.
+  all: destruct (rapply ρ (down (ext_depth e) (var_raw v))) as [w|[u' ρ']] eqn:E.
+  1: exact (rvn_det _ _ _ _ _ _ _ _ (proj2 (IHW w) _ _ _ _ R1) R2).
+  all: exact (rvn_det _ _ _ _ _ _ _ _
+                (proj2 (IH ρ' u' ltac:(pose proof (rdepth_payload ρ _ u' ρ' E); lia)) _ _ _ _ R1) R2).
+Qed.
+
+Lemma scoped_unique K M M' (a : radj P) : scoped K M a = true -> scoped K M' a = true -> M = M'.
+Proof.
+  intros H1 H2; apply scoped_spec in H1 as [T1 _]; apply scoped_spec in H2 as [T2 _].
+  specialize (T1 K (le_n K)); specialize (T2 K (le_n K)); rewrite T1 in T2.
+  injection T2; lia.
+Qed.
+
+Lemma aok_identity M : aok M M (radj_n (@ridentity P)) = true.
+Proof. rewrite aok_scoped; apply scoped_identity. Qed.
+
+Lemma matbase_rv M r r' : matbase sub0 r r' -> rv_le M r r'.
+Proof.
+  intros [K [M' [u [c [-> ->]]]]].
+  assert (Hc := adj_scoped c).
+  split.
+  - change (scoped K M (adj_raw c) = true -> scoped M' M (@ridentity P) = true).
+    intros Hs; rewrite (scoped_unique K M' M _ Hc Hs); apply scoped_identity.
+  - unfold rv, rvn; cbn [lower projT1 projT2]; intros d L HL t [Hρ ->].
+    assert (Hs : scoped K M (adj_raw c) = true) by (rewrite <- aok_scoped; exact Hρ).
+    assert (EM := scoped_unique K M' M _ Hc Hs); subst M'.
+    exists (aok_identity M); unfold sub0.
+    rewrite (apply_gapply0 c top_HL (top_aok c)).
+    assert (Ec : Compose.compose (radj_n (@ridentity P)) (radj_n (adj_raw c)) = radj_n (adj_raw c))
+      by exact (f_equal radj_n (rcompose_identity_l (adj_raw c))).
+    assert (Hz : Is_true_s (aok K M (Compose.compose (radj_n (@ridentity P)) (radj_n (adj_raw c)))))
+      by (apply Is_true_s_intro; rewrite Ec; exact Hρ).
+    rewrite (comp_gapply ridentity M (S (nnest (radj_n (adj_raw c)))) (radj_n (adj_raw c)) ltac:(lia) K M 0 M top_HL (top_aok c) d L HL
+               Hz _ (hrel_gapply0 _ M M d L HL (Is_true_s_intro (aok_identity M))) u).
+    symmetry; apply (f_equal (fun f => kleisli f ext_here u)); apply gapply0_pe, Ec.
+Qed.
+
+Lemma nbase_rv M r r' : nbase sub0 r r' -> rv_le M r r'.
+Proof.
+  intros [K [M' [u [c [W [-> ->]]]]]].
+  assert (Hc := adj_scoped c).
+  split.
+  - change (scoped M' M W = true -> scoped K M (rcompose W (adj_raw c)) = true).
+    intros Hs; exact (scoped_compose K M' M W _ Hs Hc).
+  - unfold rv, rvn; cbn [lower projT1 projT2]; intros d L HL t [Hρ ->].
+    assert (Hs : scoped M' M W = true) by (rewrite <- aok_scoped; exact Hρ).
+    assert (Hz : aok K M (radj_n (rcompose W (adj_raw c))) = true)
+      by (rewrite aok_scoped; exact (scoped_compose K M' M W _ Hs Hc)).
+    exists Hz; unfold sub0.
+    rewrite (apply_gapply0 c top_HL (top_aok c)).
+    exact (comp_gapply W M (S (nnest (radj_n (adj_raw c)))) (radj_n (adj_raw c)) ltac:(lia) K M' 0 M' top_HL (top_aok c) d L HL
+             (Is_true_s_intro Hz) _ (hrel_gapply0 _ M' M d L HL (Is_true_s_intro Hρ)) u).
+Qed.
+
+Lemma vbase_rv M r r' : vbase tv0 r r' -> rv_le M r r'.
+Proof.
+  intros [K [w [W [-> ->]]]].
+  split.
+  - change (scoped K M W = true -> result_wf M (rapply W (var_raw w)) = true).
+    intros Hs; apply scoped_spec in Hs as [_ Hv]; apply Hv, Is_true_s_elim, var_ok.
+  - unfold rv, rvn; cbn [lower projT1 projT2]; intros d L HL t [Hρ ->]; unfold tv0.
+    rewrite kleisli_var, lower_rapply.
+    assert (Hout : outer (ext_depth (@ext_here K L)) (var_raw w)) by (unfold outer; cbn; lia).
+    pose proof (rvn_gapply0 _ _ _ _ _ HL (Is_true_s_intro Hρ) ext_here w (W_HL M d ext_here HL) Hout) as R.
+    cbn [ext_depth] in R; rewrite down0 in R.
+    exact (rvn_cast _ _ _ _ L _ HL _ (Nat.add_0_r d) R).
+Qed.
+
+Lemma lawbase_rv M r r' : lawbase tv0 sub0 r r' -> rv_le M r r'.
+Proof. intros [H|[H|H]]; [apply matbase_rv|apply nbase_rv|apply vbase_rv]; exact H. Qed.
+
+Lemma drel_rv M r r' : drel (lawbase tv0 sub0) r r' -> rv_le M r r'.
+Proof.
+  induction 1 as [r|r r' Hb|u W W' ρ HW IH|r r' r'' _ IH1 _ IH2].
+  - apply rv_le_refl.
+  - apply lawbase_rv, Hb.
+  - apply (rv_le_pay M W W' HW IH (S (rdepth ρ))); lia.
+  - exact (rv_le_trans M _ _ _ IH1 IH2).
+Qed.
+
+Theorem subst_rel {N M} (a a' : adj term N M) :
+  (forall v : var N, drel (lawbase tv0 sub0) (rapply (adj_raw a) (var_raw v)) (rapply (adj_raw a') (var_raw v))) ->
+  forall t, t [a] = t [a'].
+Proof. intros H; apply subst_rv; intros v; apply drel_rv, H. Qed.
+
+End Rel.
+
+(** Substitution as the node [names] works on. *)
+Definition subst_law : SubstLaw term tv0 sub0 := {| sl_rel := @subst_rel |}.
+
+Lemma subst_csubst {N M} (a : adj term N M) (t : term N) : t [a] = csubst subst_law a t.
+Proof. reflexivity. Qed.
+
+Lemma csubst_subst {N M} (a : adj term N M) (t : term N) : csubst subst_law a t = t [a].
+Proof. reflexivity. Qed.
+
+Lemma tvar_cvar {K} (w : var K) : tvar w = cvar subst_law w.
+Proof. reflexivity. Qed.
+
+Lemma cvar_tvar {K} (w : var K) : cvar subst_law w = tvar w.
+Proof. reflexivity. Qed.
+
+Global Hint Rewrite @subst_csubst @tvar_cvar : names_node.
+Global Hint Rewrite @csubst_subst @cvar_tvar : names_post.
+Global Hint Rewrite @subst_identity @eval_fold : names_post.
 
 End Subst.

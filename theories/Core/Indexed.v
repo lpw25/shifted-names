@@ -205,9 +205,9 @@ Definition in_look_bound {N M K} (r : adj T K M) (v : var K) (a : adj T N M) : a
   mk_adj (rpush_inner None (rapply_target (adj_raw r) (RRename (var_raw v))) (adj_raw a))
     (Is_true_s_intro (scoped_push_inner_none N M _ _ (adj_scoped a) (look_wf r v))).
 
-Lemma apply_var_bind {N M K L} (a : adj T N M) (v : var N) (u : T K) (b : adj T L M) (ρ : adj T K L) :
-  rapply (adj_raw a) (var_raw v) = inr (existT T K u, rcompose (adj_raw b) (adj_raw ρ)) ->
-  apply_var a v = Bind u (compose b ρ).
+Lemma apply_var_bind {N M K} (a : adj T N M) (v : var N) (u : T K) (b : adj T K M) :
+  rapply (adj_raw a) (var_raw v) = inr (existT T K u, adj_raw b) ->
+  apply_var a v = Bind u b.
 Proof.
   unfold apply_var; generalize (apply_wf a v); unfold apply; intros H E.
   revert H; rewrite E; intros H; f_equal; apply adj_eq; reflexivity.
@@ -284,8 +284,8 @@ Inductive sctx : nat -> nat -> nat -> nat -> Type :=
 | SSubB {Nb Mb N M} (s : sctx (S Nb) Mb N M) (u : T Mb) : sctx Nb Mb N M
 | SRenF {Nb Mb N M} (s : sctx Nb Mb N M) (x : label) (w : var Mb) : sctx Nb Mb N M
 | SRenB {Nb Mb N M} (s : sctx (S Nb) Mb N M) (w : var Mb) : sctx Nb Mb N M
-| SSubFA {Nb Mb N M K} (s : sctx Nb Mb N M) (x : label) (u : T K) (r : adj T K Mb) : sctx Nb Mb N M
-| SSubBA {Nb Mb N M K} (s : sctx (S Nb) Mb N M) (u : T K) (r : adj T K Mb) : sctx Nb Mb N M
+| SSubFA {Nb Mb N M} (s : sctx Nb Mb N M) (x : label) {K} (u : T K) (r : adj T K Mb) : sctx Nb Mb N M
+| SSubBA {Nb Mb N M} (s : sctx (S Nb) Mb N M) {K} (u : T K) (r : adj T K Mb) : sctx Nb Mb N M
 | SLookF {Nb Mb N M K} (s : sctx Nb Mb N M) (x : label) (w : var K) (r : adj T K Mb) : sctx Nb Mb N M
 | SLookB {Nb Mb N M K} (s : sctx (S Nb) Mb N M) (w : var K) (r : adj T K Mb) : sctx Nb Mb N M.
 
@@ -328,8 +328,8 @@ Inductive ictx (K M : nat) : nat -> nat -> nat -> Type :=
 | IRenB {Nb N P} (i : ictx K M (S Nb) N P) (c : slot K) : ictx K M Nb N P
 | ISubF {Nb N P} (i : ictx K M Nb N P) (x : label) (u : T M) : ictx K M Nb N P
 | ISubB {Nb N P} (i : ictx K M (S Nb) N P) (u : T M) : ictx K M Nb N P
-| ISubFA {Nb N P L} (i : ictx K M Nb N P) (x : label) (u : T L) (r : adj T L M) : ictx K M Nb N P
-| ISubBA {Nb N P L} (i : ictx K M (S Nb) N P) (u : T L) (r : adj T L M) : ictx K M Nb N P.
+| ISubFA {Nb N P} (i : ictx K M Nb N P) (x : label) {L} (u : T L) (r : adj T L M) : ictx K M Nb N P
+| ISubBA {Nb N P} (i : ictx K M (S Nb) N P) {L} (u : T L) (r : adj T L M) : ictx K M Nb N P.
 
 (** Output contexts, innermost entry first, over the input context: the
     indices are the positional outputs so far, the output scope at the
@@ -352,8 +352,8 @@ Arguments IRenF {K M Nb N P} i x c.
 Arguments IRenB {K M Nb N P} i c.
 Arguments ISubF {K M Nb N P} i x u.
 Arguments ISubB {K M Nb N P} i u.
-Arguments ISubFA {K M Nb N P L} i x u r.
-Arguments ISubBA {K M Nb N P L} i u r.
+Arguments ISubFA {K M Nb N P} i x {L} u r.
+Arguments ISubBA {K M Nb N P} i {L} u r.
 Arguments OEnd {K Nt N M P} i.
 Arguments OEndT {K Nt N M P} g i.
 Arguments OPosF {K Nt N M P Po J n b} o y.
@@ -436,8 +436,8 @@ Arguments IRenF {T K M Nb N P} i x c.
 Arguments IRenB {T K M Nb N P} i c.
 Arguments ISubF {T K M Nb N P} i x u.
 Arguments ISubB {T K M Nb N P} i u.
-Arguments ISubFA {T K M Nb N P L} i x u r.
-Arguments ISubBA {T K M Nb N P L} i u r.
+Arguments ISubFA {T K M Nb N P} i x {L} u r.
+Arguments ISubBA {T K M Nb N P} i {L} u r.
 Arguments OEnd {T K Nt N M P} i.
 Arguments OEndT {T K Nt N M P} g i.
 Arguments OPosF {T K Nt N M P Po J n b} o y.
@@ -453,8 +453,8 @@ Arguments SSubF {T Nb Mb N M} s x u.
 Arguments SSubB {T Nb Mb N M} s u.
 Arguments SRenF {T Nb Mb N M} s x w%_var.
 Arguments SRenB {T Nb Mb N M} s w%_var.
-Arguments SSubFA {T Nb Mb N M K} s x u r.
-Arguments SSubBA {T Nb Mb N M K} s u r.
+Arguments SSubFA {T Nb Mb N M} s x {K} u r.
+Arguments SSubBA {T Nb Mb N M} s {K} u r.
 Arguments SLookF {T Nb Mb N M K} s x w%_var r.
 Arguments SLookB {T Nb Mb N M K} s w%_var r.
 Arguments STail {T N M Nb Mb} s σ.
@@ -485,10 +485,10 @@ Class CRenB (V C R : Type) := crenb : C -> V -> R.
 #[export] Instance csub_short {T Nb Mb N M} : CSub (T Mb) (@sctx T Nb Mb N M) (sctx Nb Mb N M) := SSubF.
 #[export] Instance csubb_full {T K M Nb N P} : CSubB (T M) (@ictx T K M (S Nb) N P) (ictx K M Nb N P) := ISubB.
 #[export] Instance csubb_short {T Nb Mb N M} : CSubB (T Mb) (@sctx T (S Nb) Mb N M) (sctx Nb Mb N M) := SSubB.
-#[export] Instance csuba_full {T K M Nb N P} : CSubA T M (@ictx T K M Nb N P) (ictx K M Nb N P) := fun i x L u r => @ISubFA T K M Nb N P L i x u r.
-#[export] Instance csuba_short {T Nb Mb N M} : CSubA T Mb (@sctx T Nb Mb N M) (sctx Nb Mb N M) := fun s x L u r => @SSubFA T Nb Mb N M L s x u r.
-#[export] Instance csubba_full {T K M Nb N P} : CSubBA T M (@ictx T K M (S Nb) N P) (ictx K M Nb N P) := fun i L u r => @ISubBA T K M Nb N P L i u r.
-#[export] Instance csubba_short {T Nb Mb N M} : CSubBA T Mb (@sctx T (S Nb) Mb N M) (sctx Nb Mb N M) := fun s L u r => @SSubBA T Nb Mb N M L s u r.
+#[export] Instance csuba_full {T K M Nb N P} : CSubA T M (@ictx T K M Nb N P) (ictx K M Nb N P) := @ISubFA T K M Nb N P.
+#[export] Instance csuba_short {T Nb Mb N M} : CSubA T Mb (@sctx T Nb Mb N M) (sctx Nb Mb N M) := @SSubFA T Nb Mb N M.
+#[export] Instance csubba_full {T K M Nb N P} : CSubBA T M (@ictx T K M (S Nb) N P) (ictx K M Nb N P) := @ISubBA T K M Nb N P.
+#[export] Instance csubba_short {T Nb Mb N M} : CSubBA T Mb (@sctx T (S Nb) Mb N M) (sctx Nb Mb N M) := @SSubBA T Nb Mb N M.
 #[export] Instance cren_full {T K M Nb N P} : CRen (slot K) (@ictx T K M Nb N P) (ictx K M Nb N P) := IRenF.
 #[export] Instance cren_short {T Nb Mb N M} : CRen (var Mb) (@sctx T Nb Mb N M) (sctx Nb Mb N M) := SRenF.
 #[export] Instance crenb_full {T K M Nb N P} : CRenB (slot K) (@ictx T K M (S Nb) N P) (ictx K M Nb N P) := IRenB.

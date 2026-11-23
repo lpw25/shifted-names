@@ -6,7 +6,7 @@
     [Subst] functor. *)
 
 From Stdlib Require Import Arith List Lia Bool StrictProp.
-From ShiftedNames.Core Require Import Label Var Adjustment Laws Scoped Indexed Syntax Subst.
+From ShiftedNames.Core Require Import Label Var Adjustment Laws Scoped Indexed Syntax Subst Names.
 
 (** ** The syntax *)
 
@@ -112,6 +112,90 @@ Proof. apply subst_identity. Qed.
     with the identity payload. *)
 Example inst_var {N} (u : tm N) : (tvar bvar0 : tm (S N)) [⟦ · := u ⟧] = u.
 Proof. rewrite subst_tvar_eval; exact (subst_identity u). Qed.
+
+(** ** [names]
+
+    Substitution is the library's [subst], an abbreviation for the
+    Kleisli extension of its [apply]: [cbn] pushes it through the
+    constructors, and [names] does the rest. *)
+Example subst_tlam {N M} (a : sub N M) (b : tm (S N)) :
+  (tlam b) [a] = tlam b [lift a].
+Proof. cbn; names; reflexivity. Qed.
+
+Example subst_two_binders {N M} (a : sub N M) (b c : tm (S (S N))) :
+  (tlam (tlam (tapp b c))) [a]
+  = tlam (tlam (tapp b [lift (lift a)] c [lift (lift a)])).
+Proof. cbn; names; reflexivity. Qed.
+
+(** Opening the innermost bound variable as [x] is [t [⟦ · \ x ⟧]],
+    closing [x] is [t [⟦ x \ · ⟧]], and instantiating with a term [u] is
+    [t [⟦ · := u ⟧]]. *)
+Theorem open_close {N} x (t : tm N) : t [⟦ x \ · ⟧] [⟦ · \ x ⟧] = t.
+Proof. names; reflexivity. Qed.
+
+Theorem close_open {N} x (t : tm (S N)) : t [⟦ · \ x ⟧] [⟦ x \ · ⟧] = t.
+Proof. names; reflexivity. Qed.
+
+Theorem open_subst_lift {N M} x (a : sub N M) (t : tm (S N)) :
+  t [lift a] [⟦ · \ x ⟧] = t [⟦ · | Γ \ x | Γ[a] ⟧].
+Proof. names; reflexivity. Qed.
+
+Theorem inst_subst_lift {N M} (u : tm M) (a : sub N M) (t : tm (S N)) :
+  t [lift a] [⟦ · := u ⟧] = t [⟦ · := u | a ⟧].
+Proof. names; reflexivity. Qed.
+
+Example names_terms {N} x (t : tm (S N)) (u : tm N) :
+  (tapp (tlam t) u) [⟦ x \ · ⟧] [⟦ · \ x ⟧] = tapp (tlam t) u.
+Proof. names; reflexivity. Qed.
+
+Example subst_var {N} x : (tvar bvar0 : tm (S N)) [⟦ · \ x ⟧] = tvar x.
+Proof. names; reflexivity. Qed.
+
+(** A term that is a variable is substituted as a renaming. *)
+Example subst_var_term x y (M : tm 0) : M [⟦ x := (tvar (fvar y 0)) ⟧] = M [⟦ x as (fvar y 0) ⟧].
+Proof. names; reflexivity. Qed.
+
+Example subst_var_term_atom x y (M : tm 0) (s : sub 0 0) :
+  M [⟦ x := (tvar (fvar y 0)) ⟧ ⨾ s] = M [(⟦ x as (fvar y 0) ⟧ : sub 0 0)] [s].
+Proof. names; reflexivity. Qed.
+
+(** A payload with an atom in it is materialised. *)
+Example mat_atom x y (N L M : tm 0) (s : sub 0 0) :
+  M [⟦ x := N ⟧] [⟦ y := L ⟧] [s] = M [⟦ x := (N [⟦ y := L ⟧ ⨾ s]); y := (L [s]) | s ⟧].
+Proof. names; reflexivity. Qed.
+
+(** A substitution in a term of a substitution is normalised as part of
+    the payload of that term. *)
+Example nested_var x y z (u M : tm 0) :
+  M [⟦ x := (u [⟦ y := (tvar (fvar z 0)) ⟧]) ⟧] = M [⟦ x := (u [(⟦ y as (fvar z 0) ⟧ : sub 0 0)]) ⟧].
+Proof. names; reflexivity. Qed.
+
+Example nested_open_close x y (u N M : tm 0) :
+  M [⟦ x := (u [⟦ y := N ⟧ ⨾ ⟦ y \ · ⟧ ⨾ ⟦ · \ y ⟧]) ⟧] = M [⟦ x := (u [⟦ y := N ⟧]) ⟧].
+Proof. names; reflexivity. Qed.
+
+Example nested_after x y (u N L M : tm 0) :
+  M [⟦ x := (u [⟦ y := N ⟧]) ⟧ ⨾ ⟦ y := L ⟧] = M [⟦ x := (u [⟦ y := N ⟧ ⨾ ⟦ y := L ⟧]); y := L ⟧].
+Proof. names; reflexivity. Qed.
+
+(** With open terms: substituting after instantiating, the de Bruijn
+    substitution lemma, and opening then substituting for the name. *)
+Theorem inst_subst {N M} (u : tm N) (a : sub N M) (t : tm (S N)) :
+  t [⟦ · := u ⟧] [a] = t [lift a] [⟦ · := (u [a]) ⟧].
+Proof. names; reflexivity. Qed.
+
+Theorem inst_inst {N} (u : tm (S N)) (v : tm N) (t : tm (S (S N))) :
+  t [⟦ · := u ⟧] [⟦ · := v ⟧] = t [lift ⟦ · := v ⟧] [⟦ · := (u [⟦ · := v ⟧]) ⟧].
+Proof. names; reflexivity. Qed.
+
+Theorem open_inst {N} x (u : tm N) (t : tm (S N)) :
+  t [⟦ · \ x ⟧] [⟦ x := u ⟧] = t [⟦ · := u ⟧].
+Proof. names; reflexivity. Qed.
+
+(** Barendregt's substitution lemma. *)
+Theorem barendregt x y (L N M : tm 0) : label_lt x y ->
+  M [⟦ x := N ⟧] [⟦ y := L ⟧] = M [⟦ y := (L [⟦ \ x as _ ⟧]) ⟧] [⟦ x := (N [⟦ y := L ⟧]) ⟧].
+Proof. intros; names; reflexivity. Qed.
 
 From Stdlib Require Import String.
 Open Scope string_scope.
