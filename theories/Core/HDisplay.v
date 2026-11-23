@@ -31,13 +31,13 @@ Definition cell (i : positive) : option (step * positive) := PositiveMap.find i 
 
 (** ** How often each cell is referred to *)
 
-Definition vrefs (v : val) : list positive := match v with VVar _ _ => [] | VTerm _ _ p => [p] | VLook _ _ x => [x] end.
+Definition vrefs (v : val) : list positive := match v with VVar _ _ => [] | VTerm _ p => [p] | VLook _ _ x => [x] end.
 
 (** The references of the cell [i]: its rest, and its value's, except a
     payload that is absorbed into a run ([grp], below). *)
 Definition srefs (grp : PositiveMap.t positive) (i : positive) (s : step) (t : positive) : list positive :=
   t :: match s with
-       | SE _ v => match v, PositiveMap.find i grp with VTerm _ None q, Some q' => if Pos.eqb q q' then [] else vrefs v | _, _ => vrefs v end
+       | SE _ v => match v, PositiveMap.find i grp with VTerm _ q, Some q' => if Pos.eqb q q' then [] else vrefs v | _, _ => vrefs v end
        | _ => []
        end.
 
@@ -79,7 +79,7 @@ Fixpoint groups (cnt : PositiveMap.t nat) (fuel : nat) (c : positive) (g : Posit
   | 0 => g
   | S f =>
       let g' := match cell c with
-                | Some (SE _ (VTerm _ None q), t) =>
+                | Some (SE _ (VTerm _ q), t) =>
                     if Pos.eqb t q then PositiveMap.add c q g
                     else if one cnt t then
                       match PositiveMap.find t g with
@@ -98,14 +98,14 @@ Fixpoint lead_pay (fuel : nat) (j p : positive) : option (list (lexp * nat)) :=
   | S f =>
       if Pos.eqb j p then Some []
       else match cell j with
-           | Some (SE h (VTerm u None q), t) => if Pos.eqb q p then option_map (cons (h, u)) (lead_pay f t p) else None
+           | Some (SE h (VTerm u q), t) => if Pos.eqb q p then option_map (cons (h, u)) (lead_pay f t p) else None
            | _ => None
            end
   end.
 
-(** The form [⟦ hᵢ := uᵢ ⟧]. *)
+(** The form [⟦ hᵢ := uᵢ ⟧]: each term with the identity payload. *)
 Definition sform (ts : list (lexp * nat)) : aexp :=
-  fold_right (fun '(h, u) a => AInner h (TBindE u (PComp AId PId)) a) AId ts.
+  fold_right (fun '(h, u) a => AInner h (TBindE u AId) a) AId ts.
 
 (** ** Showing cells *)
 
@@ -190,9 +190,8 @@ with dval (fuel : nat) (v : val) (D : dstate) {struct fuel} : option (texp * dst
   | S f =>
       match v with
       | VVar g j => Some (TVarE g j, D)
-      | VTerm u None p => match dref f p D with Some (r, D1) => Some (TBindE u (PComp r PId), D1) | None => None end
+      | VTerm u p => match dref f p D with Some (r, D1) => Some (TBindE u r, D1) | None => None end
       | VLook g j x => match dref f x D with Some (r, D1) => Some (TLookE g j r, D1) | None => None end
-      | VTerm _ (Some _) _ => None
       end
   end.
 
@@ -222,16 +221,9 @@ with lassoc_to (d : aexp) (y : aexp) : aexp :=
 with tlassoc (t : texp) : texp :=
   match t with
   | TVarE h i => TVarE h i
-  | TBindE u p => TBindE u (plassoc p)
+  | TBindE u p => TBindE u (lassoc p)
   | TShiftE h t => TShiftE h (tlassoc t)
   | TLookE h i a => TLookE h i (lassoc a)
-  end
-with plassoc (p : pexp) : pexp :=
-  match p with
-  | PId => PId
-  | PAtom n => PAtom n
-  | PComp a p => PComp (lassoc a) (plassoc p)
-  | PShift h p => PShift h (plassoc p)
   end.
 
 (** Showing the word from the cell [i]: shared definitions, numbered

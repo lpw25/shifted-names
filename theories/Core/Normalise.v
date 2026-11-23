@@ -881,15 +881,9 @@ Proof.
   rewrite <- H; apply Hd, e.
 Qed.
 
-(** Materialising: a result, and the same with a payload applied to its
-    term (by [g]). *)
-Section Mat.
-
-Variable g : radj T -> T -> T.
-
-Definition mbase (ρ : radj T) (r r' : rresult T) : Prop := exists u, r = inr (u, ρ) /\ r' = inr (g ρ u, ridentity).
-
-End Mat.
+(** Materialising: the term [u] with the payload [ρ], and the term [u']
+    (which is [u] with [ρ] applied) with the identity payload. *)
+Definition mbase (u u' : T) (ρ : radj T) (r r' : rresult T) : Prop := r = inr (u, ρ) /\ r' = inr (u', ridentity).
 
 (** Results related by [B], also inside payloads, in steps: the same,
     related by [B], the same term with payloads [W ∘ ρ] and [W' ∘ ρ] for

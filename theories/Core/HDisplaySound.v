@@ -92,19 +92,13 @@ Fixpoint alt (n : nat) (d : aexp) : Prop :=
 with tlt (n : nat) (t : texp) : Prop :=
   match t with
   | TVarE _ _ => True
-  | TBindE _ p => plt n p
+  | TBindE _ p => alt n p
   | TShiftE _ t => tlt n t
   | TLookE _ _ a => alt n a
-  end
-with plt (n : nat) (p : pexp) : Prop :=
-  match p with
-  | PId | PAtom _ => True
-  | PComp a p => alt n a /\ plt n p
-  | PShift _ p => plt n p
   end.
 
 Lemma alt_mono n n' : n <= n' ->
-  (forall d, alt n d -> alt n' d) /\ (forall t, tlt n t -> tlt n' t) /\ (forall p, plt n p -> plt n' p).
+  (forall d, alt n d -> alt n' d) /\ (forall t, tlt n t -> tlt n' t).
 Proof. intros L; apply exp_mind; cbn; intros; try tauto; lia. Qed.
 
 Lemma alt_acomp n r x : alt n r -> alt n x -> alt n (HDisplay.acomp r x).
@@ -116,13 +110,13 @@ Proof. intros H1 H2; destruct r; cbn [HDisplay.acomp aok] in *; rewrite ?H1, ?H2
 (** ** Runs of entries *)
 
 Definition sform_c (ts : list (lexp * nat)) : CNorm.cword :=
-  map (fun '(h, u) => CNorm.SE h (CNorm.VTerm u None [])) ts.
+  map (fun '(h, u) => CNorm.SE h (CNorm.VTerm u [])) ts.
 
 Lemma wden_wpre w (x : U) : wden w x = wpre w x x.
 Proof. induction w as [|t w IH]; cbn; [reflexivity|rewrite IH; reflexivity]. Qed.
 
 Lemma sform_wpre ts cp (c Z : U) :
-  wpre (map (fun '(h, u) => CNorm.SE h (CNorm.VTerm u None cp)) ts) Z c = wpre (sform_c ts) Z (wden cp c).
+  wpre (map (fun '(h, u) => CNorm.SE h (CNorm.VTerm u cp)) ts) Z c = wpre (sform_c ts) Z (wden cp c).
 Proof.
   induction ts as [|[h u] ts IH]; cbn [map CSound.wpre sform_c]; [reflexivity|].
   rewrite IH; cbn [sden]; rewrite !CSound.vden_term; reflexivity.
@@ -130,26 +124,26 @@ Qed.
 
 Lemma lead_pay_spec T p cp : Inv T -> RId T p cp -> forall fuel j cj ts, RId T j cj ->
   HDisplay.lead_pay T fuel j p = Some ts ->
-  cj = map (fun '(h, u) => CNorm.SE h (CNorm.VTerm u None cp)) ts ++ cp.
+  cj = map (fun '(h, u) => CNorm.SE h (CNorm.VTerm u cp)) ts ++ cp.
 Proof.
   intros I Hp; induction fuel as [|f IH]; intros j cj ts Hj E; cbn [HDisplay.lead_pay] in E; [discriminate|].
   destruct (Pos.eqb j p) eqn:Ej.
   - injection E as <-; apply Pos.eqb_eq in Ej; subst j; cbn; apply (RId_func T p _ _ I Hj Hp).
   - unfold HDisplay.cell in E; fold (cellof T j) in E.
-    destruct (cellof T j) as [[[h [g k|u [b|] q|g k x]|h|a] t]|] eqn:Ec; try discriminate.
+    destruct (cellof T j) as [[[h [g k|u q|g k x]|h|a] t]|] eqn:Ec; try discriminate.
     destruct (Pos.eqb q p) eqn:Eq; [|discriminate]; apply Pos.eqb_eq in Eq; subst q.
     destruct (HDisplay.lead_pay T f t p) as [ts'|] eqn:E1; [|discriminate]; injection E as <-.
     inversion Hj as [|j0 s t0 cs cw Hc Hs Ht]; subst; [destruct (inv_next T I 1 _ Ec) as [_ N]; contradiction|].
     rewrite Ec in Hc; injection Hc as <- <-.
-    inversion Hs as [h0 v0 cv Hv| |]; subst; inversion Hv as [|u1 b1 p1 cq Hq|]; subst.
+    inversion Hs as [h0 v0 cv Hv| |]; subst; inversion Hv as [|u1 p1 cq Hq|]; subst.
     rewrite (RId_func T p _ _ I Hq Hp), (IH t cw ts' Ht E1); reflexivity.
 Qed.
 
 Lemma dden_sform ρ ts (Y : U) : dden ρ (HDisplay.sform ts) Y = wden (sform_c ts) Y.
 Proof.
   induction ts as [|[h u] ts IH]; [reflexivity|].
-  change (cpush h (dden ρ (HDisplay.sform ts) Y) (cterm u None Y)
-          = cpush h (wden (sform_c ts) Y) (vden (CNorm.VTerm u None []) Y)).
+  change (cpush h (dden ρ (HDisplay.sform ts) Y) (cterm u Y)
+          = cpush h (wden (sform_c ts) Y) (vden (CNorm.VTerm u []) Y)).
   rewrite IH, CSound.vden_term; reflexivity.
 Qed.
 
@@ -176,7 +170,7 @@ Proof.
   { clear Oi; revert i ci ts Hi E; induction fuel as [|f IH]; intros i ci ts Hi E; cbn [HDisplay.lead_pay] in E; [discriminate|].
     destruct (Pos.eqb i p) eqn:Ei; [apply Pos.eqb_eq in Ei; subst; exists ci; exact Hi|].
     unfold HDisplay.cell in E; fold (cellof T i) in E.
-    destruct (cellof T i) as [[[h [g k|u [b|] q|g k x]|h|a] t]|] eqn:Ec; try discriminate.
+    destruct (cellof T i) as [[[h [g k|u q|g k x]|h|a] t]|] eqn:Ec; try discriminate.
     destruct (Pos.eqb q p); [|discriminate].
     destruct (HDisplay.lead_pay T f t p) as [ts'|] eqn:E1; [|discriminate].
     inversion Hi as [|j0 s t0 cs cw Hc Hs Ht]; subst; [destruct (inv_next T I 1 _ Ec) as [_ N]; contradiction|].
@@ -329,9 +323,8 @@ Proof. reflexivity. Qed.
 Lemma dval_S f v D : dval (S f) v D =
   match v with
   | HNorm.VVar g j => Some (TVarE g j, D)
-  | HNorm.VTerm u None p => match dref f p D with Some (r, D1) => Some (TBindE u (PComp r PId), D1) | None => None end
+  | HNorm.VTerm u p => match dref f p D with Some (r, D1) => Some (TBindE u r, D1) | None => None end
   | HNorm.VLook g j x => match dref f x D with Some (r, D1) => Some (TLookE g j r, D1) | None => None end
-  | HNorm.VTerm _ (Some _) _ => None
   end.
 Proof. reflexivity. Qed.
 
@@ -387,7 +380,7 @@ Proof.
       destruct (IHr t D1 r1 D2 DI1 (ex_intro _ cw0 (conj Ht Ot)) Er) as [DI2 [X2 [A1 [K1 S1]]]].
       split; [exact DI2|split; [apply (DExt_trans _ _ _ X1 X2)|split]].
       * cbn; split; [|exact A1].
-        apply (proj1 (proj2 (alt_mono (base + HDisplay.dn D1) (base + HDisplay.dn D2) ltac:(pose proof (proj1 (proj2 X2)); lia)))), At.
+        apply (proj2 (alt_mono (base + HDisplay.dn D1) (base + HDisplay.dn D2) ltac:(pose proof (proj1 (proj2 X2)); lia))), At.
       * split; [cbn [aok]; rewrite Kt, K1; reflexivity|].
         intros ρ A ci' H c; rewrite (Same ci' H).
         change (cpush h (dden ρ r1 c) (@ct (upd ρ) tv c) = cpush h (wden cw0 c) (vden cv c)).
@@ -405,16 +398,15 @@ Proof.
       rewrite (S1 ρ A cw0 Ht c); reflexivity.
   - (* dval *)
     intros v cv D t D' DI Hv Ov E; rewrite dval_S in E.
-    destruct v as [g j|u [b|] p|g j x].
+    destruct v as [g j|u p|g j x].
     + injection E as <- <-; inversion Hv; subst.
       split; [exact DI|split; [apply DExt_refl|split; [exact Logic.I|split; [reflexivity|intros; reflexivity]]]].
-    + discriminate.
-    + inversion Hv as [|u0 b0 p0 cp Hp|]; subst; inversion Ov as [|? ? ? Lu Op|]; subst.
+    + inversion Hv as [|u0 p0 cp Hp|]; subst; inversion Ov as [|? ? Lu Op|]; subst.
       destruct (dref f p D) as [[r1 D1]|] eqn:Er; [|discriminate]; injection E as <- <-.
       destruct (IHr p D r1 D1 DI (ex_intro _ cp (conj Hp Op)) Er) as [DI1 [X1 [A1 [K1 S1]]]].
-      split; [exact DI1|split; [exact X1|split; [cbn; tauto|split]]].
-      * cbn [tok pok]; rewrite K1; apply andb_true_iff; split; [apply Nat.ltb_lt, Lu|reflexivity].
-      * intros ρ A c; rewrite CSound.vden_term; change (cterm u None (dden ρ r1 c) = cterm u None (wden cp c)).
+      split; [exact DI1|split; [exact X1|split; [exact A1|split]]].
+      * cbn [tok]; rewrite K1; apply andb_true_iff; split; [apply Nat.ltb_lt, Lu|reflexivity].
+      * intros ρ A c; rewrite CSound.vden_term; change (cterm u (dden ρ r1 c) = cterm u (wden cp c)).
         rewrite (S1 ρ A cp Hp); reflexivity.
     + inversion Hv as [| |g0 j0 x0 cx Hx]; subst; inversion Ov as [| |? ? ? Ox]; subst.
       destruct (dref f x D) as [[r1 D1]|] eqn:Er; [|discriminate]; injection E as <- <-.
@@ -437,37 +429,30 @@ End Cells.
 Lemma lassoc_ca (N : cmodel) :
   (forall d (c : cU N), @ca N (HDisplay.lassoc d) c = @ca N d c
                         /\ forall y, @ca N (HDisplay.lassoc_to d y) c = @ca N y (@ca N d c))
-  /\ (forall t (c : cU N), @ct N (HDisplay.tlassoc t) c = @ct N t c /\ CNorm.is_bind (HDisplay.tlassoc t) = CNorm.is_bind t)
-  /\ (forall p (c : cU N), @cp N (HDisplay.plassoc p) c = @cp N p c /\ fpb (HDisplay.plassoc p) = fpb p).
+  /\ (forall t (c : cU N), @ct N (HDisplay.tlassoc t) c = @ct N t c).
 Proof.
-  apply exp_mind; intros; cbn [HDisplay.lassoc HDisplay.lassoc_to HDisplay.tlassoc HDisplay.plassoc CNorm.is_bind fpb];
+  apply exp_mind; intros; cbn [HDisplay.lassoc HDisplay.lassoc_to HDisplay.tlassoc];
     repeat match goal with H : forall c : cU N, _ /\ _ |- _ =>
              let H1 := fresh "H" in let H2 := fresh "H" in
              assert (H1 := fun c => proj1 (H c)); assert (H2 := fun c => proj2 (H c)); clear H; cbn beta in H1, H2 end;
-    repeat split; intros; cbn [ca ct cp]; try reflexivity;
+    repeat split; intros; cbn [ca ct]; try reflexivity;
     repeat match goal with
            | H : forall (_ : cU N) (_ : aexp), _ = _ |- _ => progress rewrite H
-           | H : forall _ : cU N, CNorm.is_bind _ = _ |- _ => rewrite (H c)
-           | H : forall _ : cU N, fpb _ = _ |- _ => rewrite (H c)
            | H : forall _ : cU N, _ = _ |- _ => progress rewrite H
            end; reflexivity.
 Qed.
 
-Lemma plain_tlassoc t : plain (HDisplay.tlassoc t) = plain t.
-Proof. induction t; cbn; auto. Qed.
-
 Lemma lassoc_aok :
   (forall d, aok nt d = true -> aok nt (HDisplay.lassoc d) = true
              /\ forall y, aok nt y = true -> aok nt (HDisplay.lassoc_to d y) = true)
-  /\ (forall t, tok nt t = true -> tok nt (HDisplay.tlassoc t) = true)
-  /\ (forall p, pok nt p = true -> pok nt (HDisplay.plassoc p) = true).
+  /\ (forall t, tok nt t = true -> tok nt (HDisplay.tlassoc t) = true).
 Proof.
-  apply exp_mind; intros; cbn [HDisplay.lassoc HDisplay.lassoc_to HDisplay.tlassoc HDisplay.plassoc aok tok pok] in *;
-    rewrite ?andb_true_iff in *; rewrite ?plain_tlassoc;
+  apply exp_mind; intros; cbn [HDisplay.lassoc HDisplay.lassoc_to HDisplay.tlassoc aok tok] in *;
+    rewrite ?andb_true_iff in *;
     repeat match goal with H : _ /\ _ |- _ => destruct H end;
     repeat match goal with H : ?P -> _, H' : ?P |- _ => specialize (H H') end;
     repeat match goal with H : _ /\ _ |- _ => destruct H end;
-    repeat split; intros; cbn [aok tok pok]; rewrite ?andb_true_iff, ?plain_tlassoc; repeat split; eauto.
+    repeat split; intros; cbn [aok tok]; rewrite ?andb_true_iff; repeat split; eauto.
 Qed.
 
 (** ** The display means the word *)
@@ -475,20 +460,11 @@ Qed.
 (** Reading references through the model's own atoms. *)
 Lemma dden_real ρ : (forall k x, ρ k x = catom (base + k) x) ->
   (forall d (c : U), dden ρ d c = @ca M d c)
-  /\ (forall t (c : U), @ct (upd ρ) t c = @ct M t c)
-  /\ (forall p (c : U), @cp (upd ρ) p c = @cp M p c).
+  /\ (forall t (c : U), @ct (upd ρ) t c = @ct M t c).
 Proof.
-  intros Hρ; unfold dden; apply exp_mind; intros; simpl; try reflexivity.
-  - destruct (Nat.leb base n) eqn:L; [apply Nat.leb_le in L; rewrite Hρ; f_equal; lia|reflexivity].
-  - rewrite H, H0; reflexivity.
-  - rewrite H; reflexivity.
-  - rewrite H, H0; reflexivity.
-  - rewrite H; reflexivity.
-  - rewrite H; reflexivity.
-  - destruct (CNorm.is_bind t); apply H.
-  - rewrite H; reflexivity.
-  - rewrite H, H0; reflexivity.
-  - rewrite H; reflexivity.
+  intros Hρ; unfold dden; apply exp_mind; intros; simpl; try reflexivity;
+    [destruct (Nat.leb base n) eqn:L; [apply Nat.leb_le in L; rewrite Hρ; f_equal; lia|reflexivity]|..];
+    rewrite ?H, ?H0; reflexivity.
 Qed.
 
 Lemma display_spec shr T i shared root : Inv T -> (exists ci, RId T i ci /\ WOk ci) ->
