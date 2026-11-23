@@ -5,9 +5,9 @@
       label atom; the fixed order on them and the known order the facts
       give ([order_of], [lt_known], [lcmp]), proved sound for facts that
       hold ([order_of_ok]);
-    - expressions ([aexp], [texp], [pexp]) over label atoms, adjustment
-      atoms, payload atoms and term atoms, which the tactic reifies goals
-      into, and their meaning as the library's adjustments ([aeden]);
+    - expressions ([aexp], [texp]) over label atoms, adjustment atoms and
+      term atoms, which the tactic reifies goals into, and their meaning
+      as the library's adjustments ([aeden]);
     - [mbase] and [drel], the relations materialising a payload gives;
     - the data the display of normal forms is built from ([seg], [word]).
     Transitivity and irreflexivity of the known order are in
@@ -757,13 +757,13 @@ Proof. induction n; cbn; congruence. Qed.
 
 (** ** Segments, for the display
 
-    What [Names] shows a normal form through: a target ([NBind u w b] is a
+    What [Names] shows a normal form through: a target ([NBind u w] is a
     term with its payload); the targets of one label; a segment, one entry
     per label with its input targets and its number of outputs, which the
     display writes as one context form; a word. *)
 Inductive ntgt : Type :=
 | NVar (h : lexp) (i : nat)
-| NBind (u : nat) (w : word) (b : option nat)
+| NBind (u : nat) (w : word)
 with tlist : Type :=
 | TNil
 | TCons (t : ntgt) (r : tlist)
@@ -781,46 +781,6 @@ with seg_mind := Induction for seg Sort Prop
 with word_mind := Induction for word Sort Prop.
 Combined Scheme nf_mind from ntgt_mind, tlist_mind, seg_mind, word_mind.
 
-(** Induction along the spine of a segment or a target list. *)
-(** ** Denotation *)
-
-Section Denote.
-
-Context {T : Type}.
-Variable lenv : list label.
-Variable tenv : list T.
-Variable aenv : list (radj T).
-Variable penv : list (rpadj T).
-
-Local Notation lden := (lden lenv).
-
-Definition aden (n : nat) : radj T := nth n aenv ridentity.
-Definition bden (b : option nat) : rpadj T := match b with None => rpidentity | Some n => nth n penv rpidentity end.
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-End Denote.
-
 (** ** Expressions *)
 
 Inductive aexp : Type :=
@@ -832,18 +792,9 @@ Inductive aexp : Type :=
 | ALift (h : lexp) (a : aexp)
 with texp : Type :=
 | TVarE (h : lexp) (i : nat)
-| TBindE (u : nat) (p : pexp)
+| TBindE (u : nat) (p : aexp)
 | TShiftE (h : lexp) (t : texp)
-| TLookE (h : lexp) (i : nat) (a : aexp)
-with pexp : Type :=
-| PId
-| PAtom (n : nat)
-| PComp (a : aexp) (p : pexp)
-| PShift (h : lexp) (p : pexp).
-
-(** The payload atom at the end of a payload expression, if any. *)
-Fixpoint fpb (p : pexp) : option nat :=
-  match p with PId => None | PAtom n => Some n | PComp _ p | PShift _ p => fpb p end.
+| TLookE (h : lexp) (i : nat) (a : aexp).
 
 (** ** Denotation of expressions *)
 
@@ -853,20 +804,10 @@ Context {T : Type}.
 Variable lenv : list label.
 Variable tenv : list T.
 Variable aenv : list (radj T).
-Variable penv : list (rpadj T).
 
 Local Notation lden := (lden lenv).
-Local Notation aden := (aden aenv).
 
-Lemma rpapply_identity v : v_label v <> None -> rpapply (@rpidentity T) v = inl v.
-Proof. intros Hv; destruct v as [[x|] i]; [|contradiction]; unfold rpapply; cbn; reflexivity. Qed.
-
-Lemma rpcompose_named (a b : radj T) :
-  (forall v, v_label v <> None -> rapply a v = rapply b v) -> rpcompose a rpidentity = rpcompose b rpidentity.
-Proof.
-  intros H; apply rpextensionality; intros v Hv.
-  rewrite !rpapply_pcompose, rpapply_identity by exact Hv; apply H, Hv.
-Qed.
+Definition aden (n : nat) : radj T := nth n aenv ridentity.
 
 Fixpoint aeden (e : aexp) : radj T :=
   match e with
@@ -880,22 +821,14 @@ Fixpoint aeden (e : aexp) : radj T :=
 with teden (t : texp) : rtarget T :=
   match t with
   | TVarE h i => RRename (mk_rvar (lden h) i)
-  | TBindE u p => match nth_error tenv u with Some x => RBind x (peden p) | None => RRename (mk_rvar None 0) end
-  | TShiftE h t => match teden t with RRename w => RRename (shift_rvar (mk_rvar (lden h) 0) w) | r => r end
+  | TBindE u p => match nth_error tenv u with Some x => RBind x (aeden p) | None => RRename (mk_rvar None 0) end
+  | TShiftE h t => rshift_target (lden h) (teden t)
   | TLookE h i a => rapply_target (aeden a) (RRename (mk_rvar (lden h) i))
-  end
-with peden (p : pexp) : rpadj T :=
-  match p with
-  | PId => rpidentity
-  | PAtom n => nth n penv rpidentity
-  | PComp a p => rpcompose (aeden a) (peden p)
-  | PShift h p => rpshift (lden h) (peden p)
   end.
 
 Scheme aexp_mind := Induction for aexp Sort Prop
-with texp_mind := Induction for texp Sort Prop
-with pexp_mind := Induction for pexp Sort Prop.
-Combined Scheme exp_mind from aexp_mind, texp_mind, pexp_mind.
+with texp_mind := Induction for texp Sort Prop.
+Combined Scheme exp_mind from aexp_mind, texp_mind.
 
 (** ** Shared definitions
 
@@ -917,28 +850,18 @@ Inductive Exp : aexp -> aexp -> Prop :=
 | ExLift h a a' : Exp a a' -> Exp (ALift h a) (ALift h a')
 with TExp : texp -> texp -> Prop :=
 | ExVar h i : TExp (TVarE h i) (TVarE h i)
-| ExBind u p p' : PExp p p' -> TExp (TBindE u p) (TBindE u p')
+| ExBind u p p' : Exp p p' -> TExp (TBindE u p) (TBindE u p')
 | ExShift h t t' : TExp t t' -> TExp (TShiftE h t) (TShiftE h t')
-| ExLook h i a a' : Exp a a' -> TExp (TLookE h i a) (TLookE h i a')
-with PExp : pexp -> pexp -> Prop :=
-| ExPId : PExp PId PId
-| ExPAtom n : PExp (PAtom n) (PAtom n)
-| ExPComp a p a' p' : Exp a a' -> PExp p p' -> PExp (PComp a p) (PComp a' p')
-| ExPShift h p p' : PExp p p' -> PExp (PShift h p) (PShift h p').
+| ExLook h i a a' : Exp a a' -> TExp (TLookE h i a) (TLookE h i a').
 
 Scheme Exp_mind := Induction for Exp Sort Prop
-with TExp_mind := Induction for TExp Sort Prop
-with PExp_mind := Induction for PExp Sort Prop.
-Combined Scheme ex_mind from Exp_mind, TExp_mind, PExp_mind.
-
-Lemma PExp_fpb p p' : PExp p p' -> fpb p = fpb p'.
-Proof. induction 1; cbn; auto. Qed.
+with TExp_mind := Induction for TExp Sort Prop.
+Combined Scheme ex_mind from Exp_mind, TExp_mind.
 
 (** The expansion is unique. *)
 Lemma Exp_func :
   (forall e x, Exp e x -> forall y, Exp e y -> x = y)
-  /\ (forall t x, TExp t x -> forall y, TExp t y -> x = y)
-  /\ (forall p x, PExp p x -> forall y, PExp p y -> x = y).
+  /\ (forall t x, TExp t x -> forall y, TExp t y -> x = y).
 Proof.
   apply ex_mind; intros;
     lazymatch goal with |- _ = ?y => match goal with Hy : _ _ y |- _ => inversion Hy; subst end end;
@@ -952,10 +875,9 @@ End Expand.
 Lemma Exp_meaning defs :
   (forall k d, nth k defs None = Some d -> aden k = aeden d) ->
   (forall e e', Exp defs e e' -> aeden e = aeden e')
-  /\ (forall t t', TExp defs t t' -> teden t = teden t')
-  /\ (forall p p', PExp defs p p' -> peden p = peden p').
+  /\ (forall t t', TExp defs t t' -> teden t = teden t').
 Proof.
-  intros Hd; apply ex_mind; intros; cbn [aeden teden peden]; rewrite ?H, ?H0; try reflexivity.
+  intros Hd; apply ex_mind; intros; cbn [aeden teden]; rewrite ?H, ?H0; try reflexivity.
   rewrite <- H; apply Hd, e.
 Qed.
 
@@ -963,9 +885,9 @@ Qed.
     term (by [g]). *)
 Section Mat.
 
-Variable g : rpadj T -> T -> T.
+Variable g : radj T -> T -> T.
 
-Definition mbase (ρ : rpadj T) (r r' : rresult T) : Prop := exists u, r = inr (u, ρ) /\ r' = inr (g ρ u, rpidentity).
+Definition mbase (ρ : radj T) (r r' : rresult T) : Prop := exists u, r = inr (u, ρ) /\ r' = inr (g ρ u, ridentity).
 
 End Mat.
 
@@ -978,7 +900,7 @@ Inductive drel (B : rresult T -> rresult T -> Prop) : rresult T -> rresult T -> 
 | DEq r : drel B r r
 | DBase r r' : B r r' -> drel B r r'
 | DPay u (W W' : radj T) ρ : (forall v, drel B (rapply W v) (rapply W' v)) ->
-    drel B (inr (u, rpcompose W ρ)) (inr (u, rpcompose W' ρ))
+    drel B (inr (u, rcompose W ρ)) (inr (u, rcompose W' ρ))
 | DTrans r r' r'' : drel B r r' -> drel B r' r'' -> drel B r r''.
 
 Lemma drel_mono (B B' : rresult T -> rresult T -> Prop) : (forall r r', B r r' -> B' r r') ->

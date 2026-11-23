@@ -15,7 +15,7 @@ Variables (n b : nat).
 
 Inductive VOk : cval -> Prop :=
 | VOkVar h i : VOk (VVar h i)
-| VOkTerm u o p : u < n -> Forall SOk p -> VOk (VTerm u o p)
+| VOkTerm u p : u < n -> Forall SOk p -> VOk (VTerm u p)
 | VOkLook h i w : Forall SOk w -> VOk (VLook h i w)
 with SOk : cstep -> Prop :=
 | SOkE h v : VOk v -> SOk (SE h v)
@@ -35,15 +35,9 @@ Fixpoint inrange (e : aexp) : bool :=
 with tinrange (t : texp) : bool :=
   match t with
   | TVarE _ _ => true
-  | TBindE u p => Nat.ltb u n && pinrange p
+  | TBindE u p => Nat.ltb u n && inrange p
   | TShiftE _ t => tinrange t
   | TLookE _ _ x => inrange x
-  end
-with pinrange (p : pexp) : bool :=
-  match p with
-  | PId | PAtom _ => true
-  | PComp x p => inrange x && pinrange p
-  | PShift _ p => pinrange p
   end.
 
 End Range.
@@ -51,10 +45,9 @@ End Range.
 (** A larger bound on atoms. *)
 Lemma inrange_mono n b b' : b <= b' ->
   (forall e, inrange n b e = true -> inrange n b' e = true)
-  /\ (forall t, tinrange n b t = true -> tinrange n b' t = true)
-  /\ (forall p, pinrange n b p = true -> pinrange n b' p = true).
+  /\ (forall t, tinrange n b t = true -> tinrange n b' t = true).
 Proof.
-  intros L; apply exp_mind; intros; cbn [inrange tinrange pinrange] in *; rewrite ?andb_true_iff in *; try tauto.
+  intros L; apply exp_mind; intros; cbn [inrange tinrange] in *; rewrite ?andb_true_iff in *; try tauto.
   apply Nat.ltb_lt in H; apply Nat.ltb_lt; lia.
 Qed.
 
@@ -73,7 +66,6 @@ Local Notation SOk := (SOk n b).
 Local Notation WOk := (WOk n b).
 Local Notation inrange := (inrange n b).
 Local Notation tinrange := (tinrange n b).
-Local Notation pinrange := (pinrange n b).
 
 Variable F : order.
 
@@ -130,22 +122,11 @@ Proof.
     try exact Hp; try assumption; constructor; [constructor; exact Hv|exact Hr].
 Qed.
 
-Lemma unbound_ok w : WOk w -> WOk (unbound w).
-Proof.
-  induction w as [|s w IH]; intros Hw; cbn; [constructor|].
-  inversion Hw as [|? ? Hs Hw']; subst.
-  destruct s as [[|g|g] v|[|g|g]|a]; try apply IH, Hw'; try exact Hw; constructor; try assumption; apply IH, Hw'.
-Qed.
-
-Lemma clean_ok o w : WOk w -> WOk (clean o w).
-Proof. destruct o; [exact (fun H => H)|apply unbound_ok]. Qed.
-
 Lemma norm_ok :
   (forall e K, inrange e = true -> WOk K -> WOk (norm F e K))
-  /\ (forall t K, tinrange t = true -> WOk K -> VOk (tval F t K))
-  /\ (forall p K, pinrange p = true -> WOk K -> WOk (pnorm F p K)).
+  /\ (forall t K, tinrange t = true -> WOk K -> VOk (tval F t K)).
 Proof.
-  apply exp_mind; cbn [inrange tinrange pinrange norm tval pnorm]; intros; rewrite ?andb_true_iff in *.
+  apply exp_mind; cbn [inrange tinrange norm tval]; intros; rewrite ?andb_true_iff in *.
   - exact H0.
   - constructor; [constructor; apply Nat.ltb_lt, H|exact H0].
   - destruct H1; apply H0; [assumption|apply H; assumption].
@@ -153,13 +134,9 @@ Proof.
   - destruct H1; apply pushE_ok; [apply H; assumption|apply H0; assumption].
   - apply pushE_ok; [apply lookup_ok, H1|apply H; [exact H0|apply pushW_ok, H1]].
   - apply lookup_ok; assumption.
-  - destruct H0 as [Hu Hp]; constructor; [apply Nat.ltb_lt, Hu|apply clean_ok, H; assumption].
-  - destruct (is_bind t); apply H; try assumption; apply pushW_ok, H1.
+  - destruct H0 as [Hu Hp]; constructor; [apply Nat.ltb_lt, Hu|apply H; assumption].
+  - apply H; [assumption|apply pushW_ok, H1].
   - apply lookup_ok, H; assumption.
-  - exact H0.
-  - exact H0.
-  - destruct H1; apply H0; [assumption|apply H; assumption].
-  - apply H; [exact H0|apply pushW_ok, H1].
 Qed.
 
 End Range2.

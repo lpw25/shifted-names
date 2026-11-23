@@ -17,10 +17,6 @@ From Stdlib Require Import List Arith Lia Bool PArith.
 From ShiftedNames.Core Require Import Label Var Adjustment Laws Normalise CNorm Comp HNorm KnownOrder HRefine CSound.
 Import ListNotations.
 
-(** A target built from variables and terms alone. *)
-Fixpoint plain (t : texp) : bool :=
-  match t with TVarE _ _ | TBindE _ _ => true | TShiftE _ t => plain t | TLookE _ _ _ => false end.
-
 (** Term atoms below [n]. *)
 Fixpoint aok (n : nat) (a : aexp) : bool :=
   match a with
@@ -32,15 +28,9 @@ Fixpoint aok (n : nat) (a : aexp) : bool :=
 with tok (n : nat) (t : texp) : bool :=
   match t with
   | TVarE _ _ => true
-  | TBindE u p => Nat.ltb u n && pok n p
-  | TShiftE _ t => tok n t && plain t
+  | TBindE u p => Nat.ltb u n && aok n p
+  | TShiftE _ t => tok n t
   | TLookE _ _ a => aok n a
-  end
-with pok (n : nat) (p : pexp) : bool :=
-  match p with
-  | PId | PAtom _ => true
-  | PComp a p => aok n a && pok n p
-  | PShift _ p => pok n p
   end.
 
 (** The decision used by the [names] tactic. *)
@@ -53,14 +43,13 @@ Definition hlook (F : order) (n : nat) (e : aexp) (h : lexp) (i : nat) : option 
 Definition hlook_var (F : order) (n : nat) (e : aexp) (h : lexp) (i : nat) : option (lexp * nat) :=
   match hlook F n e h i with Some (HNorm.VVar h' j, _) => Some (h', j) | _ => None end.
 
-(** [hᵢ] goes to the term [u] whose payload [eb] shows: [eb] normalises,
-    as a payload, to the payload's own word. *)
+(** [hᵢ] goes to the term [u] whose payload [eb] shows: [eb] normalises
+    to the payload's own word. *)
 Definition hbind_check (F : order) (n : nat) (e : aexp) (h : lexp) (i : nat) (eb : aexp) (u : nat) : bool :=
   aok n eb &&
   match hlook F n e h i with
-  | Some (HNorm.VTerm u' None p, T1) =>
-      Nat.eqb u u' &&
-      (let '(wb, T2) := HNorm.norm F eb [] T1 in let '(wb', _) := HNorm.clean None wb T2 in Pos.eqb (HNorm.wid wb') p)
+  | Some (HNorm.VTerm u' p, T1) =>
+      Nat.eqb u u' && (let '(wb, _) := HNorm.norm F eb [] T1 in Pos.eqb (HNorm.wid wb) p)
   | _ => false
   end.
 
@@ -68,12 +57,11 @@ Definition hbind_check (F : order) (n : nat) (e : aexp) (h : lexp) (i : nat) (eb
 Section Concrete.
 
 Context {T : Type}.
-Variables (lenv : list label) (tenv : list T) (aenv : list (radj T)) (penv : list (rpadj T)).
+Variables (lenv : list label) (tenv : list T) (aenv : list (radj T)).
 
 Local Notation lden := (lden lenv).
-Local Notation aeden := (aeden lenv tenv aenv penv).
-Local Notation teden := (teden lenv tenv aenv penv).
-Local Notation peden := (peden lenv tenv aenv penv).
+Local Notation aeden := (aeden lenv tenv aenv).
+Local Notation teden := (teden lenv tenv aenv).
 
 Definition kpop (h : lexp) (x : radj T) : radj T := rcompose x (Laws.rshift (lden h)).
 Definition khd (h : lexp) (x : radj T) : rtarget T := rapply_target x (RRename (mk_rvar (lden h) 0)).
@@ -96,8 +84,8 @@ Proof.
   - rewrite rapply_compose, Laws.rapply_shift, shift_unshift_rvar by exact Ne; reflexivity.
 Qed.
 
-Definition kterm (u : nat) (b : option nat) (x : radj T) : rtarget T :=
-  match nth_error tenv u with Some w => RBind w (rpcompose x (bden penv b)) | None => RRename (mk_rvar None 0) end.
+Definition kterm (u : nat) (x : radj T) : rtarget T :=
+  match nth_error tenv u with Some w => RBind w x | None => RRename (mk_rvar None 0) end.
 
 Definition kmodel : cmodel :=
   mk_cmodel (radj T) (rtarget T) kpop khd kpush kpop_push khd_push kpush_pop
@@ -112,18 +100,13 @@ Proof.
   rewrite label_eqb_refl; cbn [andb Nat.leb]; rewrite IH; f_equal; f_equal; lia.
 Qed.
 
-Lemma teden_kind n t : n <= List.length tenv -> tok n t = true -> plain t = true ->
-  (CNorm.is_bind t = true -> exists u ρ, teden t = RBind u ρ) /\ (CNorm.is_bind t = false -> exists w, teden t = RRename w).
+(** Reading a target through [x] after the weakening past [h]. *)
+Lemma rapply_target_shift h (x : radj T) (t : rtarget T) :
+  rapply_target (rcompose x (Laws.rshift (lden h))) t = rapply_target x (rshift_target (lden h) t).
 Proof.
-  intros Hn; induction t as [h i|u p|h t IH|h i a]; cbn [tok plain CNorm.is_bind Normalise.teden].
-  - intros _ _; split; [discriminate|intros _; eexists; reflexivity].
-  - intros H _; apply andb_true_iff in H as [Hu _]; apply Nat.ltb_lt in Hu.
-    destruct (nth_error tenv u) as [w|] eqn:E; [|apply nth_error_None in E; lia].
-    split; [intros _; do 2 eexists; reflexivity|discriminate].
-  - intros H P; apply andb_true_iff in H as [H _]; destruct (IH H P) as [Hb Hv]; split.
-    + intros B; destruct (Hb B) as [u [ρ E]]; rewrite E; do 2 eexists; reflexivity.
-    + intros B; destruct (Hv B) as [w E]; rewrite E; eexists; reflexivity.
-  - discriminate.
+  destruct t as [w|u ρ]; cbn [rapply_target rshift_target].
+  - rewrite rapply_compose, Laws.rapply_shift; reflexivity.
+  - rewrite rpush_outer_as_compose, rcompose_assoc; reflexivity.
 Qed.
 
 Lemma rapply_target_compose (a b : radj T) w :
@@ -141,10 +124,9 @@ Proof. unfold rapply_target; rewrite (khd_iter h i x 0); reflexivity. Qed.
 (** An expression acts on [x] as [x] composed with its denotation. *)
 Lemma kden n : n <= List.length tenv ->
   (forall a, aok n a = true -> forall x, @ca kmodel a x = rcompose x (aeden a))
-  /\ (forall t, tok n t = true -> forall x, @ct kmodel t x = rapply_target x (teden t))
-  /\ (forall p, pok n p = true -> forall x, rpcompose (@cp kmodel p x) (bden penv (fpb p)) = rpcompose x (peden p)).
+  /\ (forall t, tok n t = true -> forall x, @ct kmodel t x = rapply_target x (teden t)).
 Proof.
-  intros Hn; apply exp_mind; cbn [aok tok pok ca ct cp fpb Normalise.aeden Normalise.teden Normalise.peden].
+  intros Hn; apply exp_mind; cbn [aok tok ca ct Normalise.aeden Normalise.teden].
   - intros _ x; symmetry; apply rcompose_identity_r.
   - intros m _ x; reflexivity.
   - intros a IHa b IHb H x; apply andb_true_iff in H as [Ha Hb].
@@ -160,19 +142,9 @@ Proof.
   - intros u p IH H x; apply andb_true_iff in H as [Hu Hp]; apply Nat.ltb_lt in Hu.
     cbn [kmodel cterm]; unfold kterm; destruct (nth_error tenv u) as [w|] eqn:E; [|apply nth_error_None in E; lia].
     rewrite (IH Hp); reflexivity.
-  - intros h t IH H x; apply andb_true_iff in H as [H P]; pose proof (teden_kind n t Hn H P) as [Hb Hv].
-    destruct (CNorm.is_bind t) eqn:B.
-    + destruct (Hb eq_refl) as [u [ρ E]]; rewrite (IH H), E; reflexivity.
-    + destruct (Hv eq_refl) as [w E]; rewrite (IH H), E; cbn [kmodel cpop]; unfold kpop, rapply_target.
-      rewrite rapply_compose, Laws.rapply_shift; reflexivity.
+  - intros h t IH H x; rewrite (IH H); cbn [kmodel cpop]; unfold kpop; apply rapply_target_shift.
   - intros h i a IH H x; unfold cname; cbn [kmodel chd cpop cU]; unfold khd.
     rewrite (khd_target_iter h i), (IH H), Nat.add_0_r; apply rapply_target_compose.
-  - intros _ x; reflexivity.
-  - intros m _ x; reflexivity.
-  - intros a IHa p IHp H x; apply andb_true_iff in H as [Ha Hp].
-    rewrite (IHp Hp), (IHa Ha), rpcompose_compose; reflexivity.
-  - intros h p IH H x; rewrite (IH H); cbn [kmodel cpop]; unfold kpop.
-    rewrite <- rpcompose_compose, <- rpshift_as_pcompose; reflexivity.
 Qed.
 
 Lemma shift_other l l' j : l' <> l -> shift_rvar (mk_rvar l 0) (mk_rvar l' j) = mk_rvar l' j.
@@ -184,16 +156,12 @@ Qed.
 (** The model is consistent with facts that hold. *)
 Lemma kcons F : facts_ok lenv F -> ccons F kmodel.
 Proof.
-  intros HF; split.
-  - intros g h L x; pose proof (lt_known_sound lenv F HF g h L) as Lt.
-    assert (Ne : lden g <> lden h) by (intros E; rewrite E in Lt; exact (olabel_lt_irrefl _ Lt)).
-    cbn [kmodel cpop chd]; unfold kpop, khd, rapply_target; split; [|split].
-    + rewrite <- !rcompose_assoc, rcompose_shift_comm; reflexivity.
-    + rewrite rapply_compose, Laws.rapply_shift, shift_other by exact Ne; reflexivity.
-    + rewrite rapply_compose, Laws.rapply_shift, shift_other by (intros E; apply Ne; symmetry; exact E); reflexivity.
-  - intros u x; cbn [kmodel cterm cpop]; unfold kterm, kpop; destruct (nth_error tenv u); [|reflexivity].
-    f_equal; cbn [bden]; apply rpcompose_named; intros v Hv.
-    rewrite rapply_compose, Laws.rapply_shift; destruct v as [[s|] k]; [reflexivity|contradiction].
+  intros HF g h L x; pose proof (lt_known_sound lenv F HF g h L) as Lt.
+  assert (Ne : lden g <> lden h) by (intros E; rewrite E in Lt; exact (olabel_lt_irrefl _ Lt)).
+  cbn [kmodel cpop chd]; unfold kpop, khd, rapply_target; split; [|split].
+  - rewrite <- !rcompose_assoc, rcompose_shift_comm; reflexivity.
+  - rewrite rapply_compose, Laws.rapply_shift, shift_other by exact Ne; reflexivity.
+  - rewrite rapply_compose, Laws.rapply_shift, shift_other by (intros E; apply Ne; symmetry; exact E); reflexivity.
 Qed.
 
 (** ** Soundness of the decision *)
@@ -210,7 +178,7 @@ Qed.
 Lemma RVal_var S g k cv : RVal S (HNorm.VVar g k) cv -> cv = CNorm.VVar g k.
 Proof. intros H; inversion H; reflexivity. Qed.
 
-Lemma RVal_term S u b p cv : RVal S (HNorm.VTerm u b p) cv -> exists cp, cv = CNorm.VTerm u b cp /\ RId S p cp.
+Lemma RVal_term S u p cv : RVal S (HNorm.VTerm u p) cv -> exists cp, cv = CNorm.VTerm u cp /\ RId S p cp.
 Proof. intros H; inversion H; subst; eexists; split; [reflexivity|eassumption]. Qed.
 
 Lemma kname h i X : @cname kmodel h i X = rapply_target X (RRename (mk_rvar (lden h) i)).
@@ -244,28 +212,27 @@ Qed.
 
 Theorem hbind_sound l e h i eb u x : lfacts_ok lenv l ->
   hbind_check (order_of l) (List.length tenv) e h i eb u = true -> nth_error tenv u = Some x ->
-  rapply (aeden e) (mk_rvar (lden h) i) = inr (x, rpcompose (aeden eb) rpidentity).
+  rapply (aeden e) (mk_rvar (lden h) i) = inr (x, aeden eb).
 Proof.
   intros Hl H Hx; unfold hbind_check, hlook in H; apply andb_true_iff in H as [Hb H].
   destruct (aok _ e) eqn:Ha; [|discriminate].
   set (F := order_of l) in *.
   destruct (HNorm.norm F e [] HNorm.st0) as [w T0] eqn:En; destruct (HNorm.lookup F h i w T0) as [v T1] eqn:El.
-  destruct v as [|u' [b|] p|]; try discriminate.
+  destruct v as [|u' p|]; try discriminate.
   apply andb_true_iff in H as [Hu H]; apply Nat.eqb_eq in Hu; subst u'.
-  destruct (HNorm.norm F eb [] T1) as [wb T2] eqn:Eb; destruct (HNorm.clean None wb T2) as [wb' T3] eqn:Ec.
+  destruct (HNorm.norm F eb [] T1) as [wb T2] eqn:Eb.
   apply Pos.eqb_eq in H.
   pose proof (order_of_irrefl l lenv Hl) as Hirr; pose proof (order_of_trans l lenv Hl) as Htr.
   destruct (proj1 (norm_spec_all F Hirr Htr) e [] HNorm.st0 [] w T0 Inv_st0 (RWNil _) En) as [I1 [_ R1]].
   destruct (lookup_spec F Hirr Htr T0 h w _ I1 R1 i _ T1 El) as [I2 [_ R2]].
   destruct (proj1 (norm_spec_all F Hirr Htr) eb [] T1 [] wb T2 I2 (RWNil _) Eb) as [I3 [X3 R3]].
-  destruct (clean_spec T2 None wb _ wb' T3 I3 R3 Ec) as [I4 [X4 R4]].
   pose proof (klookup l e h i Hl Ha) as K; fold F in K.
-  destruct (RVal_term _ _ _ _ _ R2) as [cp [Ecp Rp]]; rewrite Ecp in K.
-  pose proof (proj1 (R_mono _ _ (Ext_trans _ _ _ X3 X4)) _ _ Rp) as Rp'.
-  pose proof (RWord_RId _ _ _ R4) as Rb; rewrite H in Rb.
-  pose proof (proj1 (R_func _ I4) _ _ Rp' _ Rb) as Ecp2; subst cp.
+  destruct (RVal_term _ _ _ _ R2) as [cp [Ecp Rp]]; rewrite Ecp in K.
+  pose proof (proj1 (R_mono _ _ X3) _ _ Rp) as Rp'.
+  pose proof (RWord_RId _ _ _ R3) as Rb; rewrite H in Rb.
+  pose proof (proj1 (R_func _ I3) _ _ Rp' _ Rb) as Ecp2; subst cp.
   pose proof (kcons _ (order_of_ok lenv l Hl)) as HM.
-  rewrite vden_term, (clean_sound kmodel _ HM), (norm_meaning kmodel _ HM) in K.
+  rewrite vden_term, (norm_meaning kmodel _ HM) in K.
   destruct (kden (List.length tenv) (le_n _)) as [Ka _]; rewrite (Ka eb Hb), rcompose_identity_l in K.
   cbn [kmodel cterm] in K; unfold kterm in K; rewrite Hx in K; unfold rapply_target in K.
   destruct (rapply (aeden e) _) as [w'|[u' ρ]]; [discriminate|injection K as -> ->; reflexivity].
@@ -303,9 +270,9 @@ Proof.
   destruct (kden (List.length tenv) (le_n _)) as [Ka _]; rewrite (Ka e Ha); apply rcompose_identity_l.
 Qed.
 
-Lemma RStep_SE_term S h u b p cs : RStep S (HNorm.SE h (HNorm.VTerm u b p)) cs ->
-  exists cp, cs = CNorm.SE h (CNorm.VTerm u b cp) /\ RId S p cp.
-Proof. intros H; inversion H as [? ? cv Hv| |]; subst; destruct (RVal_term _ _ _ _ _ Hv) as [cp [-> Hp]]; eexists; split; [reflexivity|exact Hp]. Qed.
+Lemma RStep_SE_term S h u p cs : RStep S (HNorm.SE h (HNorm.VTerm u p)) cs ->
+  exists cp, cs = CNorm.SE h (CNorm.VTerm u cp) /\ RId S p cp.
+Proof. intros H; inversion H as [? ? cv Hv| |]; subst; destruct (RVal_term _ _ _ _ Hv) as [cp [-> Hp]]; eexists; split; [reflexivity|exact Hp]. Qed.
 
 
 End Concrete.

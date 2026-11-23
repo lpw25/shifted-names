@@ -17,14 +17,10 @@ Import ListNotations.
 
 Lemma hval_eqb_eq a b : HNorm.val_eqb a b = true <-> a = b.
 Proof.
-  destruct a as [h i|u o p|h i x], b as [h' i'|u' o' p'|h' i' x']; cbn; try (split; intros H; congruence);
+  destruct a as [h i|u p|h i x], b as [h' i'|u' p'|h' i' x']; cbn; try (split; intros H; congruence);
     rewrite ?andb_true_iff, ?lexp_eqb_eq, ?Nat.eqb_eq, ?Pos.eqb_eq.
   - split; [intros [-> ->]; reflexivity|intros E; injection E as -> ->; auto].
-  - assert (O : HNorm.oeqb o o' = true <-> o = o').
-    { destruct o, o'; cbn; split; intros H; try discriminate; try reflexivity.
-      - apply Nat.eqb_eq in H; subst; reflexivity.
-      - injection H as ->; apply Nat.eqb_refl. }
-    rewrite O; split; [intros [[-> ->] ->]; reflexivity|intros E; injection E as -> -> ->; auto].
+  - split; [intros [-> ->]; reflexivity|intros E; injection E as -> ->; auto].
   - split; [intros [[-> ->] ->]; reflexivity|intros E; injection E as -> -> ->; auto].
 Qed.
 
@@ -62,7 +58,7 @@ with RStep (S : HNorm.st) : HNorm.step -> CNorm.cstep -> Prop :=
 | RSA a : RStep S (HNorm.SA a) (CNorm.SA a)
 with RVal (S : HNorm.st) : HNorm.val -> CNorm.cval -> Prop :=
 | RVVar h i : RVal S (HNorm.VVar h i) (CNorm.VVar h i)
-| RVTerm u b p cw : RId S p cw -> RVal S (HNorm.VTerm u b p) (CNorm.VTerm u b cw)
+| RVTerm u p cw : RId S p cw -> RVal S (HNorm.VTerm u p) (CNorm.VTerm u cw)
 | RVLook h i x cw : RId S x cw -> RVal S (HNorm.VLook h i x) (CNorm.VLook h i cw).
 
 Scheme RId_mind := Induction for RId Sort Prop
@@ -488,66 +484,15 @@ Proof.
     + apply (Pl S _ _ I (Ext_refl S) Hr E).
 Qed.
 
-(** ** Payloads *)
-
-Lemma unbound_rel S w cw : RWord S w cw ->
-  exists cp cb, Forall2 (RStep S) (fst (HNorm.unbound w)) cp /\ RWord S (snd (HNorm.unbound w)) cb
-    /\ CNorm.unbound cw = cp ++ cb.
-Proof.
-  intros H; induction H as [|s i w cs cw Hc Hs Hw IH].
-  - exists [], []; repeat split; constructor.
-  - destruct IH as [cp [cb [H1 [H2 H3]]]].
-    assert (Keep : CNorm.unbound (cs :: cw) = cs :: CNorm.unbound cw ->
-      HNorm.unbound ((s, i) :: w) = (s :: fst (HNorm.unbound w), snd (HNorm.unbound w)) ->
-      exists cp cb, Forall2 (RStep S) (fst (HNorm.unbound ((s, i) :: w))) cp
-        /\ RWord S (snd (HNorm.unbound ((s, i) :: w))) cb /\ CNorm.unbound (cs :: cw) = cp ++ cb).
-    { intros Ec Eh; rewrite Ec, Eh, H3; exists (cs :: cp), cb; cbn; repeat split; [constructor; assumption|exact H2]. }
-    inversion Hs as [g v cv Hv|g|a]; subst.
-    + destruct g as [|c|n].
-      * exists cp, cb; cbn [HNorm.unbound CNorm.unbound]; auto.
-      * apply Keep; [reflexivity|cbn; destruct (HNorm.unbound w); reflexivity].
-      * apply Keep; [reflexivity|cbn; destruct (HNorm.unbound w); reflexivity].
-    + destruct g as [|c|n].
-      * exists cp, cb; cbn [HNorm.unbound CNorm.unbound]; auto.
-      * apply Keep; [reflexivity|cbn; destruct (HNorm.unbound w); reflexivity].
-      * apply Keep; [reflexivity|cbn; destruct (HNorm.unbound w); reflexivity].
-    + exists [], (CNorm.SA a :: cw); cbn; repeat split; [constructor|apply RWCons; assumption].
-Qed.
-
-Lemma has_unbound_rel S w cw : RWord S w cw -> HNorm.has_unbound w = false -> CNorm.unbound cw = cw.
-Proof.
-  intros H; induction H as [|s i w cs cw Hc Hs Hw IH]; intros Hn; [reflexivity|].
-  inversion Hs as [g v cv Hv|g|a]; subst; cbn [HNorm.has_unbound] in Hn; [destruct g as [|c|n]|destruct g as [|c|n]|];
-    try discriminate; cbn [CNorm.unbound]; try rewrite IH by exact Hn; reflexivity.
-Qed.
-
-Lemma clean_spec S b w cw w' S' : Inv S -> RWord S w cw -> HNorm.clean b w S = (w', S') ->
-  Inv S' /\ Ext S S' /\ RWord S' w' (CNorm.clean b cw).
-Proof.
-  intros I Hw E; destruct b as [n|]; cbn [HNorm.clean CNorm.clean] in E |- *.
-  - injection E as <- <-; split; [exact I|split; [apply Ext_refl|exact Hw]].
-  - destruct (HNorm.has_unbound w) eqn:Hn.
-    + destruct (unbound_rel S w cw Hw) as [cp [cb [H1 [H2 H3]]]]; rewrite H3.
-      destruct (HNorm.unbound w) as [p r]; cbn [fst snd] in H1, H2.
-      apply (rebuild_spec p cp S r cb w' S' I H1 H2 E).
-    + injection E as <- <-; rewrite (has_unbound_rel S w cw Hw Hn).
-      split; [exact I|split; [apply Ext_refl|exact Hw]].
-Qed.
-
 (** ** The normaliser *)
-
-Lemma is_bind_same t : HNorm.is_bind t = CNorm.is_bind t.
-Proof. induction t; cbn; auto. Qed.
 
 Theorem norm_spec_all :
   (forall a K S cK w' S', Inv S -> RWord S K cK -> HNorm.norm F a K S = (w', S') ->
      Inv S' /\ Ext S S' /\ RWord S' w' (CNorm.norm F a cK))
   /\ (forall t K S cK v S', Inv S -> RWord S K cK -> HNorm.tval F t K S = (v, S') ->
-     Inv S' /\ Ext S S' /\ RVal S' v (CNorm.tval F t cK))
-  /\ (forall p K S cK w' S', Inv S -> RWord S K cK -> HNorm.pnorm F p K S = (w', S') ->
-     Inv S' /\ Ext S S' /\ RWord S' w' (CNorm.pnorm F p cK)).
+     Inv S' /\ Ext S S' /\ RVal S' v (CNorm.tval F t cK)).
 Proof.
-  apply exp_mind; intros; cbn [HNorm.norm HNorm.tval HNorm.pnorm CNorm.norm CNorm.tval CNorm.pnorm] in *.
+  apply exp_mind; intros; cbn [HNorm.norm HNorm.tval CNorm.norm CNorm.tval] in *.
   - injection H1 as <- <-; split; [exact H|split; [apply Ext_refl|exact H0]].
   - apply (hcons_spec S _ K _ cK w' S' H (RSA S n) H0 H1).
   - destruct (HNorm.norm F a K S) as [K1 S1] eqn:E1.
@@ -574,29 +519,16 @@ Proof.
     destruct (pushE_spec S2 h v _ K2 _ w' S' I2 (proj2 (proj2 (R_mono _ _ X12)) _ _ R0) R2 H2) as [I3 [X3 R3]].
     split; [exact I3|split; [apply (Ext_trans _ _ _ X0 (Ext_trans _ _ _ X12 X3))|exact R3]].
   - apply (lookup_spec S h K cK H H0 i v S' H1).
-  - destruct (HNorm.pnorm F p K S) as [P S1] eqn:E1.
+  - destruct (HNorm.norm F p K S) as [P S1] eqn:E1.
     destruct (H K S cK P S1 H0 H1 E1) as [I1 [X1 R1]].
-    destruct (HNorm.clean (fpb p) P S1) as [P' S2] eqn:E2.
-    destruct (clean_spec S1 (fpb p) P _ P' S2 I1 R1 E2) as [I2 [X2 R2]].
-    injection H2 as <- <-; split; [exact I2|split; [apply (Ext_trans _ _ _ X1 X2)|constructor; apply RWord_RId, R2]].
-  - rewrite is_bind_same in H2; destruct (CNorm.is_bind t); [apply (H K S cK v S' H0 H1 H2)|].
-    destruct (HNorm.pushW F h K S) as [K1 S1] eqn:E1.
+    injection H2 as <- <-; split; [exact I1|split; [exact X1|constructor; apply RWord_RId, R1]].
+  - destruct (HNorm.pushW F h K S) as [K1 S1] eqn:E1.
     destruct (pushW_spec S h K cK K1 S1 H0 H1 E1) as [I1 [X1 R1]].
     destruct (H K1 S1 _ v S' I1 R1 H2) as [I2 [X2 R2]].
     split; [exact I2|split; [apply (Ext_trans _ _ _ X1 X2)|exact R2]].
   - destruct (HNorm.norm F a K S) as [K1 S1] eqn:E1.
     destruct (H K S cK K1 S1 H0 H1 E1) as [I1 [X1 R1]].
     destruct (lookup_spec S1 h K1 _ I1 R1 i v S' H2) as [I2 [X2 R2]].
-    split; [exact I2|split; [apply (Ext_trans _ _ _ X1 X2)|exact R2]].
-  - injection H1 as <- <-; split; [exact H|split; [apply Ext_refl|exact H0]].
-  - injection H1 as <- <-; split; [exact H|split; [apply Ext_refl|exact H0]].
-  - destruct (HNorm.norm F a K S) as [K1 S1] eqn:E1.
-    destruct (H K S cK K1 S1 H1 H2 E1) as [I1 [X1 R1]].
-    destruct (H0 K1 S1 _ w' S' I1 R1 H3) as [I2 [X2 R2]].
-    split; [exact I2|split; [apply (Ext_trans _ _ _ X1 X2)|exact R2]].
-  - destruct (HNorm.pushW F h K S) as [K1 S1] eqn:E1.
-    destruct (pushW_spec S h K cK K1 S1 H0 H1 E1) as [I1 [X1 R1]].
-    destruct (H K1 S1 _ w' S' I1 R1 H2) as [I2 [X2 R2]].
     split; [exact I2|split; [apply (Ext_trans _ _ _ X1 X2)|exact R2]].
 Qed.
 
@@ -633,9 +565,6 @@ Proof.
       destruct (PositiveMap.find (Pos.of_succ_nat n) m); [exact E|rewrite PositiveMap.gempty in E; discriminate].
   - rewrite PositiveMap.gso in E by exact Nk; apply Hm, E.
 Qed.
-
-Lemma TExp_is_bind t t' : TExp defs t t' -> CNorm.is_bind t = CNorm.is_bind t'.
-Proof. induction 1; cbn; auto. Qed.
 
 Lemma normD_S f e K S m : HNorm.normD F defs (Datatypes.S f) e K S m =
 
@@ -682,27 +611,16 @@ Lemma tvalD_S f t K S m : HNorm.tvalD F defs (Datatypes.S f) t K S m =
       match t with
       | TVarE h i => let '(v, S1) := HNorm.lookup F h i K S in Some (v, S1, m)
       | TBindE u p =>
-          match HNorm.pnormD F defs f p K S m with
-          | Some (P, S1, m1) => let '(P', S2) := HNorm.clean (fpb p) P S1 in Some (HNorm.VTerm u (fpb p) (HNorm.wid P'), S2, m1)
+          match HNorm.normD F defs f p K S m with
+          | Some (P, S1, m1) => Some (HNorm.VTerm u (HNorm.wid P), S1, m1)
           | None => None
           end
-      | TShiftE h t' =>
-          if HNorm.is_bind t' then HNorm.tvalD F defs f t' K S m
-          else let '(K1, S1) := HNorm.pushW F h K S in HNorm.tvalD F defs f t' K1 S1 m
+      | TShiftE h t' => let '(K1, S1) := HNorm.pushW F h K S in HNorm.tvalD F defs f t' K1 S1 m
       | TLookE h i a =>
           match HNorm.normD F defs f a K S m with
           | Some (K1, S1, m1) => let '(v, S2) := HNorm.lookup F h i K1 S1 in Some (v, S2, m1)
           | None => None
           end
-      end.
-Proof. reflexivity. Qed.
-
-Lemma pnormD_S f p K S m : HNorm.pnormD F defs (Datatypes.S f) p K S m =
-
-      match p with
-      | PId | PAtom _ => Some (K, S, m)
-      | PComp a p' => match HNorm.normD F defs f a K S m with Some (K1, S1, m1) => HNorm.pnormD F defs f p' K1 S1 m1 | None => None end
-      | PShift h p' => let '(K1, S1) := HNorm.pushW F h K S in HNorm.pnormD F defs f p' K1 S1 m
       end.
 Proof. reflexivity. Qed.
 
@@ -712,15 +630,12 @@ Theorem normD_spec : forall fuel,
      Inv S' /\ Ext S S' /\ MInv S' m' /\ RWord S' w' (CNorm.norm F e' cK))
   /\ (forall t t', TExp defs t t' -> forall K S m cK v S' m', Inv S -> RWord S K cK -> MInv S m ->
      HNorm.tvalD F defs fuel t K S m = Some (v, S', m') ->
-     Inv S' /\ Ext S S' /\ MInv S' m' /\ RVal S' v (CNorm.tval F t' cK))
-  /\ (forall p p', PExp defs p p' -> forall K S m cK w' S' m', Inv S -> RWord S K cK -> MInv S m ->
-     HNorm.pnormD F defs fuel p K S m = Some (w', S', m') ->
-     Inv S' /\ Ext S S' /\ MInv S' m' /\ RWord S' w' (CNorm.pnorm F p' cK)).
+     Inv S' /\ Ext S S' /\ MInv S' m' /\ RVal S' v (CNorm.tval F t' cK)).
 Proof.
   induction fuel as [|f IH]; [repeat split; intros; discriminate|].
-  destruct IH as [IHa [IHt IHp]].
-  apply ex_mind; intros; rewrite ?normD_S, ?tvalD_S, ?pnormD_S in *; cbv beta iota zeta in *;
-    cbn [CNorm.norm CNorm.tval CNorm.pnorm] in *.
+  destruct IH as [IHa IHt].
+  apply ex_mind; intros; rewrite ?normD_S, ?tvalD_S in *; cbv beta iota zeta in *;
+    cbn [CNorm.norm CNorm.tval] in *.
   - (* AId *)
     injection H2 as <- <- <-; split; [exact H|split; [apply Ext_refl|split; [exact H1|exact H0]]].
   - (* an atom *)
@@ -777,36 +692,21 @@ Proof.
     destruct (lookup_spec S h K cK H H0 i v1 S1 E1) as [I1 [X1 R1]].
     split; [exact I1|split; [exact X1|split; [apply (MInv_mono S S1 m X1 H1)|exact R1]]].
   - (* a term *)
-    destruct (HNorm.pnormD F defs f p K S m) as [[[P S1] m1]|] eqn:E1; [|discriminate].
-    destruct (IHp p p' p0 K S m cK P S1 m1 H0 H1 H2 E1) as [I1 [X1 [M1 R1]]].
-    destruct (HNorm.clean (fpb p) P S1) as [P' S2] eqn:E2; injection H3 as <- <- <-.
-    rewrite (PExp_fpb defs p p' p0) in E2 |- *.
-    destruct (clean_spec S1 (fpb p') P _ P' S2 I1 R1 E2) as [I2 [X2 R2]].
-    split; [exact I2|split; [apply (Ext_trans _ _ _ X1 X2)|split; [apply (MInv_mono S1 S2 m1 X2 M1)|]]].
-    constructor; apply RWord_RId, R2.
+    destruct (HNorm.normD F defs f p K S m) as [[[P S1] m1]|] eqn:E1; [|discriminate].
+    destruct (IHa p p' e K S m cK P S1 m1 H0 H1 H2 E1) as [I1 [X1 [M1 R1]]].
+    injection H3 as <- <- <-.
+    split; [exact I1|split; [exact X1|split; [exact M1|constructor; apply RWord_RId, R1]]].
   - (* a shift *)
-    rewrite is_bind_same, (TExp_is_bind t t' t0) in H3; destruct (CNorm.is_bind t').
-    + apply (IHt t t' t0 K S m cK v S' m' H0 H1 H2 H3).
-    + destruct (HNorm.pushW F h K S) as [K1 S1] eqn:E1.
-      destruct (pushW_spec S h K cK K1 S1 H0 H1 E1) as [I1 [X1 R1]].
-      destruct (IHt t t' t0 K1 S1 m _ v S' m' I1 R1 (MInv_mono S S1 m X1 H2) H3) as [I2 [X2 [M2 R2]]].
-      split; [exact I2|split; [apply (Ext_trans _ _ _ X1 X2)|split; [exact M2|exact R2]]].
+    destruct (HNorm.pushW F h K S) as [K1 S1] eqn:E1.
+    destruct (pushW_spec S h K cK K1 S1 H0 H1 E1) as [I1 [X1 R1]].
+    destruct (IHt t t' t0 K1 S1 m _ v S' m' I1 R1 (MInv_mono S S1 m X1 H2) H3) as [I2 [X2 [M2 R2]]].
+    split; [exact I2|split; [apply (Ext_trans _ _ _ X1 X2)|split; [exact M2|exact R2]]].
   - (* a lookup *)
     destruct (HNorm.normD F defs f a K S m) as [[[K1 S1] m1]|] eqn:E1; [|discriminate].
     destruct (IHa a a' e K S m cK K1 S1 m1 H0 H1 H2 E1) as [I1 [X1 [M1 R1]]].
     destruct (HNorm.lookup F h i K1 S1) as [v1 S2] eqn:E2; injection H3 as <- <- <-.
     destruct (lookup_spec S1 h K1 _ I1 R1 i v1 S2 E2) as [I2 [X2 R2]].
     split; [exact I2|split; [apply (Ext_trans _ _ _ X1 X2)|split; [apply (MInv_mono S1 S2 m1 X2 M1)|exact R2]]].
-  - injection H2 as <- <- <-; split; [exact H|split; [apply Ext_refl|split; [exact H1|exact H0]]].
-  - injection H2 as <- <- <-; split; [exact H|split; [apply Ext_refl|split; [exact H1|exact H0]]].
-  - destruct (HNorm.normD F defs f a K S m) as [[[K1 S1] m1]|] eqn:E1; [|discriminate].
-    destruct (IHa a a' e K S m cK K1 S1 m1 H1 H2 H3 E1) as [I1 [X1 [M1 R1]]].
-    destruct (IHp p p' p0 K1 S1 m1 _ w' S' m' I1 R1 M1 H4) as [I2 [X2 [M2 R2]]].
-    split; [exact I2|split; [apply (Ext_trans _ _ _ X1 X2)|split; [exact M2|exact R2]]].
-  - destruct (HNorm.pushW F h K S) as [K1 S1] eqn:E1.
-    destruct (pushW_spec S h K cK K1 S1 H0 H1 E1) as [I1 [X1 R1]].
-    destruct (IHp p p' p0 K1 S1 m _ w' S' m' I1 R1 (MInv_mono S S1 m X1 H2) H3) as [I2 [X2 [M2 R2]]].
-    split; [exact I2|split; [apply (Ext_trans _ _ _ X1 X2)|split; [exact M2|exact R2]]].
 Qed.
 
 End Defs.

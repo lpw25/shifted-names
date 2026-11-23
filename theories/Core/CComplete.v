@@ -462,30 +462,6 @@ Proof.
       constructor; [exact HgS|constructor; [apply Hl0; reflexivity|exact Hm']].
 Qed.
 
-(** ** Payloads do not see the bound label *)
-
-Lemma unbound_drop p x q :
-  Forall (fun s => exists l, slabel s = Some l /\ l <> LNone) p -> slabel x = Some LNone ->
-  unbound (p ++ x :: q) = unbound (p ++ q).
-Proof.
-  intros Hp Ex; induction p as [|s p IH].
-  - destruct x as [g v|g|a]; cbn in Ex; try discriminate; injection Ex as ->; reflexivity.
-  - inversion Hp as [|? ? [l [El Nl]] Hp']; subst; cbn [app].
-    destruct s as [[|c|n] v|[|c|n]|a]; cbn in El; try discriminate; injection El as <-;
-      try contradiction; cbn [unbound]; rewrite IH by exact Hp'; reflexivity.
-Qed.
-
-Lemma unbound_pushW w : unbound (pushW F LNone w) = unbound w.
-Proof.
-  unfold pushW; destruct (stop F LNone w) as [p r] eqn:E; destruct (stop_parts LNone w p r E) as [-> [Hp _]].
-  assert (Hn : Forall (fun s => exists l, slabel s = Some l /\ l <> LNone) p)
-    by (eapply Forall_impl; [|exact Hp]; intros s [l [El Bl]]; exists l; split; [exact El|apply before_neq, Bl]).
-  assert (Ins : unbound (p ++ SW LNone :: r) = unbound (p ++ r)) by (apply unbound_drop; auto).
-  destruct r as [|[g v|g|a] r']; try exact Ins.
-  destruct (lexp_eqb g LNone) eqn:G; [|exact Ins].
-  apply lexp_eqb_eq in G; subst g; symmetry; apply unbound_drop; auto.
-Qed.
-
 (** ** The term model *)
 
 Definition TU : Type := {w : cword | nfb w = true}.
@@ -500,7 +476,7 @@ Definition tpop (h : lexp) (x : TU) : TU := exist _ (pushW F h (proj1_sig x)) (p
 Definition thd (h : lexp) (x : TU) : cval := lookup F h 0 (proj1_sig x).
 Definition tpush (h : lexp) (x : TU) (t : cval) : TU := exist _ (pushE F h t (proj1_sig x)) (pushE_nf h t _ (proj2_sig x)).
 Definition tatom (n : nat) (x : TU) : TU := exist _ (SA n :: proj1_sig x) (atom_nf n _ (proj2_sig x)).
-Definition tterm (u : nat) (b : option nat) (x : TU) : cval := VTerm u b (clean b (proj1_sig x)).
+Definition tterm (u : nat) (x : TU) : cval := VTerm u (proj1_sig x).
 
 Lemma tpop_push h x t : tpop h (tpush h x t) = x.
 Proof. apply TU_eq; apply pushW_pushE, proj2_sig. Qed.
@@ -515,16 +491,14 @@ Definition tmodel : cmodel := mk_cmodel TU cval tpop thd tpush tpop_push thd_pus
 
 Lemma tm_ccons : ccons F tmodel.
 Proof.
-  split.
-  - intros g h L x.
-    assert (N : g <> h) by (intros ->; rewrite Hirr in L; discriminate).
-    assert (B : before F g h = true) by (apply before_spec; auto).
-    assert (K : kd F g h = true) by (apply before_kd, B).
-    cbn [cpop chd tmodel]; repeat split.
-    + apply TU_eq; cbn; apply pushW_comm; [exact B|apply proj2_sig].
-    + unfold thd; cbn; apply lookup_pushW_other, K.
-    + unfold thd; cbn; apply lookup_pushW_other; rewrite kd_sym; exact K.
-  - intros u x; cbn [cterm cpop tmodel]; unfold tterm, clean; cbn; rewrite unbound_pushW; reflexivity.
+  intros g h L x.
+  assert (N : g <> h) by (intros ->; rewrite Hirr in L; discriminate).
+  assert (B : before F g h = true) by (apply before_spec; auto).
+  assert (K : kd F g h = true) by (apply before_kd, B).
+  cbn [cpop chd tmodel]; repeat split.
+  - apply TU_eq; cbn; apply pushW_comm; [exact B|apply proj2_sig].
+  - unfold thd; cbn; apply lookup_pushW_other, K.
+  - unfold thd; cbn; apply lookup_pushW_other; rewrite kd_sym; exact K.
 Qed.
 
 Lemma iter_tpop h i (x : TU) : proj1_sig (iter i (tpop h) x) = iter i (pushW F h) (proj1_sig x).
@@ -539,10 +513,9 @@ Qed.
 (** In the term model an expression means its normal form. *)
 Theorem tm_norm_all :
   (forall a (x : TU), proj1_sig (@ca tmodel a x) = norm F a (proj1_sig x))
-  /\ (forall t (x : TU), @ct tmodel t x = tval F t (proj1_sig x))
-  /\ (forall p (x : TU), proj1_sig (@cp tmodel p x) = pnorm F p (proj1_sig x)).
+  /\ (forall t (x : TU), @ct tmodel t x = tval F t (proj1_sig x)).
 Proof.
-  apply exp_mind; intros; cbn [ca ct cp norm tval pnorm].
+  apply exp_mind; intros; cbn [ca ct norm tval].
   - reflexivity.
   - reflexivity.
   - rewrite H0, H; reflexivity.
@@ -551,12 +524,8 @@ Proof.
   - cbn [cpush tmodel tpush proj1_sig]; rewrite H; reflexivity.
   - unfold cname; cbn [chd tmodel]; unfold thd; rewrite iter_tpop, lookup_iter; reflexivity.
   - cbn [cterm tmodel]; unfold tterm; rewrite H; reflexivity.
-  - destruct (is_bind t); [apply H|rewrite H; reflexivity].
-  - unfold cname; cbn [chd tmodel]; unfold thd; rewrite iter_tpop, H, lookup_iter; reflexivity.
-  - reflexivity.
-  - reflexivity.
-  - rewrite H0, H; reflexivity.
   - rewrite H; reflexivity.
+  - unfold cname; cbn [chd tmodel]; unfold thd; rewrite iter_tpop, H, lookup_iter; reflexivity.
 Qed.
 
 (** Equal in every comprehension model, same normal form. *)

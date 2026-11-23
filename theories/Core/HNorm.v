@@ -26,7 +26,7 @@ Import ListNotations.
 
 Inductive val : Type :=
 | VVar (h : lexp) (i : nat)
-| VTerm (u : nat) (b : option nat) (p : positive)
+| VTerm (u : nat) (p : positive)
 | VLook (h : lexp) (i : nat) (x : positive).
 
 Inductive step : Type :=
@@ -34,13 +34,10 @@ Inductive step : Type :=
 | SW (h : lexp)
 | SA (a : nat).
 
-Definition oeqb (a b : option nat) : bool :=
-  match a, b with Some x, Some y => Nat.eqb x y | None, None => true | _, _ => false end.
-
 Definition val_eqb (a b : val) : bool :=
   match a, b with
   | VVar h i, VVar h' i' => lexp_eqb h h' && Nat.eqb i i'
-  | VTerm u b p, VTerm u' b' p' => Nat.eqb u u' && oeqb b b' && Pos.eqb p p'
+  | VTerm u p, VTerm u' p' => Nat.eqb u u' && Pos.eqb p p'
   | VLook h i x, VLook h' i' x' => lexp_eqb h h' && Nat.eqb i i' && Pos.eqb x x'
   | _, _ => false
   end.
@@ -232,33 +229,6 @@ Definition pushE (h : lexp) (v : val) (w : word) (S : st) : word * st :=
   | (p, r) => place (SE h v) p r S
   end.
 
-(** A payload with no payload atom only sees named variables: bound-label
-    steps before its first atom are dropped. *)
-Fixpoint unbound (w : word) : list step * word :=
-  match w with
-  | [] => ([], [])
-  | (s, _) :: w' =>
-      match s with
-      | SE LNone _ | SW LNone => unbound w'
-      | SA _ => ([], w)
-      | _ => let '(p, r) := unbound w' in (s :: p, r)
-      end
-  end.
-
-Fixpoint has_unbound (w : word) : bool :=
-  match w with
-  | [] => false
-  | (s, _) :: w' => match s with SE LNone _ | SW LNone => true | SA _ => false | _ => has_unbound w' end
-  end.
-
-Definition clean (b : option nat) (w : word) (S : st) : word * st :=
-  match b with
-  | Some _ => (w, S)
-  | None => if has_unbound w then let '(p, r) := unbound w in rebuild p r S else (w, S)
-  end.
-
-Fixpoint is_bind (t : texp) : bool := match t with TBindE _ _ => true | TShiftE _ t => is_bind t | _ => false end.
-
 (** [norm e K]: [e], then the word [K]. *)
 Fixpoint norm (e : aexp) (K : word) (S : st) {struct e} : word * st :=
   match e with
@@ -279,20 +249,9 @@ Fixpoint norm (e : aexp) (K : word) (S : st) {struct e} : word * st :=
 with tval (t : texp) (K : word) (S : st) {struct t} : val * st :=
   match t with
   | TVarE h i => lookup h i K S
-  | TBindE u p =>
-      let '(P, S1) := pnorm p K S in
-      let '(P', S2) := clean (fpb p) P S1 in
-      (VTerm u (fpb p) (wid P'), S2)
-  | TShiftE h t' =>
-      if is_bind t' then tval t' K S
-      else let '(K1, S1) := pushW h K S in tval t' K1 S1
+  | TBindE u p => let '(P, S1) := norm p K S in (VTerm u (wid P), S1)
+  | TShiftE h t' => let '(K1, S1) := pushW h K S in tval t' K1 S1
   | TLookE h i a => let '(K1, S1) := norm a K S in lookup h i K1 S1
-  end
-with pnorm (p : pexp) (K : word) (S : st) {struct p} : word * st :=
-  match p with
-  | PId | PAtom _ => (K, S)
-  | PComp a p' => let '(K1, S1) := norm a K S in pnorm p' K1 S1
-  | PShift h p' => let '(K1, S1) := pushW h K S in pnorm p' K1 S1
   end.
 
 (** ** With shared definitions
@@ -361,28 +320,16 @@ with tvalD (fuel : nat) (t : texp) (K : word) (S : st) (m : dmemo) {struct fuel}
       match t with
       | TVarE h i => let '(v, S1) := lookup h i K S in Some (v, S1, m)
       | TBindE u p =>
-          match pnormD f p K S m with
-          | Some (P, S1, m1) => let '(P', S2) := clean (fpb p) P S1 in Some (VTerm u (fpb p) (wid P'), S2, m1)
+          match normD f p K S m with
+          | Some (P, S1, m1) => Some (VTerm u (wid P), S1, m1)
           | None => None
           end
-      | TShiftE h t' =>
-          if is_bind t' then tvalD f t' K S m
-          else let '(K1, S1) := pushW h K S in tvalD f t' K1 S1 m
+      | TShiftE h t' => let '(K1, S1) := pushW h K S in tvalD f t' K1 S1 m
       | TLookE h i a =>
           match normD f a K S m with
           | Some (K1, S1, m1) => let '(v, S2) := lookup h i K1 S1 in Some (v, S2, m1)
           | None => None
           end
-      end
-  end
-with pnormD (fuel : nat) (p : pexp) (K : word) (S : st) (m : dmemo) {struct fuel} : option (word * st * dmemo) :=
-  match fuel with
-  | 0 => None
-  | S f =>
-      match p with
-      | PId | PAtom _ => Some (K, S, m)
-      | PComp a p' => match normD f a K S m with Some (K1, S1, m1) => pnormD f p' K1 S1 m1 | None => None end
-      | PShift h p' => let '(K1, S1) := pushW h K S in pnormD f p' K1 S1 m
       end
   end.
 
@@ -402,7 +349,7 @@ End Norm.
     and through the words that values refer to. *)
 
 Definition val_refs (v : val) : list positive :=
-  match v with VVar _ _ => [] | VTerm _ _ p => [p] | VLook _ _ x => [x] end.
+  match v with VVar _ _ => [] | VTerm _ p => [p] | VLook _ _ x => [x] end.
 
 Definition step_refs (s : step) : list positive := match s with SE _ v => val_refs v | _ => [] end.
 
@@ -464,17 +411,9 @@ Fixpoint renorm (fuel : nat) (i : positive) (M : PositiveMap.t word) (T : st) {s
                     let '(v', M2, S2) :=
                       match v with
                       | VVar _ _ => (v, M1, S1)
-                      | VTerm u b p =>
-                          (* the cleaned payload is memoised under the
-                             cell's own key with the low bit set, so each
-                             payload is scanned once *)
-                          match b, PositiveMap.find (xI p) M1 with
-                          | None, Some wc => (VTerm u b (wid wc), M1, S1)
-                          | _, _ =>
-                              let '(wp, M2, S2) := renorm f p M1 S1 in
-                              let '(wp', S3) := clean b wp S2 in
-                              (VTerm u b (wid wp'), PositiveMap.add (xI p) wp' M2, S3)
-                          end
+                      | VTerm u p =>
+                          let '(wp, M2, S2) := renorm f p M1 S1 in
+                          (VTerm u (wid wp), M2, S2)
                       | VLook g j x =>
                           let '(wx, M2, S2) := renorm f x M1 S1 in
                           let '(v', S3) := lookup F g j wx S2 in

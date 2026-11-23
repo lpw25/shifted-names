@@ -19,7 +19,7 @@ Import ListNotations.
 
 Inductive cval : Type :=
 | VVar (h : lexp) (i : nat)
-| VTerm (u : nat) (b : option nat) (p : list cstep)
+| VTerm (u : nat) (p : list cstep)
 | VLook (h : lexp) (i : nat) (w : list cstep)
 with cstep : Type :=
 | SE (h : lexp) (v : cval)
@@ -29,16 +29,6 @@ with cstep : Type :=
 Definition cword : Type := list cstep.
 
 (** ** Decidable equality *)
-
-Definition oeqb (a b : option nat) : bool :=
-  match a, b with Some x, Some y => Nat.eqb x y | None, None => true | _, _ => false end.
-
-Lemma oeqb_eq a b : oeqb a b = true <-> a = b.
-Proof.
-  destruct a, b; cbn; split; intros H; try discriminate; try reflexivity.
-  - apply Nat.eqb_eq in H; subst; reflexivity.
-  - injection H as ->; apply Nat.eqb_refl.
-Qed.
 
 Fixpoint val_eqb (a b : cval) : bool :=
   let fix weqb (x y : cword) : bool :=
@@ -55,7 +45,7 @@ Fixpoint val_eqb (a b : cval) : bool :=
     end in
   match a, b with
   | VVar h i, VVar h' i' => lexp_eqb h h' && Nat.eqb i i'
-  | VTerm u b p, VTerm u' b' p' => Nat.eqb u u' && oeqb b b' && weqb p p'
+  | VTerm u p, VTerm u' p' => Nat.eqb u u' && weqb p p'
   | VLook h i w, VLook h' i' w' => lexp_eqb h h' && Nat.eqb i i' && weqb w w'
   | _, _ => false
   end.
@@ -82,10 +72,10 @@ Proof.
     - split; [intros [[-> ->] ->]; reflexivity|intros E; injection E as -> -> ->; auto].
     - split; [intros [-> ->]; reflexivity|intros E; injection E as -> ->; auto].
     - split; [intros [-> ->]; reflexivity|intros E; injection E as -> ->; auto]. }
-  intros [h i|u b p|h i w] [h' i'|u' b' p'|h' i' w']; cbn; try (split; intros H; congruence);
-    rewrite ?andb_true_iff, ?lexp_eqb_eq, ?Nat.eqb_eq, ?oeqb_eq, ?W.
+  intros [h i|u p|h i w] [h' i'|u' p'|h' i' w']; cbn; try (split; intros H; congruence);
+    rewrite ?andb_true_iff, ?lexp_eqb_eq, ?Nat.eqb_eq, ?W.
   - split; [intros [-> ->]; reflexivity|intros E; injection E as -> ->; auto].
-  - split; [intros [[-> ->] ->]; reflexivity|intros E; injection E as -> -> ->; auto].
+  - split; [intros [-> ->]; reflexivity|intros E; injection E as -> ->; auto].
   - split; [intros [[-> ->] ->]; reflexivity|intros E; injection E as -> -> ->; auto].
 Qed.
 
@@ -177,24 +167,6 @@ Definition pushE (h : lexp) (v : cval) (w : cword) : cword :=
   | _ => p ++ SE h v :: r
   end.
 
-(** A payload with no payload atom only sees named variables:
-    bound-label steps before its first atom are dropped. *)
-Fixpoint unbound (w : cword) : cword :=
-  match w with
-  | [] => []
-  | s :: w' =>
-      match s with
-      | SE LNone _ | SW LNone => unbound w'
-      | SA _ => w
-      | _ => s :: unbound w'
-      end
-  end.
-
-Definition clean (b : option nat) (w : cword) : cword :=
-  match b with Some _ => w | None => unbound w end.
-
-Fixpoint is_bind (t : texp) : bool := match t with TBindE _ _ => true | TShiftE _ t => is_bind t | _ => false end.
-
 (** [norm e K]: [e], then the word [K]. *)
 Fixpoint norm (e : aexp) (K : cword) {struct e} : cword :=
   match e with
@@ -208,15 +180,9 @@ Fixpoint norm (e : aexp) (K : cword) {struct e} : cword :=
 with tval (t : texp) (K : cword) {struct t} : cval :=
   match t with
   | TVarE h i => lookup h i K
-  | TBindE u p => VTerm u (fpb p) (clean (fpb p) (pnorm p K))
-  | TShiftE h t' => if is_bind t' then tval t' K else tval t' (pushW h K)
+  | TBindE u p => VTerm u (norm p K)
+  | TShiftE h t' => tval t' (pushW h K)
   | TLookE h i a => lookup h i (norm a K)
-  end
-with pnorm (p : pexp) (K : cword) {struct p} : cword :=
-  match p with
-  | PId | PAtom _ => K
-  | PComp a p' => pnorm p' (norm a K)
-  | PShift h p' => pnorm p' (pushW h K)
   end.
 
 (** The decision. *)

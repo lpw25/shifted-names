@@ -29,7 +29,7 @@ Fixpoint vden (v : cval) (x : U) {struct v} : A :=
     end in
   match v with
   | VVar h i => cname h i x
-  | VTerm u b p => cterm u b (wd p x)
+  | VTerm u p => cterm u (wd p x)
   | VLook h i w => cname h i (wd w x)
   end.
 
@@ -67,7 +67,7 @@ Proof. induction w as [|s w IH]; [reflexivity|]; destruct s; cbn [wden sden]; re
 Lemma vden_look h i w x : vden (VLook h i w) x = cname h i (wden w x).
 Proof. rewrite <- wdv_wden; reflexivity. Qed.
 
-Lemma vden_term u b w x : vden (VTerm u b w) x = cterm u b (wden w x).
+Lemma vden_term u w x : vden (VTerm u w) x = cterm u (wden w x).
 Proof. rewrite <- wdv_wden; reflexivity. Qed.
 
 Lemma vden_var h i x : vden (VVar h i) x = cname h i x.
@@ -276,61 +276,13 @@ Proof.
   rewrite lookup_sound, cname0; symmetry; apply cpush_pop.
 Qed.
 
-(** ** Payloads *)
-
-Lemma lt_known_bound g : g <> LNone -> lt_known F g LNone = true.
-Proof.
-  intros Hg; unfold lt_known; destruct g; [contradiction|reflexivity|reflexivity].
-Qed.
-
-Lemma cterm_push u (y : U) t : cterm u None (cpush LNone y t) = cterm u None y.
-Proof. rewrite <- (proj2 HM u (cpush LNone y t)), cpop_push; reflexivity. Qed.
-
-Definition named (s : cstep) : Prop := exists l, slabel s = Some l /\ l <> LNone.
-
-Lemma named_sdist p : Forall named p -> Forall (sdist LNone) p.
-Proof.
-  intros H; eapply Forall_impl; [|exact H]; intros s [l [E N]]; exists l; split; [exact E|left; apply lt_known_bound, N].
-Qed.
-
-Lemma unbound_sound u w : forall pre x, Forall named pre ->
-  cterm u None (wpre pre (wden (unbound w) x) x) = cterm u None (wpre pre (wden w x) x).
-Proof.
-  induction w as [|s w IH]; intros pre x Hp; [reflexivity|].
-  assert (Drop : forall s', slabel s' = Some LNone ->
-    cterm u None (wpre pre (wden (unbound w) x) x) = cterm u None (wpre pre (sden s' (wden w x) x) x)).
-  { intros s' Es; rewrite IH by exact Hp.
-    rewrite (wpre_comm s' LNone pre _ x Es) by (apply named_sdist, Hp).
-    destruct s' as [g v|g|a]; cbn in Es |- *; try discriminate; injection Es as ->;
-      [rewrite cterm_push|rewrite (proj2 HM)]; reflexivity. }
-  assert (Keep : forall l, l <> LNone -> forall s', slabel s' = Some l ->
-    cterm u None (wpre pre (wden (s' :: unbound w) x) x) = cterm u None (wpre pre (sden s' (wden w x) x) x)).
-  { intros l Hl s' Es; cbn [wden].
-    pose proof (IH (pre ++ [s']) x) as E; rewrite !wpre_app in E; cbn [wpre] in E; apply E.
-    apply Forall_app; split; [exact Hp|constructor; [exists l; split; [exact Es|exact Hl]|constructor]]. }
-  destruct s as [g v|g|a]; [destruct g as [|c|n]|destruct g as [|c|n]|reflexivity]; cbn [unbound].
-  - apply (Drop (SE LNone v)); reflexivity.
-  - apply (Keep (LCon c)); [discriminate|reflexivity].
-  - apply (Keep (LAtom n)); [discriminate|reflexivity].
-  - apply (Drop (SW LNone)); reflexivity.
-  - apply (Keep (LCon c)); [discriminate|reflexivity].
-  - apply (Keep (LAtom n)); [discriminate|reflexivity].
-Qed.
-
-Lemma clean_sound u b w x : cterm u b (wden (clean b w) x) = cterm u b (wden w x).
-Proof.
-  destruct b as [n|]; [reflexivity|]; cbn [clean].
-  apply (unbound_sound u w [] x); constructor.
-Qed.
-
 (** ** The normaliser *)
 
 Theorem norm_sound_all :
   (forall a K x, wden (norm F a K) x = ca a (wden K x))
-  /\ (forall t K x, vden (tval F t K) x = ct t (wden K x))
-  /\ (forall p K x, wden (pnorm F p K) x = cp p (wden K x)).
+  /\ (forall t K x, vden (tval F t K) x = ct t (wden K x)).
 Proof.
-  apply exp_mind; intros; cbn [norm tval pnorm ca ct cp].
+  apply exp_mind; intros; cbn [norm tval ca ct].
   - reflexivity.
   - reflexivity.
   - rewrite H0, H; reflexivity.
@@ -338,13 +290,9 @@ Proof.
   - rewrite pushE_sound, H0, H; reflexivity.
   - rewrite pushE_sound, H, pushW_sound, lookup_sound; reflexivity.
   - apply lookup_sound.
-  - rewrite vden_term, clean_sound, H; reflexivity.
-  - destruct (is_bind t); [apply H|rewrite H, pushW_sound; reflexivity].
-  - rewrite lookup_sound, H; reflexivity.
-  - reflexivity.
-  - reflexivity.
-  - rewrite H0, H; reflexivity.
+  - rewrite vden_term, H; reflexivity.
   - rewrite H, pushW_sound; reflexivity.
+  - rewrite lookup_sound, H; reflexivity.
 Qed.
 
 Lemma norm_meaning a (x : U) : wden (norm F a []) x = ca a x.
