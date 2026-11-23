@@ -283,6 +283,12 @@ Ltac2 tbl_add (lets : ident FSet.t) (t : tbl) (x : constr) : int :=
 
 Ltac2 app (f : constr) (args : constr list) : constr := Constr.Unsafe.make (Constr.Unsafe.App f (Array.of_list args)).
 
+(** [f ()], or [g e] if it fails with [e], leaving no choice point: a
+    failure later does not come back to try [g] ([Control.plus] would,
+    and its choice points multiply). *)
+Ltac2 attempt (f : unit -> 'a) (g : exn -> 'a) : 'a :=
+  match Control.case f with Val (x, _) => x | Err e => g e end.
+
 (** ** Literals *)
 
 Ltac2 Type nats := { mutable lits : constr array; mutable nlits : int }.
@@ -336,13 +342,6 @@ Ltac2 int_of_nat (n : constr) : int :=
   go n 0.
 
 (** An index as [idx] writes it. *)
-Ltac2 int_of_idx (n : constr) : int :=
-  match Constr.Unsafe.kind n with
-  | Constr.Unsafe.App f args =>
-      if Constr.equal f constr:(N.to_nat) then int_of_n (Array.get args 0) else int_of_nat n
-  | _ => int_of_nat n
-  end.
-
 Ltac2 rec is_nat_lit (n : constr) : bool :=
   lazy_match! n with
   | O => true
@@ -531,9 +530,9 @@ Ltac2 rec reify_adj (s : st) (t : constr) (n : constr) (m : constr) (a : constr)
     | _ => atom ()
     end
   else if is_h f (h.(h_cform_id)) then
-    Control.plus (fun () => reify_octx s t (Array.get args 6) (h.(r_NId))) (fun _ => atom ())
+    attempt (fun () => reify_octx s t (Array.get args 6) (h.(r_NId))) (fun _ => atom ())
   else if is_h f (h.(h_cform)) then
-    Control.plus (fun () =>
+    attempt (fun () =>
       match Constr.Unsafe.kind (Array.get args 7) with
       | Constr.Unsafe.Lambda _ o =>
           let x := reify_adj s t (Array.get args 2) (Array.get args 3) (Array.get args 8) in
@@ -700,8 +699,6 @@ Ltac2 lab_env (labs : constr array) (h : constr) : constr :=
 Ltac2 is_lnone (h : constr) : bool := lazy_match! h with LNone => true | _ => false end.
 
 Ltac2 refine_c (c : unit -> constr) : unit := Control.refine c; Control.shelve_unifiable ().
-
-Ltac2 intro_as (id : ident) : unit := Std.intros false [Std.IntroNaming (Std.IntroIdentifier id)].
 
 Ltac2 fresh (base : ident) : ident := Fresh.in_goal base.
 
@@ -1360,6 +1357,13 @@ Ltac2 rewrite_with (pf : constr) : unit :=
       end
   end.
 
+(** [pf : ty], an equation, asserted with no check and rewritten with:
+    the type of [pf] is not computed. *)
+Ltac2 rewrite_by (ty : constr) (pf : constr) : unit :=
+  let id := fresh @E in
+  assert_by id ty (fun () => Std.exact_no_check pf);
+  rewrite_with (Control.hyp id); Std.clear [id].
+
 (** The instances [t] of [pf : forall t, L t = R t] whose [L t] occur in
     the goal, [L t] an application whose last argument is [t]. *)
 Ltac2 rec app_instances (h : constr) (args : constr array) (c : constr) (acc : constr list) : constr list :=
@@ -1515,8 +1519,6 @@ Ltac2 is_adj_head_in (hs : heads) (c : constr) : bool :=
   | _ => false
   end.
 
-Ltac2 is_adj_head (c : constr) : bool := is_adj_head_in (adj_heads ()) c.
-
 Ltac2 add_new (c : constr) (acc : constr list) : constr list :=
   if List.exist (Constr.equal c) acc then acc else c :: acc.
 
@@ -1528,33 +1530,6 @@ Ltac2 rec cands (p : constr -> bool) (c : constr) (acc : constr list) : constr l
     r.(contents).
 
 Ltac2 candidates (p : constr -> bool) (c : constr) : constr list := List.rev (cands p c []).
-
-(** The same, not looking inside the subterms [stop] holds of. *)
-Ltac2 rec cands_stop (p : constr -> bool) (stop : constr -> bool) (c : constr) (acc : constr list) : constr list :=
-  if (if p c then Constr.Unsafe.is_closed c else false) then add_new c acc
-  else if stop c then acc
-  else
-    let r := { contents := acc } in
-    Constr.Unsafe.iter (fun x => r.(contents) := cands_stop p stop x (r.(contents))) c;
-    r.(contents).
-
-(** Those strictly inside [c]. *)
-Ltac2 candidates_in (p : constr -> bool) (c : constr) : constr list :=
-  let r := { contents := [] } in
-  Constr.Unsafe.iter (fun x => r.(contents) := cands p x (r.(contents))) c;
-  List.rev (r.(contents)).
-
-(** The candidates in [c]: those to [skip] are not taken, and are looked
-    inside when [inside] says so. *)
-Ltac2 rec cands_skip (p : constr -> bool) (skip : constr -> bool) (inside : constr -> bool) (c : constr) (acc : constr list)
-  : constr list :=
-  let go acc :=
-    let r := { contents := acc } in
-    Constr.Unsafe.iter (fun x => r.(contents) := cands_skip p skip inside x (r.(contents))) c;
-    r.(contents) in
-  if (if p c then Constr.Unsafe.is_closed c else false) then
-    if skip c then (if inside c then go acc else acc) else add_new c acc
-  else go acc.
 
 (** The result of [hlook_showN], read back. *)
 Ltac2 Type vsh := [ SVar (constr, constr) | STerm (constr, shown) | SLook (constr, constr, shown) ].
@@ -1794,7 +1769,7 @@ Ltac2 conv_one (node : constr) : unit :=
   (* the node's variable, when it is on one written out *)
   let vv := match var_term vh t with
             | Some (_, v) =>
-                Control.plus (fun () =>
+                attempt (fun () =>
                   let (vf, va) := split_app (reify_var s v) in
                   if Constr.equal vf (s.(heads).(r_NVarE)) then
                     Some (v, Array.get va 0, nat_lit (s.(ns)) (int_of_n (Array.get va 1)))
@@ -1809,7 +1784,7 @@ Ltac2 conv_one (node : constr) : unit :=
       let (uf, ua) := split_app u in
       match var_term vh u with
       | Some (kw, w) =>
-          match Control.plus (fun () =>
+          match attempt (fun () =>
                   let ev := reify_var s w in
                   let (ef, ea) := split_app ev in
                   if Constr.equal ef (s.(heads).(r_NVarE)) then Some (k, Array.get ea 0, Array.get ea 1, kw, w, it)
@@ -1937,8 +1912,7 @@ Ltac2 conv_one (node : constr) : unit :=
                          (hn : Forall ($prn Ae) $nfc) (hv : Forall $prv $vfc) =>
                        $r rs Ae hn hv _ (hlookB_var $le $te $ae rs $lt $tt Ae hLe hTe hAe $l $ce $eh $i $h' $j $hl $hres)) in
           let pf := app q args in
-          rewrite_with (Constr.Unsafe.make (Constr.Unsafe.Cast
-            (app constr:(@node_var) [term; vr; sub; lw; n; m; a; v; w; pf]) Constr.Cast.default '($node = $vr $m $w)))
+          rewrite_by '($node = $vr $m $w) (app constr:(@node_var) [term; vr; sub; lw; n; m; a; v; w; pf])
       | Some (STerm u sh, res) =>
           let (shd, root) := (sh.(sh_c), sh.(sh_root)) in
           let x := nth_c terms (int_of_n u) in
@@ -1956,9 +1930,7 @@ Ltac2 conv_one (node : constr) : unit :=
           let pf := share_proof ty kx m p rd (fun rs hs _ =>
             let (at_, args) := env_args rs in
             app q (List.append args [forall2_proof rty constr:(aexpN) (app srel [at_]) rs (sh.(sh_l)) hs])) in
-          rewrite_with (Constr.Unsafe.make (Constr.Unsafe.Cast
-            (app constr:(@node_term) [term; vr; sub; lw; n; m; a; v; kx; ux; b; pf]) Constr.Cast.default
-            '($node = csubst $lw $b $ux)))
+          rewrite_by '($node = csubst $lw $b $ux) (app constr:(@node_term) [term; vr; sub; lw; n; m; a; v; kx; ux; b; pf])
       | Some (SLook g j sh, res) =>
           let (shd, root) := (sh.(sh_c), sh.(sh_root)) in
           let shs := List.mapi (fun i d => (Int.add (en.(e_nb)) i, d)) (sh.(sh_l)) in
@@ -1978,13 +1950,11 @@ Ltac2 conv_one (node : constr) : unit :=
           let pf := share_proof ty k m p rd (fun rs hs _ =>
             let (at_, args) := env_args rs in
             app q (List.append args [forall2_proof rty constr:(aexpN) (app srel [at_]) rs (sh.(sh_l)) hs])) in
-          rewrite_with (Constr.Unsafe.make (Constr.Unsafe.Cast
-            (app constr:(@node_look) [term; vr; sub; lw; n; m; k; a; v; b; w; pf]) Constr.Cast.default
-            '($node = csubst $lw $b ($vr $k $w))))
+          rewrite_by '($node = csubst $lw $b ($vr $k $w)) (app constr:(@node_look) [term; vr; sub; lw; n; m; k; a; v; b; w; pf])
       | None => Control.zero Not_found
       end in
   match vv with
-  | Some (v, eh, i) => Control.plus (fun () => var_path v eh i) (fun _ => match (nfs, vfs) with ([], []) => Control.zero Not_found | _ => adj_path () end)
+  | Some (v, eh, i) => attempt (fun () => var_path v eh i) (fun _ => match (nfs, vfs) with ([], []) => Control.zero Not_found | _ => adj_path () end)
   | None => adj_path ()
   end.
 
@@ -2043,7 +2013,7 @@ Ltac2 names_norm () : unit :=
     end in
   each (fun x =>
     if is_csubst_in cs x then
-      Control.plus (fun () => conv_one x) (fun _ => let _ := show_adj_with (node_rw x) (node_adj x) in ())
+      attempt (fun () => conv_one x) (fun _ => let _ := show_adj_with (node_rw x) (node_adj x) in ())
     else let _ := show_adj x in ()) (List.append vs (dedup xs [])).
 
 (** Pass 2: each node's payloads materialised, then those of the nodes
