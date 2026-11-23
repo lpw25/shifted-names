@@ -142,12 +142,6 @@ Definition enc_vshow (v : vshow) : vshowN :=
 Definition hlook_showN (F : order) (n base : nat) (e : aexpN) (h : lexp) (i : nat) : option vshowN :=
   option_map enc_vshow (hlook_show F n base (adec e) h i).
 
-Definition hmat_targetN (F : order) (n base : nat) (e : aexpN) : option (N * (list aexpN * aexpN)) :=
-  option_map (fun p => (N.of_nat (fst p), enc_show (snd p))) (hmat_target F n base (adec e)).
-
-Definition hmat_displayN (F : order) (n base : nat) (e : aexpN) (k : nat) : option (list aexpN * aexpN) :=
-  option_map enc_show (hmat_display F n base (adec e) k).
-
 Section Sound.
 
 Context {T : Type}.
@@ -220,34 +214,6 @@ Proof.
   rewrite den_dec, den_enc, HLe, !ldenB_bof, Nat2N.id.
   apply (hlook_show_look le te ae rs l _ _ _ g0 j0 sh r (lfacts_den l Hl) E0 (shares_den _ Hs)).
 Qed.
-
-Section MatB.
-
-Variables (y y' : T).
-
-Theorem hmatB_show_sound l e k u shbN rbN shN rN nb n1 n2 : lfacts_okB Le l ->
-  n1 <= List.length te -> n2 <= List.length te ->
-  hmat_targetN (order_of l) n1 nb e = Some (u, (shbN, rbN)) ->
-  hmat_displayN (order_of l) n2 (List.length ae) e k = Some (shN, rN) ->
-  nb = List.length ae + List.length shN ->
-  Forall2 (fun x d => x = den d) rs (shN ++ shbN) ->
-  bnth Te u = Some y -> bnth Te (N.of_nat k) = Some y' ->
-  forall v, drel (mbase y y' (den rbN)) (rapply (den e) v) (rapply (den rN) v).
-Proof.
-  intros Hl L1 L2 Ht Hd Hnb Hs Hu Hk.
-  unfold hmat_targetN in Ht; unfold hmat_displayN in Hd.
-  destruct (hmat_target _ _ _ _) as [[u0 [shb rb]]|] eqn:Et; [|discriminate]; injection Ht as <- <- <-.
-  destruct (hmat_display _ _ _ _ _) as [[sh r]|] eqn:Ed; [|discriminate]; injection Hd as <- <-.
-  intros v; rewrite !den_enc, den_dec.
-  assert (B : forall m, bnth Te (N.of_nat m) = nth_error te m) by (intros m; rewrite HTe, bnth_bof, Nat2N.id; reflexivity).
-  apply (hmat_show_sound le te ae rs y y' l _ k u0 shb rb sh r nb n1 n2 (lfacts_den l Hl) L1 L2 Et Ed).
-  - rewrite Hnb, length_map; reflexivity.
-  - apply shares_den; rewrite map_app; exact Hs.
-  - rewrite <- B; exact Hu.
-  - rewrite <- B; exact Hk.
-Qed.
-
-End MatB.
 
 End Sound.
 

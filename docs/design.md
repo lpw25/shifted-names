@@ -126,11 +126,11 @@ in three rewrite databases. `names` makes one pass:
    only. Every other adjustment built from context forms, `⨾`, `⟦⟧`,
    `at_scope` and `share` (anything else is an atom) is rewritten to its
    normal form (`docs/hnorm.md`), shown as context forms;
-4. materialises (`names_mats`): in each node, and then in the nodes this
-   makes, each term with a payload `u⟨| b ⟩` becomes the term `csubst L b
-   u` with the identity payload (the law's `sl_rel` again), so that the
-   payloads the normaliser worked on are substitutions again, which
-   reductions outside `names` can work on;
+4. materialises (`names_mats`): in each node's shown adjustment, each
+   entry with a payload `x := u⟨| b ⟩` becomes `x := u [b]` where it
+   stands, shared definitions included, so that the payloads the
+   normaliser worked on are substitutions again, which reductions outside
+   `names` can work on (`docs/names.md`);
 5. evaluates `apply_var a v` left in the goal in the same way as a node
    on a variable (for an adjustment of any family, with no law);
 6. rewrites with `names_post`: the nodes back to `t [a]`, and `t [⟦⟧] =
@@ -183,8 +183,9 @@ rendering cannot find) is left as it is. A node on a variable, and
 step 5, read the result off `HNorm`'s lookup (`hlookB_var`,
 `hlookB_term`, `hlookB_look`); step 3's conversion is proved to relate
 the two adjustments variable by variable (`Conv.conv_sound`), and step 4
-changes entries of `HNorm` words, proved the same way
-(`hmatB_show_sound`); the law turns these into equal substitutions.
+is proved the same way, by one lemma per constructor of the shown
+expression (`Names.node_mat`); the law turns these into equal
+substitutions.
 
 Every comparison between labels goes through `lcmp`, which knows concrete
 labels, the bound label (the greatest), and the context's facts closed

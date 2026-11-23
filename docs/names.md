@@ -90,14 +90,22 @@ goal, and its output needs nothing from the steps before it.
    reified, normalised and displayed the same way. It is not converted,
    because it has no law to justify that, and it is rewritten by equality
    (`adj_eq`).
-4. **Materialise** (`names_mats`). Each term with a payload `u⟨| b ⟩` in a
-   node's adjustment becomes the term `csubst L b u` with the identity
-   payload (`sl_rel` again). Then the same happens in the nodes this
-   makes.
+4. **Materialise** (`names_mats`). In each node's adjustment, every
+   entry the display shows with a payload, `x := u⟨| r ⟩`, becomes `x := u
+   [r]` where it stands, in the shared definitions too. Its payload `r` is
+   materialised the same way first. Nothing is normalised or displayed
+   again, and a shared definition stays one, so `u⟨| r ⟩` with `r` a
+   shared variable becomes `u [r]`. See "What could be simpler", section 1.
 5. **`names_apply`.** This handles `apply_var a v` left in the goal, for
    an adjustment of any family, with no law. It uses the same
    `hlook_show` as step 3.3.
-6. **`names_post`.** The nodes go back to `t [a]`, and `t [⟦⟧] = t`.
+6. **`names_ids`.** A node whose adjustment is the identity, as step 3
+   shows a normal form that is one, becomes its term (the law's `sl_id`).
+7. **`names_post`.** The nodes go back to `t [a]`.
+8. **`names_unnode`.** A node `names_post` cannot reach, under a binder
+   such as a shared definition's body, is changed to the syntax's own
+   substitution, unfolded once. Step 3 reads that form back as a node
+   (`as_node`), so a second `names` sees the same goal.
 
 **Why steps 1 and 3 both handle nested substitutions.** They handle
 substitutions in different positions:
@@ -122,6 +130,7 @@ term:
 - The reified expressions are checked against the goal by conversion.
   Their environments are Braun trees, so each lookup is logarithmic.
 - Shared definitions are bound once (`chain_intro`).
+- Materialisation's proof is linear in the adjustment (see below).
 
 ### Why one pass is enough
 
@@ -143,64 +152,75 @@ change. It is not proved.
 
 ## What could be simpler
 
-### 1. Materialise what the display shows, in step 3
+### 1. Materialising after the display (done)
 
-**What step 4 does now.** For a node, `mat_one` takes these steps:
-1. Reify the node's adjustment, already in normal form after step 3.
-2. Normalise it again.
-3. Find the first entry of the *word* with a payload that is not the
-   identity.
-4. Display that payload on its own (`hmat_target`), and the rest with the
-   entry's term replaced by a new term (`hmat_display`).
-5. Render both, and rewrite.
+**What it was.** Step 4 used to work on the *word*: reify the node's
+adjustment again, normalise it again, find the first entry with a
+payload, display that payload and the rest separately, render, rewrite,
+and repeat per payload and recursively in the new nodes. That
+materialised payloads the display had not shown, as in a run, and lost
+sharing: the payload left inside a term `u [p]` was opaque to the
+normaliser. So `⟦x1 := f1⟧ ⨾ … ⨾ ⟦xn := fn⟧` under a term grew to 2ⁿ − 1
+entries.
 
-It repeats this per payload, then recurses into the new nodes.
+**What it is now.** A post-pass on the shown expression, with no
+reification. A shown payload is always on an entry over the rest of the
+word, never under something applied after it, so that variable's result
+is exactly `(u, r)`. Materialising it is the base `matbase`: `u` with
+payload `r` against `u [r]` with the identity. That holds at the top of
+the expression, in a shared definition, and inside a payload, where it is
+the same statement one level down (`DPay`). So the walk is:
+- **The new adjustment** (`mat_a`, `mat_s`). Follow the adjustment's
+  structure: shared definitions, `⨾` (only its side applied last), and
+  short context forms. Replace `SSubFA s x u r` by `SSubF s x (u [r])`,
+  and the bound form likewise, with `r` walked first. Lifts and anything
+  else that mentions a shared variable fail; the display makes neither. The
+  new adjustment has the binders of the old one, so it is built in place.
+  A shared variable stays the same de Bruijn index and now means the
+  materialised definition.
+- **The proof** that old and new are related variable by variable
+  (`Rt a a'`). It has one small lemma per constructor: `SR_subF`,
+  `SR_matF`, …, `Rt_short`, `Rt_compose`. Shared definitions use
+  `chain_rel_intro`, which binds each old and new variable with its
+  definition's equation. The node is rewritten by `node_mat`.
 
-**What goes wrong.** Two things, both artefacts of doing this one
-payload at a time on the word:
-- **It materialises payloads the user never saw.** The normal form of
-  `⟦x1 := f1⟧ ⨾ … ⨾ ⟦xn := fn⟧` gives entry `i` the payload "the
-  substitutions after `i`". Every entry has a payload, but the display
-  shows the word as a run, the composition itself, with none visible.
-  Step 3 leaves the goal unchanged here. Step 4 still finds the payload
-  of `x1` and writes it out as a term `f1 [⟦ x2 := … ⟧ …]`, which turns
-  the compact composition into a context form with explicit terms.
-- **It loses sharing.** The payload is displayed on its own, with fresh
-  shared definitions. Once it is inside the term `f1 […]`, it is opaque
-  to the normaliser. So the entries `x2, x3, …`, whose payloads are the
-  same suffixes, each get their own copy, and the recursion into the new
-  nodes materialises every copy again. The output has 2ⁿ − 1 entries.
+**Keeping the proof linear.** The first version of this pass was
+correct but superlinear on nested shared definitions (PN below). Proof
+terms carry their subterms explicitly, and the kernel types them as
+trees. Three things had to change:
+- **A rest given to every lemma.** Each `SR` lemma took the whole rest
+  of its context form, so the proof was quadratic per definition. Now
+  each rest is let-bound (`mat_anf`), so the lemmas take variables.
+- **Repeated substitution and closing.** Binding definitions by named
+  variables and `closenl` traversed everything below at each level. Now
+  the new adjustment is built in place, and the proof is built afterwards
+  in de Bruijn form. An old or new piece goes into the proof by one
+  `substnl` of its shared variables (`pctx`).
+- **A redex per level.** The hypothesis `H : Rt r r'` for each definition
+  was bound by a redex at its level. The kernel then substituted into the
+  type of everything below it. Now all levels' variables are bound first
+  and the redexes come at the leaf, so each one's body type is only the
+  root's.
 
-Neither is necessary. The normal form shares every suffix, and the
-display already writes it in linear size.
+At PN 60 the proof went from 8.0M nodes (47 times the adjustment) to
+1.9M (11 times), and from 21 + 6 s to 9.5 + 4.5 s.
 
-**The proposal.** Materialise after displaying, on the shown expression:
-1. Every shown entry `x := u⟨| p ⟩` becomes `x := u [p]`.
-2. The entries inside `p`, and inside the shared definitions, are
-   materialised the same way.
-3. A shared definition stays a shared definition, so `p = r`, a
-   reference to one, becomes `u [r]`, with no copy.
+**Inside step 3 instead.** I also measured materialising while
+displaying, in step 3: the shown normal form is related to the
+materialised one by a reflective check, with the shared definitions given
+their values. The post-pass is faster on every family:
 
-This would happen in step 3, before rendering. The chain above has
-nothing shown, so it stays exactly as written.
+| family | n | post-pass | in step 3 | neither (not materialised) |
+|---|---|---|---|---|
+| PN | 30 | 2.9 + 1.1 s | 4.4 + 2.3 s | 2.4 + 0.4 s |
+| | 60 | 9.5 + 4.5 s | 22.7 + 15.2 s | 7.7 + 2.1 s |
+| SN | 100 | 3.6 + 1.1 s | 3.6 + 1.4 s | 4.0 + 1.2 s |
+| NS | 30 | 1.3 + 5.5 s | 2.0 s + (not recorded) | 1.1 + 4.8 s |
 
-**Why no new law is needed.** The display shows a payload only on an
-entry over the rest of the word, `AInner h (TBindE u p) rest`. Its other
-forms are a run, an atom step or a weakening, composed *before* the
-rest: `rcompose rest X`, where `X` is the run, atom or weakening. Since
-`rapply (rcompose a b) v` applies `b` first, nothing is ever applied
-after such an entry. So that variable's result is exactly `(u, p)`, and
-materialising it is the existing base `matbase`: `u` with payload `p`
-against `u [p]` with the identity. That holds:
-- at the top of the expression;
-- in a shared definition;
-- inside a payload, where it is the same statement one level down
-  (`DPay`).
-
-**What it removes.** `mat_one`, `names_mats`, `HShow.hmat_target` /
-`hmat_display` and the word-level proofs (`paid_matw`, `hmat_show_sound`,
-`mat_bridge`): about 250 lines. A node then needs one reification and one
-rewrite instead of one per payload.
+The PN overhead of the post-pass is linear in the size of the output. PN's
+output is quadratic in n, since each definition repeats the shadowed
+entries before it. The overhead is about 1.6 + 2.4 s at PN 60, mostly the
+kernel typing the old and new adjustments again.
 
 ### 2. One route for proving a normalisation
 
@@ -353,28 +373,36 @@ induction on words. It is not done.
 
 ## Benchmarks
 
-The families below run on the current branch ("new") and on the commit
-before the single-pass work (20ed942, "old").
+The families below run on the current branch ("now"), on 6d159e3 (the
+branch before materialisation was rewritten) and on the commit before
+the single-pass work (20ed942, "old").
 `tests/bench/names/run.sh FAMILY N…` runs them. The goals have the form
 `P (…) -> True`, so `names` has one rewrite to make. Times are tactic
-time + `Qed`. A dash means not measured. "Rewrite by type" is the figure
-before the variable-path fix described under "Problems found".
+time + `Qed`; for MO and MV, `cbn` comes first and is not counted. A dash
+means not measured. "Rewrite by type" is the figure before the
+variable-path fix described under "Problems found". Timings on this
+machine vary by about 10% between runs.
 
-| family | n | new | old |
-|---|---|---|---|
-| D: chain of n singletons, adjustment only | 100 | 0.19 + 0.20 s | 0.44 + 0.12 s |
-| | 1000 | 4.0 + 1.9 s | 4.5 + 2.4 s |
-| PC: chain of n pairs | 50 | 1.1 + 1.0 s | 1.4 + 1.1 s |
-| VR: a variable through n renamings | 300 | 1.6 + 0.23 s | 2.4 + 0.34 s |
-| VT: a variable through n `x := tvar y` | 10 | 0.16 + 0.04 s | 35 s |
-| | 100 | 0.78 + 0.57 s | — |
-| | 300 | 2.5 + 3.0 s (rewrite by type: 18.5 s) | — |
-| VA: as VT, ending in an atom (a stuck look-up) | 300 | 2.4 + 3.4 s | n = 5: 1.7 s |
-| NS: substitutions nested n deep in a payload | 10 | 0.59 + 0.70 s | 2.8 + 2.0 s |
-| | 30 | 3.4 + 5.1 s | — |
-| SN: n nested substitutions on an opaque term | 3 / 5 / 7 | 0.25 / 0.87 / 3.1 s | n = 4: > 100 s |
-| MO: n opaque subterms under one n-entry substitution | 3 / 5 / 7 | 0.47 / 3.1 / 23 s | 1.1 s / > 150 s |
-| MV: n variables under one n-entry substitution | 3 / 5 / 7 | 0.35 / 1.0 / 4.0 s | 0.63 s / > 150 s |
+| family | n | now | 6d159e3 | old |
+|---|---|---|---|---|
+| D: chain of n singletons, adjustment only | 100 | 0.24 + 0.27 s | 0.21 + 0.20 s | 0.44 + 0.12 s |
+| | 1000 | 4.5 + 2.2 s | 4.2 + 1.9 s | 4.5 + 2.4 s |
+| PC: chain of n pairs | 50 | 1.5 + 1.0 s | 1.3 + 1.1 s | 1.4 + 1.1 s |
+| PN: an opaque term under a chain of n pairs | 30 | 2.9 + 1.1 s | — | — |
+| | 60 | 9.5 + 4.5 s | — | — |
+| VR: a variable through n renamings | 300 | 2.2 + 0.35 s | 1.6 + 0.23 s | 2.4 + 0.34 s |
+| VT: a variable through n `x := tvar y` | 10 | — | 0.16 + 0.04 s | 35 s |
+| | 100 | 0.88 + 0.59 s | 0.78 + 0.57 s | — |
+| | 300 | 3.0 + 3.4 s | 2.5 + 3.0 s (rewrite by type: 18.5 s) | — |
+| VA: as VT, ending in an atom (a stuck look-up) | 300 | 2.9 + 3.5 s | 2.4 + 3.4 s | n = 5: 1.7 s |
+| NS: substitutions nested n deep in a payload | 10 | 0.35 + 0.58 s | 0.59 + 0.70 s | 2.8 + 2.0 s |
+| | 30 | 1.3 + 5.5 s | 3.4 + 5.1 s | — |
+| SN: n nested substitutions on an opaque term | 3 / 5 / 7 | — | 0.25 / 0.87 / 3.1 s | n = 4: > 100 s |
+| | 30 / 100 | 0.75 + 0.23 / 3.6 + 1.1 s | — | — |
+| MO: n opaque subterms under one n-entry substitution | 3 / 5 / 7 | — | 0.47 / 3.1 / 23 s | 1.1 s / > 150 s |
+| | 10 / 20 | 1.7 + 0.21 / 9.4 + 1.6 s | — | — |
+| MV: n variables under one n-entry substitution | 3 / 5 / 7 | — | 0.35 / 1.0 / 4.0 s | 0.63 s / > 150 s |
+| | 10 / 20 | 1.6 + 0.28 / 8.4 + 1.8 s | — | — |
 
 Earlier recorded baselines were D100 at 0.46 + 0.35 s, D300 at 1.5 +
 1.1 s and D1000 at 6.5 + 4.6 s.
@@ -390,8 +418,16 @@ Earlier recorded baselines were D100 at 0.46 + 0.35 s, D300 at 1.5 +
   type-checks it, which cost 6–7 s at VT 200. The proof is now asserted
   without a check and rewritten from the hypothesis, as the other
   rewrites already were (`rewrite_by`).
-- **Exponential materialisation (not fixed).** This is behind SN, MO and
+- **Exponential materialisation (fixed).** This was behind SN, MO and
   MV. See "What could be simpler", section 1.
+- **Passes that walk the whole goal (fixed).** `names_ids` and
+  `names_unnode` walked the goal in Ltac2 even when it had no node: 1.7 s
+  of PC 50's 3.4 s. A native `match` now finds first whether there is
+  anything to do.
+- **Superlinear per-node rewriting (not fixed).** MO and MV grow faster
+  than their output (MO 10 → 20: 1.7 → 9.4 s). Each node is rewritten
+  separately, and each rewrite traverses the goal, which holds all n
+  nodes.
 - **Superlinear deep nesting (not fixed).** NS is about n² on the tactic
   side and worse on `Qed`. On the tactic side, the term table compares a
   new term against the existing ones one at a time, by full syntactic
