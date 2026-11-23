@@ -1762,7 +1762,8 @@ Ltac2 var_term (heads : constr list) (u : constr) : (constr * constr) option :=
     is normalised and shown, by the law's [sl_rel]. *)
 (** Which materialisation: 0, the word's payloads one at a time, after
     normalising; 1, in place, after normalising; 2, while normalising
-    (and in place for what is left); 3, only while normalising. *)
+    (and in place for what is left); 3, only while normalising; 4, none
+    (for measuring). *)
 Ltac2 mutable mat_mode : int := 1.
 
 (** A term that is a node [csubst L a t] as written, or as [names_unnode]
@@ -1817,6 +1818,30 @@ Ltac2 as_node (cs : constr) (term : constr) (vr : constr) (sub : constr) (lw : c
            else None
        | None => None
        end.
+
+(** Shared definitions nothing refers to, dropped ([share A f] is [f A]): the kernel
+    unfolds [share], so a proof about the adjustment with them is one about
+    the adjustment without. *)
+Ltac2 rec unshare (sh : constr) (c : constr) : constr :=
+  let c := match Constr.Unsafe.kind c with
+           | Constr.Unsafe.App f args => Constr.Unsafe.make (Constr.Unsafe.App (unshare sh f) (Array.map (unshare sh) args))
+           | Constr.Unsafe.Lambda b body => Constr.Unsafe.make (Constr.Unsafe.Lambda (unshare_b sh b) (unshare sh body))
+           | Constr.Unsafe.Prod b body => Constr.Unsafe.make (Constr.Unsafe.Prod (unshare_b sh b) (unshare sh body))
+           | _ => c
+           end in
+  match Constr.Unsafe.kind c with
+  | Constr.Unsafe.App f args =>
+      if (if Constr.equal f sh then Int.equal (Array.length args) 7 else false) then
+        match Constr.Unsafe.kind (Array.get args 6) with
+        | Constr.Unsafe.Lambda _ body =>
+            if Constr.Unsafe.occurn 1 body then c else Constr.Unsafe.substnl [Array.get args 5] 0 body
+        | _ => c
+        end
+      else c
+  | _ => c
+  end
+with unshare_b (sh : constr) (b : binder) : binder :=
+  Constr.Binder.unsafe_make (Constr.Binder.name b) (Constr.Binder.relevance b) (unshare sh (Constr.Binder.type b)).
 
 (** [(k, (u, q))], read back. *)
 Ltac2 mf_entry (c : constr) : constr * constr * constr :=
@@ -1879,7 +1904,7 @@ Ltac2 conv_one (node : constr) : unit :=
     let acc := List.fold_left one acc (List.combine (List.init (Int.sub sz k0) (fun k => Int.add k0 k)) items) in
     rounds sz acc in
   let (nfs, vfs) := rounds 0 ([], []) in
-  (match (vv, nfs, vfs) with (None, [], []) => if Int.ge mat_mode 2 then () else Control.zero Not_found | _ => () end);
+  (match (vv, nfs, vfs) with (None, [], []) => if (if Int.ge mat_mode 2 then Int.lt mat_mode 4 else false) then () else Control.zero Not_found | _ => () end);
   let en := finish s ty in
   let ns := en.(e_ns) in
   let nt := nat_lit ns (en.(e_nt)) in
@@ -2024,50 +2049,75 @@ Ltac2 conv_one (node : constr) : unit :=
                           match od with Some d => x = aedenB $lt $tt Ae d | None => True end) in
           let p := '(fun y : adj $ty $n $m => forall v : var $n, drel (lawbase $vr $sub) (rapply (adj_raw $a) (var_raw v)) (rapply (adj_raw y) (var_raw v))) in
           let oldl := sh.(sh_l) in
-          let pf := share_proof ty n m p rd (fun rs hs _ =>
+          let pf := share_proof ty n m p rd (fun rs hs root_t =>
             let k := rd.(rd_k) in
+            (* the old shared definitions, as variables with their
+               equations around the proof ([raw_elim]): the [i]th is bound
+               under the [i] before it *)
+            let nold := List.length oldl in
+            let lift c := Constr.Unsafe.liftn (Int.mul 2 nold) 1 c in
+            let rs := List.map lift rs in
+            let hs := List.map lift hs in
             (* the new terms, under the shared definitions' binders *)
             let sub_rels c := Constr.Unsafe.substnl (List.init k (fun j => rel (Int.mul 2 (Int.add j 1)))) 0 c in
-            let bts := List.mapi (fun j _ => sub_rels ((List.nth rbs j) (fun p => Int.sub k p) 0)) mfl in
+            let bts := List.mapi (fun j _ => lift (sub_rels ((List.nth rbs j) (fun p => Int.sub k p) 0))) mfl in
             let newraw := List.mapi (fun j bt => raw_term ty m (mk_x (Int.add ntI j) bt)) bts in
             let tt2 := btree pt (List.append terms newraw) in
-            (* the old shared definitions' values *)
-            let rec olds acc l := match l with
-              | [] => List.rev acc
-              | d :: l' => let env := btree rty (List.append atoms (List.rev acc)) in
-                           olds (app constr:(@aedenB) [pt; lt; tt; env; d] :: acc) l' end in
-            let rold := olds [] oldl in
+            let rold := List.init nold (fun j => rel (Int.mul 2 (Int.sub nold j))) in
+            let hold := List.init nold (fun j => rel (Int.sub (Int.mul 2 (Int.sub nold j)) 1)) in
+            let olds := List.mapi (fun i d =>
+                          app constr:(@aedenB) [pt; lt; tt; btree rty (List.append atoms (List.init i (fun j => rel (Int.mul 2 (Int.sub i j))))); d])
+                          oldl in
             let aeD := btree rty (List.append atoms rold) in
             let rs_all := List.append atoms (List.append rold rs) in
             let ae2 := btree rty rs_all in
             let hd := defs_proof ty (app hrelD [aeD]) atoms (en.(e_defl)) in
-            let hso := forall2_proof rty constr:(aexpN) (app '(fun (Ae : braun (radj $pt)) (z0 : radj $pt) (d0 : aexpN) => z0 = aedenB $lt $tt Ae d0) [aeD]) rold oldl
-                         (List.map (fun x => refl rty x) rold) in
+            let hso := forall2_proof rty constr:(aexpN) (app '(fun (Ae : braun (radj $pt)) (z0 : radj $pt) (d0 : aexpN) => z0 = aedenB $lt $tt Ae d0) [aeD]) rold oldl hold in
             let heq := refl rty (app constr:(@aedenB) [pt; lt; tt; aeD; root]) in
+            (* the environments with the new terms and all the shared
+               definitions are let-bound once, around the proof below the
+               old definitions: [tt2v], [ae2v] *)
+            let l2 c := Constr.Unsafe.liftn 2 1 c in
+            let tt2v := rel 2 in
+            let ae2v := rel 1 in
             let nproofs := List.mapi (fun j (kk, u, qq) =>
                 let (ku, ut) := term_parts (Array.get terms_a (int_of_n u)) in
-                let bt := List.nth bts j in
-                app constr:(@nest_fact) [term; vr; sub; lw; lt; tt2; ae2; qq; ku; m; bt; ut; kk; u;
+                let bt := l2 (List.nth bts j) in
+                app constr:(@nest_fact) [term; vr; sub; lw; lt; tt2v; ae2v; qq; ku; m; bt; ut; kk; u;
                            refl rty (app constr:(@adj_raw) [ty; ku; m; bt]);
                            refl '(option $pt) (app constr:(@Some) [pt; Array.get terms_a (int_of_n u)]);
-                           refl '(option $pt) (app constr:(@Some) [pt; List.nth newraw j])]) mfl in
+                           refl '(option $pt) (app constr:(@Some) [pt; l2 (List.nth newraw j)])]) mfl in
             let nfty := constr:((N * (N * aexpN))%type) in
-            let hmf := forall_proof nfty (app prn2 [tt2; ae2]) (of_list mfc) nproofs in
+            let hmf := forall_proof nfty (app prn2 [tt2v; ae2v]) (of_list mfc) nproofs in
             let defl2 := List.append (en.(e_defl)) (List.append (List.map (fun d => Some d) oldl) (List.map (fun d => Some d) shl')) in
             let hrel2 := app '(fun (Te2 : braun $pt) (Ae2 : braun (radj $pt)) (x : radj $pt) (od : option aexpN) =>
-                                 match od with Some d => x = aedenB $lt Te2 Ae2 d | None => True end) [tt2; ae2] in
+                                 match od with Some d => x = aedenB $lt Te2 Ae2 d | None => True end) [tt2v; ae2v] in
             let ys := List.map (fun od => match od with Some d => app constr:(@Some aexpN) [d] | None => constr:(@None aexpN) end) defl2 in
             let nat_ := List.length atoms in
-            let nold := List.length rold in
             let hs_a := Array.of_list hs in
+            let rs_all2 := List.map l2 rs_all in
             let prfs := List.mapi (fun i (x, od) =>
                 if Int.lt i nat_ then (match od with Some _ => refl rty x | None => constr:(I) end)
-                else if Int.lt i (Int.add nat_ nold) then refl rty x
-                else Array.get hs_a (Int.sub i (Int.add nat_ nold))) (List.combine rs_all defl2) in
-            let hd2 := forall2_proof rty oaexp hrel2 rs_all ys prfs in
-            app q [list_of rty rs_all; list_of rty rold; aeD; ae2; tt2;
-                   refl constr:(braun label) lt; refl '(braun $pt) tt; refl '(braun (radj $pt)) aeD;
-                   hn aeD; hv; hd; hso; heq; hmf; refl '(braun (radj $pt)) ae2; hd2]) in
+                else if Int.lt i (Int.add nat_ nold) then l2 (List.nth hold (Int.sub i nat_))
+                else l2 (Array.get hs_a (Int.sub i (Int.add nat_ nold)))) (List.combine rs_all2 defl2) in
+            let hd2 := forall2_proof rty oaexp hrel2 rs_all2 ys prfs in
+            let body := app q [list_of rty rs_all2; list_of rty (List.map l2 rold); l2 aeD; ae2v; tt2v;
+                               refl constr:(braun label) lt; refl '(braun $pt) tt; refl '(braun (radj $pt)) (l2 aeD);
+                               l2 (hn aeD); hv; l2 hd; l2 hso; l2 heq; hmf; refl '(braun (radj $pt)) ae2v; hd2] in
+            let body := let_in '(braun $pt) tt2 (let_in '(braun (radj $pt)) (Constr.Unsafe.liftn 1 1 ae2) body) in
+            (* [raw_elim x P (fun r (H : r = x) => ...)], the [i]th under
+               the [i] pairs before it; [P] is the goal at the root *)
+            (* the goal is let-bound once, as [G], outside them all *)
+            let goal := app p [root_t] in
+
+            let body := Constr.Unsafe.liftn 1 (Int.add (Int.mul 2 nold) 1) body in
+            let rec wrap i acc :=
+              if Int.lt i 0 then acc else
+              let x := List.nth olds i in
+              wrap (Int.sub i 1)
+                (app constr:(@raw_elim) [pt; x; rel (Int.add (Int.mul 2 i) 1);
+                   lam @r rty (lam @H (app constr:(@eq) [rty; rel 1; Constr.Unsafe.liftn 1 1 x]) acc)]) in
+            let_in constr:(Prop) goal (wrap (Int.sub nold 1) body)) in
           let hid := fresh @H in
           assert_by hid '(forall v : var $n, drel (lawbase $vr $sub) (rapply (adj_raw $a) (var_raw v)) (rapply (adj_raw $a') (var_raw v)))
             (fun () => Std.exact_no_check pf);
@@ -2080,7 +2130,7 @@ Ltac2 conv_one (node : constr) : unit :=
           Std.clear [eid]
       | None => Control.zero Not_found
       end in
-  let adj_path () := if Int.ge mat_mode 2 then attempt adj_path_mat (fun _ => adj_path ()) else adj_path () in
+  let adj_path () := if (if Int.ge mat_mode 2 then Int.lt mat_mode 4 else false) then attempt adj_path_mat (fun _ => adj_path ()) else adj_path () in
   (* a node on a variable: the normal form followed from it, once *)
   let var_path v eh i :=
       let vty := constr:(option vshowN) in
@@ -2352,7 +2402,7 @@ Ltac2 mat_inplace (node : constr) : unit :=
 
 
 Ltac2 names_mats () : unit :=
-  if Int.equal mat_mode 0 then names_mats_word () else if Int.equal mat_mode 3 then () else
+  if Int.equal mat_mode 0 then names_mats_word () else if Int.ge mat_mode 3 then () else
   let cs := constr:(@csubst) in
   each mat_inplace (List.filter (is_csubst_in cs) (List.rev (outer cs (adj_heads ()) (Control.goal ()) []))).
 

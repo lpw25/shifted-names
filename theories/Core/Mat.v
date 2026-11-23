@@ -307,3 +307,8 @@ Lemma arel_trans {T} (B : rresult T -> rresult T -> Prop) (A X Y Z : radj T) :
   (forall v, drel B (rapply A v) (rapply X v)) -> X = Y -> (forall v, drel B (rapply Y v) (rapply Z v)) ->
   forall v, drel B (rapply A v) (rapply Z v).
 Proof. intros H1 -> H2 v; eapply DTrans; [apply H1|apply H2]. Qed.
+
+(** A value given a name and its defining equation, in a proof: the
+    proof is checked with the name as a variable. *)
+Lemma raw_elim {T : Type} (x : radj T) (P : Prop) : (forall r, r = x -> P) -> P.
+Proof. intros H; exact (H x eq_refl). Qed.
