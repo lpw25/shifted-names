@@ -11,3 +11,9 @@
 - normalising `mult c c` on Church numerals with a locally nameless
   normal-order normaliser (binders opened with fresh names, redexes
   instantiated).
+
+# Timing `names`
+
+`names/run.sh FAMILY N...` times `names` (tactic, then `Qed`) on
+generated goals; `docs/names.md` describes the families and has the
+current figures.
