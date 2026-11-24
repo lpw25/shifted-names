@@ -1,101 +1,88 @@
-# A syntax as a canonical structure
+# A syntax as classes
 
-A syntax is a structure `syntax` (`Core/Syntax.v`): its term family, the
-variable constructor, the Kleisli extension and its laws. It used to be
-the input of a functor, `Subst`; now `Core/Subst.v` is generic over any
-`syntax`, and a syntax declares its structure canonical:
+A syntax gives the library (`Core/Syntax.v`):
+
+- **`Kleisli P T`**: the Kleisli extension of a family `T` along morphisms
+  into `P` (maps from variables to `P`-terms), going under binders with a
+  witness `ext N M K L`;
+- **`Syntax P`**: for the family `P` that has the variables, its variable
+  constructor and the laws of its Kleisli extension;
+- **`Family P T`**: for another family `T` over `P` (computations over
+  values, terms over types, …), the laws of its Kleisli extension (step 2
+  of the generalisation, in progress).
+
+`Core/Subst.v` gives substitution for any `Syntax`, and `names` works on
+it. A syntax declares its instances, and declares them canonical too:
 
 ```coq
-Canonical Structure lambda_syntax : syntax := {|
-  Syntax.term := tm; Syntax.tvar := @tvar; Syntax.kleisli := @LambdaSyntax.kleisli; … |}.
+#[export] Instance lambda_kleisli : Kleisli tm tm := {| Syntax.kleisli := @LambdaSyntax.kleisli |}.
+#[export] Instance lambda_syntax : Syntax tm := {| Syntax.tvar := @tvar; … |}.
+Canonical Structure lambda_kleisli.
+Canonical Structure lambda_syntax.
 ```
 
-The term family is a field, so this is the usual canonical-structure use:
-elaborating `t [a]` with `t : tm N` unifies the structure's `term ?S N`
-with `tm N`, and unification finds `?S` in the table of canonical
-structures. The same happens when a library lemma, stated with the
-structure's `tvar` or `kleisli`, is used with `rewrite` or `apply` on a
-goal with the syntax's own constructor, or its own `kleisli` (what `cbn`
-leaves): unification finds the structure from that constructor or
-constant.
+## Why classes, and why canonical too
 
-## Why not a type class
+The families are parameters of the classes, not fields of a structure:
 
-A first prototype made the syntax a class, with the term family as its
-parameter. Instance resolution then found the instance for statements,
-but `rewrite subst_tvar_eval` and `apply subst_tvar_rename` failed on
-goals written with the constructor: unification cannot see through a
-projection of an instance it does not yet know, and instance resolution
-runs only after. Declaring the instance canonical as well fixed that; with
-the term family a field, the canonical structure alone is enough, and
-there is no proof search at all.
+- **Types stay the user's own.** What the library computes has type
+  `tm N`, not a structure's projection applied to the syntax, so a name
+  for closed terms is a plain abbreviation, `Notation trm := (tm 0)`, and
+  everything prints with it.
+- **A family can have several substitutions**, one per family of what is
+  substituted (term and type substitution over System F's terms). A
+  canonical structure keeps one record per type; instance resolution finds
+  an instance from both families.
+
+Instance resolution finds the instances when a statement is elaborated.
+It does not when `rewrite` or `apply` match a library lemma against a
+goal: their instance arguments are still holes then, and unification
+cannot see through a class's projection (`tvar`, `kleisli`) to the
+syntax's own constructor or function while the instance is unknown.
+Declaring the instances canonical fixes this: unification finds them from
+the syntax's constructor (`tvar`) and Kleisli function (what `cbn`
+leaves), keyed on those, which are distinct for each substitution.
+
+Earlier versions: a module functor (lemmas stated per syntax, a rewrite
+database for `names`), then a single canonical structure with the term
+family as a field (types printed through the structure, one substitution
+per type).
 
 ## What it costs the rest of a development
 
-- **Inference** is a table lookup during unification, when the
-  structure's projection meets the syntax's terms. The proof terms hold
-  the structure as an ordinary constant; nothing searches.
-- **Compile times** of the example and test files, with the functor and
-  now (two runs each, about 10% noise): `Subst.v` 3.2 → 3.5 s, `Lambda.v`
-  1.8 → 1.9 s, `STLC.v` 1.1 → 1.0 s, `CoreTests.v` 0.9 → 0.9 s,
-  `NamesTests.v` 1.7 → 1.8 s. Each `names` call pays a few milliseconds for
-  the folding step and for recording universe constraints.
-- **`cbn`** gives exactly the same goals as with the functor: it unfolds
-  the structure and leaves the syntax's own `kleisli` and constructors.
-- **The examples' proofs** are unchanged (Lambda's syntax module is now
-  plain, and its last line declares the structure).
-- **Display**: a type computed by the library is the structure's term
-  family, which prints as `lambda_syntax M`. A name for closed terms (the
-  ones a client mostly works with) is best an abbreviation for the
-  structure's form, so that those print as it (`Lambda.v`):
-
-  ```coq
-  Notation trm := (Syntax.term lambda_syntax 0).
-  ```
-
-  Types the syntax's own constructors give still print as `tm 0`.
-- **Aliases** work: where the structure is looked up at an alias and not
-  found, unification unfolds the alias and finds it at the syntax's type.
-  So `Definition trm := tm 0` or `Definition tmf := tm` can be used
-  everywhere `tm` can, with `apply`,
-  `rewrite`, `cbn` and `names`. Only an alias unification cannot unfold
-  (opaque, or a new type wrapping the syntax's) needs its own canonical
-  structure.
-- **Inside the library**, statements and proofs over a generic structure
-  fix it with local notations (`kleisli := kleisli (s:=Sy)`, and so on):
-  unification has nothing to find it from where an argument's type is not
-  yet known.
+- **Inference**: one instance lookup when a statement mentioning
+  substitution is elaborated, a canonical lookup when a lemma is matched
+  against the syntax's own terms. The proof terms hold the instances as
+  ordinary constants.
+- **`cbn`** gives the same goals as before: it unfolds the instance and
+  leaves the syntax's own Kleisli function and constructors.
+- **The examples' proofs** are unchanged.
+- **Aliases** (`Definition trm := tm 0`) work: unification unfolds them.
 
 ## What it gives `names`
 
-`names` reads the syntax's law from the structure in the goal, so it no
-longer needs a rewrite database for nodes:
+`names` reads the syntax's law from the instances in the goal, so it
+needs no rewrite database for nodes: step 0 writes the syntax's own
+Kleisli function as the class's (one `change` per syntax, the syntaxes
+found from the uses of `apply`), and step 2 is `change` (`t [a]` is the
+node by conversion). See `docs/names.md`.
 
-- step 0 writes the syntax's own `kleisli` as the structure's
-  (`syntax_fold`: the structures in the goal, from the uses of `apply`,
-  and one `change` each);
-- step 2 is `change`: `t [a]` is the node by conversion, and so is what
-  `cbn` leaves of a substitution into a variable when the syntax's
-  `kleisli` computes on variables (otherwise the lemma `apply_here_node`
-  rewrites it). A chain `t [a] [b] …` is converted at once.
+## Timings
 
-| family | functor | canonical structure |
+On the same machine, in one session, against the single canonical
+structure it replaces (compile time; `names` as tactic + `Qed`):
+
+| | canonical structure | classes |
 |---|---|---|
-| SN 100 | 3.2 + 0.82 s | 0.68 + 0.18 s |
-| SN 200 | about 14 s | 2.0 + 0.34 s |
-| MO 20 | 3.2 + 0.33 s | 1.3 + 0.06 s |
-| MV 20 | 3.6 + 0.47 s | 1.4 + 0.36 s |
-| NS 60 | 1.6 + 1.2 s | 0.69 + 1.2 s |
-| VR 300 | 1.2 + 0.15 s | 1.0 + 0.12 s |
-| VT 300 | 1.6 + 0.41 s | 1.4 + 0.45 s |
-| VA 300 | 1.5 + 0.45 s | 1.3 + 0.51 s |
-| PN 60, PC 50, D 1000 | | within noise |
+| `Subst.v` (the library itself) | 3.7 s | 4.4 s |
+| `Lambda.v` | 2.3 s | 2.1 s |
+| `STLC.v` | 1.2 s | 1.2 s |
+| `NamesTests.v` | 2.1 s | 1.9 s |
+| SN 100 | 0.91 + 0.18 s | 0.85 + 0.18 s |
+| MO 20 | 1.65 + 0.11 s | 1.66 + 0.09 s |
+| MV 20 | 2.26 + 0.44 s | 1.96 + 0.29 s |
+| NS 60 | 0.92 + 1.9 s | 0.69 + 1.3 s |
+| VT 300 | 1.48 + 0.55 s | 1.73 + 0.41 s |
 
-## Still to do
-
-- The lifting rewrites of step 1 (`names_pre`) are `autorewrite`; with the
-  law and the syntax's `kleisli` known from the structure, they can move
-  into reification. On MV they are now the largest step after
-  normalising.
-- `csubst` is still the node `names` works on internally; steps 0, 2 and
-  5 reach it and leave it by `change`, with no proof.
+Only the library's own file is slower to compile (elaborating it over
+instances); users' files and `names` are the same within noise.

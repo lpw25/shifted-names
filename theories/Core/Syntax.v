@@ -114,50 +114,60 @@ Proof. apply var_eq; reflexivity. Qed.
 
 (** ** The interface *)
 
-(** A syntax: its terms, indexed by their scope, the variable
-    constructor, and one function, the Kleisli extension of a morphism (a
-    map from variables to terms) along a witness [ext N M K L] (the
-    binders gone under), with its laws.  Everything about substitution
-    comes from these ([Subst]).  A syntax declares its [syntax] as a
-    canonical structure: unification then finds it from its terms (or
-    its variable constructor, or its [kleisli]). *)
+(** A syntax: a family of terms [P], indexed by their scope, with a
+    variable constructor, and the Kleisli extension of a morphism (a map
+    from variables to [P]-terms) along a witness [ext N M K L] (the binders
+    gone under), with its laws.  Other families [T] (computations over
+    values, terms over types, …) have a Kleisli extension along the same
+    morphisms, with its laws.  Everything about substitution comes from
+    these ([Subst]).
+
+    They are classes, with the families as parameters, so that types stay
+    the user's own ([tm N]) and a family can have several substitutions
+    (one per family of what is substituted).  A syntax also declares its
+    instances canonical: unification then finds them from its own
+    constructor or Kleisli function, so that the library's lemmas rewrite
+    goals as written, and as [cbn] leaves them. *)
 Definition morph (term : nat -> Type) (N M : nat) : Type := forall K L, ext N M K L -> var K -> term L.
 
 (** Re-basing a morphism under the binders of a witness. *)
 Definition rebase_m {term : nat -> Type} {N M K L} (e1 : ext N M K L) (f : morph term N M) : morph term K L :=
   fun K' L' e v => f K' L' (ext_app e1 e) v.
 
-Structure syntax := MkSyntax {
-  term :> nat -> Type;
-  tvar : forall {N}, var N -> term N;
-  kleisli : forall {N M} (f : morph term N M) {K L}, ext N M K L -> term K -> term L;
-  kleisli_var : forall N M (f : morph term N M) K L (e : ext N M K L) (v : var K),
+(** The Kleisli extension of [T] along morphisms into [P]. *)
+Class Kleisli (P T : nat -> Type) := {
+  kleisli : forall {N M} (f : morph P N M) {K L}, ext N M K L -> T K -> T L
+}.
+Arguments kleisli {P T kl N M} f {K L} e t : rename.
+
+(** The family with the variables, and its laws. *)
+Class Syntax (P : nat -> Type) {kp : Kleisli P P} := {
+  tvar : forall {N}, var N -> P N;
+  kleisli_var : forall N M (f : morph P N M) K L (e : ext N M K L) (v : var K),
     kleisli f e (tvar v) = f K L e v;
-  kleisli_ext : forall N M (f g : morph term N M),
+  kleisli_ext : forall N M (f g : morph P N M),
     (forall K L (e : ext N M K L) v, f K L e v = g K L e v) ->
     forall K L (e : ext N M K L) t, kleisli f e t = kleisli g e t;
-  kleisli_rebase : forall N M (f : morph term N M) K L K' L' (e1 : ext N M K L)
+  kleisli_rebase : forall N M (f : morph P N M) K L K' L' (e1 : ext N M K L)
     (e2 : ext K L K' L') t,
     kleisli f (ext_app e1 e2) t = kleisli (rebase_m e1 f) e2 t;
   (** the identity morphism and Kleisli composition, written out (as
       [unit_m] and [comp_m] below) *)
   kleisli_unit_ : forall N K (e : ext N N K K) t, kleisli (fun K L e v => tvar (ext_var e v)) e t = t;
-  kleisli_assoc_ : forall N M P (g : morph term M P) (f : morph term N M) K L (e : ext N P K L) t,
+  kleisli_assoc_ : forall N M P' (g : morph P M P') (f : morph P N M) K L (e : ext N P' K L) t,
     kleisli (fun K L e v => kleisli g (ext_right M e) (f K (ext_mid M e) (ext_left M e) v)) e t
     = kleisli g (ext_right M e) (kleisli f (ext_left M e) t)
 }.
 
-Arguments tvar {s N} v.
-Arguments kleisli {s N M} f {K L} e t.
-Arguments kleisli_var {s} N M f K L e v.
-Arguments kleisli_ext {s} N M f g _ K L e t.
-Arguments kleisli_rebase {s} N M f K L K' L' e1 e2 t.
-Arguments kleisli_unit_ {s} N K e t.
-Arguments kleisli_assoc_ {s} N M P g f K L e t.
+Arguments tvar {P kp sy N} v : rename.
+Arguments kleisli_var {P kp sy} N M f K L e v : rename.
+Arguments kleisli_ext {P kp sy} N M f g _ K L e t : rename.
+Arguments kleisli_rebase {P kp sy} N M f K L K' L' e1 e2 t : rename.
+Arguments kleisli_unit_ {P kp sy} N K e t : rename.
+Arguments kleisli_assoc_ {P kp sy} N M P' g f K L e t : rename.
 
 Section Syntax.
-Context {Sy : syntax}.
-Local Notation term := (term Sy).
+Context {term : nat -> Type} {kp : Kleisli term term} {sy : Syntax term}.
 
 (** The identity morphism, and Kleisli composition. *)
 Definition unit_m {N} : morph term N N := fun K L e v => tvar (ext_var e v).
@@ -173,3 +183,20 @@ Lemma kleisli_assoc N M P (g : morph term M P) (f : morph term N M) K L (e : ext
 Proof. exact (kleisli_assoc_ N M P g f K L e t). Qed.
 
 End Syntax.
+
+Arguments unit_m {term kp sy N} K L e v.
+Arguments comp_m {term kp N M P} g f K L e v.
+
+(** Another family [T] over a syntax [P]: its Kleisli extension along
+    [P]'s morphisms, with its laws (relative to [P]'s). *)
+Class Family (P : nat -> Type) {kp : Kleisli P P} {sy : Syntax P} (T : nat -> Type) {kt : Kleisli P T} := {
+  fkleisli_ext : forall N M (f g : morph P N M),
+    (forall K L (e : ext N M K L) v, f K L e v = g K L e v) ->
+    forall K L (e : ext N M K L) (t : T K), kleisli f e t = kleisli g e t;
+  fkleisli_rebase : forall N M (f : morph P N M) K L K' L' (e1 : ext N M K L)
+    (e2 : ext K L K' L') (t : T K'),
+    kleisli f (ext_app e1 e2) t = kleisli (rebase_m e1 f) e2 t;
+  fkleisli_unit : forall N K (e : ext N N K K) (t : T K), kleisli unit_m e t = t;
+  fkleisli_assoc : forall N M P' (g : morph P M P') (f : morph P N M) K L (e : ext N P' K L) (t : T K),
+    kleisli (comp_m g f) e t = kleisli g (ext_right M e) (kleisli f (ext_left M e) t)
+}.

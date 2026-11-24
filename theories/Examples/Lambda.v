@@ -3,7 +3,7 @@
     The user's side is this file's first two sections: an indexed
     inductive, one Kleisli-extension function, and its laws, each a routine
     induction.  Everything about substitution then comes from the library
-    ([Subst]), given the syntax as a canonical [syntax] structure. *)
+    ([Subst]), given the syntax as instances of [Kleisli] and [Syntax]. *)
 
 From Stdlib Require Import Arith List Lia Bool StrictProp.
 From ShiftedNames.Core Require Import Label Var Adjustment Laws Scoped Indexed Syntax Subst Names.
@@ -85,15 +85,19 @@ End LambdaSyntax.
 
 (** ** Substitution, from the library *)
 
-Canonical Structure lambda_syntax : syntax := {|
-  Syntax.term := tm;
+#[export] Instance lambda_kleisli : Kleisli tm tm := {| Syntax.kleisli := @LambdaSyntax.kleisli |}.
+#[export] Instance lambda_syntax : Syntax tm := {|
   Syntax.tvar := @tvar;
-  Syntax.kleisli := @LambdaSyntax.kleisli;
   Syntax.kleisli_var := LambdaSyntax.kleisli_var;
   Syntax.kleisli_ext := LambdaSyntax.kleisli_ext;
   Syntax.kleisli_rebase := LambdaSyntax.kleisli_rebase;
   Syntax.kleisli_unit_ := LambdaSyntax.kleisli_unit;
   Syntax.kleisli_assoc_ := LambdaSyntax.kleisli_assoc |}.
+(** Canonical too: unification finds them from [LambdaSyntax.kleisli] and
+    [tvar], so that the library's lemmas rewrite goals as written and as
+    [cbn] leaves them. *)
+Canonical Structure lambda_kleisli.
+Canonical Structure lambda_syntax.
 
 (** Substitutions: scoped adjustments whose payloads are terms of any
     scope. *)
@@ -235,12 +239,8 @@ Proof. reflexivity. Qed.
 (** ** Closed terms
 
     A name for the terms with no bound variables free, the ones a client
-    mostly works with: an abbreviation for the structure's terms at [0],
-    which is what the library computes, so that those print as [trm]
-    ([tm 0], as the constructors give, still prints as itself).  A
-    definition, or an abbreviation for [tm 0], would do too, but then the
-    library's types print as [lambda_syntax 0]. *)
-Notation trm := (Syntax.term lambda_syntax 0).
+    mostly works with. *)
+Notation trm := (tm 0).
 
 Example trm_identity (t : trm) : t [⟦⟧] = t.
 Proof. apply subst_identity. Qed.

@@ -31,28 +31,31 @@ Inductive ext (N M : nat) : nat -> nat -> Type :=
 Definition morph N M := forall K L, ext N M K L -> var K -> term L.
 ```
 
-A syntax is a canonical structure of type `syntax` (`Core/Syntax.v`):
+A syntax is two instances (`Core/Syntax.v`, `docs/syntax.md`):
 
-- `term : nat -> Type` and `tvar : var N -> term N`;
-- `kleisli : morph N M -> ext N M K L -> term K -> term L`, structural on
-  terms, going under a binder with `ext_under`;
-- its laws, each a routine induction on terms: `kleisli_var`,
-  `kleisli_ext` (pointwise-equal morphisms), `kleisli_rebase` (witness
-  composition), `kleisli_unit` and `kleisli_assoc`.
+- `Kleisli term term`: `kleisli : morph N M -> ext N M K L -> term K ->
+  term L`, structural on terms, going under a binder with `ext_under`;
+- `Syntax term`: `tvar : var N -> term N` and the laws, each a routine
+  induction on terms: `kleisli_var`, `kleisli_ext` (pointwise-equal
+  morphisms), `kleisli_rebase` (witness composition), `kleisli_unit` and
+  `kleisli_assoc`.
 
-Declaring it canonical lets unification find it from the syntax's own
-terms, constructor or `kleisli` (or through a transparent alias), so the library's statements and lemmas,
-generic over any `syntax`, apply to the syntax's terms as written:
+The instances are declared canonical too, so that unification finds them
+from the syntax's own constructor and `kleisli` (what `cbn` leaves), and
+the library's lemmas rewrite goals as written:
 
 ```coq
-Canonical Structure lambda_syntax : syntax := {| Syntax.term := tm; … |}.
+#[export] Instance lambda_kleisli : Kleisli tm tm := {| Syntax.kleisli := @LambdaSyntax.kleisli |}.
+#[export] Instance lambda_syntax : Syntax tm := {| Syntax.tvar := @tvar; … |}.
+Canonical Structure lambda_kleisli.
+Canonical Structure lambda_syntax.
 ```
 
 Declare the scope as a non-uniform *parameter*
 (`Inductive tm (N : nat) := ... | tlam (b : tm (S N))`), not an index.
 Constructors then store no scope, and `kleisli` needs no convoy pattern.
 
-`Core/Subst.v` gives, for any `syntax`:
+`Core/Subst.v` gives, for any `Syntax`:
 
 - `apply a : morph N M`, by structural recursion on the adjustment;
 - substitution `t [a] := kleisli (apply a) ext_here t` (notation);
@@ -109,16 +112,16 @@ compute, so closed equations hold by `vm_compute` (`Tests/CoreTests.v`).
 an abbreviation for the Kleisli extension of the library's `apply` at the
 top, users push it through their own constructors with `cbn`, and a
 library contributes monad laws (a rewrite database) and, from the
-syntax's structure, its substitution law. `names` makes one pass:
+syntax's instances, its substitution law. `names` makes one pass:
 
 0. writes what `cbn` leaves of a substitution, the syntax's own `kleisli`,
-   as the structure's (`syntax_fold`, one `change` per syntax);
+   as the class's (`syntax_fold`, one `change` per syntax);
 1. rewrites with `names_pre` to a fixpoint: going under a binder lifts
    the adjustment (`kleisli (apply a) (ext_under e) = kleisli (apply (lift
    a)) (ext_shift e)`, and the same for `apply` on a variable);
 2. writes a substitution `t [a]` (and `apply a ext_here v` as `cbn`
    leaves it) as the core node `csubst L a t`, which carries the syntax's
-   law `L` (`Names.SubstLaw`), read from the structure: by conversion,
+   law `L` (`Names.SubstLaw`), read from the instances: by conversion,
    with `change` (`subst_nodes`);
 3. normalises (`names_norm`). Chains of nodes `t [a] [b]` first fuse
    into one, `t [a ⨾ b]` (the law's `sl_comp`, one application per
