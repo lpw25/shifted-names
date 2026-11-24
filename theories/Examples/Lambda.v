@@ -95,6 +95,10 @@ Canonical Structure lambda_syntax : syntax := {|
   Syntax.kleisli_unit_ := LambdaSyntax.kleisli_unit;
   Syntax.kleisli_assoc_ := LambdaSyntax.kleisli_assoc |}.
 
+(** Types the library computes are the structure's terms: printed as
+    [tm N] (only printing: [tm] stays a name). *)
+Notation "'tm' N" := (Syntax.term lambda_syntax N) (only printing, at level 10, N at level 9).
+
 (** Substitutions: scoped adjustments whose payloads are terms of any
     scope. *)
 Notation sub N M := (adj tm N M).
@@ -235,10 +239,12 @@ Proof. reflexivity. Qed.
 (** ** Closed terms
 
     A name for the terms with no bound variables free, the ones a client
-    mostly works with.  The library finds the syntax through it: where
-    the canonical structure is looked up at [trm] and not found,
-    unification unfolds [trm] and finds it at [tm]. *)
-Definition trm := tm 0.
+    mostly works with.  (A definition would do too: where the canonical
+    structure is looked up at it and not found, unification unfolds it
+    and finds it at [tm].)  An abbreviation, so
+    that [tm 0] prints as [trm]; the structure's terms at [0] too. *)
+Notation trm := (tm 0).
+Notation "'trm'" := (Syntax.term lambda_syntax 0) (only printing).
 
 Example trm_identity (t : trm) : t [⟦⟧] = t.
 Proof. apply subst_identity. Qed.

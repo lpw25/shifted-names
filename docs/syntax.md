@@ -44,12 +44,25 @@ there is no proof search at all.
   the structure and leaves the syntax's own `kleisli` and constructors.
 - **The examples' proofs** are unchanged (Lambda's syntax module is now
   plain, and its last line declares the structure).
-- **Display**: a type computed by the library may print through the
-  structure, e.g. `lambda_syntax M` for `tm M`.
+- **Display**: a type computed by the library is the structure's term
+  family, which prints as `lambda_syntax M` unless the syntax adds a
+  printing notation; `Lambda.v` does, so it prints as `tm M`:
+
+  ```coq
+  Notation "'tm' N" := (Syntax.term lambda_syntax N) (only printing, at level 10, N at level 9).
+  ```
+
+  A name for closed terms is an abbreviation, with the same for the
+  structure's form, so that both print as it:
+
+  ```coq
+  Notation trm := (tm 0).
+  Notation "'trm'" := (Syntax.term lambda_syntax 0) (only printing).
+  ```
 - **Aliases** work: where the structure is looked up at an alias and not
   found, unification unfolds the alias and finds it at the syntax's type.
-  So `Definition trm := tm 0` (closed terms, `Lambda.v`) or
-  `Definition tmf := tm` can be used everywhere `tm` can, with `apply`,
+  So `Definition trm := tm 0` or `Definition tmf := tm` can be used
+  everywhere `tm` can, with `apply`,
   `rewrite`, `cbn` and `names`. Only an alias unification cannot unfold
   (opaque, or a new type wrapping the syntax's) needs its own canonical
   structure.
