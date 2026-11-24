@@ -386,9 +386,10 @@ induction on words. It is not done.
 
 ## Benchmarks
 
-The families below run on the current branch ("now"), on 6d159e3 (the
-branch before materialisation was rewritten) and on the commit before
-the single-pass work (20ed942, "old").
+The families below run on the current branch ("now"), on 86e4e1f
+(before step 3 rewrote all nodes at once and step 5 became a
+conversion) and on the commit before the single-pass work (20ed942,
+"old").
 `tests/bench/names/run.sh FAMILY N…` runs them. The goals have the form
 `P (…) -> True`, so `names` has one rewrite to make. Times are tactic
 time + `Qed`; for MO and MV, `cbn` comes first and is not counted. A dash
@@ -396,26 +397,26 @@ means not measured. "Rewrite by type" is the figure before the
 variable-path fix described under "Problems found". Timings on this
 machine vary by about 10% between runs.
 
-| family | n | now | 6d159e3 | old |
+| family | n | now | 86e4e1f | old |
 |---|---|---|---|---|
-| D: chain of n singletons, adjustment only | 100 | 0.19 + 0.17 s | 0.21 + 0.20 s | 0.44 + 0.12 s |
-| | 1000 | 3.1 + 1.5 s | 4.2 + 1.9 s | 4.5 + 2.4 s |
-| PC: chain of n pairs | 50 | 0.92 + 0.96 s | 1.3 + 1.1 s | 1.4 + 1.1 s |
-| PN: an opaque term under a chain of n pairs | 30 | 1.2 + 0.74 s | — | — |
-| | 60 | 3.6 + 1.7 s | — | — |
-| VR: a variable through n renamings | 300 | 1.6 + 0.20 s | 1.6 + 0.23 s | 2.4 + 0.34 s |
-| VT: a variable through n `x := tvar y` | 10 | 0.15 + 0.04 s | 0.16 + 0.04 s | 35 s |
-| | 100 | 0.68 + 0.47 s | 0.78 + 0.57 s | — |
-| | 300 | 2.1 + 2.7 s | 2.5 + 3.0 s (rewrite by type: 18.5 s) | — |
-| VA: as VT, ending in an atom (a stuck look-up) | 300 | 3.1 + 2.8 s | 2.4 + 3.4 s | n = 5: 1.7 s |
-| NS: substitutions nested n deep in a payload | 10 | 0.29 + 0.10 s | 0.59 + 0.70 s | 2.8 + 2.0 s |
-| | 30 | 1.4 + 1.1 s | 3.4 + 5.1 s | — |
-| SN: n nested substitutions on an opaque term | 3 / 5 / 7 | — | 0.25 / 0.87 / 3.1 s | n = 4: > 100 s |
-| | 30 / 100 | 0.54 + 0.21 / 2.9 + 1.0 s | — | — |
-| MO: n opaque subterms under one n-entry substitution | 3 / 5 / 7 | — | 0.47 / 3.1 / 23 s | 1.1 s / > 150 s |
-| | 10 / 20 | 1.4 + 0.20 / 8.0 + 1.1 s | — | — |
-| MV: n variables under one n-entry substitution | 3 / 5 / 7 | — | 0.35 / 1.0 / 4.0 s | 0.63 s / > 150 s |
-| | 10 / 20 | 1.5 + 0.31 / 8.5 + 1.4 s | — | — |
+| D: chain of n singletons, adjustment only | 100 | 0.17 + 0.18 s | 0.19 + 0.17 s | 0.44 + 0.12 s |
+| | 1000 | 3.3 + 1.3 s | 3.3 + 1.7 s | 4.5 + 2.4 s |
+| PC: chain of n pairs | 50 | 0.96 + 0.83 s | 0.98 + 0.94 s | 1.4 + 1.1 s |
+| PN: an opaque term under a chain of n pairs | 30 | 0.74 + 0.53 s | 1.2 + 0.74 s | — |
+| | 60 | 2.2 + 1.5 s | 3.6 + 1.7 s | — |
+| VR: a variable through n renamings | 300 | 1.3 + 0.20 s | 1.6 + 0.20 s | 2.4 + 0.34 s |
+| VT: a variable through n `x := tvar y` | 10 | 0.17 + 0.03 s | 0.15 + 0.04 s | 35 s |
+| | 100 | 0.65 + 0.44 s | 0.68 + 0.47 s | — |
+| | 300 | 2.0 + 2.7 s | 2.1 + 2.7 s (rewrite by type: 18.5 s) | — |
+| VA: as VT, ending in an atom (a stuck look-up) | 300 | 3.2 + 2.8 s | 3.1 + 2.8 s | n = 5: 1.7 s |
+| NS: substitutions nested n deep in a payload | 10 | 0.31 + 0.13 s | 0.29 + 0.10 s | 2.8 + 2.0 s |
+| | 30 | 1.3 + 0.97 s | 1.4 + 1.1 s | — |
+| SN: n nested substitutions on an opaque term | 30 / 100 | 0.43 + 0.19 / 3.3 + 0.90 s | 0.54 + 0.21 / 2.9 + 1.0 s | n = 4: > 100 s |
+| MO: n opaque subterms under one n-entry substitution | 10 / 20 | 0.71 + 0.09 / 3.5 + 0.37 s | 1.4 + 0.20 / 8.0 + 1.1 s | n = 7: > 150 s |
+| MV: n variables under one n-entry substitution | 10 / 20 | 0.91 + 0.15 / 4.2 + 0.69 s | 1.5 + 0.31 / 8.5 + 1.4 s | n = 7: > 150 s |
+
+Most of SN, MO and MV is now step 2 (`names_node`, `autorewrite`): SN
+100 2.8 of 3.3 s, MO 20 2.4 of 3.5 s, MV 20 2.6 of 4.2 s.
 
 Earlier recorded baselines were D100 at 0.46 + 0.35 s, D300 at 1.5 +
 1.1 s and D1000 at 6.5 + 4.6 s.
