@@ -45,20 +45,15 @@ there is no proof search at all.
 - **The examples' proofs** are unchanged (Lambda's syntax module is now
   plain, and its last line declares the structure).
 - **Display**: a type computed by the library is the structure's term
-  family, which prints as `lambda_syntax M` unless the syntax adds a
-  printing notation; `Lambda.v` does, so it prints as `tm M`:
+  family, which prints as `lambda_syntax M`. A name for closed terms (the
+  ones a client mostly works with) is best an abbreviation for the
+  structure's form, so that those print as it (`Lambda.v`):
 
   ```coq
-  Notation "'tm' N" := (Syntax.term lambda_syntax N) (only printing, at level 10, N at level 9).
+  Notation trm := (Syntax.term lambda_syntax 0).
   ```
 
-  A name for closed terms is an abbreviation, with the same for the
-  structure's form, so that both print as it:
-
-  ```coq
-  Notation trm := (tm 0).
-  Notation "'trm'" := (Syntax.term lambda_syntax 0) (only printing).
-  ```
+  Types the syntax's own constructors give still print as `tm 0`.
 - **Aliases** work: where the structure is looked up at an alias and not
   found, unification unfolds the alias and finds it at the syntax's type.
   So `Definition trm := tm 0` or `Definition tmf := tm` can be used
