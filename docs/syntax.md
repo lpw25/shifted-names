@@ -8,8 +8,7 @@ A syntax gives the library (`Core/Syntax.v`):
 - **`Syntax P`**: for the family `P` that has the variables, its variable
   constructor and the laws of its Kleisli extension;
 - **`Family P T`**: for another family `T` over `P` (computations over
-  values, terms over types, …), the laws of its Kleisli extension (step 2
-  of the generalisation, in progress).
+  values, terms over types, …), the laws of its Kleisli extension.
 
 `Core/Subst.v` gives substitution for any `Syntax`, and `names` works on
 it. A syntax declares its instances, and declares them canonical too:
@@ -20,6 +19,42 @@ it. A syntax declares its instances, and declares them canonical too:
 Canonical Structure lambda_kleisli.
 Canonical Structure lambda_syntax.
 ```
+
+## A second substitution
+
+A family with its own `Kleisli` and `Family` instances over a syntax `P`
+has `P`'s substitution: the library's `fam_law` is its law, and `names`
+normalises it. System F (`Examples/SystemF.v`) has types `ty N` and
+terms `tm N K`, with `N` type variables and `K` term variables; types
+are a syntax, and terms are a family over types in their first scope,
+one instance for each term scope `J`:
+
+```coq
+#[export] Instance tm_ty_kleisli J : Kleisli ty (fun K => tm K J) := {| Syntax.kleisli := @TmTy.tkleisli J |}.
+#[export] Instance tm_ty_family J : Family ty (fun K => tm K J) := {| … |}.
+Canonical Structure tm_ty_kleisli.
+```
+
+Written as the class's `kleisli`, the substitution `t [a]` of a term by
+types would not elaborate: unification solves `T ?N` against `tm N K`
+with `T := tm N`, the last index. The library's `kl_at` is the same
+substitution, typed on `F N b` instead, for a type with two scopes
+substituted in its first, and `t {{ a }}` is its notation:
+
+```coq
+Example tsub_fuse {N M P K} (a : tsub M P) (b : tsub N M) (t : tm N K) :
+  t {{ b }} {{ a }} = t {{ b ⨾ a }}.
+Proof. names; reflexivity. Qed.
+```
+
+`names` knows only the classes, not `kl_at`: `Subst.v` unfolds it,
+and writes the family's substitutions back with it. For a family of
+another shape (a third scope, or the substituted scope second), a user
+defines their own version of `kl_at` and its notation the same way.
+
+Term substitution in System F's terms needs one more thing: going under a
+type binder, a substitution's payload terms are shifted in their type
+scope, a map over payloads (next step).
 
 ## Why classes, and why canonical too
 

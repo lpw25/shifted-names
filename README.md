@@ -52,7 +52,10 @@ condition.
   - `Syntax.v`, `Subst.v`: the structure a syntax provides (one Kleisli
     extension and its laws), declared canonical, and substitution for any
     such structure.
-- `theories/Examples/Lambda.v`: the λ-calculus as a client of the library.
+- `theories/Examples/Lambda.v`: the λ-calculus as a client of the library;
+  `STLC.v`: its simply typed version, weakening and the substitution
+  lemma; `SystemF.v`: System F's types and terms, with type substitution
+  in both (`t {{ a }}` in terms).
 - `theories/Extraction/Extraction.v`: extraction settings (Zarith numbers,
   native strings); `tests/extraction/run.sh` extracts the λ example,
   compiles it and runs a smoke test.

@@ -48,7 +48,12 @@ goal, and its output needs nothing from the steps before it.
    `kleisli`, which `cbn` reached by unfolding the syntax's instance; it
    is written back as the class's `kleisli` (`syntax_fold`: the instances
    in the goal, from the uses of `apply`, which `cbn` leaves alone, and
-   one `change` each). Then `names_pre` rewrites with the monad
+   one `change` each). Another family's Kleisli function (terms over
+   types) is written back the same way: an application of a function
+   other than the syntax's own, with `apply a` as its morphism, is
+   unified with the class's `kleisli`, and unification finds the
+   instance, canonical and keyed on that function. `kl_at` (`t {{ a }}`)
+   is unfolded. Then `names_pre` rewrites with the monad
    laws the library adds:
    - **Going under a binder lifts the adjustment.** This puts what `cbn`
      leaves under a binder, a Kleisli extension at a shifted extension,
@@ -62,14 +67,22 @@ goal, and its output needs nothing from the steps before it.
    whole chain `t [a] [b] …` converted at once. What `cbn` leaves of a
    substitution into a variable becomes the node `csubst L a (tvar v)`,
    by conversion too when the syntax's `kleisli` computes on variables
-   (otherwise by the lemma `apply_here_node`).
+   (otherwise by the lemma `apply_here_node`). A substitution into
+   another family `T` becomes the node `fsubst FL a t`, which carries
+   the family's law `FL` (`Names.FamLaw`: `fl_rel`, `fl_id`, `fl_comp`,
+   the library's `fam_law` at the instances, its `Family` instance
+   found by instance resolution), by conversion too. Going under one of
+   the family's binders lifts the adjustment as for the syntax
+   (`names_fam`, rewritten only when there is such a binder, after
+   `names_pre`).
 3. **Normalise** (`names_norm`). This covers every node that is not inside
    an adjustment, and every other adjustment that is not inside one.
    Nodes on variables go first. A shared adjustment is handled once.
 
    First, each chain of nodes `t [a₁] … [aₙ]` fuses into one node
    `t [a₁ ⨾ … ⨾ aₙ]`, with one application of `fch_fuse` per chain (the
-   chain is data, `fchain`; the law's `sl_comp` proves the fusion).
+   chain is data, `fchain`; the law's `sl_comp` proves the fusion);
+   a chain of another family's nodes by `ffch_fuse` (`fl_comp`).
 
    Each rewrite below is collected rather than made at once. At the end
    they are made together (`rewrite_many`): one traversal abstracts the
@@ -112,6 +125,11 @@ goal, and its output needs nothing from the steps before it.
       too; a shared definition stays one. The results of 3.3 are rendered
       the same way. See "What could be simpler", section 1.
 
+   A node of another family, `fsubst FL a t`, is the same with
+   the family's `fl_rel` and `fl_id`; its term is never a variable of
+   the syntax, so 3.3 does not arise. Its adjustment's terms are the
+   syntax's, converted and materialised as for the syntax's nodes.
+
    An adjustment outside a node, such as one side of `a ⨾ b = c`, is
    reified, normalised and displayed the same way. It is not converted
    or materialised, because it has no law to justify that, and it is
@@ -124,7 +142,9 @@ goal, and its output needs nothing from the steps before it.
    Ltac2's `change` with the pattern of a node, each match replaced by
    the body of `sub` (read once, by unfolding the constant `sub` on its
    own) at the match's `N M a t`; `change` finds the matches and checks
-   the conversion itself. What step 3 rewrites to it already builds this
+   the conversion itself. A node `fsubst FL a t` goes back to the
+   family's substitution the same way, and then (`names_post_hook`,
+   `Subst.v`) to `t {{ a }}` when the family is `fun K => F K b`. What step 3 rewrites to it already builds this
    way. A
    materialised term under a shared definition's binder is in the
    syntax's form too; step 3 reads it back as a node (`as_node`), so a

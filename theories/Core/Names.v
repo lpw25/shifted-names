@@ -135,6 +135,49 @@ Qed.
 Lemma node_id {term tv sub} (L : SubstLaw term tv sub) {N} (t : term N) : csubst L identity t = t.
 Proof. apply (sl_id _ _ _ L). Qed.
 
+(** Another family [T] substituted by the syntax's adjustments ([tsub],
+    computations by values, terms by types, …): adjustments whose results
+    are related substitute alike, the identity does nothing, and two
+    substitutions are one by the composite.  Its nodes, [fsubst], have no
+    variable of the syntax as their term, so only these are needed. *)
+Record FamLaw {term tv sub} (L : SubstLaw term tv sub) (T : nat -> Type)
+    (tsub : forall N M, adj term N M -> T N -> T M) : Prop := {
+  fl_rel : forall N M (a a' : adj term N M),
+    (forall v : var N, drel (lawbase tv sub) (rapply (adj_raw a) (var_raw v)) (rapply (adj_raw a') (var_raw v))) ->
+    forall t, tsub N M a t = tsub N M a' t;
+  fl_id : forall N (t : T N), tsub N N identity t = t;
+  fl_comp : forall N M P (a : adj term M P) (b : adj term N M) (t : T N),
+    tsub M P a (tsub N M b t) = tsub N P (compose a b) t }.
+
+Definition fsubst {term tv sub} {L : SubstLaw term tv sub} {T tsub} (FL : FamLaw L T tsub) {N M}
+    (a : adj term N M) (t : T N) : T M :=
+  tsub N M a t.
+
+Lemma fsubst_rel {term tv sub} {L : SubstLaw term tv sub} {T tsub} (FL : FamLaw L T tsub) {N M} (a a' : adj term N M) :
+  (forall v : var N, drel (lawbase tv sub) (rapply (adj_raw a) (var_raw v)) (rapply (adj_raw a') (var_raw v))) ->
+  forall t, fsubst FL a t = fsubst FL a' t.
+Proof. apply (fl_rel _ _ _ FL). Qed.
+
+Lemma fnode_id {term tv sub} {L : SubstLaw term tv sub} {T tsub} (FL : FamLaw L T tsub) {N} (t : T N) :
+  fsubst FL identity t = t.
+Proof. apply (fl_id _ _ _ FL). Qed.
+
+(** A chain of the family's substitutions, as [fch_apply]. *)
+Fixpoint ffch_apply {term tv sub} {L : SubstLaw term tv sub} {T tsub} (FL : FamLaw L T tsub) {N M}
+    (l : fchain term N M) : T N -> T M :=
+  match l in fchain _ N M return T N -> T M with
+  | FOne a => fun t => fsubst FL a t
+  | FCons a rest => fun t => ffch_apply FL rest (fsubst FL a t)
+  end.
+
+Lemma ffch_fuse {term tv sub} {L : SubstLaw term tv sub} {T tsub} (FL : FamLaw L T tsub) {N M}
+    (l : fchain term N M) (t : T N) :
+  ffch_apply FL l t = fsubst FL (fch_comp l) t.
+Proof.
+  revert t; induction l as [N M a|N K M a rest IH]; intros t; cbn [ffch_apply fch_comp]; [reflexivity|].
+  rewrite IH; unfold fsubst; apply (fl_comp _ _ _ FL).
+Qed.
+
 Lemma node_look {term tv sub} (L : SubstLaw term tv sub) {N M K} (a : adj term N M) (v : var N) (b : adj term K M)
     (w : var K) :
   drel (lawbase tv sub) (rapply (adj_raw a) (var_raw v)) (rapply (adj_raw b) (var_raw w)) ->
@@ -1050,6 +1093,8 @@ Ltac2 univs_node (t : constr) : unit :=
   let _ := '(@nf_cons $t) in let _ := '(@vf_nil $t) in let _ := '(@vf_cons $t) in let _ := '(@nfactP $t) in
   let _ := '(@vfactP $t) in let _ := '(@def_rel $t) in let _ := '(@mat_rel_a $t) in let _ := '(@MAtom $t) in
   let _ := '(@apply_var_rename $t) in
+  let _ := '(@fsubst $t) in let _ := '(@fsubst_rel $t) in let _ := '(@fnode_id $t) in
+  let _ := '(@ffch_apply $t) in let _ := '(@ffch_fuse $t) in
   ().
 
 (** A builder: given the index of each shared definition at its root and
@@ -1721,18 +1766,53 @@ Ltac2 is_csubst_in (cs : constr) (c : constr) : bool :=
   | _ => false
   end.
 
+(** A node of another family ([fs] is [@fsubst]). *)
+Ltac2 is_fsubst_in (fs : constr) (c : constr) : bool :=
+  match Constr.Unsafe.kind c with
+  | Constr.Unsafe.App f args => if Constr.equal f fs then Int.equal (Array.length args) 11 else false
+  | _ => false
+  end.
+
+Ltac2 is_fsubst (c : constr) : bool := is_fsubst_in constr:(@fsubst) c.
+
+(** The heads of nodes, [@csubst] and [@fsubst]. *)
+Ltac2 node_heads () : constr * constr := (constr:(@csubst), constr:(@fsubst)).
+
+Ltac2 is_node_in (hs : constr * constr) (c : constr) : bool :=
+  let (cs, fs) := hs in if is_csubst_in cs c then true else is_fsubst_in fs c.
+
+(** A node's [N], [M], adjustment and term: their positions (a node of
+    another family has 11 arguments, one of the syntax 8). *)
+Ltac2 node_off (c : constr) : int :=
+  match Constr.Unsafe.kind c with
+  | Constr.Unsafe.App _ a => if Int.equal (Array.length a) 11 then 7 else 4
+  | _ => 4
+  end.
+
+Ltac2 node_tm (c : constr) : constr := let (_, na) := split_app c in Array.get na (Int.add (node_off c) 3).
+
+(** A node with [N M a t] replaced. *)
+Ltac2 node_with (c : constr) (n : constr) (m : constr) (a : constr) (t : constr) : constr :=
+  let (f, na) := split_app c in
+  let o := node_off c in
+  let na := Array.copy na in
+  Array.set na o n; Array.set na (Int.add o 1) m; Array.set na (Int.add o 2) a; Array.set na (Int.add o 3) t;
+  app f (Array.to_list na).
+
 (** A node [csubst L a t] ([c]) as the law's [sub] at [N M a t], which
     it is by conversion, with [sub] unfolded when it is a constant
-    ([sub_body], remembered in [cache]). *)
+    ([sub_body], remembered in [cache]); a node [fsubst FL a t] as the
+    family's [tsub] at [N M a t] likewise. *)
 Ltac2 node_to_sub (cache : (constr * constr option) list ref) (c : constr) : constr :=
   let (_, a) := split_app c in
-  let sub := Array.get a 2 in
+  let o := node_off c in
+  let sub := Array.get a (if Int.equal o 7 then 5 else 2) in
   let body :=
     match List.find_opt (fun (s, _) => Constr.equal s sub) (cache.(contents)) with
     | Some (_, b) => b
     | None => let b := sub_body sub in cache.(contents) := (sub, b) :: cache.(contents); b
     end in
-  let args := [Array.get a 4; Array.get a 5; Array.get a 6; Array.get a 7] in
+  let args := [Array.get a o; Array.get a (Int.add o 1); Array.get a (Int.add o 2); Array.get a (Int.add o 3)] in
   match body with
   | Some b => Constr.Unsafe.substnl (List.rev args) 0 b
   | None => app sub args
@@ -1744,15 +1824,16 @@ Ltac2 node_to_sub (cache : (constr * constr option) list ref) (c : constr) : con
     so a node in another's term is changed in a further round. *)
 Ltac2 names_post () : unit :=
   let cache := { contents := [] } in
-  let node := pat:(@csubst ?a1 ?a2 ?a3 ?a4 ?a5 ?a6 ?a7 ?a8) in
-  let rec go () :=
+  let rec go node h :=
     match Control.case (fun () => Pattern.matches_subterm node (Control.goal ())) with
     | Err _ => ()
     | Val _ =>
-        Std.change (Some node) (fun s => node_to_sub cache (app constr:(@csubst) (Array.to_list s))) (concl ());
-        go ()
+        Std.change (Some node) (fun s => node_to_sub cache (app h (Array.to_list s))) (concl ());
+        go node h
     end in
-  go ().
+  (* (the pattern's holes are bound in the order of their names) *)
+  go pat:(@fsubst ?a ?b ?c ?d ?e ?f ?g ?h ?i ?j ?k) constr:(@fsubst);
+  go pat:(@csubst ?a1 ?a2 ?a3 ?a4 ?a5 ?a6 ?a7 ?a8) constr:(@csubst).
 
 (** ** Many rewrites at once
 
@@ -1886,16 +1967,19 @@ Ltac2 rb_flush (b : rb) : unit :=
   Std.clear (b.(rb_hyps));
   b.(rb_eqs) := []; b.(rb_hyps) := [].
 
-(** The closed applications of [h] in [c], anywhere. *)
-Ltac2 rec apps_of (li : inductive list) (h : constr) (c : constr) (acc : constr list) : constr list :=
+(** The closed applications of [h] or [h'] in [c], anywhere. *)
+Ltac2 rec apps_of (li : inductive list) (h : constr) (h2 : constr) (c : constr) (acc : constr list) : constr list :=
   if is_lit li c then acc else
   let acc :=
     match Constr.Unsafe.kind c with
-    | Constr.Unsafe.App h' _ => if Bool.and (Constr.equal h h') (Constr.Unsafe.is_closed c) then c :: acc else acc
+    | Constr.Unsafe.App h' _ =>
+        if (if Constr.equal h h' then true else Constr.equal h2 h') then
+          if Constr.Unsafe.is_closed c then c :: acc else acc
+        else acc
     | _ => acc
     end in
   let r := { contents := acc } in
-  Constr.Unsafe.iter (fun x => r.(contents) := apps_of li h x (r.(contents))) c;
+  Constr.Unsafe.iter (fun x => r.(contents) := apps_of li h h2 x (r.(contents))) c;
   r.(contents).
 
 (** [eid : forall t, L t = R t], [L t] an application whose last argument
@@ -1926,7 +2010,9 @@ Ltac2 rb_instances (b : rb) (eid : ident) (rhs : constr -> constr) : unit :=
   let nodes :=
     match b.(rb_nodes) with
     | Some ns => ns
-    | None => let ns := apps_of (lit_inds ()) constr:(@csubst) (Control.goal ()) [] in b.(rb_nodes) := Some ns; ns
+    | None =>
+        let ns := apps_of (lit_inds ()) constr:(@csubst) constr:(@fsubst) (Control.goal ()) [] in
+        b.(rb_nodes) := Some ns; ns
     end in
   List.iter (fun c => match inst c with
                       | Some t => rb_push b c (rhs t) (app pf [t])
@@ -2232,9 +2318,11 @@ Ltac2 with_tails (shared : (constr * constr) list) (ety : constr) (xs : constr l
 
 Ltac2 conv_one (bt : rb) (node : constr) : unit :=
   let (_, na) := split_app node in
+  let o := node_off node in
+  let fam := Int.equal o 7 in
   let (term, vr, sub, lw, n, m, a, t) :=
-    (Array.get na 0, Array.get na 1, Array.get na 2, Array.get na 3, Array.get na 4, Array.get na 5,
-     Array.get na 6, Array.get na 7) in
+    (Array.get na 0, Array.get na 1, Array.get na 2, Array.get na 3, Array.get na o, Array.get na (Int.add o 1),
+     Array.get na (Int.add o 2), Array.get na (Int.add o 3)) in
   let ty := term in
   let pt := raw_ty ty in
   let s := new_st () in
@@ -2243,7 +2331,7 @@ Ltac2 conv_one (bt : rb) (node : constr) : unit :=
   let vh := var_heads vr in
   let sbody := sub_body sub in
   (* the node's variable, when it is on one written out *)
-  let vv := match var_term vh t with
+  let vv := match (if fam then None else var_term vh t) with
             | Some (_, v) =>
                 attempt (fun () =>
                   let (vf, va) := split_app (reify_var s v) in
@@ -2423,13 +2511,32 @@ Ltac2 conv_one (bt : rb) (node : constr) : unit :=
      [pf] relating them (the law's [sl_rel]); when [a'] is the identity, to
      their terms ([sl_id]) *)
   let is_id c := let (f, _) := split_app c in Constr.equal f constr:(@identity) in
+  (* the node's own substitution, for the rewritten node: the law's, or
+     the family's *)
+  let nsub :=
+    if fam then
+      let (tf, ts, fl) := (Array.get na 4, Array.get na 5, Array.get na 6) in
+      match sub_body ts with
+      | Some body => fun kk mm rc uc => Constr.Unsafe.substnl [uc; rc; mm; kk] 0 body
+      | None => fun kk mm rc uc => app constr:(@fsubst) [term; vr; sub; lw; tf; ts; fl; kk; mm; rc; uc]
+      end
+    else msub in
   let node_rewrite a' pf :=
       let hid := fresh @H in
       assert_by hid '(forall v : var $n, drel (lawbase $vr $sub) (rapply (adj_raw $a) (var_raw v)) (rapply (adj_raw $a') (var_raw v)))
         (fun () => Std.exact_no_check pf);
       let eid := fresh @E in
       let hh := Control.hyp hid in
-      (if is_id a' then
+      (if fam then
+         let (tf, ts, fl) := (Array.get na 4, Array.get na 5, Array.get na 6) in
+         if is_id a' then
+           assert_by eid '(forall t, @fsubst $term $vr $sub $lw $tf $ts $fl $n $m $a t = t)
+             (fun () => Std.exact_no_check '(fun t => eq_trans (@fsubst_rel $term $vr $sub $lw $tf $ts $fl $n $m $a $a' $hh t)
+                                                       (@fnode_id $term $vr $sub $lw $tf $ts $fl $n t)))
+         else
+           assert_by eid '(forall t, @fsubst $term $vr $sub $lw $tf $ts $fl $n $m $a t = @fsubst $term $vr $sub $lw $tf $ts $fl $n $m $a' t)
+             (fun () => Std.exact_no_check '(@fsubst_rel $term $vr $sub $lw $tf $ts $fl $n $m $a $a' $hh))
+       else if is_id a' then
          assert_by eid '(forall t, @csubst $term $vr $sub $lw $n $m $a t = t)
            (fun () => Std.exact_no_check '(fun t => eq_trans (@csubst_rel $term $vr $sub $lw $n $m $a $a' $hh t)
                                                      (@node_id $term $vr $sub $lw $n t)))
@@ -2437,7 +2544,7 @@ Ltac2 conv_one (bt : rb) (node : constr) : unit :=
          assert_by eid '(forall t, @csubst $term $vr $sub $lw $n $m $a t = @csubst $term $vr $sub $lw $n $m $a' t)
            (fun () => Std.exact_no_check '(@csubst_rel $term $vr $sub $lw $n $m $a $a' $hh)));
       Std.clear [hid];
-      rb_instances bt eid (fun t => if is_id a' then t else msub n m a' t) in
+      rb_instances bt eid (fun t => if is_id a' then t else nsub n m a' t) in
   (* a node on a variable rewritten to the term [ux] with the payload
      [b] ([sl_res]); to [ux] itself when [b] is the identity ([sl_id]) *)
   let term_rewrite b kx ux v pf :=
@@ -2596,10 +2703,10 @@ Ltac2 each (f : constr -> unit) (cs : constr list) : unit :=
 
 (** The nodes and adjustments of [c] not inside an adjustment: inside a
     node, only its term is looked in. *)
-Ltac2 rec outer (li : inductive list) (cs : constr) (hs : heads) (c : constr) (acc : constr list) : constr list :=
+Ltac2 rec outer (li : inductive list) (cs : constr * constr) (hs : heads) (c : constr) (acc : constr list) : constr list :=
   if is_lit li c then acc
-  else if (if is_csubst_in cs c then Constr.Unsafe.is_closed c else false) then
-    let (_, na) := split_app c in outer li cs hs (Array.get na 7) (add_new c acc)
+  else if (if is_node_in cs c then Constr.Unsafe.is_closed c else false) then
+    outer li cs hs (node_tm c) (add_new c acc)
   else if (if is_adj_head_in hs c then Constr.Unsafe.is_closed c else false) then add_new c acc
   else
     let r := { contents := acc } in
@@ -2607,22 +2714,31 @@ Ltac2 rec outer (li : inductive list) (cs : constr) (hs : heads) (c : constr) (a
     r.(contents).
 
 (** The adjustment of a node. *)
-Ltac2 node_adj (c : constr) : constr := let (_, na) := split_app c in Array.get na 6.
+Ltac2 node_adj (c : constr) : constr := let (_, na) := split_app c in Array.get na (Int.add (node_off c) 2).
 
 (** [h : a = b], rewritten in the nodes [csubst L a t] like [node] only. *)
 Ltac2 node_rw (bt : rb) (node : constr) (b : constr) (h : constr) : unit :=
   let (_, na) := split_app node in
+  let o := node_off node in
   let (term, vr, sub, lw, n, m, a) :=
-    (Array.get na 0, Array.get na 1, Array.get na 2, Array.get na 3, Array.get na 4, Array.get na 5, Array.get na 6) in
+    (Array.get na 0, Array.get na 1, Array.get na 2, Array.get na 3, Array.get na o, Array.get na (Int.add o 1),
+     Array.get na (Int.add o 2)) in
   let eid := fresh @E in
-  assert_by eid '(forall t, @csubst $term $vr $sub $lw $n $m $a t = @csubst $term $vr $sub $lw $n $m $b t)
-    (fun () => Std.exact_no_check
-       (app '(fun (h0 : $a = $b) t => f_equal (fun x => @csubst $term $vr $sub $lw $n $m x t) h0) [h]));
+  (if Int.equal o 7 then
+     let (tf, ts, fl) := (Array.get na 4, Array.get na 5, Array.get na 6) in
+     assert_by eid '(forall t, @fsubst $term $vr $sub $lw $tf $ts $fl $n $m $a t = @fsubst $term $vr $sub $lw $tf $ts $fl $n $m $b t)
+       (fun () => Std.exact_no_check
+          (app '(fun (h0 : $a = $b) t => f_equal (fun x => @fsubst $term $vr $sub $lw $tf $ts $fl $n $m x t) h0) [h]))
+   else
+     assert_by eid '(forall t, @csubst $term $vr $sub $lw $n $m $a t = @csubst $term $vr $sub $lw $n $m $b t)
+       (fun () => Std.exact_no_check
+          (app '(fun (h0 : $a = $b) t => f_equal (fun x => @csubst $term $vr $sub $lw $n $m x t) h0) [h])));
   let cache := { contents := [] } in
-  rb_instances bt eid (fun t => node_to_sub cache (app constr:(@csubst) [term; vr; sub; lw; n; m; b; t])).
+  rb_instances bt eid (fun t => node_to_sub cache (node_with node n m b t)).
 
 (** A node on a variable written out. *)
 Ltac2 is_var_node (c : constr) : bool :=
+  if Int.equal (node_off c) 7 then false else
   let (_, na) := split_app c in
   match var_term (var_heads (Array.get na 1)) (Array.get na 7) with Some _ => true | None => false end.
 
@@ -2635,20 +2751,23 @@ Ltac2 is_var_node (c : constr) : bool :=
 (** Chains of substitutions [t [a₁] … [aₙ]], each fused into one node by
     one lemma ([fch_fuse]), the outermost first. *)
 Ltac2 fuse_chains (bt : rb) : unit :=
-  let cs := constr:(@csubst) in
-  let xs := List.filter (is_csubst_in cs) (List.rev (outer (lit_inds ()) cs (adj_heads ()) (Control.goal ()) [])) in
-  let term_of x := Array.get (snd (split_app x)) 7 in
+  let cs := node_heads () in
+  let xs := List.filter (is_node_in cs) (List.rev (outer (lit_inds ()) cs (adj_heads ()) (Control.goal ()) [])) in
   (* a node that is another's term is inside that chain *)
-  let inner := List.map term_of xs in
+  let inner := List.map node_tm xs in
   let tops := List.filter (fun x => Bool.neg (List.exist (Constr.equal x) inner)) xs in
   each (fun x =>
-    let (_, na) := split_app x in
-    let (term, vr, sub, lw, m) := (Array.get na 0, Array.get na 1, Array.get na 2, Array.get na 3, Array.get na 5) in
+    let (f, na) := split_app x in
+    let o := node_off x in
+    let fam := Int.equal o 7 in
+    (* the law (or the family's), which the nodes of the chain share *)
+    let li := if fam then 6 else 3 in
+    let (term, lw, m) := (Array.get na 0, Array.get na li, Array.get na (Int.add o 1)) in
     (* the chain, outermost first: (scope in, adjustment) *)
     let rec coll c acc :=
-      let (f, a) := split_app c in
-      if (if Constr.equal f cs then (if Int.equal (Array.length a) 8 then Constr.equal (Array.get a 3) lw else false) else false)
-      then coll (Array.get a 7) ((Array.get a 4, Array.get a 5, Array.get a 6) :: acc)
+      let (f', a) := split_app c in
+      if (if Constr.equal f f' then (if Int.equal (Array.length a) (Array.length na) then Constr.equal (Array.get a li) lw else false) else false)
+      then coll (Array.get a (Int.add o 3)) ((Array.get a o, Array.get a (Int.add o 1), Array.get a (Int.add o 2)) :: acc)
       else (c, acc) in
     let (t0, ch) := coll x [] in
     match ch with
@@ -2665,32 +2784,35 @@ Ltac2 fuse_chains (bt : rb) : unit :=
           | [] => Control.throw Not_found
           end in
         let (l, ac) := build ch in
-        rb_push bt x '(@csubst $term $vr $sub $lw $n0 $m $ac $t0) (app constr:(@fch_fuse) [term; vr; sub; lw; n0; m; l; t0])
+        let pre := List.firstn o (Array.to_list na) in
+        let pf := if fam then app constr:(@ffch_fuse) (List.append pre [n0; m; l; t0])
+                  else app constr:(@fch_fuse) (List.append pre [n0; m; l; t0]) in
+        rb_push bt x (node_with x n0 m ac t0) pf
     end) tops.
 
 Ltac2 names_norm () : unit :=
-  (let cs := constr:(@csubst) in
+  (let cs := node_heads () in
    let fams := List.fold_left (fun acc x => let t := Array.get (snd (split_app x)) 0 in
                                 if List.exist (Constr.equal t) acc then acc else t :: acc) []
-                 (List.filter (is_csubst_in cs) (outer (lit_inds ()) cs (adj_heads ()) (Control.goal ()) [])) in
+                 (List.filter (is_node_in cs) (outer (lit_inds ()) cs (adj_heads ()) (Control.goal ()) [])) in
    List.iter univs_node fams);
   let bt := new_rb () in
   fuse_chains bt; rb_flush bt;
-  let cs := constr:(@csubst) in
+  let cs := node_heads () in
   let xs := List.rev (outer (lit_inds ()) cs (adj_heads ()) (Control.goal ()) []) in
-  let (vs, xs) := List.partition (fun x => if is_csubst_in cs x then is_var_node x else false) xs in
+  let (vs, xs) := List.partition (fun x => if is_node_in cs x then is_var_node x else false) xs in
   let rec dedup xs seen :=
     match xs with
     | [] => []
     | x :: xs =>
-        let k := if is_csubst_in cs x then node_adj x else x in
+        let k := if is_node_in cs x then node_adj x else x in
         if List.exist (Constr.equal k) seen then dedup xs seen else x :: dedup xs (k :: seen)
     end in
   each (fun x =>
     let (e0, h0) := (bt.(rb_eqs), bt.(rb_hyps)) in
     let undo () := bt.(rb_eqs) := e0; bt.(rb_hyps) := h0 in
     attempt (fun () =>
-      if is_csubst_in cs x then
+      if is_node_in cs x then
         attempt (fun () => conv_one bt x)
           (fun _ => undo (); let _ := show_adj_with (node_rw bt x) (node_adj x) in ())
       else let _ := show_adj_with (rb_push bt x) x in ())
@@ -2732,6 +2854,8 @@ Ltac2 autorw (db : ident) : unit := Std.autorewrite false None [db] (concl ()).
     functions); step 2. *)
 Ltac2 mutable names_fold_hook : unit -> unit := fun () => ().
 Ltac2 mutable names_node_hook : unit -> unit := fun () => autorw @names_node.
+(** After step 5: what is written back, in the syntax's own notations. *)
+Ltac2 mutable names_post_hook : unit -> unit := fun () => ().
 
 Ltac2 names_pass () : unit :=
   (names_fold_hook ());
@@ -2739,7 +2863,8 @@ Ltac2 names_pass () : unit :=
   (names_node_hook ());
   (names_norm ());
   (names_apply ());
-  (names_post ()).
+  (names_post ());
+  (names_post_hook ()).
 
 (** [names] commits to what it does: a failure after it does not backtrack
     into it. *)

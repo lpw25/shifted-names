@@ -41,6 +41,7 @@ theories/Core/Syntax.v
 theories/Core/Subst.v
 theories/Examples/Lambda.v
 theories/Examples/STLC.v
+theories/Examples/SystemF.v
 theories/Extraction/Extraction.v
 theories/Tests/CoreTests.v
 theories/Tests/NamesTests.v

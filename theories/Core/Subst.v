@@ -1188,11 +1188,13 @@ Proof. split; auto. Qed.
 Lemma rv_le_trans M r r' r'' : rv_le M r r' -> rv_le M r' r'' -> rv_le M r r''.
 Proof. intros [W1 V1] [W2 V2]; split; auto. Qed.
 
-Theorem subst_rv {N M} (a a' : adj term N M) :
+(** Adjustments whose results are related ([rv_le]) apply alike, on
+    every variable under every witness. *)
+Lemma apply_rv {N M} (a a' : adj term N M) :
   (forall v : var N, rv_le M (rapply (adj_raw a) (var_raw v)) (rapply (adj_raw a') (var_raw v))) ->
-  forall t, t [a] = t [a'].
+  forall K L (e : ext N M K L) v, apply a K L e v = apply a' K L e v.
 Proof.
-  intros H t; apply kleisli_ext; intros K L e v.
+  intros H K L e v.
   destruct (inner_or_outer (ext_depth e) (var_raw v)) as [[El Hi]|Hr].
   { rewrite (apply_inner a e v (W_inner e _ El Hi) El Hi), (apply_inner a' e v (W_inner e _ El Hi) El Hi); reflexivity. }
   all: pose proof (outer_down_wf e v Hr) as Hv'.
@@ -1204,6 +1206,11 @@ Proof.
   all: destruct (H (mk_var (down (ext_depth e) (var_raw v)) (Is_true_s_intro Hv'))) as [_ Hrv].
   all: exact (rvn_det _ _ _ _ _ _ _ _ (Hrv _ _ _ _ R1) R2).
 Qed.
+
+Theorem subst_rv {N M} (a a' : adj term N M) :
+  (forall v : var N, rv_le M (rapply (adj_raw a) (var_raw v)) (rapply (adj_raw a') (var_raw v))) ->
+  forall t, t [a] = t [a'].
+Proof. intros H t; apply kleisli_ext, apply_rv, H. Qed.
 
 Lemma lawbase_not_inl w r' : ~ lawbase (@Syntax.tvar term kp sy) sub0 (inl w) r'.
 Proof.
@@ -1356,6 +1363,45 @@ End Rel.
 Definition subst_law : SubstLaw term (@Syntax.tvar term kp sy) sub0 :=
   {| sl_var := @subst_tvar_eval; sl_rel := @subst_rel; sl_res := @subst_res; sl_id := @subst_identity; sl_comp := @subst_compose |}.
 
+(** Another family over the syntax: its substitution, and its law, from
+    its [Family] instance and what the syntax's adjustments apply to. *)
+Section Fam.
+Context {T : nat -> Type} {kt : Kleisli term T} {fam : Family term T}.
+
+Definition fsub0 : forall N M, adj term N M -> T N -> T M :=
+  fun N M a t => @Syntax.kleisli term T kt N M (apply a) N M ext_here t.
+
+Lemma fam_rel N M (a a' : adj term N M) :
+  (forall v : var N, drel (lawbase (@Syntax.tvar term kp sy) sub0) (rapply (adj_raw a) (var_raw v)) (rapply (adj_raw a') (var_raw v))) ->
+  forall t, fsub0 N M a t = fsub0 N M a' t.
+Proof. intros H t; unfold fsub0; apply fkleisli_ext, apply_rv; intros v; apply drel_rv, H. Qed.
+
+Lemma fam_id N (t : T N) : fsub0 N N identity t = t.
+Proof.
+  unfold fsub0; rewrite (fkleisli_ext _ _ _ unit_m (fun K L e v => apply_identity e v)).
+  apply fkleisli_unit.
+Qed.
+
+Lemma fam_comp N M P' (a : adj term M P') (b : adj term N M) (t : T N) :
+  fsub0 M P' a (fsub0 N M b t) = fsub0 N P' (compose a b) t.
+Proof.
+  unfold fsub0; rewrite <- (fkleisli_assoc _ _ _ (apply a) (apply b) _ _ ext_here t).
+  apply fkleisli_ext; intros; apply apply_compose.
+Qed.
+
+Definition fam_law : FamLaw subst_law T fsub0 := {| fl_rel := fam_rel; fl_id := fam_id; fl_comp := fam_comp |}.
+
+(** Going under a binder of the family lifts the adjustment. *)
+Theorem fkleisli_apply_under {N M K L} (a : adj term N M) (e : ext N M K L) (t : T (S K)) :
+  @Syntax.kleisli term T kt _ _ (apply a) _ _ (ext_under e) t
+  = @Syntax.kleisli term T kt _ _ (apply (lift a)) _ _ (ext_shift e) t.
+Proof.
+  rewrite <- (ext_app_shift e), fkleisli_rebase.
+  apply fkleisli_ext; intros K' L' e' v; apply apply_lift_rebase.
+Qed.
+
+End Fam.
+
 Lemma subst_csubst {N M} (a : adj term N M) (t : term N) : t [a] = csubst subst_law a t.
 Proof. reflexivity. Qed.
 
@@ -1369,6 +1415,22 @@ Proof. symmetry; apply kleisli_var. Qed.
 
 End Subst1.
 
+(** A second substitution, for a type with two scopes substituted in its
+    first ([F N b], e.g. terms by types in System F): the syntax's
+    substitution into the family [fun K => F K b], typed on [F] itself,
+    so that the scopes are inferred from the term's type, and the result
+    has the user's type.  A syntax with such a family declares its
+    [Kleisli] and [Family] instances at [fun K => F K b]; for other
+    shapes, a user writes their own definition like this one. *)
+Definition kl_at {P : nat -> Type} {kp : Kleisli P P} {sy : Syntax P} {B} {F : nat -> B -> Type} {b : B}
+    {kt : Kleisli P (fun K => F K b)} {N M} (a : adj P N M) (t : F N b) : F M b :=
+  @Syntax.kleisli P (fun K => F K b) kt N M (apply a) N M ext_here t.
+
+Notation "t {{ a }}" := (kl_at a t) (at level 1, left associativity, format "t {{ a }}").
+
+(** For another family, after [names_pre] (with the syntax's own going
+    first, this one would match it too, and leave a [Family] goal). *)
+Global Hint Rewrite @fkleisli_apply_under @ext_shift_here @ext_shift_under : names_fam.
 Global Hint Rewrite @kleisli_apply_under @apply_under @ext_shift_here @ext_shift_under : names_pre.
 Global Hint Rewrite @subst_csubst @apply_here_node : names_node.
 
@@ -1415,7 +1477,50 @@ Ltac2 syntax_fold_with (vars : bool) : unit :=
     if vars then fold_proj '(@Syntax.tvar $t $k $s) else ())
     (goal_syntaxes ()).
 
-Ltac2 syntax_fold () : unit := syntax_fold_with false.
+(** Another family's Kleisli function, as [cbn] leaves it, written as
+    the class's: an application [g … N M (apply a) K L e t] of a function
+    [g] that is not the syntax's own, unified with the class's projection,
+    whose instance unification finds (canonical, keyed on [g]).  The
+    applications are found by matching (one traversal, in OCaml). *)
+Ltac2 family_fold (sys : (constr * constr * constr) list) : unit :=
+  let kl := constr:(@Syntax.kleisli) in
+  let own := List.map (fun (t, k, _) => Names.unfold_head '(@Syntax.kleisli $t $t $k)) sys in
+  let seen := { contents := [] } in
+  let cand pre t :=
+    let (h, _) := Names.split_app pre in
+    if Constr.equal h kl then () else
+    if List.exist (Constr.equal pre) own then () else
+    if List.exist (Constr.equal pre) (seen.(contents)) then () else
+    (seen.(contents) := pre :: seen.(contents);
+     Names.attempt (fun () =>
+       let ev := '(@Syntax.kleisli $t _ _) in
+       Std.unify ev pre;
+       ltac1:(sk gk |- change sk with gk) (Ltac1.of_constr pre) (Ltac1.of_constr ev)) (fun _ => ())) in
+  let found := { contents := [] } in
+  let _ := Control.case (fun () =>
+    multi_match! goal with
+    | [ |- context [ ?g (@apply ?t _ _ _ _ _) _ _ _ _ ] ] =>
+        found.(contents) := (g, t) :: found.(contents); Control.zero Not_found
+    end) in
+  List.iter (fun (g, t) =>
+    (* [g] is [pre N M] *)
+    let (f, a) := Names.split_app g in
+    let n := Array.length a in
+    if Int.lt n 2 then () else
+    let pre := Names.app f (List.firstn (Int.sub n 2) (Array.to_list a)) in
+    if Constr.Unsafe.is_closed pre then cand pre t else ()) (List.rev (found.(contents))).
+
+Ltac2 syntax_fold () : unit :=
+  (match Control.case (fun () => Pattern.matches_subterm pat:(@kl_at _ _ _ _ _ _ _ _ _ _ _) (Control.goal ())) with
+   | Val _ =>
+       Std.unfold [(Std.ConstRef (match Constr.Unsafe.kind constr:(@kl_at) with
+                                  | Constr.Unsafe.Constant k _ => k | _ => Control.throw Not_found end),
+                    Std.AllOccurrences)] (Names.concl ())
+   | Err _ => ()
+   end);
+  let sys := goal_syntaxes () in
+  List.iter (fun (t, k, _) => fold_proj '(@Syntax.kleisli $t $t $k)) sys;
+  match sys with [] => () | _ => family_fold sys end.
 
 Ltac2 subst_nodes () : unit :=
   let laws := { contents := [] } in
@@ -1442,6 +1547,44 @@ Ltac2 subst_nodes () : unit :=
                          (inner (Array.get x 6))
   with inner u := match Control.case (fun () => Pattern.matches_vect sp u) with Val (x, _) => conv x | Err _ => u end in
   rounds sp conv;
+  (* [t {{ a }}], the substitution of the syntax into another family:
+     what is left of the syntax's Kleisli extension along [apply] (one
+     match, usually failing) *)
+  (match Control.case (fun () => Pattern.matches_subterm
+            pat:(@Syntax.kleisli _ _ _ _ _ (@apply _ _ _ _ _ _) _ _ _ _) (Control.goal ())) with
+   | Err _ => ()
+   | Val _ =>
+       (* under a binder (the syntax's own are gone): the rewrite leaves
+          the family's instances as goals *)
+       (match Control.case (fun () => Pattern.matches_subterm
+                 pat:(@Syntax.kleisli _ _ _ _ _ (@apply _ _ _ _ _ _) _ _ (@ext_under _ _ _ _ _) _) (Control.goal ())) with
+        | Val _ =>
+            Names.autorw @names_fam;
+            Control.enter (fun () => lazy_match! goal with
+                                     | [ |- Family _ _ ] => ltac1:(typeclasses eauto)
+                                     | [ |- _ ] => () end)
+        | Err _ => ()
+        end);
+       let fams := { contents := [] } in
+       let fam t k s tf kt :=
+         match List.find_opt (fun (t', k', s', tf', kt', _) =>
+                 List.for_all2 Constr.equal [t; k; s; tf; kt] [t'; k'; s'; tf'; kt']) (fams.(contents)) with
+         | Some (_, _, _, _, _, l) => l
+         | None =>
+             let fl := constr:(@fam_law $t $k $s $tf $kt _) in
+             let (_, fa) := Names.split_app (Constr.type fl) in
+             let l := (Array.get fa 5, fl) in
+             fams.(contents) := (t, k, s, tf, kt, l) :: fams.(contents); l
+         end in
+       let fp := pat:(@Syntax.kleisli ?a1 ?a8 ?a9 ?a4 ?a5 (@apply ?a1 ?a2 ?a3 _ _ ?a6) _ _ (@ext_here _ _) ?a7) in
+       let rec fconv x :=
+         let (t, k, s, tf, kt) := (Array.get x 0, Array.get x 1, Array.get x 2, Array.get x 7, Array.get x 8) in
+         let (tv, sb, lw) := law t k s in
+         let (ts, fl) := fam t k s tf kt in
+         Names.app constr:(@fsubst) [t; tv; sb; lw; tf; ts; fl; Array.get x 3; Array.get x 4; Array.get x 5; finner (Array.get x 6)]
+       with finner u := match Control.case (fun () => Pattern.matches_vect fp u) with Val (x, _) => fconv x | Err _ => u end in
+       Names.attempt (fun () => rounds fp fconv) (fun _ => ())
+   end);
   (* [apply a _ _ ext_here v], by conversion where [kleisli] computes *)
   Names.attempt (fun () =>
     rounds pat:(@apply ?a1 ?a2 ?a3 ?a4 ?a5 ?a6 _ _ (@ext_here _ _) ?a7)
@@ -1449,8 +1592,47 @@ Ltac2 subst_nodes () : unit :=
                 node t k s n (Array.get x 4) (Array.get x 5) '(@Syntax.tvar $t $k $s $n $v)))
     (fun _ => Names.autorw @names_node).
 
+(** What [names] writes back of another family's substitution, as
+    [t {{ a }}] where the family is [fun K => F K b]. *)
+Ltac2 kl_at_fold () : unit :=
+  let any := pat:(@Syntax.kleisli _ (fun _ => _) _ _ _ (@apply _ _ _ _ _ _) _ _ (@ext_here _ _) _) in
+  let fp := pat:(@Syntax.kleisli ?a1 ?a8 ?a9 ?a4 ?a5 (@apply ?a1 ?a2 ?a3 _ _ ?a6) _ _ (@ext_here _ _) ?a7) in
+  let rec conv x :=
+    let (t, k, s, n, m, a, u, tf, kt) := (Array.get x 0, Array.get x 1, Array.get x 2, Array.get x 3, Array.get x 4,
+                                          Array.get x 5, inner (Array.get x 6), Array.get x 7, Array.get x 8) in
+    let as_is () := Names.app constr:(@Syntax.kleisli)
+                      [t; tf; kt; n; m; Names.app constr:(@apply) [t; k; s; n; m; a]; n; m;
+                       Names.app constr:(@ext_here) [n; m]; u] in
+    match Constr.Unsafe.kind tf with
+    | Constr.Unsafe.Lambda _ body =>
+        match Constr.Unsafe.kind body with
+        | Constr.Unsafe.App f fa =>
+            if (if Int.equal (Array.length fa) 2 then Constr.equal (Array.get fa 0) (Constr.Unsafe.make (Constr.Unsafe.Rel 1)) else false) then
+              let (f', b) := (Constr.Unsafe.liftn (-1) 1 f, Constr.Unsafe.liftn (-1) 1 (Array.get fa 1)) in
+              if Bool.and (Constr.Unsafe.is_closed f') (Constr.Unsafe.is_closed b) then
+                Names.app constr:(@kl_at) [t; k; s; Constr.type b; f'; b; kt; n; m; a; u]
+              else as_is ()
+            else as_is ()
+        | _ => as_is ()
+        end
+    | _ => as_is ()
+    end
+  with inner u := match Control.case (fun () => Pattern.matches_vect fp u) with
+                  | Val (x, _) => conv x
+                  | Err _ => u end in
+  let rec rounds () :=
+    let g := Control.goal () in
+    match Control.case (fun () => Pattern.matches_subterm any g) with
+    | Err _ => ()
+    | Val _ =>
+        Names.attempt (fun () => Std.change (Some fp) conv (Names.concl ())) (fun _ => ());
+        if Constr.equal g (Control.goal ()) then () else rounds ()
+    end in
+  rounds ().
+
 Ltac2 Set Names.names_fold_hook := syntax_fold.
 Ltac2 Set Names.names_node_hook := subst_nodes.
+Ltac2 Set Names.names_post_hook := kl_at_fold.
 
 (** For Ltac1 proofs: the syntax's own functions written as the
     library's (not needed to rewrite with the library's lemmas, which
