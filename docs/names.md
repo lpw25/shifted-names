@@ -49,8 +49,6 @@ goal, and its output needs nothing from the steps before it.
    - **Going under a binder lifts the adjustment.** This puts what `cbn`
      leaves under a binder, a Kleisli extension at a shifted extension,
      back in the form `t [lift a]`.
-   - **A substitution applied to a substitution fuses:** `t [a] [b] = t
-     [a ⨾ b]`.
 
    The rewrites are plain `autorewrite`, with no setoid rewriting.
 2. **`names_node`.** A substitution `t [a]` becomes the node `csubst L a
@@ -59,8 +57,21 @@ goal, and its output needs nothing from the steps before it.
    (tvar v)`.
 3. **Normalise** (`names_norm`). This covers every node that is not inside
    an adjustment, and every other adjustment that is not inside one.
-   Nodes on variables go first, one at a time. A shared adjustment is
-   handled once. For each node `csubst L a t`:
+   Nodes on variables go first. A shared adjustment is handled once.
+
+   First, each chain of nodes `t [a₁] … [aₙ]` fuses into one node
+   `t [a₁ ⨾ … ⨾ aₙ]`, with one application of `fch_fuse` per chain (the
+   chain is data, `fchain`; the law's `sl_comp` proves the fusion).
+
+   Each rewrite below is collected rather than made at once. At the end
+   they are made together (`rewrite_many`): one traversal abstracts the
+   goal over every occurrence, and one term `Q` gives the old goal from
+   the new by an `eq_ind_r` per equation, with motives that mention
+   only variables. A node inside another's term is rewritten in a
+   further round. Before this, each rewrite traversed the goal and
+   type-checked a motive the size of the goal.
+
+   For each node `csubst L a t`:
    1. **Reify** `a` syntactically, with no reduction. Labels,
       adjustments and terms become atoms, and `share` definitions are
       kept. Terms are read with their scope. Order facts `label_lt x y`
@@ -100,23 +111,25 @@ goal, and its output needs nothing from the steps before it.
 4. **`names_apply`.** This handles `apply_var a v` left in the goal, for
    an adjustment of any family, with no law. It uses the same
    `hlook_show` as step 3.3.
-5. **`names_post`.** The nodes go back to `t [a]`. A materialised term
-   under a shared definition's binder is already in the syntax's form;
-   step 3 reads it back as a node (`as_node`), so a second `names` sees
-   the same goal.
+5. **`names_post`.** The nodes go back to `t [a]`. This needs no lemma:
+   `csubst L a t` is the law's `sub` at `a t` by conversion, so one
+   traversal writes each node as the body of `sub`, and the goal is
+   changed with no proof (the kernel checks the conversion once, at
+   `Qed`). What step 3 rewrites to it already builds this way. A
+   materialised term under a shared definition's binder is in the
+   syntax's form too; step 3 reads it back as a node (`as_node`), so a
+   second `names` sees the same goal.
 
-**Why steps 1 and 3 both handle nested substitutions.** They handle
-substitutions in different positions:
-- **Step 1** handles a substitution applied to the *result* of another:
-  `t [a] [b]`, the node's own term being a node.
-- **Step 3.2** handles substitutions used as *values inside* an
-  adjustment, as in `⟦ x := u [c] ⟧`.
+**Nested substitutions, in two positions.** Step 3 handles both:
+- a substitution applied to the *result* of another, `t [a] [b]`, the
+  node's own term being a node, is fused first (`fch_fuse`, from the
+  law's `sl_comp`);
+- substitutions used as *values inside* an adjustment, as in
+  `⟦ x := u [c] ⟧`, are converted (3.2).
 
-Without step 1, `t [a] [b]` would stay as two nodes, each normalised on
-its own, and `t [a] [b] = t [a ⨾ b]` would not be decided. Step 3 could
-do the fusion instead, but that would need the composition law in
-`SubstLaw`, and step 1 is needed anyway for the lifting rewrite. The two
-are the same law, at the node and at a single variable:
+Fusing used to be a rewrite in step 1 (`subst_compose`), one
+`autorewrite` step per node, each traversing the goal: quadratic on a
+chain. The two are the same law, at the node and at a single variable:
 - the per-variable form of `t [a] [b] = t [a ⨾ b]` is `nbase`, which says
   `u [c]` with payload `W` is `u` with payload `W ∘ c`;
 - step 3.2 applies `nbase` with `W` the entry's payload.
@@ -408,6 +421,19 @@ Earlier recorded baselines were D100 at 0.46 + 0.35 s, D300 at 1.5 +
 1.1 s and D1000 at 6.5 + 4.6 s.
 
 **Problems found.**
+- **Ltac2 traversals of labels (fixed).** Labels are string literals,
+  and they are most of a goal: PN 60's goal after step 3 is 191k nodes,
+  140k of them `String`, `Ascii`, `bool`, `positive` and `nat`
+  constructors. An Ltac2 traversal costs 5–15 µs a node, so every pass
+  over the goal (finding nodes, abstracting occurrences, `names_post`)
+  now skips literals (`is_lit`).
+- **`autorewrite` per node (open).** Each step of `autorewrite` finds
+  one instance, abstracts its occurrences and type-checks a motive the
+  size of the goal: 50–100 ms a step on SN 200, MO 20 and MV 20. Step 3
+  no longer rewrites this way (above), and step 5 no longer rewrites at
+  all; step 2 (`names_node`) still does, and is now most of SN, MO and
+  MV. Batching it needs the language's law without going through the
+  hint database.
 - **Exponential backtracking (fixed).** `Control.plus` leaves a choice
   point, so a failure after it re-ran the code that followed every
   earlier `plus`, including the reifier's. This is what made the old
@@ -426,10 +452,10 @@ Earlier recorded baselines were D100 at 0.46 + 0.35 s, D300 at 1.5 +
   was quadratic: NS 30's `Qed` went from 4.6 s to 1.1 s once the checks
   were stated with the counts as numerals (the kernel relates the two by
   conversion, which only walks the list).
-- **Superlinear per-node rewriting (not fixed).** MO and MV grow faster
-  than their output (MO 10 → 20: 1.7 → 9.4 s). Each node is rewritten
-  separately, and each rewrite traverses the goal, which holds all n
-  nodes.
+- **Superlinear per-node rewriting (fixed in steps 3 and 5).** MO and MV
+  grew faster than their output (MO 10 → 20: 1.7 → 9.4 s): each node was
+  rewritten separately, and each rewrite traversed the goal. Step 3 now
+  rewrites all nodes together; what remains is step 2 (above).
 - **Superlinear deep nesting (partly fixed).** The `Qed` side was the
   VM issue above. On the tactic side, the term table compares a new term
   against the existing ones one at a time, by full syntactic comparison

@@ -1018,10 +1018,11 @@ Proof. rewrite kleisli_var; symmetry; apply apply_here_eval. Qed.
 
 (** [names] first applies the monad laws that remove a Kleisli extension
     or move work into the adjustment: going under a binder lifts the
-    adjustment and nested substitutions fuse ([names_pre]).  The
+    adjustment ([names_pre]); nested substitutions fuse in [names] itself,
+    by the law's [sl_comp].  The
     substitutions are then the nodes [names] works on ([names_node],
-    below), and after it identity substitutions go ([names_post]). *)
-Global Hint Rewrite @kleisli_apply_under @apply_under @subst_compose @ext_shift_here @ext_shift_under : names_pre.
+    below), and after it they are written back as substitutions. *)
+Global Hint Rewrite @kleisli_apply_under @apply_under @ext_shift_here @ext_shift_under : names_pre.
 
 (** ** The law [names] uses
 
@@ -1334,7 +1335,7 @@ End Rel.
 
 (** Substitution as the node [names] works on. *)
 Definition subst_law : SubstLaw term tv0 sub0 :=
-  {| sl_var := @subst_tvar_eval; sl_rel := @subst_rel; sl_res := @subst_res; sl_id := @subst_identity |}.
+  {| sl_var := @subst_tvar_eval; sl_rel := @subst_rel; sl_res := @subst_res; sl_id := @subst_identity; sl_comp := @subst_compose |}.
 
 Lemma subst_csubst {N M} (a : adj term N M) (t : term N) : t [a] = csubst subst_law a t.
 Proof. reflexivity. Qed.
@@ -1348,6 +1349,5 @@ Lemma apply_here_node {N M} (a : adj term N M) (v : var N) : apply a N M ext_her
 Proof. symmetry; apply kleisli_var. Qed.
 
 Global Hint Rewrite @subst_csubst @apply_here_node : names_node.
-Global Hint Rewrite @csubst_subst : names_post.
 
 End Subst.

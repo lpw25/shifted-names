@@ -615,7 +615,6 @@ Notation "⟦ ⟧" := identity (format "⟦ ⟧").
     the substitution functor adds its laws, and each syntax its own. *)
 Create Rewrite HintDb names_pre.
 Create Rewrite HintDb names_node.
-Create Rewrite HintDb names_post.
 
 Declare Scope adj_scope.
 Delimit Scope adj_scope with adj.

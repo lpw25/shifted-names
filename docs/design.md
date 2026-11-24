@@ -101,17 +101,19 @@ compute, so closed equations hold by `vm_compute` (`Tests/CoreTests.v`).
 an abbreviation for the Kleisli extension of the library's `apply` at the
 top, users push it through their own constructors with `cbn`, and a
 syntax's `Subst` functor contributes monad laws and its substitution law,
-in three rewrite databases. `names` makes one pass:
+in two rewrite databases. `names` makes one pass:
 
 1. rewrites with `names_pre` to a fixpoint: going under a binder lifts
    the adjustment (`kleisli (apply a) (ext_under e) = kleisli (apply (lift
-   a)) (ext_shift e)`, and the same for `apply` on a variable), and nested
-   substitutions fuse (`t [a] [b] = t [a ⨾ b]`);
+   a)) (ext_shift e)`, and the same for `apply` on a variable);
 2. rewrites with `names_node`: a substitution `t [a]` (and `apply a
    ext_here v` as `cbn` leaves it) is the core node `csubst L a t`, which
    carries the syntax's law `L` (`Names.SubstLaw`);
-3. normalises (`names_norm`). For each node not inside an adjustment, it
-   converts `a` (`Conv.aconvn`): a term that is a variable `tvar w` with a
+3. normalises (`names_norm`). Chains of nodes `t [a] [b]` first fuse
+   into one, `t [a ⨾ b]` (the law's `sl_comp`, one application per
+   chain). The rewrites below are then made together, in one traversal
+   of the goal and one proof (`rewrite_many`). For each node not inside
+   an adjustment, it converts `a` (`Conv.aconvn`): a term that is a variable `tvar w` with a
    payload `W` becomes a look-up of `w` through `W` (`x as w⟨| W ⟩`), and
    a term that is a substitution `csubst L c u` becomes `u` with `c` in
    its payload (`u⟨| W ∘ c ⟩`), all the way down through the `c`s. A node
@@ -133,7 +135,8 @@ in three rewrite databases. `names` makes one pass:
    identity becomes its term (`docs/names.md`);
 4. evaluates `apply_var a v` left in the goal in the same way as a node
    on a variable (for an adjustment of any family, with no law);
-5. rewrites with `names_post`: the nodes back to `t [a]`.
+5. writes the nodes back as `t [a]` (`names_post`): by conversion, as
+   the law's `sub`, in one traversal and with no proof.
 
 Each step's output needs nothing from the steps before it: step 3 leaves
 no substitution or variable in a normalised adjustment's terms, and what
