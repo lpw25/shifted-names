@@ -135,7 +135,7 @@ in two rewrite databases. `names` makes one pass:
    identity becomes its term (`docs/names.md`);
 4. evaluates `apply_var a v` left in the goal in the same way as a node
    on a variable (for an adjustment of any family, with no law);
-5. writes the nodes back as `t [a]` (`names_post`): by conversion, as
+5. writes the nodes back as `t [a]` (`names_post`, Ltac2's `change`): by conversion, as
    the law's `sub`, in one traversal and with no proof.
 
 Each step's output needs nothing from the steps before it: step 3 leaves

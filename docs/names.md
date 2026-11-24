@@ -112,10 +112,12 @@ goal, and its output needs nothing from the steps before it.
    an adjustment of any family, with no law. It uses the same
    `hlook_show` as step 3.3.
 5. **`names_post`.** The nodes go back to `t [a]`. This needs no lemma:
-   `csubst L a t` is the law's `sub` at `a t` by conversion, so one
-   traversal writes each node as the body of `sub`, and the goal is
-   changed with no proof (the kernel checks the conversion once, at
-   `Qed`). What step 3 rewrites to it already builds this way. A
+   `csubst L a t` is the law's `sub` at `a t` by conversion. It is
+   Ltac2's `change` with the pattern of a node, each match replaced by
+   the body of `sub` (read once, by unfolding the constant `sub` on its
+   own) at the match's `N M a t`; `change` finds the matches and checks
+   the conversion itself. What step 3 rewrites to it already builds this
+   way. A
    materialised term under a shared definition's binder is in the
    syntax's form too; step 3 reads it back as a node (`as_node`), so a
    second `names` sees the same goal.
@@ -146,6 +148,29 @@ term:
 - The checks the VM makes are stated with the number of terms and atoms
   as numerals, not as `List.length` of the term table: otherwise the VM
   compiles every term in the table to count them.
+
+**Keeping the proofs cheap to build and check.** Three rules, each found
+by measuring (below):
+- *No data in quotations.* Each proof's skeleton is a closed definition
+  (`g_adj_mat`, `g_var_term`, …), elaborated and checked once when the
+  library compiles, and applied to its data with `app`. Only its head is
+  elaborated, with the syntax's type, which records the universe
+  constraints. As Ltac2 quotations with the data antiquoted, the
+  elaborator walked the term table and the facts as trees at every use.
+- *Every large term written once.* The kernel types each argument of an
+  application, with no memory of terms it has typed. The conversion
+  facts are one lemma application each (`nf_cons`, `vf_cons`), and the
+  term table, the labels and every tail of the facts' list are bound once
+  by `let`s around them (`with_tails`); passed to each fact, the table
+  was typed once per fact.
+- *Types that match syntactically.* The kernel first compares a proof's
+  type with the expected one syntactically, sharing included. If that
+  fails it reduces, and its fast comparison of two closures walks them
+  whole, with no shortcut for shared subterms. So statements about the
+  facts use one named predicate (`nfactP`, `vfactP`), and each fact is a
+  cons step (`nf_cons`) whose type is a literal instance, not `P x` for a
+  predicate `P` (as `Forall_cons` would have it), which the kernel would
+  reduce, walking the term table once per fact.
 
 ### Why one pass is enough
 
@@ -387,9 +412,9 @@ induction on words. It is not done.
 ## Benchmarks
 
 The families below run on the current branch ("now"), on 86e4e1f
-(before step 3 rewrote all nodes at once and step 5 became a
-conversion) and on the commit before the single-pass work (20ed942,
-"old").
+(before step 3 rewrote all nodes at once, step 5 became a conversion and
+the proofs were built by the rules above) and on the commit before the
+single-pass work (20ed942, "old").
 `tests/bench/names/run.sh FAMILY N…` runs them. The goals have the form
 `P (…) -> True`, so `names` has one rewrite to make. Times are tactic
 time + `Qed`; for MO and MV, `cbn` comes first and is not counted. A dash
@@ -399,24 +424,25 @@ machine vary by about 10% between runs.
 
 | family | n | now | 86e4e1f | old |
 |---|---|---|---|---|
-| D: chain of n singletons, adjustment only | 100 | 0.17 + 0.18 s | 0.19 + 0.17 s | 0.44 + 0.12 s |
-| | 1000 | 3.3 + 1.3 s | 3.3 + 1.7 s | 4.5 + 2.4 s |
-| PC: chain of n pairs | 50 | 0.96 + 0.83 s | 0.98 + 0.94 s | 1.4 + 1.1 s |
-| PN: an opaque term under a chain of n pairs | 30 | 0.74 + 0.53 s | 1.2 + 0.74 s | — |
-| | 60 | 2.2 + 1.5 s | 3.6 + 1.7 s | — |
-| VR: a variable through n renamings | 300 | 1.3 + 0.20 s | 1.6 + 0.20 s | 2.4 + 0.34 s |
-| VT: a variable through n `x := tvar y` | 10 | 0.17 + 0.03 s | 0.15 + 0.04 s | 35 s |
-| | 100 | 0.65 + 0.44 s | 0.68 + 0.47 s | — |
-| | 300 | 2.0 + 2.7 s | 2.1 + 2.7 s (rewrite by type: 18.5 s) | — |
-| VA: as VT, ending in an atom (a stuck look-up) | 300 | 3.2 + 2.8 s | 3.1 + 2.8 s | n = 5: 1.7 s |
-| NS: substitutions nested n deep in a payload | 10 | 0.31 + 0.13 s | 0.29 + 0.10 s | 2.8 + 2.0 s |
-| | 30 | 1.3 + 0.97 s | 1.4 + 1.1 s | — |
-| SN: n nested substitutions on an opaque term | 30 / 100 | 0.43 + 0.19 / 3.3 + 0.90 s | 0.54 + 0.21 / 2.9 + 1.0 s | n = 4: > 100 s |
-| MO: n opaque subterms under one n-entry substitution | 10 / 20 | 0.71 + 0.09 / 3.5 + 0.37 s | 1.4 + 0.20 / 8.0 + 1.1 s | n = 7: > 150 s |
-| MV: n variables under one n-entry substitution | 10 / 20 | 0.91 + 0.15 / 4.2 + 0.69 s | 1.5 + 0.31 / 8.5 + 1.4 s | n = 7: > 150 s |
+| D: chain of n singletons, adjustment only | 100 | 0.18 + 0.16 s | 0.19 + 0.17 s | 0.44 + 0.12 s |
+| | 1000 | 3.0 + 1.3 s | 3.3 + 1.7 s | 4.5 + 2.4 s |
+| PC: chain of n pairs | 50 | 0.94 + 0.84 s | 0.98 + 0.94 s | 1.4 + 1.1 s |
+| PN: an opaque term under a chain of n pairs | 30 | 0.65 + 0.40 s | 1.2 + 0.74 s | — |
+| | 60 | 2.0 + 1.5 s | 3.6 + 1.7 s | — |
+| VR: a variable through n renamings | 300 | 1.2 + 0.15 s | 1.6 + 0.20 s | 2.4 + 0.34 s |
+| VT: a variable through n `x := tvar y` | 10 | 0.14 + 0.01 s | 0.15 + 0.04 s | 35 s |
+| | 100 | 0.57 + 0.10 s | 0.68 + 0.47 s | — |
+| | 300 | 1.6 + 0.41 s | 2.1 + 2.7 s (rewrite by type: 18.5 s) | — |
+| VA: as VT, ending in an atom (a stuck look-up) | 300 | 1.5 + 0.45 s | 3.1 + 2.8 s | n = 5: 1.7 s |
+| NS: substitutions nested n deep in a payload | 10 | 0.18 + 0.04 s | 0.29 + 0.10 s | 2.8 + 2.0 s |
+| | 30 | 0.40 + 0.36 s | 1.4 + 1.1 s | — |
+| | 60 | 1.6 + 1.2 s | 4.6 + 5.4 s | — |
+| SN: n nested substitutions on an opaque term | 30 / 100 | 0.34 + 0.09 / 3.2 + 0.82 s | 0.54 + 0.21 / 2.9 + 1.0 s | n = 4: > 100 s |
+| MO: n opaque subterms under one n-entry substitution | 10 / 20 | 0.81 + 0.08 / 3.2 + 0.33 s | 1.4 + 0.20 / 8.0 + 1.1 s | n = 7: > 150 s |
+| MV: n variables under one n-entry substitution | 10 / 20 | 0.64 + 0.13 / 3.6 + 0.47 s | 1.5 + 0.31 / 8.5 + 1.4 s | n = 7: > 150 s |
 
 Most of SN, MO and MV is now step 2 (`names_node`, `autorewrite`): SN
-100 2.8 of 3.3 s, MO 20 2.4 of 3.5 s, MV 20 2.6 of 4.2 s.
+100 2.8 of 3.2 s, MO 20 2.4 of 3.2 s, MV 20 2.5 of 3.6 s.
 
 Earlier recorded baselines were D100 at 0.46 + 0.35 s, D300 at 1.5 +
 1.1 s and D1000 at 6.5 + 4.6 s.
@@ -457,8 +483,18 @@ Earlier recorded baselines were D100 at 0.46 + 0.35 s, D300 at 1.5 +
   grew faster than their output (MO 10 → 20: 1.7 → 9.4 s): each node was
   rewritten separately, and each rewrite traversed the goal. Step 3 now
   rewrites all nodes together; what remains is step 2 (above).
-- **Superlinear deep nesting (partly fixed).** The `Qed` side was the
-  VM issue above. On the tactic side, the term table compares a new term
-  against the existing ones one at a time, by full syntactic comparison
-  (`tbl_add`); each nested substitution's whole term is entered, so the
-  comparisons add up to about n². Keying the table would avoid it.
+- **Elaborating quotations (fixed).** Building each proof as an Ltac2
+  quotation with the term table and the facts antiquoted had the
+  elaborator walk them as trees: 2.5 s of NS 60's 3.2 s in step 3. Now
+  closed definitions (rules above).
+- **Typing the term table per fact (fixed).** NS 60's `Qed` was 4.5 s, 3.3 s
+  of it the conversion facts: the kernel typed the term table (quadratic
+  as a tree, on NS) once per fact, and reduced each fact's predicate. Now
+  1.2 s (rules above). The same fix took VT 300's `Qed` from 2.7 to 0.41 s
+  and VA 300's from 2.8 to 0.45 s.
+- **Superlinear deep nesting (fixed).** The `Qed` side was the VM issue
+  and the per-fact typing above. On the tactic side, the term table
+  compares a new term with each entry in turn (`tbl_add`; variables are
+  keyed by name). Keying the rest was measured and is not worth it: the
+  comparison is `Constr.equal`, native and fast, and a key computed in
+  Ltac2 costs more than the scan (VT 300: reification 0.33 s in all).
