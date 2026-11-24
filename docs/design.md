@@ -41,7 +41,8 @@ A syntax is a canonical structure of type `syntax` (`Core/Syntax.v`):
   composition), `kleisli_unit` and `kleisli_assoc`.
 
 Declaring it canonical lets unification find it from the syntax's own
-terms, constructor or `kleisli`, so the library's statements and lemmas,
+terms, constructor or `kleisli` (or through a transparent alias, such as
+`Definition trm := tm 0`), so the library's statements and lemmas,
 generic over any `syntax`, apply to the syntax's terms as written:
 
 ```coq

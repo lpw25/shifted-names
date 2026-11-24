@@ -46,9 +46,13 @@ there is no proof search at all.
   plain, and its last line declares the structure).
 - **Display**: a type computed by the library may print through the
   structure, e.g. `lambda_syntax M` for `tm M`.
-- **Aliases**: inference needs the syntax's own type, constructor or
-  `kleisli` to appear. Behind a definition (`Definition mytm := tm`), it
-  needs that definition declared canonical too, or the structure given.
+- **Aliases** work: where the structure is looked up at an alias and not
+  found, unification unfolds the alias and finds it at the syntax's type.
+  So `Definition trm := tm 0` (closed terms, `Lambda.v`) or
+  `Definition tmf := tm` can be used everywhere `tm` can, with `apply`,
+  `rewrite`, `cbn` and `names`. Only an alias unification cannot unfold
+  (opaque, or a new type wrapping the syntax's) needs its own canonical
+  structure.
 - **Inside the library**, statements and proofs over a generic structure
   fix it with local notations (`kleisli := kleisli (s:=Sy)`, and so on):
   unification has nothing to find it from where an argument's type is not

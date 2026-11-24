@@ -231,3 +231,18 @@ Proof. reflexivity. Qed.
 Example payload_explicit (σ : sub 1 0) (u : tm 1) :
   (⟦ ("x") := u⟨| σ ⟩ ⟧ : sub 0 0) = ⟦ ("x") := u⟨| ⟦ | σ ⟧ ⟩ ⟧.
 Proof. reflexivity. Qed.
+
+(** ** Closed terms
+
+    A name for the terms with no bound variables free, the ones a client
+    mostly works with.  The library finds the syntax through it: where
+    the canonical structure is looked up at [trm] and not found,
+    unification unfolds [trm] and finds it at [tm]. *)
+Definition trm := tm 0.
+
+Example trm_identity (t : trm) : t [⟦⟧] = t.
+Proof. apply subst_identity. Qed.
+
+Example trm_names (t u : trm) x :
+  (tapp t (tvar (fvar x 0)) : trm) [⟦ x := u ⟧] = tapp (t [⟦ x := u ⟧]) u.
+Proof. cbn; names; reflexivity. Qed.
