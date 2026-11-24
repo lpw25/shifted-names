@@ -2,8 +2,8 @@
 
     The user's side is this file's first two sections: an indexed
     inductive, one Kleisli-extension function, and its laws, each a routine
-    induction.  Everything about substitution then comes from the library's
-    [Subst] functor. *)
+    induction.  Everything about substitution then comes from the library
+    ([Subst]), given the syntax as an instance of [Syntax]. *)
 
 From Stdlib Require Import Arith List Lia Bool StrictProp.
 From ShiftedNames.Core Require Import Label Var Adjustment Laws Scoped Indexed Syntax Subst Names.
@@ -23,7 +23,7 @@ Arguments tconst {N} n.
 Arguments tapp {N} t1 t2.
 Arguments tlam {N} b.
 
-Module LambdaSyntax <: SYNTAX.
+Module LambdaSyntax.
 
   Definition term := tm.
   Definition tvar {N} : var N -> term N := @tvar N.
@@ -85,8 +85,16 @@ End LambdaSyntax.
 
 (** ** Substitution, from the library *)
 
-Module LS := Subst LambdaSyntax.
-Import LS.
+#[export] Instance lambda_syntax : Syntax tm := {|
+  Syntax.tvar := @tvar;
+  Syntax.kleisli := @LambdaSyntax.kleisli;
+  Syntax.kleisli_var := LambdaSyntax.kleisli_var;
+  Syntax.kleisli_ext := LambdaSyntax.kleisli_ext;
+  Syntax.kleisli_rebase := LambdaSyntax.kleisli_rebase;
+  Syntax.kleisli_unit_ := LambdaSyntax.kleisli_unit;
+  Syntax.kleisli_assoc_ := LambdaSyntax.kleisli_assoc |}.
+
+Canonical Structure lambda_syntax.
 
 (** Substitutions: scoped adjustments whose payloads are terms of any
     scope. *)

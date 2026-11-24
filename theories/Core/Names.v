@@ -1695,7 +1695,8 @@ Ltac2 rewrite_with (pf : constr) : unit :=
     writes it under a shared definition's binder: the body of the law's [sub] (a constant) at [N M a t].  The
     match is syntactic, with the body's four arguments as holes. *)
 Ltac2 sub_body (sub : constr) : constr option :=
-  match Constr.Unsafe.kind sub with
+  let (h, _) := split_app sub in
+  match Constr.Unsafe.kind h with
   | Constr.Unsafe.Constant k _ =>
       let rec strip n c := if Int.equal n 0 then Some c else
         match Constr.Unsafe.kind c with Constr.Unsafe.Lambda _ b => strip (Int.sub n 1) b | _ => None end in
@@ -2126,18 +2127,29 @@ Ltac2 names_apply () : unit :=
 (** Terms that are variables: the law's [tv] applied to a scope and a
     variable, or what [tv] unfolds to (a syntax's variable constructor),
     found by unfolding [tv] alone. *)
-Ltac2 var_heads (vr : constr) : constr list :=
-  match Constr.Unsafe.kind vr with
-  | Constr.Unsafe.Constant c _ =>
-      let probe := app vr [constr:(O); constr:(@fvar O EmptyString O)] in
-      let (f, _) := split_app (Std.eval_unfold [(Std.ConstRef c, Std.AllOccurrences)] probe) in
-      if Constr.equal f vr then [vr] else [vr; f]
-  | _ => [vr]
-  end.
+(** The constants in [c]'s head and arguments, unfolded in [c] (a small
+    term): a definition applied, or a class's projection applied to an
+    instance, read through. *)
+Ltac2 unfold_head (c : constr) : constr :=
+  let (f, a) := split_app c in
+  let consts := List.flat_map (fun x => match Constr.Unsafe.kind x with
+                                        | Constr.Unsafe.Constant k _ => [(Std.ConstRef k, Std.AllOccurrences)]
+                                        | _ => [] end) (f :: Array.to_list a) in
+  match consts with [] => c | _ => Std.eval_unfold consts c end.
 
+Ltac2 var_heads (vr : constr) : constr list :=
+  let probe := app vr [constr:(O); constr:(@fvar O EmptyString O)] in
+  let (f, _) := split_app (unfold_head probe) in
+  if Constr.equal f vr then [vr] else [vr; f].
+
+(** [u] is [h K w] for one of [heads], which may be applications
+    themselves (a class's projection at an instance). *)
 Ltac2 var_term (heads : constr list) (u : constr) : (constr * constr) option :=
   let (f, a) := split_app u in
-  if Bool.and (Int.equal (Array.length a) 2) (List.exist (Constr.equal f) heads) then Some (Array.get a 0, Array.get a 1)
+  let n := Array.length a in
+  if Int.lt n 2 then None else
+  let hd := if Int.equal n 2 then f else app f (Array.to_list (Array.sub a 0 (Int.sub n 2))) in
+  if List.exist (Constr.equal hd) heads then Some (Array.get a (Int.sub n 2), Array.get a (Int.sub n 1))
   else None.
 
 (** ** Converting before normalising
@@ -2699,9 +2711,16 @@ Ltac2 names_norm () : unit :=
     normal. *)
 Ltac2 autorw (db : ident) : unit := Std.autorewrite false None [db] (concl ()).
 
+(** Hooks a syntax library sets ([Subst]): before step 1, the goal
+    written in the library's own terms (what [cbn] leaves is the syntax's
+    functions); step 2. *)
+Ltac2 mutable names_fold_hook : unit -> unit := fun () => ().
+Ltac2 mutable names_node_hook : unit -> unit := fun () => autorw @names_node.
+
 Ltac2 names_pass () : unit :=
+  (names_fold_hook ());
   (autorw @names_pre);
-  (autorw @names_node);
+  (names_node_hook ());
   (names_norm ());
   (names_apply ());
   (names_post ()).

@@ -114,40 +114,53 @@ Proof. apply var_eq; reflexivity. Qed.
 
 (** ** The interface *)
 
-Module Type SYNTAX.
+(** A syntax: its terms, indexed by their scope, the variable
+    constructor, and one function, the Kleisli extension of a morphism (a
+    map from variables to terms) along a witness [ext N M K L] (the
+    binders gone under), with its laws.  Everything about substitution
+    comes from these ([Subst]). *)
+Definition morph (term : nat -> Type) (N M : nat) : Type := forall K L, ext N M K L -> var K -> term L.
 
-  Parameter term : nat -> Type.
+(** Re-basing a morphism under the binders of a witness. *)
+Definition rebase_m {term : nat -> Type} {N M K L} (e1 : ext N M K L) (f : morph term N M) : morph term K L :=
+  fun K' L' e v => f K' L' (ext_app e1 e) v.
 
-  Parameter tvar : forall {N}, var N -> term N.
-
-  Definition morph (N M : nat) : Type := forall K L, ext N M K L -> var K -> term L.
-
-  Parameter kleisli : forall {N M} (f : morph N M) {K L}, ext N M K L -> term K -> term L.
-
-  (** The identity morphism, and Kleisli composition. *)
-  Definition unit_m {N} : morph N N := fun K L e v => tvar (ext_var e v).
-
-  Definition comp_m {N M P} (g : morph M P) (f : morph N M) : morph N P :=
-    fun K L e v => kleisli g (ext_right M e) (f K (ext_mid M e) (ext_left M e) v).
-
-  (** Re-basing a morphism under the binders of a witness. *)
-  Definition rebase_m {N M K L} (e1 : ext N M K L) (f : morph N M) : morph K L :=
-    fun K' L' e v => f K' L' (ext_app e1 e) v.
-
-  Axiom kleisli_var : forall N M (f : morph N M) K L (e : ext N M K L) (v : var K),
-    kleisli f e (tvar v) = f K L e v.
-
-  Axiom kleisli_ext : forall N M (f g : morph N M),
+Class Syntax (term : nat -> Type) := {
+  tvar : forall {N}, var N -> term N;
+  kleisli : forall {N M} (f : morph term N M) {K L}, ext N M K L -> term K -> term L;
+  kleisli_var : forall N M (f : morph term N M) K L (e : ext N M K L) (v : var K),
+    kleisli f e (tvar v) = f K L e v;
+  kleisli_ext : forall N M (f g : morph term N M),
     (forall K L (e : ext N M K L) v, f K L e v = g K L e v) ->
-    forall K L (e : ext N M K L) t, kleisli f e t = kleisli g e t.
-
-  Axiom kleisli_rebase : forall N M (f : morph N M) K L K' L' (e1 : ext N M K L)
+    forall K L (e : ext N M K L) t, kleisli f e t = kleisli g e t;
+  kleisli_rebase : forall N M (f : morph term N M) K L K' L' (e1 : ext N M K L)
     (e2 : ext K L K' L') t,
-    kleisli f (ext_app e1 e2) t = kleisli (rebase_m e1 f) e2 t.
+    kleisli f (ext_app e1 e2) t = kleisli (rebase_m e1 f) e2 t;
+  (** the identity morphism and Kleisli composition, written out (as
+      [unit_m] and [comp_m] below) *)
+  kleisli_unit_ : forall N K (e : ext N N K K) t, kleisli (fun K L e v => tvar (ext_var e v)) e t = t;
+  kleisli_assoc_ : forall N M P (g : morph term M P) (f : morph term N M) K L (e : ext N P K L) t,
+    kleisli (fun K L e v => kleisli g (ext_right M e) (f K (ext_mid M e) (ext_left M e) v)) e t
+    = kleisli g (ext_right M e) (kleisli f (ext_left M e) t)
+}.
 
-  Axiom kleisli_unit : forall N K (e : ext N N K K) t, kleisli unit_m e t = t.
+Arguments tvar {term _ N} v.
+Arguments kleisli {term _ N M} f {K L} e t.
 
-  Axiom kleisli_assoc : forall N M P (g : morph M P) (f : morph N M) K L (e : ext N P K L) t,
-    kleisli (comp_m g f) e t = kleisli g (ext_right M e) (kleisli f (ext_left M e) t).
+Section Syntax.
+Context {term : nat -> Type} `{Syntax term}.
 
-End SYNTAX.
+(** The identity morphism, and Kleisli composition. *)
+Definition unit_m {N} : morph term N N := fun K L e v => tvar (ext_var e v).
+
+Definition comp_m {N M P} (g : morph term M P) (f : morph term N M) : morph term N P :=
+  fun K L e v => kleisli g (ext_right M e) (f K (ext_mid M e) (ext_left M e) v).
+
+Lemma kleisli_unit N K (e : ext N N K K) t : kleisli unit_m e t = t.
+Proof. exact (kleisli_unit_ N K e t). Qed.
+
+Lemma kleisli_assoc N M P (g : morph term M P) (f : morph term N M) K L (e : ext N P K L) t :
+  kleisli (comp_m g f) e t = kleisli g (ext_right M e) (kleisli f (ext_left M e) t).
+Proof. exact (kleisli_assoc_ N M P g f K L e t). Qed.
+
+End Syntax.

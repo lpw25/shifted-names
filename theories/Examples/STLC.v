@@ -9,7 +9,6 @@
 From Stdlib Require Import String StrictProp.
 From ShiftedNames.Core Require Import Label Var Adjustment Indexed Syntax Subst Names Context.
 From ShiftedNames.Examples Require Import Lambda.
-Import LS.
 Open Scope ctx_scope.
 
 Inductive ty : Type := Base | Fn (A B : ty).

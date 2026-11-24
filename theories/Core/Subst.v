@@ -253,8 +253,11 @@ End Wrappers.
 
 (** ** Substitution for a syntax *)
 
-Module Subst (Import S : SYNTAX).
-
+(** The substitution of any syntax ([Syntax]): its definitions and laws
+    take the syntax's instance as an implicit argument. *)
+Section Subst0.
+Context {term : nat -> Type} `{Sx : Syntax term}.
+Local Notation morph := (morph term).
 Local Notation P := {K & term K}.
 Local Notation nadj := (@nadj P).
 Local Notation entry := (@entry P).
@@ -319,10 +322,20 @@ Qed.
 Definition apply {N M} (a : adj term N M) : morph N M :=
   gapply LAbs (radj_n (adj_raw a)) N M 0 M (Is_true_s_intro (Nat.eqb_refl M)) (adj_aok a).
 
+End Subst0.
+
 (** Substitution [t [a]] is the Kleisli extension of [apply] at the top;
     it is notation, so rewriting sees the Kleisli extension. *)
 Notation "t [ a ]" := (kleisli (apply a) ext_here t) (at level 1, left associativity, format "t [ a ]").
 Notation subst a := (kleisli (apply a) ext_here) (only parsing).
+
+Section Subst1.
+Context {term : nat -> Type} `{Sx : Syntax term}.
+Local Notation morph := (morph term).
+Local Notation P := {K & term K}.
+Local Notation nadj := (@nadj P).
+Local Notation entry := (@entry P).
+Local Notation target := (@target P).
 
 (** ** What [gapply] computes *)
 
@@ -1022,7 +1035,6 @@ Proof. rewrite kleisli_var; symmetry; apply apply_here_eval. Qed.
     by the law's [sl_comp].  The
     substitutions are then the nodes [names] works on ([names_node],
     below), and after it they are written back as substitutions. *)
-Global Hint Rewrite @kleisli_apply_under @apply_under @ext_shift_here @ext_shift_under : names_pre.
 
 (** ** The law [names] uses
 
@@ -1032,7 +1044,6 @@ Global Hint Rewrite @kleisli_apply_under @apply_under @ext_shift_here @ext_shift
     scope [M], used under [d] binders ([rv]): a variable, or the term
     substituted by its payload; related results read the same. *)
 
-Notation tv0 := (@tvar) (only parsing).
 
 Section Rel.
 
@@ -1186,13 +1197,13 @@ Proof.
   all: exact (rvn_det _ _ _ _ _ _ _ _ (Hrv _ _ _ _ R1) R2).
 Qed.
 
-Lemma lawbase_not_inl w r' : ~ lawbase tv0 sub0 (inl w) r'.
+Lemma lawbase_not_inl w r' : ~ lawbase (@tvar term Sx) sub0 (inl w) r'.
 Proof.
   intros [[K [M [u [c [E _]]]]]|[[K [M [u [c [W [E _]]]]]]|[K [w' [W [E _]]]]]]; discriminate.
 Qed.
 
 (** A variable is related only to itself. *)
-Lemma drel_inl r r' : drel (lawbase tv0 sub0) r r' -> forall w, r = inl w -> r' = inl w.
+Lemma drel_inl r r' : drel (lawbase (@tvar term Sx) sub0) r r' -> forall w, r = inl w -> r' = inl w.
 Proof.
   induction 1 as [r|r r' Hb|u W W' ρ _ _|r r' r'' _ IH1 _ IH2]; intros w E.
   - exact E.
@@ -1202,7 +1213,7 @@ Proof.
 Qed.
 
 Lemma rv_le_pay M (W W' : radj P) :
-  (forall v, drel (lawbase tv0 sub0) (rapply W v) (rapply W' v)) -> (forall v, rv_le M (rapply W v) (rapply W' v)) ->
+  (forall v, drel (lawbase (@tvar term Sx) sub0) (rapply W v) (rapply W' v)) -> (forall v, rv_le M (rapply W v) (rapply W' v)) ->
   forall n ρ u, rdepth ρ < n -> rv_le M (inr (u, rcompose W ρ)) (inr (u, rcompose W' ρ)).
 Proof.
   intros HW IHW n; induction n as [|n IH]; intros ρ u Hn; [lia|].
@@ -1282,7 +1293,7 @@ Proof.
              (Is_true_s_intro Hz) _ (hrel_gapply0 _ M' M d L HL (Is_true_s_intro Hρ)) u).
 Qed.
 
-Lemma vbase_rv M r r' : vbase tv0 r r' -> rv_le M r r'.
+Lemma vbase_rv M r r' : vbase (@tvar term Sx) r r' -> rv_le M r r'.
 Proof.
   intros [K [w [W [-> ->]]]].
   split.
@@ -1296,10 +1307,10 @@ Proof.
     exact (rvn_cast _ _ _ _ L _ HL _ (Nat.add_0_r d) R).
 Qed.
 
-Lemma lawbase_rv M r r' : lawbase tv0 sub0 r r' -> rv_le M r r'.
+Lemma lawbase_rv M r r' : lawbase (@tvar term Sx) sub0 r r' -> rv_le M r r'.
 Proof. intros [H|[H|H]]; [apply matbase_rv|apply nbase_rv|apply vbase_rv]; exact H. Qed.
 
-Lemma drel_rv M r r' : drel (lawbase tv0 sub0) r r' -> rv_le M r r'.
+Lemma drel_rv M r r' : drel (lawbase (@tvar term Sx) sub0) r r' -> rv_le M r r'.
 Proof.
   induction 1 as [r|r r' Hb|u W W' ρ HW IH|r r' r'' _ IH1 _ IH2].
   - apply rv_le_refl.
@@ -1309,14 +1320,14 @@ Proof.
 Qed.
 
 Theorem subst_rel {N M} (a a' : adj term N M) :
-  (forall v : var N, drel (lawbase tv0 sub0) (rapply (adj_raw a) (var_raw v)) (rapply (adj_raw a') (var_raw v))) ->
+  (forall v : var N, drel (lawbase (@tvar term Sx) sub0) (rapply (adj_raw a) (var_raw v)) (rapply (adj_raw a') (var_raw v))) ->
   forall t, t [a] = t [a'].
 Proof. intros H; apply subst_rv; intros v; apply drel_rv, H. Qed.
 
 (** The same for one variable: related results, read at the output
     scope, give the same term. *)
 Theorem subst_res {N N' M} (a : adj term N M) (v : var N) (a' : adj term N' M) (v' : var N') :
-  drel (lawbase tv0 sub0) (rapply (adj_raw a) (var_raw v)) (rapply (adj_raw a') (var_raw v')) ->
+  drel (lawbase (@tvar term Sx) sub0) (rapply (adj_raw a) (var_raw v)) (rapply (adj_raw a') (var_raw v')) ->
   (tvar v) [a] = (tvar v') [a'].
 Proof.
   intros H; destruct (drel_rv M _ _ H) as [_ Hrv].
@@ -1334,7 +1345,7 @@ Qed.
 End Rel.
 
 (** Substitution as the node [names] works on. *)
-Definition subst_law : SubstLaw term tv0 sub0 :=
+Definition subst_law : SubstLaw term (@tvar term Sx) sub0 :=
   {| sl_var := @subst_tvar_eval; sl_rel := @subst_rel; sl_res := @subst_res; sl_id := @subst_identity; sl_comp := @subst_compose |}.
 
 Lemma subst_csubst {N M} (a : adj term N M) (t : term N) : t [a] = csubst subst_law a t.
@@ -1348,6 +1359,88 @@ Proof. reflexivity. Qed.
 Lemma apply_here_node {N M} (a : adj term N M) (v : var N) : apply a N M ext_here v = csubst subst_law a (tvar v).
 Proof. symmetry; apply kleisli_var. Qed.
 
+End Subst1.
+
+Global Hint Rewrite @kleisli_apply_under @apply_under @ext_shift_here @ext_shift_under : names_pre.
 Global Hint Rewrite @subst_csubst @apply_here_node : names_node.
 
-End Subst.
+(** ** [names] on substitutions
+
+    What [cbn] leaves of a substitution is the syntax's own [kleisli]
+    (and its variable constructor), not the class's projections: [cbn]
+    unfolds the instance and does not fold back.  [names] first writes the
+    syntax's [kleisli] as the class's, for each syntax in the goal (one
+    [change], so by conversion); then the substitutions are its nodes, by
+    conversion too ([csubst subst_law] is [t [a]] unfolded), and what
+    [cbn] leaves of a substitution into a variable is a node when the
+    syntax's [kleisli] computes on a variable (otherwise [apply_here_node]
+    rewrites it). *)
+From Ltac2 Require Import Ltac2.
+
+(** The syntaxes in the goal, [(term, instance)], from the uses of
+    [apply] (which [cbn] leaves alone) and of [kleisli]. *)
+Ltac2 goal_syntaxes () : (constr * constr) list :=
+  let acc := { contents := [] } in
+  let add t i :=
+    if List.exist (fun (t', i') => Bool.and (Constr.equal t t') (Constr.equal i i')) (acc.(contents)) then ()
+    else acc.(contents) := (t, i) :: acc.(contents) in
+  let _ := Control.case (fun () =>
+    multi_match! goal with
+    | [ |- context [ @apply ?t ?i _ _ _ ] ] => add t i; Control.zero Not_found
+    | [ |- context [ @Syntax.kleisli ?t ?i _ _ _ _ _ _ _ ] ] => add t i; Control.zero Not_found
+    end) in
+  acc.(contents).
+
+(** The syntax's own function [proj t i] reads as, written as the class's
+    projection. *)
+Ltac2 fold_proj (g : constr) : unit :=
+  let sk := Names.unfold_head g in
+  if Constr.equal sk g then () else
+  Names.attempt (fun () => ltac1:(sk gk |- change sk with gk) (Ltac1.of_constr sk) (Ltac1.of_constr g)) (fun _ => ()).
+
+(** The syntax's own [kleisli] written as the class's ([names]); with
+    [vars], its variable constructor too (for rewriting with the
+    library's lemmas, stated with the class's). *)
+Ltac2 syntax_fold_with (vars : bool) : unit :=
+  List.iter (fun (t, i) =>
+    fold_proj '(@Syntax.kleisli $t $i);
+    if vars then fold_proj '(@Syntax.tvar $t $i) else ())
+    (goal_syntaxes ()).
+
+Ltac2 syntax_fold () : unit := syntax_fold_with false.
+
+Ltac2 subst_nodes () : unit :=
+  let laws := { contents := [] } in
+  let law t i :=
+    match List.find_opt (fun (t', i', _) => Bool.and (Constr.equal t t') (Constr.equal i i')) (laws.(contents)) with
+    | Some (_, _, l) => l
+    | None =>
+        let lw := '(@subst_law $t $i) in
+        let (_, ta) := Names.split_app (Constr.type lw) in
+        let l := (Array.get ta 1, Array.get ta 2, lw) in
+        laws.(contents) := (t, i, l) :: laws.(contents); l
+    end in
+  let node t i n m a u := let (tv, sb, lw) := law t i in Names.app constr:(@csubst) [t; tv; sb; lw; n; m; a; u] in
+  let rec rounds p f :=
+    match Control.case (fun () => Pattern.matches_subterm p (Control.goal ())) with
+    | Err _ => ()
+    | Val _ => Std.change (Some p) f (Names.concl ()); rounds p f
+    end in
+  (* [t [a]]; in a chain [t [a] [b] …], the inner ones at once *)
+  let sp := pat:(@Syntax.kleisli ?a1 ?a2 ?a3 ?a4 (@apply _ _ _ _ ?a5) _ _ (@ext_here _ _) ?a6) in
+  let rec conv s := node (Array.get s 0) (Array.get s 1) (Array.get s 2) (Array.get s 3) (Array.get s 4) (inner (Array.get s 5))
+  with inner u := match Control.case (fun () => Pattern.matches_vect sp u) with Val (s, _) => conv s | Err _ => u end in
+  rounds sp conv;
+  (* [apply a _ _ ext_here v], by conversion where [kleisli] computes *)
+  Names.attempt (fun () =>
+    rounds pat:(@apply ?a1 ?a2 ?a3 ?a4 ?a5 _ _ (@ext_here _ _) ?a6)
+      (fun s => let (t, i, n, v) := (Array.get s 0, Array.get s 1, Array.get s 2, Array.get s 5) in
+                node t i n (Array.get s 3) (Array.get s 4) '(@Syntax.tvar $t $i $n $v)))
+    (fun _ => Names.autorw @names_node).
+
+Ltac2 Set Names.names_fold_hook := syntax_fold.
+Ltac2 Set Names.names_node_hook := subst_nodes.
+
+(** For Ltac1 proofs: after [cbn], the syntax's own functions written as
+    the library's, so that the library's lemmas rewrite. *)
+Ltac syntax_fold := ltac2:(syntax_fold_with true).

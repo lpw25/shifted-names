@@ -10,7 +10,6 @@ Section S. Context {T : nat -> Type}.
 hdrL = '''From Stdlib Require Import String StrictProp NArith.
 From ShiftedNames.Core Require Import Label Var Adjustment Indexed Syntax Subst Names.
 From ShiftedNames.Examples Require Import Lambda.
-Import LS.
 Open Scope string_scope.
 Section S.
 '''
