@@ -688,14 +688,22 @@ Ltac2 mk_rh () : rh := {
   r_LNone := constr:(LNone); r_N0 := constr:(N0) }.
 
 Ltac2 Type st := { labs : tbl; terms : tbl; atoms : tbl; ns : nats; lets : ident FSet.t;
-                   heads : rh; mutable sdefs : (int, constr) FMap.t }.
+                   heads : rh; mutable sdefs : (int, constr) FMap.t;
+                   (* for a definition not proved by conversion: its proof,
+                      given the label table, the term list and the atom
+                      list of the environment *)
+                   mutable sproofs : (int, constr -> constr -> constr -> constr) FMap.t }.
 
 Ltac2 new_st () : st :=
   { labs := new_tbl (); terms := new_tbl (); atoms := new_tbl (); ns := new_nats ();
     lets := List.fold_left (fun acc (id, b, _) => match b with Some _ => FSet.add id acc | None => acc end)
               (FSet.empty FSet.Tags.ident_tag) (Control.hyps ());
     heads := mk_rh ();
-    sdefs := FMap.empty FSet.Tags.int_tag }.
+    sdefs := FMap.empty FSet.Tags.int_tag; sproofs := FMap.empty FSet.Tags.int_tag }.
+
+(** For an adjustment [reify_adj] does not know: an expression for it, or
+    none (it is an atom).  [PMap] reads [pmap h a] with it. *)
+Ltac2 mutable reify_hook : st -> constr -> constr -> constr -> constr -> constr option := fun _ _ _ _ _ => None.
 
 Ltac2 reify_lab (s : st) (x : constr) : constr :=
   if is_string_lit x then app constr:(LCon) [x]
@@ -813,7 +821,7 @@ Ltac2 rec reify_adj (s : st) (t : constr) (n : constr) (m : constr) (a : constr)
           reify_octx s t o x
       | _ => Control.zero Not_found
       end) (fun _ => atom ())
-  else atom ()
+  else match reify_hook s t n m a with Some e => e | None => atom () end
 
 (** [octx_den o]: the outputs, outermost first, then what is inside them. *)
 with reify_octx (s : st) (t : constr) (o : constr) (x0 : constr) : constr :=
@@ -1675,7 +1683,8 @@ Ltac2 Type env := {
   e_le : constr; e_te : constr; e_ae : constr; e_l : constr; e_hl : constr;
   e_lt : constr; e_tt : constr;
   e_labs : constr array; e_terms : constr list; e_atoms : constr array; e_nt : int; e_nb : int; e_ns : nats;
-  e_defs : constr; e_defl : constr option list }.
+  e_defs : constr; e_defl : constr option list;
+  e_sproofs : (int, constr -> constr -> constr -> constr) FMap.t }.
 
 Ltac2 finish (s : st) (t : constr) : env :=
   let ty := raw_ty t in
@@ -1702,7 +1711,7 @@ Ltac2 finish (s : st) (t : constr) : env :=
     e_lt := lt; e_tt := btree ty terms;
     e_labs := Array.of_list labs; e_terms := terms; e_atoms := Array.of_list atoms;
     e_nt := (s.(terms)).(size); e_nb := (s.(atoms)).(size); e_ns := s.(ns);
-    e_defs := list_of constr:(option aexpN) defl_c; e_defl := defl }.
+    e_defs := list_of constr:(option aexpN) defl_c; e_defl := defl; e_sproofs := s.(sproofs) }.
 
 (** [eq_refl : lhs = rhs], checked by the VM (when the proof is checked). *)
 Ltac2 vm_eq (ty : constr) (lhs : constr) (rhs : constr) : constr :=
@@ -2046,11 +2055,16 @@ Ltac2 some (ty : constr) (x : constr) : constr := app constr:(@Some) [ty; x].
 
 (** [Forall2 (fun x od => od = Some d -> x = aeden d) atoms defs]: each
     defined atom is (convertibly) its definition. *)
-Ltac2 defs_proof (t : constr) (rel : constr) (atoms : constr list) (defl : constr option list) : constr :=
+Ltac2 defs_proof (t : constr) (rel : constr) (atoms : constr list) (defl : constr option list)
+    (sp : (int, constr -> constr -> constr -> constr) FMap.t) (lt : constr) (te : constr) (ael : constr) : constr :=
   let aty := app constr:(@radj) [raw_ty t] in
   let oty := constr:(option aexpN) in
   let ys := List.map (fun od => match od with Some d => app constr:(@Some aexpN) [d] | None => constr:(@None aexpN) end) defl in
-  let hs := List.map2 (fun x od => match od with Some _ => app constr:(@eq_refl) [aty; x] | None => constr:(I) end) atoms defl in
+  let hs := List.mapi (fun k (x, od) =>
+              match od with
+              | Some _ => match FMap.find_opt k sp with Some f => f lt te ael | None => app constr:(@eq_refl) [aty; x] end
+              | None => constr:(I)
+              end) (List.combine atoms defl) in
   forall2_proof aty oty rel atoms ys hs.
 
 (** ** Rewriting an adjustment to its normal form *)
@@ -2097,7 +2111,8 @@ Ltac2 show_adj_with (rw : constr -> constr -> unit) (a : constr) : outcome :=
            let pf := share_proof t n m p rd (fun rs hs root' =>
              let rsl := list_of rty rs in
              let at_ := btree rty (List.append atoms rs) in
-             let hd := defs_proof t (app hrel [at_]) atoms (en.(e_defl)) in
+             let hd := defs_proof t (app hrel [at_]) atoms (en.(e_defl)) (en.(e_sproofs)) lt te
+                         (list_of rty (List.append atoms rs)) in
              let hsp := forall2_proof rty constr:(aexpN) (app srel [at_]) rs (sh.(sh_l)) hs in
              app constr:(@adj_eq) [t; n; m; a; root';
                app q [rsl; at_; refl constr:(braun label) lt; refl '(braun $pt) tt; refl '(braun (radj $pt)) at_; hd; hsp]]) in
@@ -2568,7 +2583,8 @@ Ltac2 conv_one (bt : rb) (node : constr) : unit :=
           let sty := constr:((list aexpN * aexpN)%type) in
           let ht := vm_eq '(option $sty) '(hshowDN (order_of $l) $nt $nb $defs $ce) (some sty (sh.(sh_val))) in
           let hd := defs_proof ty (app '(fun (Ae : braun (radj $pt)) (x : radj $pt) (od : option aexpN) =>
-                          match od with Some d => x = aedenB $lt $tt Ae d | None => True end) [at0]) atoms (en.(e_defl)) in
+                          match od with Some d => x = aedenB $lt $tt Ae d | None => True end) [at0]) atoms (en.(e_defl))
+                      (en.(e_sproofs)) lt (en.(e_te)) (list_of rty atoms) in
           let hn0 := hn at0 in
           let q := app '(@g_adj_mat $term) [vr; sub; nfc; vfc; le; te; ae; lt; tt; at0; fuel; e; l; defs; shd; root; n; hl; ht; hm; hd] in
           let p := '(fun y : adj $ty $n $m => forall v : var $n, drel (lawbase $vr $sub) (rapply (adj_raw $a) (var_raw v)) (rapply (adj_raw y) (var_raw v))) in
@@ -2595,7 +2611,8 @@ Ltac2 conv_one (bt : rb) (node : constr) : unit :=
           let p := '(fun y : adj $ty $n $m => forall v : var $n, drel (lawbase $vr $sub) (rapply (adj_raw $a) (var_raw v)) (rapply (adj_raw y) (var_raw v))) in
           let pf := share_proof ty n m p rd (fun rs hs _ =>
             let (at_, args) := env_args rs in
-            let hd := defs_proof ty (app hrel [at_]) atoms (en.(e_defl)) in
+            let hd := defs_proof ty (app hrel [at_]) atoms (en.(e_defl)) (en.(e_sproofs)) lt (en.(e_te))
+                        (list_of rty (List.append atoms rs)) in
             let hsp := forall2_proof rty constr:(aexpN) (app srel [at_]) rs (sh.(sh_l)) hs in
             app q (List.append args [hd; hsp])) in
           node_rewrite a' pf)

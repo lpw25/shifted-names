@@ -39,6 +39,7 @@ theories/Core/Names.v
 theories/Core/Context.v
 theories/Core/Syntax.v
 theories/Core/Subst.v
+theories/Core/PMap.v
 theories/Examples/Lambda.v
 theories/Examples/STLC.v
 theories/Examples/SystemF.v

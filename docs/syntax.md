@@ -52,9 +52,49 @@ and writes the family's substitutions back with it. For a family of
 another shape (a third scope, or the substituted scope second), a user
 defines their own version of `kl_at` and its notation the same way.
 
-Term substitution in System F's terms needs one more thing: going under a
-type binder, a substitution's payload terms are shifted in their type
-scope, a map over payloads (next step).
+## Maps over payloads: under a binder of another sort
+
+Term substitution in System F's terms is a syntax for each type scope,
+`Syntax (tm N)`. Going under a type binder, the terms a substitution
+sends variables to must be weakened past it. The user's Kleisli function
+maps its morphism by the weakening, `mmap tshift f` (`Syntax.v`), with
+`tshift t := t {{ ⟦ \ · as _ ⟧ }}`:
+
+```coq
+| tlam b => tlam (kleisli (mmap (@tshift N) f) e b)
+```
+
+`PMap.v` gives what this needs:
+
+- **`pmap h a`**: the adjustment `a` with every payload term `u`, at
+  every depth, replaced by `h u`. It is structural on the representation,
+  so it keeps the counts, shapes and entries; its action is `a`'s with
+  the terms mapped (`napply_nmap`), and it commutes with every operation
+  on adjustments (by extensionality).
+- **`SyntaxMap h`**: `h` keeps variables and commutes with the Kleisli
+  extension, the morphism mapped. Then `apply (pmap h a)` is `h` after
+  `apply a` (`apply_pmap`), and `h (t [a]) = (h t) [pmap h a]`
+  (`subst_pmap`).
+
+For System F, the `SyntaxMap` instance for `tshift` is the law that type
+substitution commutes with term substitution, `tsub_kleisli`: a routine
+induction, whose type-binder case is closed by `names` (on type
+substitutions in terms). The term syntax's associativity law uses it too.
+
+`names` handles `pmap`:
+
+- what `cbn` leaves under a type binder, `kleisli (mmap h (apply a))`, is
+  rewritten to `kleisli (apply (pmap h a))` (`kleisli_mmap_apply`, the
+  map's instance found by resolution);
+- `pmap h a` is pushed into `a`: the reifier reads `a` on its own and
+  puts its terms and atoms, mapped (`h u`, `pmap h X`), in the node's
+  tables, as a shared definition whose equation is proved once
+  (`aedenB_map`, with the tables checked by the kernel). So
+  `(tlam b) [⟦ x := u ⟧]` becomes `tlam (b [⟦ x := (tshift u) ⟧])`, and
+  `pmap` of a composite composes.
+
+`pmap` is opaque to `cbn`, which would otherwise read `apply (pmap h a)`
+through its projection.
 
 ## Why classes, and why canonical too
 

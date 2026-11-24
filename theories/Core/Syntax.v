@@ -130,6 +130,12 @@ Proof. apply var_eq; reflexivity. Qed.
     goals as written, and as [cbn] leaves them. *)
 Definition morph (term : nat -> Type) (N M : nat) : Type := forall K L, ext N M K L -> var K -> term L.
 
+(** A morphism followed by a map of terms (under a binder of another
+    sort, the terms of a substitution are mapped: [PMap]). *)
+Definition mmap {P Q : nat -> Type} (h : forall K, P K -> Q K) {N M} (f : morph P N M) : morph Q N M :=
+  fun K L e v => h L (f K L e v).
+Arguments mmap : simpl never.
+
 (** Re-basing a morphism under the binders of a witness. *)
 Definition rebase_m {term : nat -> Type} {N M K L} (e1 : ext N M K L) (f : morph term N M) : morph term K L :=
   fun K' L' e v => f K' L' (ext_app e1 e) v.

@@ -1510,6 +1510,8 @@ Ltac2 family_fold (sys : (constr * constr * constr) list) : unit :=
     let pre := Names.app f (List.firstn (Int.sub n 2) (Array.to_list a)) in
     if Constr.Unsafe.is_closed pre then cand pre t else ()) (List.rev (found.(contents))).
 
+Ltac2 mutable mmap_hook : unit -> unit := fun () => ().
+
 Ltac2 syntax_fold () : unit :=
   (match Control.case (fun () => Pattern.matches_subterm pat:(@kl_at _ _ _ _ _ _ _ _ _ _ _) (Control.goal ())) with
    | Val _ =>
@@ -1520,7 +1522,13 @@ Ltac2 syntax_fold () : unit :=
    end);
   let sys := goal_syntaxes () in
   List.iter (fun (t, k, _) => fold_proj '(@Syntax.kleisli $t $t $k)) sys;
-  match sys with [] => () | _ => family_fold sys end.
+  (match sys with [] => () | _ => family_fold sys end);
+  (* a Kleisli extension along a mapped [apply] (under a binder of another
+     sort), along the mapped adjustment ([PMap]) *)
+  match Control.case (fun () => Pattern.matches_subterm pat:(@mmap _ _ _ _ _ _) (Control.goal ())) with
+  | Val _ => mmap_hook ()
+  | Err _ => ()
+  end.
 
 Ltac2 subst_nodes () : unit :=
   let laws := { contents := [] } in

@@ -74,7 +74,9 @@ goal, and its output needs nothing from the steps before it.
    found by instance resolution), by conversion too. Going under one of
    the family's binders lifts the adjustment as for the syntax
    (`names_fam`, rewritten only when there is such a binder, after
-   `names_pre`).
+   `names_pre`). Under a binder of another sort, what `cbn` leaves,
+   `kleisli (mmap h (apply a))`, is rewritten before `names_pre` to
+   `kleisli (apply (pmap h a))` (`PMap.v`).
 3. **Normalise** (`names_norm`). This covers every node that is not inside
    an adjustment, and every other adjustment that is not inside one.
    Nodes on variables go first. A shared adjustment is handled once.
@@ -129,6 +131,14 @@ goal, and its output needs nothing from the steps before it.
    the family's `fl_rel` and `fl_id`; its term is never a variable of
    the syntax, so 3.3 does not arise. Its adjustment's terms are the
    syntax's, converted and materialised as for the syntax's nodes.
+
+   An adjustment `pmap h a` (`PMap.v`, its terms mapped by `h`) is read
+   through a hook (`reify_hook`): `a` is reified on its own, its terms
+   and atoms are put, mapped, at the end of the node's tables, and
+   `pmap h a` is an atom with that definition. Its equation is not by
+   conversion, as a shared definition's is, but `aedenB_map` (the
+   denotation commutes with the map), with the tables checked by the
+   kernel. Inside it, a `share` or another `pmap` leaves it an atom.
 
    An adjustment outside a node, such as one side of `a ⨾ b = c`, is
    reified, normalised and displayed the same way. It is not converted
