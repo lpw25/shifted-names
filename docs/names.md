@@ -44,17 +44,25 @@ goal, and its output needs nothing from the steps before it.
 0. **The user's `cbn`.** This is not part of `names`. Substitution is the
    Kleisli extension of the library's `apply`, so `cbn` pushes it through
    the syntax's constructors, and `names` knows nothing about them.
-1. **`names_pre`.** This rewrites with the monad laws a syntax's `Subst`
-   functor adds:
+1. **Folding, then `names_pre`.** What `cbn` leaves is the syntax's own
+   `kleisli`, which `cbn` reached by unfolding the syntax's structure; it
+   is written back as the structure's `kleisli` (`syntax_fold`: the
+   structures in the goal, from the uses of `apply`, which `cbn` leaves
+   alone, and one `change` each). Then `names_pre` rewrites with the monad
+   laws the library adds:
    - **Going under a binder lifts the adjustment.** This puts what `cbn`
      leaves under a binder, a Kleisli extension at a shifted extension,
      back in the form `t [lift a]`.
 
    The rewrites are plain `autorewrite`, with no setoid rewriting.
-2. **`names_node`.** A substitution `t [a]` becomes the node `csubst L a
-   t`, which carries the syntax's law `L` (`Names.SubstLaw`). What `cbn`
-   leaves of a substitution into a variable becomes the node `csubst L a
-   (tvar v)`.
+2. **Nodes** (`subst_nodes`, in `Subst.v`). A substitution `t [a]`
+   becomes the node `csubst L a t`, which carries the syntax's law `L`
+   (`Names.SubstLaw`, the library's `subst_law` at the syntax's
+   structure). It is `t [a]` by conversion, so this is `change`, with a
+   whole chain `t [a] [b] …` converted at once. What `cbn` leaves of a
+   substitution into a variable becomes the node `csubst L a (tvar v)`,
+   by conversion too when the syntax's `kleisli` computes on variables
+   (otherwise by the lemma `apply_here_node`).
 3. **Normalise** (`names_norm`). This covers every node that is not inside
    an adjustment, and every other adjustment that is not inside one.
    Nodes on variables go first. A shared adjustment is handled once.
@@ -441,8 +449,12 @@ machine vary by about 10% between runs.
 | MO: n opaque subterms under one n-entry substitution | 10 / 20 | 0.81 + 0.08 / 3.2 + 0.33 s | 1.4 + 0.20 / 8.0 + 1.1 s | n = 7: > 150 s |
 | MV: n variables under one n-entry substitution | 10 / 20 | 0.64 + 0.13 / 3.6 + 0.47 s | 1.5 + 0.31 / 8.5 + 1.4 s | n = 7: > 150 s |
 
-Most of SN, MO and MV is now step 2 (`names_node`, `autorewrite`): SN
-100 2.8 of 3.2 s, MO 20 2.4 of 3.2 s, MV 20 2.5 of 3.6 s.
+Step 2 was `autorewrite` with the syntax's hints, and most of SN, MO and
+MV (SN 100 2.8 of 3.2 s, MO 20 2.4 of 3.2 s, MV 20 2.5 of 3.6 s). With
+the syntax a canonical structure, step 2 is `change` (see "A syntax as a
+canonical structure" in `docs/syntax.md`): SN 100 0.68 + 0.18 s, SN 200
+2.0 + 0.34 s (about 14 s before), MO 20 1.3 + 0.06 s, MV 20 1.4 + 0.36 s,
+NS 60 0.69 + 1.2 s.
 
 Earlier recorded baselines were D100 at 0.46 + 0.35 s, D300 at 1.5 +
 1.1 s and D1000 at 6.5 + 4.6 s.
@@ -458,9 +470,9 @@ Earlier recorded baselines were D100 at 0.46 + 0.35 s, D300 at 1.5 +
   one instance, abstracts its occurrences and type-checks a motive the
   size of the goal: 50–100 ms a step on SN 200, MO 20 and MV 20. Step 3
   no longer rewrites this way (above), and step 5 no longer rewrites at
-  all; step 2 (`names_node`) still does, and is now most of SN, MO and
-  MV. Batching it needs the language's law without going through the
-  hint database.
+  all; step 2 no longer does either, now that the law is read from the
+  syntax's structure (above). The lifting rewrites of step 1 still are
+  `autorewrite`.
 - **Exponential backtracking (fixed).** `Control.plus` leaves a choice
   point, so a failure after it re-ran the code that followed every
   earlier `plus`, including the reifier's. This is what made the old

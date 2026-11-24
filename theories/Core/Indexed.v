@@ -612,7 +612,7 @@ Notation "⟦ c | g ⟧" := (cform (fun g => c) identity) (c custom adj_out at l
 Notation "⟦ ⟧" := identity (format "⟦ ⟧").
 
 (** The rewrite database [names] uses besides normalising adjustments:
-    the substitution functor adds its laws, and each syntax its own. *)
+    the substitution library ([Subst]) adds its laws. *)
 Create Rewrite HintDb names_pre.
 Create Rewrite HintDb names_node.
 

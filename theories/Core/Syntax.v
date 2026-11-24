@@ -118,14 +118,17 @@ Proof. apply var_eq; reflexivity. Qed.
     constructor, and one function, the Kleisli extension of a morphism (a
     map from variables to terms) along a witness [ext N M K L] (the
     binders gone under), with its laws.  Everything about substitution
-    comes from these ([Subst]). *)
+    comes from these ([Subst]).  A syntax declares its [syntax] as a
+    canonical structure: unification then finds it from its terms (or
+    its variable constructor, or its [kleisli]). *)
 Definition morph (term : nat -> Type) (N M : nat) : Type := forall K L, ext N M K L -> var K -> term L.
 
 (** Re-basing a morphism under the binders of a witness. *)
 Definition rebase_m {term : nat -> Type} {N M K L} (e1 : ext N M K L) (f : morph term N M) : morph term K L :=
   fun K' L' e v => f K' L' (ext_app e1 e) v.
 
-Class Syntax (term : nat -> Type) := {
+Structure syntax := MkSyntax {
+  term :> nat -> Type;
   tvar : forall {N}, var N -> term N;
   kleisli : forall {N M} (f : morph term N M) {K L}, ext N M K L -> term K -> term L;
   kleisli_var : forall N M (f : morph term N M) K L (e : ext N M K L) (v : var K),
@@ -144,11 +147,17 @@ Class Syntax (term : nat -> Type) := {
     = kleisli g (ext_right M e) (kleisli f (ext_left M e) t)
 }.
 
-Arguments tvar {term _ N} v.
-Arguments kleisli {term _ N M} f {K L} e t.
+Arguments tvar {s N} v.
+Arguments kleisli {s N M} f {K L} e t.
+Arguments kleisli_var {s} N M f K L e v.
+Arguments kleisli_ext {s} N M f g _ K L e t.
+Arguments kleisli_rebase {s} N M f K L K' L' e1 e2 t.
+Arguments kleisli_unit_ {s} N K e t.
+Arguments kleisli_assoc_ {s} N M P g f K L e t.
 
 Section Syntax.
-Context {term : nat -> Type} `{Syntax term}.
+Context {Sy : syntax}.
+Local Notation term := (term Sy).
 
 (** The identity morphism, and Kleisli composition. *)
 Definition unit_m {N} : morph term N N := fun K L e v => tvar (ext_var e v).

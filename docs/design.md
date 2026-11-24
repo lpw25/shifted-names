@@ -31,7 +31,7 @@ Inductive ext (N M : nat) : nat -> nat -> Type :=
 Definition morph N M := forall K L, ext N M K L -> var K -> term L.
 ```
 
-A syntax is a module of type `SYNTAX` (`Core/Syntax.v`):
+A syntax is a canonical structure of type `syntax` (`Core/Syntax.v`):
 
 - `term : nat -> Type` and `tvar : var N -> term N`;
 - `kleisli : morph N M -> ext N M K L -> term K -> term L`, structural on
@@ -40,11 +40,19 @@ A syntax is a module of type `SYNTAX` (`Core/Syntax.v`):
   `kleisli_ext` (pointwise-equal morphisms), `kleisli_rebase` (witness
   composition), `kleisli_unit` and `kleisli_assoc`.
 
+Declaring it canonical lets unification find it from the syntax's own
+terms, constructor or `kleisli`, so the library's statements and lemmas,
+generic over any `syntax`, apply to the syntax's terms as written:
+
+```coq
+Canonical Structure lambda_syntax : syntax := {| Syntax.term := tm; … |}.
+```
+
 Declare the scope as a non-uniform *parameter*
 (`Inductive tm (N : nat) := ... | tlam (b : tm (S N))`), not an index.
 Constructors then store no scope, and `kleisli` needs no convoy pattern.
 
-The functor `Subst` (`Core/Subst.v`) gives:
+`Core/Subst.v` gives, for any `syntax`:
 
 - `apply a : morph N M`, by structural recursion on the adjustment;
 - substitution `t [a] := kleisli (apply a) ext_here t` (notation);
@@ -100,15 +108,18 @@ compute, so closed equations hold by `vm_compute` (`Tests/CoreTests.v`).
 `names; easy` does). It knows nothing about any term language: `subst` is
 an abbreviation for the Kleisli extension of the library's `apply` at the
 top, users push it through their own constructors with `cbn`, and a
-syntax's `Subst` functor contributes monad laws and its substitution law,
-in two rewrite databases. `names` makes one pass:
+library contributes monad laws (a rewrite database) and, from the
+syntax's structure, its substitution law. `names` makes one pass:
 
+0. writes what `cbn` leaves of a substitution, the syntax's own `kleisli`,
+   as the structure's (`syntax_fold`, one `change` per syntax);
 1. rewrites with `names_pre` to a fixpoint: going under a binder lifts
    the adjustment (`kleisli (apply a) (ext_under e) = kleisli (apply (lift
    a)) (ext_shift e)`, and the same for `apply` on a variable);
-2. rewrites with `names_node`: a substitution `t [a]` (and `apply a
-   ext_here v` as `cbn` leaves it) is the core node `csubst L a t`, which
-   carries the syntax's law `L` (`Names.SubstLaw`);
+2. writes a substitution `t [a]` (and `apply a ext_here v` as `cbn`
+   leaves it) as the core node `csubst L a t`, which carries the syntax's
+   law `L` (`Names.SubstLaw`), read from the structure: by conversion,
+   with `change` (`subst_nodes`);
 3. normalises (`names_norm`). Chains of nodes `t [a] [b]` first fuse
    into one, `t [a ⨾ b]` (the law's `sl_comp`, one application per
    chain). The rewrites below are then made together, in one traversal

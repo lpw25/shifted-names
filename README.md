@@ -49,8 +49,9 @@ condition.
     proofs (`docs/comprehension.md`, `docs/hnorm.md`).
   - `Names.v`: the `names` tactic, which rewrites adjustments to their
     normal forms, shown as context forms.
-  - `Syntax.v`, `Subst.v`: the interface a syntax implements (one Kleisli
-    extension and its laws) and the substitution functor over it.
+  - `Syntax.v`, `Subst.v`: the structure a syntax provides (one Kleisli
+    extension and its laws), declared canonical, and substitution for any
+    such structure.
 - `theories/Examples/Lambda.v`: the λ-calculus as a client of the library.
 - `theories/Extraction/Extraction.v`: extraction settings (Zarith numbers,
   native strings); `tests/extraction/run.sh` extracts the λ example,

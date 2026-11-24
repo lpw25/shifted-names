@@ -53,9 +53,8 @@ Import ListNotations.
     substitution [u [c]] with [u] with [c] in its payload, a term that is
     a variable with a look-up through its payload, a term with a payload
     [u⟨c⟩] with [u [c]], also inside payloads and in steps.  A syntax's
-    [Subst] functor rewrites its substitution to the node before [names]
-    works on it ([names_node]); after, the node is [sub] again, by
-    conversion ([names_post]). *)
+    substitution is the node by conversion ([Subst]'s hook for step 2);
+    after, the node is [sub] again, by conversion ([names_post]). *)
 Record SubstLaw (term : nat -> Type) (tv : forall K, var K -> term K) (sub : forall N M, adj term N M -> term N -> term M)
   : Prop := {
   sl_var : forall N M (a : adj term N M) (v : var N),
@@ -1040,6 +1039,17 @@ Ltac2 univs (t : constr) : unit :=
   let _ := '(@hshowDB_sound $p) in let _ := '(@hlookB_term $p) in let _ := '(@hlookB_var $p) in let _ := '(@hlookB_look $p) in
   let _ := '(@aedenB $p) in let _ := '(@braun $p) in let _ := '(@BN $p) in let _ := '(@BE $p) in
   let _ := '(@F2_one (radj $p)) in let _ := '(@F2_app (radj $p)) in let _ := '(@F_one (radj $p)) in let _ := '(@F_app (radj $p)) in
+  ().
+
+(** The same for what the conversion and the rewrites apply to [t]. *)
+Ltac2 univs_node (t : constr) : unit :=
+  univs t;
+  let _ := '(@csubst $t) in let _ := '(@FOne $t) in let _ := '(@FCons $t) in let _ := '(@fch_apply $t) in
+  let _ := '(@fch_comp $t) in let _ := '(@fch_fuse $t) in let _ := '(@csubst_rel $t) in let _ := '(@node_id $t) in
+  let _ := '(@node_look $t) in let _ := '(@node_var $t) in let _ := '(@node_term $t) in let _ := '(@nf_nil $t) in
+  let _ := '(@nf_cons $t) in let _ := '(@vf_nil $t) in let _ := '(@vf_cons $t) in let _ := '(@nfactP $t) in
+  let _ := '(@vfactP $t) in let _ := '(@def_rel $t) in let _ := '(@mat_rel_a $t) in let _ := '(@MAtom $t) in
+  let _ := '(@apply_var_rename $t) in
   ().
 
 (** A builder: given the index of each shared definition at its root and
@@ -2659,6 +2669,11 @@ Ltac2 fuse_chains (bt : rb) : unit :=
     end) tops.
 
 Ltac2 names_norm () : unit :=
+  (let cs := constr:(@csubst) in
+   let fams := List.fold_left (fun acc x => let t := Array.get (snd (split_app x)) 0 in
+                                if List.exist (Constr.equal t) acc then acc else t :: acc) []
+                 (List.filter (is_csubst_in cs) (outer (lit_inds ()) cs (adj_heads ()) (Control.goal ()) [])) in
+   List.iter univs_node fams);
   let bt := new_rb () in
   fuse_chains bt; rb_flush bt;
   let cs := constr:(@csubst) in
@@ -2686,10 +2701,11 @@ Ltac2 names_norm () : unit :=
 
     [names], in one pass:
     1. rewrites with [names_pre], the monad laws that remove a Kleisli
-       extension or move work into the adjustment (a syntax's [Subst]
-       functor adds them): going under binders lifts the adjustment;
-    2. rewrites with [names_node]: substitutions are nodes
-       [csubst L a t];
+       extension or move work into the adjustment ([Subst] adds them):
+       going under binders lifts the adjustment; before it, a hook
+       ([Subst]) writes what [cbn] leaves in the library's terms;
+    2. writes substitutions as nodes [csubst L a t] (a hook: [Subst]'s,
+       by conversion; by default, rewriting with [names_node]);
     3. normalises ([names_norm]): a chain of nodes fuses into one
        ([fuse_chains]); in each node's adjustment, the terms
        that are substitutions become payloads and those that are

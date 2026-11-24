@@ -256,7 +256,10 @@ End Wrappers.
 (** The substitution of any syntax ([Syntax]): its definitions and laws
     take the syntax's instance as an implicit argument. *)
 Section Subst0.
-Context {term : nat -> Type} `{Sx : Syntax term}.
+Context {Sy : syntax}.
+Local Notation term := (term Sy).
+Local Notation kleisli := (kleisli (s:=Sy)).
+Local Notation tvar := (tvar (s:=Sy)).
 Local Notation morph := (morph term).
 Local Notation P := {K & term K}.
 Local Notation nadj := (@nadj P).
@@ -330,7 +333,14 @@ Notation "t [ a ]" := (kleisli (apply a) ext_here t) (at level 1, left associati
 Notation subst a := (kleisli (apply a) ext_here) (only parsing).
 
 Section Subst1.
-Context {term : nat -> Type} `{Sx : Syntax term}.
+Context {Sy : syntax}.
+Local Notation term := (term Sy).
+Local Notation kleisli := (kleisli (s:=Sy)).
+Local Notation tvar := (tvar (s:=Sy)).
+Local Notation apply := (apply (Sy:=Sy)).
+Local Notation gapply := (gapply (Sy:=Sy)).
+Local Notation unit_m := (unit_m (Sy:=Sy)).
+Local Notation comp_m := (comp_m (Sy:=Sy)).
 Local Notation morph := (morph term).
 Local Notation P := {K & term K}.
 Local Notation nadj := (@nadj P).
@@ -1032,9 +1042,9 @@ Proof. rewrite kleisli_var; symmetry; apply apply_here_eval. Qed.
 (** [names] first applies the monad laws that remove a Kleisli extension
     or move work into the adjustment: going under a binder lifts the
     adjustment ([names_pre]); nested substitutions fuse in [names] itself,
-    by the law's [sl_comp].  The
-    substitutions are then the nodes [names] works on ([names_node],
-    below), and after it they are written back as substitutions. *)
+    by the law's [sl_comp].  The substitutions are then the nodes [names]
+    works on ([subst_nodes], below), and after it they are written back
+    as substitutions. *)
 
 (** ** The law [names] uses
 
@@ -1197,13 +1207,13 @@ Proof.
   all: exact (rvn_det _ _ _ _ _ _ _ _ (Hrv _ _ _ _ R1) R2).
 Qed.
 
-Lemma lawbase_not_inl w r' : ~ lawbase (@tvar term Sx) sub0 (inl w) r'.
+Lemma lawbase_not_inl w r' : ~ lawbase (@Syntax.tvar Sy) sub0 (inl w) r'.
 Proof.
   intros [[K [M [u [c [E _]]]]]|[[K [M [u [c [W [E _]]]]]]|[K [w' [W [E _]]]]]]; discriminate.
 Qed.
 
 (** A variable is related only to itself. *)
-Lemma drel_inl r r' : drel (lawbase (@tvar term Sx) sub0) r r' -> forall w, r = inl w -> r' = inl w.
+Lemma drel_inl r r' : drel (lawbase (@Syntax.tvar Sy) sub0) r r' -> forall w, r = inl w -> r' = inl w.
 Proof.
   induction 1 as [r|r r' Hb|u W W' ρ _ _|r r' r'' _ IH1 _ IH2]; intros w E.
   - exact E.
@@ -1213,7 +1223,7 @@ Proof.
 Qed.
 
 Lemma rv_le_pay M (W W' : radj P) :
-  (forall v, drel (lawbase (@tvar term Sx) sub0) (rapply W v) (rapply W' v)) -> (forall v, rv_le M (rapply W v) (rapply W' v)) ->
+  (forall v, drel (lawbase (@Syntax.tvar Sy) sub0) (rapply W v) (rapply W' v)) -> (forall v, rv_le M (rapply W v) (rapply W' v)) ->
   forall n ρ u, rdepth ρ < n -> rv_le M (inr (u, rcompose W ρ)) (inr (u, rcompose W' ρ)).
 Proof.
   intros HW IHW n; induction n as [|n IH]; intros ρ u Hn; [lia|].
@@ -1293,7 +1303,7 @@ Proof.
              (Is_true_s_intro Hz) _ (hrel_gapply0 _ M' M d L HL (Is_true_s_intro Hρ)) u).
 Qed.
 
-Lemma vbase_rv M r r' : vbase (@tvar term Sx) r r' -> rv_le M r r'.
+Lemma vbase_rv M r r' : vbase (@Syntax.tvar Sy) r r' -> rv_le M r r'.
 Proof.
   intros [K [w [W [-> ->]]]].
   split.
@@ -1307,10 +1317,10 @@ Proof.
     exact (rvn_cast _ _ _ _ L _ HL _ (Nat.add_0_r d) R).
 Qed.
 
-Lemma lawbase_rv M r r' : lawbase (@tvar term Sx) sub0 r r' -> rv_le M r r'.
+Lemma lawbase_rv M r r' : lawbase (@Syntax.tvar Sy) sub0 r r' -> rv_le M r r'.
 Proof. intros [H|[H|H]]; [apply matbase_rv|apply nbase_rv|apply vbase_rv]; exact H. Qed.
 
-Lemma drel_rv M r r' : drel (lawbase (@tvar term Sx) sub0) r r' -> rv_le M r r'.
+Lemma drel_rv M r r' : drel (lawbase (@Syntax.tvar Sy) sub0) r r' -> rv_le M r r'.
 Proof.
   induction 1 as [r|r r' Hb|u W W' ρ HW IH|r r' r'' _ IH1 _ IH2].
   - apply rv_le_refl.
@@ -1320,14 +1330,14 @@ Proof.
 Qed.
 
 Theorem subst_rel {N M} (a a' : adj term N M) :
-  (forall v : var N, drel (lawbase (@tvar term Sx) sub0) (rapply (adj_raw a) (var_raw v)) (rapply (adj_raw a') (var_raw v))) ->
+  (forall v : var N, drel (lawbase (@Syntax.tvar Sy) sub0) (rapply (adj_raw a) (var_raw v)) (rapply (adj_raw a') (var_raw v))) ->
   forall t, t [a] = t [a'].
 Proof. intros H; apply subst_rv; intros v; apply drel_rv, H. Qed.
 
 (** The same for one variable: related results, read at the output
     scope, give the same term. *)
 Theorem subst_res {N N' M} (a : adj term N M) (v : var N) (a' : adj term N' M) (v' : var N') :
-  drel (lawbase (@tvar term Sx) sub0) (rapply (adj_raw a) (var_raw v)) (rapply (adj_raw a') (var_raw v')) ->
+  drel (lawbase (@Syntax.tvar Sy) sub0) (rapply (adj_raw a) (var_raw v)) (rapply (adj_raw a') (var_raw v')) ->
   (tvar v) [a] = (tvar v') [a'].
 Proof.
   intros H; destruct (drel_rv M _ _ H) as [_ Hrv].
@@ -1345,7 +1355,7 @@ Qed.
 End Rel.
 
 (** Substitution as the node [names] works on. *)
-Definition subst_law : SubstLaw term (@tvar term Sx) sub0 :=
+Definition subst_law : SubstLaw term (@Syntax.tvar Sy) sub0 :=
   {| sl_var := @subst_tvar_eval; sl_rel := @subst_rel; sl_res := @subst_res; sl_id := @subst_identity; sl_comp := @subst_compose |}.
 
 Lemma subst_csubst {N M} (a : adj term N M) (t : term N) : t [a] = csubst subst_law a t.
@@ -1367,9 +1377,10 @@ Global Hint Rewrite @subst_csubst @apply_here_node : names_node.
 (** ** [names] on substitutions
 
     What [cbn] leaves of a substitution is the syntax's own [kleisli]
-    (and its variable constructor), not the class's projections: [cbn]
-    unfolds the instance and does not fold back.  [names] first writes the
-    syntax's [kleisli] as the class's, for each syntax in the goal (one
+    (and its variable constructor), not the structure's projections:
+    [cbn] unfolds the structure and does not fold back.  [names] first
+    writes the syntax's [kleisli] as the structure's, for each syntax in
+    the goal (one
     [change], so by conversion); then the substitutions are its nodes, by
     conversion too ([csubst subst_law] is [t [a]] unfolded), and what
     [cbn] leaves of a substitution into a variable is a node when the
@@ -1377,70 +1388,68 @@ Global Hint Rewrite @subst_csubst @apply_here_node : names_node.
     rewrites it). *)
 From Ltac2 Require Import Ltac2.
 
-(** The syntaxes in the goal, [(term, instance)], from the uses of
-    [apply] (which [cbn] leaves alone) and of [kleisli]. *)
-Ltac2 goal_syntaxes () : (constr * constr) list :=
+(** The syntaxes in the goal, from the uses of [apply] (which [cbn]
+    leaves alone) and of [kleisli]. *)
+Ltac2 goal_syntaxes () : constr list :=
   let acc := { contents := [] } in
-  let add t i :=
-    if List.exist (fun (t', i') => Bool.and (Constr.equal t t') (Constr.equal i i')) (acc.(contents)) then ()
-    else acc.(contents) := (t, i) :: acc.(contents) in
+  let add s := if List.exist (Constr.equal s) (acc.(contents)) then () else acc.(contents) := s :: acc.(contents) in
   let _ := Control.case (fun () =>
     multi_match! goal with
-    | [ |- context [ @apply ?t ?i _ _ _ ] ] => add t i; Control.zero Not_found
-    | [ |- context [ @Syntax.kleisli ?t ?i _ _ _ _ _ _ _ ] ] => add t i; Control.zero Not_found
+    | [ |- context [ @apply ?s _ _ _ ] ] => add s; Control.zero Not_found
+    | [ |- context [ @Syntax.kleisli ?s _ _ _ _ _ _ _ ] ] => add s; Control.zero Not_found
     end) in
   acc.(contents).
 
-(** The syntax's own function [proj t i] reads as, written as the class's
-    projection. *)
+(** The syntax's own function a projection [g] reads as, written as the
+    projection (by conversion). *)
 Ltac2 fold_proj (g : constr) : unit :=
   let sk := Names.unfold_head g in
   if Constr.equal sk g then () else
   Names.attempt (fun () => ltac1:(sk gk |- change sk with gk) (Ltac1.of_constr sk) (Ltac1.of_constr g)) (fun _ => ()).
 
-(** The syntax's own [kleisli] written as the class's ([names]); with
-    [vars], its variable constructor too (for rewriting with the
-    library's lemmas, stated with the class's). *)
+(** The syntax's own [kleisli] written as the structure's ([names]); with
+    [vars], its variable constructor too. *)
 Ltac2 syntax_fold_with (vars : bool) : unit :=
-  List.iter (fun (t, i) =>
-    fold_proj '(@Syntax.kleisli $t $i);
-    if vars then fold_proj '(@Syntax.tvar $t $i) else ())
+  List.iter (fun s =>
+    fold_proj '(@Syntax.kleisli $s);
+    if vars then fold_proj '(@Syntax.tvar $s) else ())
     (goal_syntaxes ()).
 
 Ltac2 syntax_fold () : unit := syntax_fold_with false.
 
 Ltac2 subst_nodes () : unit :=
   let laws := { contents := [] } in
-  let law t i :=
-    match List.find_opt (fun (t', i', _) => Bool.and (Constr.equal t t') (Constr.equal i i')) (laws.(contents)) with
-    | Some (_, _, l) => l
+  let law s :=
+    match List.find_opt (fun (s', _) => Constr.equal s s') (laws.(contents)) with
+    | Some (_, l) => l
     | None =>
-        let lw := '(@subst_law $t $i) in
+        let lw := '(@subst_law $s) in
         let (_, ta) := Names.split_app (Constr.type lw) in
-        let l := (Array.get ta 1, Array.get ta 2, lw) in
-        laws.(contents) := (t, i, l) :: laws.(contents); l
+        let l := (Array.get ta 0, Array.get ta 1, Array.get ta 2, lw) in
+        laws.(contents) := (s, l) :: laws.(contents); l
     end in
-  let node t i n m a u := let (tv, sb, lw) := law t i in Names.app constr:(@csubst) [t; tv; sb; lw; n; m; a; u] in
+  let node s n m a u := let (t, tv, sb, lw) := law s in Names.app constr:(@csubst) [t; tv; sb; lw; n; m; a; u] in
   let rec rounds p f :=
     match Control.case (fun () => Pattern.matches_subterm p (Control.goal ())) with
     | Err _ => ()
     | Val _ => Std.change (Some p) f (Names.concl ()); rounds p f
     end in
   (* [t [a]]; in a chain [t [a] [b] …], the inner ones at once *)
-  let sp := pat:(@Syntax.kleisli ?a1 ?a2 ?a3 ?a4 (@apply _ _ _ _ ?a5) _ _ (@ext_here _ _) ?a6) in
-  let rec conv s := node (Array.get s 0) (Array.get s 1) (Array.get s 2) (Array.get s 3) (Array.get s 4) (inner (Array.get s 5))
+  let sp := pat:(@Syntax.kleisli ?a1 ?a2 ?a3 (@apply _ _ _ ?a4) _ _ (@ext_here _ _) ?a5) in
+  let rec conv s := node (Array.get s 0) (Array.get s 1) (Array.get s 2) (Array.get s 3) (inner (Array.get s 4))
   with inner u := match Control.case (fun () => Pattern.matches_vect sp u) with Val (s, _) => conv s | Err _ => u end in
   rounds sp conv;
   (* [apply a _ _ ext_here v], by conversion where [kleisli] computes *)
   Names.attempt (fun () =>
-    rounds pat:(@apply ?a1 ?a2 ?a3 ?a4 ?a5 _ _ (@ext_here _ _) ?a6)
-      (fun s => let (t, i, n, v) := (Array.get s 0, Array.get s 1, Array.get s 2, Array.get s 5) in
-                node t i n (Array.get s 3) (Array.get s 4) '(@Syntax.tvar $t $i $n $v)))
+    rounds pat:(@apply ?a1 ?a2 ?a3 ?a4 _ _ (@ext_here _ _) ?a5)
+      (fun x => let (s, n, v) := (Array.get x 0, Array.get x 1, Array.get x 4) in
+                node s n (Array.get x 2) (Array.get x 3) '(@Syntax.tvar $s $n $v)))
     (fun _ => Names.autorw @names_node).
 
 Ltac2 Set Names.names_fold_hook := syntax_fold.
 Ltac2 Set Names.names_node_hook := subst_nodes.
 
-(** For Ltac1 proofs: after [cbn], the syntax's own functions written as
-    the library's, so that the library's lemmas rewrite. *)
+(** For Ltac1 proofs: the syntax's own functions written as the
+    library's (not needed to rewrite with the library's lemmas, which
+    unification finds through the canonical structure). *)
 Ltac syntax_fold := ltac2:(syntax_fold_with true).
