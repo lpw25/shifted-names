@@ -1687,9 +1687,9 @@ Ltac2 rewrite_many (eqs : (constr * constr * constr) list) : unit :=
 (** Rewrites collected, to be made together ([rewrite_many]); the
     hypotheses their proofs use, to be cleared after. *)
 Ltac2 Type rb := { mutable rb_eqs : (constr * constr * constr) list; mutable rb_hyps : ident list;
-                   mutable rb_nodes : constr list }.
+                   mutable rb_nodes : constr list option }.
 
-Ltac2 new_rb () : rb := { rb_eqs := []; rb_hyps := []; rb_nodes := [] }.
+Ltac2 new_rb () : rb := { rb_eqs := []; rb_hyps := []; rb_nodes := None }.
 
 Ltac2 rb_push (b : rb) (l : constr) (r : constr) (pf : constr) : unit :=
   if List.exist (fun (l', _, _) => Constr.equal l l') (b.(rb_eqs)) then () else b.(rb_eqs) := (l, r, pf) :: b.(rb_eqs).
@@ -1734,9 +1734,16 @@ Ltac2 rb_instances (b : rb) (eid : ident) (rhs : constr -> constr) : unit :=
                         else if Constr.equal (Array.get args i) (Array.get a' i) then same (Int.add i 1) else false in
       if same 0 then Some (Array.get a' k) else None
     else None in
+  (* the goal's nodes, found the first time they are needed (the goal
+     does not change until the rewrites are made) *)
+  let nodes :=
+    match b.(rb_nodes) with
+    | Some ns => ns
+    | None => let ns := apps_of (lit_inds ()) constr:(@csubst) (Control.goal ()) [] in b.(rb_nodes) := Some ns; ns
+    end in
   List.iter (fun c => match inst c with
                       | Some t => rb_push b c (rhs t) (app pf [t])
-                      | None => () end) (b.(rb_nodes));
+                      | None => () end) nodes;
   b.(rb_hyps) := eid :: b.(rb_hyps).
 
 (** [pf : ty], an equation, asserted with no check and rewritten with:
@@ -2490,7 +2497,6 @@ Ltac2 names_norm () : unit :=
         let k := if is_csubst_in cs x then node_adj x else x in
         if List.exist (Constr.equal k) seen then dedup xs seen else x :: dedup xs (k :: seen)
     end in
-  bt.(rb_nodes) := apps_of (lit_inds ()) cs (Control.goal ()) [];
   each (fun x =>
     let (e0, h0) := (bt.(rb_eqs), bt.(rb_hyps)) in
     let undo () := bt.(rb_eqs) := e0; bt.(rb_hyps) := h0 in
