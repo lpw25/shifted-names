@@ -1,146 +1,135 @@
 # Several sorts of variable (design)
 
-A proposal for syntaxes with several sorts of variable (types and terms in
-System F, values and computations, …), checked on System F in
+A proposal for syntaxes with any number of sorts of variable (types and
+terms in System F, regions, values and computations, …), checked in
 `proto/sorts/Sorts.v` (standalone; `rocq compile -R theories ShiftedNames
 proto/sorts/Sorts.v`). Nothing in the library uses it yet.
 
 ## The scheme
 
-**Scopes.** Each sort has its own scope. A user's families are indexed by
-the scopes of the sorts they can contain, curried, in their own order:
-`ty : nat -> Type` (types only contain type variables), `tm : nat -> nat ->
-Type` (type scope, then term scope).
+Everything is generic over a type of sorts `S` with a boolean equality and
+over lists of sorts. Nothing is specific to a number of sorts.
 
-**A sort's carrier.** The family a sort's variables stand for (types for the
-type sort, terms for the term sort), seen with that sort's scope first and
-the other sorts' scopes `o : O` after: `O = unit` for types, `O = nat` (the
-type scope) for terms, a product for more sorts.
+**Scopes.** A family is indexed by the scopes of a list of sorts, the sorts
+it can contain: `scopes ss` is a tuple with one `nat` per sort of `ss`
+(pairs with eta, ending in `unit`). `get ss s` and `upd ss s n` read and
+replace sort `s`'s scope; `restrict ss ss'` gives the scopes of a sub-list.
+The user's families stay curried; the library sees them through their
+lists:
 
 ```coq
-Definition Ty (K : nat) (_ : unit) : Type := ty K.
-Definition Tm (K : nat) (N : nat) : Type := tm N K.
+Definition Ty (x : scopes [TY]) : Type := ty (first x).
+Definition Tm (x : scopes [TY; TM]) : Type := tm (first x) (first (second x)).
 ```
 
-**Witnesses.** Going under a binder of the sort being substituted: `ext N M K
-L`, as now. Going under a binder of another sort: `olift o o'`, which for one
-other sort is `ext G G J J`, the same witness with the base unchanged. The
-other scope is then the same index on both sides of a Kleisli function, so
-nothing needs casting.
+A family whose list is smaller than another's, types inside terms, is just
+a family over its own list.
+
+**Witnesses.** Substituting sort `s` uses two witnesses:
+- `ext N M K L` for `s`'s own binders, as now;
+- `lifts ss s b j` for the other sorts' binders: one `ext Gt Gt Jt Jt` per
+  other sort `t` of the list (`Gt` its base, `Jt` the scope reached, the
+  base unchanged), computed from the list.
+
+For System F's term sort this is one `ext` for types. For a term sort
+alongside types and regions it is two:
 
 ```coq
-Class Others (O : Type) := {
-  olift : O -> O -> Type;
-  ohere : forall o, olift o o;
-  ocomp : forall {o1 o2 o3}, olift o1 o2 -> olift o2 o3 -> olift o1 o3 }.
+lifts [TY3; RG3; TM3] TM3 b (pair J (pair R r))
+  = both (ext b_ty b_ty J J) (both (ext b_rg b_rg R R) (both unit unit))
 ```
 
-**Morphisms** of a sort are liftable along both kinds of binder:
+`lhere` (no binders crossed) and `lcomp` (composition) are defined
+componentwise, generically.
+
+**Morphisms** of sort `s` go into its carrier `P`, the family its variables
+stand for, over the carrier's own list `ss`. They are liftable along all of
+that list's binders:
 
 ```coq
-Definition morph (P : nat -> O -> Type) (N M : nat) (o : O) : Type :=
-  forall K L, ext N M K L -> forall o', olift o o' -> var K -> P L o'.
+Definition morph (P : scopes ss -> Type) (N M : nat) (b : scopes ss) : Type :=
+  forall K L, ext N M K L -> forall j, lifts ss s b j -> var K -> P (upd ss s L j).
 ```
 
-**Kleisli functions, one per family and sort.** A family is seen over the
-carrier's other scopes. Its own scopes that the carrier lacks are
-parameters, like the term scope when substituting types in terms. System F's
-three functions:
+**Kleisli functions, one per family and sort.**
+- The carrier's own: `P (upd ss s K j) -> P (upd ss s L j)`.
+- Another family's, over a longer list `ssT` that contains the carrier's:
+  `T (upd ssT s K jT) -> T (upd ssT s L jT)`, with the witness for the
+  carrier's sorts taken through `restrict ssT ss jT`.
+
+The user's functions thread the other sorts' witness, moving the component
+of the sort whose binder they cross. System F's:
 
 ```coq
-(* types, the type sort *)
-Fixpoint kl_ty {N M} (f : morph Ty N M tt) {K L} (e : ext N M K L) (A : ty K) : ty L :=
-  match A with
-  | tyvar v => f K L e tt tt v
-  | tyarr A B => tyarr (kl_ty f e A) (kl_ty f e B)
-  | tyall B => tyall (kl_ty f (ext_under e) B)
-  end.
+Fixpoint kl_ty {N M b} (f : morph [TY] TY Ty N M b) {K L} (e : ext N M K L) j (w : lifts [TY] TY b j)
+    (A : ty K) : ty L := …            (* tyall: ext_under e *)
 
-(* terms, the type sort: types inside are a family with a smaller vector *)
-Fixpoint kl_tmty {J N M} (f : morph Ty N M tt) {K L} (e : ext N M K L) (t : tm K J) : tm L J :=
+Fixpoint kl_tmty {J N M b} (f : morph [TY] TY Ty N M b) {K L} (e : ext N M K L) j (w : lifts [TY] TY b j)
+    (t : tm K J) : tm L J := …        (* lam A u => lam (kl_ty f e j w A) (kl_tmty f e j w u) *)
+
+Fixpoint kl_tm {N M b} (f : morph [TY; TM] TM Tm N M b) {K L} (e : ext N M K L) (J : nat) (r : scopes [TM])
+    (w : lifts [TY; TM] TM b (pair J r)) (t : tm J K) : tm J L :=
   match t with
-  | tmvar v => tmvar v
-  | lam A b => lam (kl_ty f e A) (kl_tmty f e b)
-  | app t u => app (kl_tmty f e t) (kl_tmty f e u)
-  | tlam b => tlam (kl_tmty f (ext_under e) b)
-  | tapp t A => tapp (kl_tmty f e t) (kl_ty f e A)
-  end.
-
-(* terms, the term sort: under a type binder only the witness moves *)
-Fixpoint kl_tm {N M G} (f : morph Tm N M G) {K L} (e : ext N M K L) {J} (w : ext G G J J) (t : tm J K) : tm J L :=
-  match t with
-  | tmvar v => f K L e J w v
-  | lam A b => lam A (kl_tm f (ext_under e) w b)
-  | app t u => app (kl_tm f e w t) (kl_tm f e w u)
-  | tlam b => tlam (kl_tm f e (ext_under w) b)
-  | tapp t A => tapp (kl_tm f e w t) A
-  end.
+  | tmvar v => f K L e (pair J r) w v
+  | lam A u => lam A (kl_tm f (ext_under e) J r w u)
+  | tlam u => tlam (kl_tm f e (S J) r (pair (ext_under (first w)) (second w)) u)
+  …
 ```
 
-Nothing in them weakens anything, and nothing mentions adjustments.
+The three-sort example's term sort moves the type component under a type
+binder and the region component under a region binder, in the same way.
+Nothing in any of them weakens anything or mentions adjustments.
 
-**Laws, per family and sort.** These are the current five, `ext`, `rebase`,
-`unit` and `assoc` (plus `var` for a sort's own carrier), with the
-other-sort witness threaded through, and one new one:
+**Laws, per family and sort,** generic over the lists: the current `var`,
+`ext`, `rebase`, `unit` and `assoc`, with the witness threaded through, and
+one new law, `orebase`: the other sorts' witnesses compose,
 
 ```coq
-kl f e (ocomp w1 w2) t = kl (orebase_m w1 f) e w2 t
-  (* orebase_m w1 f := fun K L e o2 w2 v => f K L e o2 (ocomp w1 w2) v *)
+kl f e (lcomp w1 w2) t = kl (orebase_m w1 f) e w2 t
 ```
 
-For System F each law is a routine induction of one to three lines, for all
-three functions (`ty_laws`, `tmty_laws`, `tm_laws` in the prototype). No
-law relates the two sorts.
+For System F every law is a routine induction (`ty_laws`, `tmty_laws`,
+`tm_laws`). Each needs the computed scope types unfolded first (`sc`) and
+its induction hypotheses applied explicitly (`ih`). The library would
+provide those two tactics. No law relates two sorts.
 
-**What the library derives.**
-- **Weakening a carrier along another sort's binders:** `oweak w u`, the
-  carrier's Kleisli function for that sort along a weakening morphism built
-  from the variable constructor alone. Its identity and composition laws
-  follow from the user's laws (`oweak_here`, `oweak_comp` in the
-  prototype).
-- **`apply a` as a morphism of the new kind:** at a witness `w`, a payload
-  `u` gives `kleisli (apply ρ) ext_here w (oweak w u)`. This is the only
-  place anything is shifted.
-- **Substituting under binders of another sort** is substituting along the
-  mapped adjustment: `kleisli (apply a) e w t = kleisli (apply (pmap (oweak
-  w) a)) e (ohere _) t`. This follows from `apply`'s definition, `orebase`
-  and `oweak_comp`, with no further user law. `pmap` (now in `PMap.v`)
-  becomes internal: `names`' nodes under such binders carry `pmap (oweak w)
-  a`, and its reifier already pushes `pmap` into the adjustment.
+## What the library derives
 
-**More sorts.** `O` is the product of the other scopes, and `olift`, `ohere`
-and `ocomp` are componentwise. A user's Kleisli function moves the component
-of the sort whose binder it crosses.
+- **Weakening a carrier along the other sorts' binders,** component by
+  component: for each other sort `t` of the carrier's list, the carrier's
+  Kleisli function for `t` along a weakening morphism built from `t`'s
+  variable constructor alone. For one other sort this is checked, with its
+  identity and composition laws, in the earlier version of the prototype
+  (commit e325b78). Generically, each step must see `upd ss t (get ss t x)
+  x` as `x`. That holds by computation for a concrete list, but not for a
+  variable one. So the weakening is defined either by instances that
+  recurse over the concrete list, or with one rewriting lemma per step.
+  This is the next thing to settle.
+- **`apply a`** puts that weakening on each payload, at the witness it is
+  given. It is the only place anything is shifted.
+- **Substituting under binders of other sorts** is substituting along the
+  mapped adjustment, `pmap (oweak w) a`. This follows from `apply`'s
+  definition, `orebase` and weakening's composition, with no further law
+  from the user. `names`' reifier already pushes `pmap`.
 
 ## Relating two sorts (optional)
 
 Moving a substitution of one sort past one of another, for example a type
 substitution past a term substitution, needs one law per pair of sorts. It
-is what `names` needs to push one past the other and to normalise payloads
-afterwards. For System F:
-
-```coq
-kl_tmty g E (kl_tm f e w u) = kl_tm (f ⋆ g) e w' (kl_tmty g E u)
-```
-
-Here `f ⋆ g` is `f` followed by `g`, and `E`, `w'` are `w` moved to the
-bases of the type substitution. Moving a witness between bases is a library
-function, by recursion on the witness. The variable case needs that moving
-a witness there and back gives `f` the same argument, which is a library
-lemma, so the user's proof is again an induction. This part is not in the
-prototype yet.
+is what `names` needs to push one past the other and normalise payloads
+afterwards. The law says the second sort's Kleisli function, applied after
+the first's, is the first's along the composed morphism, applied after the
+second's. Moving witnesses between bases is a library function. The user's
+proof is again an induction. Not prototyped yet.
 
 ## Open questions
 
-1. **Notation and inference.** A sort's view of a family is a function
-   (`fun K N => tm N K`), so `t [a]` with `t : tm N K` cannot find it by
-   first-order unification. It needs one notation per position, like
-   `kl_at` (substitution in the first or second scope of a two-scope
-   family), or canonical structures keyed on each Kleisli function. This has
-   to be tried.
-2. **One-sorted syntaxes** get `unit` witnesses (`O = unit`). The laws then
-   need a `destruct` of them, since `unit` has no eta. A wrapper could keep
-   the current signatures for one sort.
-3. **The relating law above:** its exact statement and the witness lemmas.
-4. **Migration.** Lambda and STLC move to `O = unit`; System F is rewritten
-   as above; `SyntaxMap` and `mmap` leave the user's side.
+1. **Generic weakening:** instances over the concrete list, or rewriting
+   lemmas (above).
+2. **Notation and inference:** `t [a]` on a `tm N K` must find the view
+   `Tm` and the tuple `pair N (pair K tt)`. That needs a notation per
+   position, or canonical structures keyed on each Kleisli function. To be
+   tried.
+3. **Relating two sorts:** the exact statement and the witness lemmas.
+4. **One-sorted syntaxes** are the case of a one-sort list; their witness
+   is `unit`, threaded through. A wrapper could keep the current signatures.

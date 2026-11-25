@@ -1,92 +1,178 @@
-(** * Prototype: syntaxes with several sorts of variable
+(** * Prototype: syntaxes with any number of sorts of variable
 
-    Checks the scheme of [docs/sorts.md] on System F: types with one
-    scope, terms with two, a Kleisli function for each sort, and the laws
-    a user proves.  Standalone: only [Var] and the witnesses of [Syntax]
-    are used.  Build with
+    Checks the scheme of [docs/sorts.md].  Sorts are any type with a
+    boolean equality; a family is indexed by the scopes of a list of
+    sorts; a sort's morphisms, Kleisli functions and laws are computed
+    from those lists.  Instances: System F (two sorts, types over one of
+    them) and a calculus with three (types, regions, terms).  Standalone:
+    only [Var] and the witnesses of [Syntax] are used.  Build with
       rocq compile -R theories ShiftedNames proto/sorts/Sorts.v *)
 
-From Stdlib Require Import Arith Lia.
+From Stdlib Require Import Arith Lia List Bool.
 From ShiftedNames.Core Require Import Strict Label Var Scoped Indexed.
 From ShiftedNames.Core Require Syntax.
 Import Syntax (ext, ext_here, ext_under, ext_app, ext_mid, ext_left, ext_right, ext_var, ext_var_same).
+Import ListNotations.
+
+(** Pairs with eta, so that a tuple of scopes taken apart and put back is
+    the same tuple. *)
+Set Primitive Projections.
+Record both (A B : Type) : Type := pair { first : A; second : B }.
+Unset Primitive Projections.
+Arguments pair {A B} first second.
+Arguments first {A B} _.
+Arguments second {A B} _.
 
 (** ** The generic part *)
 
-(** The scopes of the other sorts, and witnesses for going under their
-    binders.  One sort: [unit]; one other sort: its scope, a witness
-    [ext G G J J] (binders over the base [G], the base unchanged); more:
-    products. *)
-Class Others (O : Type) := {
-  olift : O -> O -> Type;
-  ohere : forall o, olift o o;
-  ocomp : forall {o1 o2 o3}, olift o1 o2 -> olift o2 o3 -> olift o1 o3 }.
-
-#[export] Instance others_none : Others unit := {| olift _ _ := unit; ohere _ := tt; ocomp _ _ _ _ _ := tt |}.
-#[export] Instance others_one : Others nat :=
-  {| olift G J := ext G G J J; ohere G := ext_here; ocomp _ _ _ w1 w2 := ext_app w1 w2 |}.
+Class Sorts (S : Type) := { seqb : S -> S -> bool }.
 
 Section Generic.
 
-Context {O : Type} {OS : Others O}.
+Context {S : Type} {SS : Sorts S}.
 
-(** A morphism of a sort, into its carrier [P] (the terms that sort's
-    variables stand for, with the other sorts' scopes [o]): liftable
-    along the sort's binders ([ext], as now) and along the other sorts'
-    ([olift]). *)
-Definition morph (P : nat -> O -> Type) (N M : nat) (o : O) : Type :=
-  forall K L, ext N M K L -> forall o', olift o o' -> var K -> P L o'.
+(** The scopes of a list of sorts. *)
+Fixpoint scopes (ss : list S) : Type :=
+  match ss with [] => unit | _ :: ss => both nat (scopes ss) end.
 
-Definition rebase_m {P N M K L o} (e1 : ext N M K L) (f : morph P N M o) : morph P K L o :=
-  fun K' L' e o' w v => f K' L' (ext_app e1 e) o' w v.
+(** The scope of sort [s], and the scopes with it replaced. *)
+Fixpoint get (ss : list S) (s : S) : scopes ss -> nat :=
+  match ss as ss0 return scopes ss0 -> nat with
+  | [] => fun _ => 0
+  | t :: ss => fun x => if seqb t s then first x else get ss s (second x)
+  end.
 
-Definition orebase_m {P N M o o1} (w1 : olift o o1) (f : morph P N M o) : morph P N M o1 :=
-  fun K L e o2 w2 v => f K L e o2 (ocomp w1 w2) v.
+Fixpoint upd (ss : list S) (s : S) (n : nat) : scopes ss -> scopes ss :=
+  match ss as ss0 return scopes ss0 -> scopes ss0 with
+  | [] => fun x => x
+  | t :: ss => fun x => if seqb t s then pair n (second x) else pair (first x) (upd ss s n (second x))
+  end.
 
-(** The Kleisli extension of a family [T] (over the same other scopes)
-    along a sort's morphisms. *)
-Record kleisli_of (P T : nat -> O -> Type) := mk_kleisli {
-  kl : forall {N M o} (f : morph P N M o) {K L} (e : ext N M K L) {o'} (w : olift o o'), T K o' -> T L o' }.
+(** The scopes of a sub-list (the sorts of a family inside another). *)
+Fixpoint restrict (ss : list S) (ss' : list S) : scopes ss -> scopes ss' :=
+  match ss' as ss0 return scopes ss -> scopes ss0 with
+  | [] => fun _ => tt
+  | t :: ss' => fun x => pair (get ss t x) (restrict ss ss' x)
+  end.
 
-Arguments kl {P T} k {N M o} f {K L} e {o'} w t.
+(** Substituting sort [s]: the other sorts' binders crossed, each over
+    its base with the base unchanged ([b] the bases, [j] the scopes
+    reached; [s]'s own component is unused). *)
+Fixpoint lifts (ss : list S) (s : S) : scopes ss -> scopes ss -> Type :=
+  match ss as ss0 return scopes ss0 -> scopes ss0 -> Type with
+  | [] => fun _ _ => unit
+  | t :: ss => fun b j =>
+      both (if seqb t s then unit else ext (first b) (first b) (first j) (first j)) (lifts ss s (second b) (second j))
+  end.
 
-(** A sort's syntax: its carrier, variables, Kleisli function and laws. *)
-Record sort_laws (P : nat -> O -> Type) (tv : forall {N o}, var N -> P N o) (k : kleisli_of P P) : Prop := {
-  s_var : forall N M o (f : morph P N M o) K L (e : ext N M K L) o' (w : olift o o') v,
-    kl k f e w (tv v) = f K L e o' w v;
-  s_ext : forall N M o (f g : morph P N M o),
-    (forall K L e o' w v, f K L e o' w v = g K L e o' w v) ->
-    forall K L (e : ext N M K L) o' (w : olift o o') t, kl k f e w t = kl k g e w t;
-  s_rebase : forall N M o (f : morph P N M o) K L K' L' (e1 : ext N M K L) (e2 : ext K L K' L') o' (w : olift o o') t,
-    kl k f (ext_app e1 e2) w t = kl k (rebase_m e1 f) e2 w t;
-  s_orebase : forall N M o (f : morph P N M o) K L (e : ext N M K L) o1 o2 (w1 : olift o o1) (w2 : olift o1 o2) t,
-    kl k f e (ocomp w1 w2) t = kl k (orebase_m w1 f) e w2 t;
-  s_unit : forall N K (e : ext N N K K) o o' (w : olift o o') t,
-    kl k (fun K L e o' w v => tv (ext_var e v)) e w t = t;
-  s_assoc : forall N M P' o (g : morph P M P' o) (f : morph P N M o) K L (e : ext N P' K L) o' (w : olift o o') t,
-    kl k (fun K L e o' w v => kl k g (ext_right M e) w (f K (ext_mid M e) (ext_left M e) o' w v)) e w t
-    = kl k g (ext_right M e) w (kl k f (ext_left M e) w t) }.
+Fixpoint lhere (ss : list S) (s : S) : forall b, lifts ss s b b :=
+  match ss as ss0 return forall b : scopes ss0, lifts ss0 s b b with
+  | [] => fun _ => tt
+  | t :: ss => fun b =>
+      pair (match seqb t s as c return (if c then unit else ext (first b) (first b) (first b) (first b)) with
+            | true => tt
+            | false => ext_here
+            end) (lhere ss s (second b))
+  end.
 
-(** Another family over the same sort: the same laws, along [P]'s
-    morphisms. *)
-Record family_laws (P T : nat -> O -> Type) (tv : forall {N o}, var N -> P N o) (kp : kleisli_of P P)
-    (k : kleisli_of P T) : Prop := {
-  f_ext : forall N M o (f g : morph P N M o),
-    (forall K L e o' w v, f K L e o' w v = g K L e o' w v) ->
-    forall K L (e : ext N M K L) o' (w : olift o o') t, kl k f e w t = kl k g e w t;
-  f_rebase : forall N M o (f : morph P N M o) K L K' L' (e1 : ext N M K L) (e2 : ext K L K' L') o' (w : olift o o') t,
-    kl k f (ext_app e1 e2) w t = kl k (rebase_m e1 f) e2 w t;
-  f_orebase : forall N M o (f : morph P N M o) K L (e : ext N M K L) o1 o2 (w1 : olift o o1) (w2 : olift o1 o2) t,
-    kl k f e (ocomp w1 w2) t = kl k (orebase_m w1 f) e w2 t;
-  f_unit : forall N K (e : ext N N K K) o o' (w : olift o o') t,
-    kl k (fun K L e o' w v => tv (ext_var e v)) e w t = t;
-  f_assoc : forall N M P' o (g : morph P M P' o) (f : morph P N M o) K L (e : ext N P' K L) o' (w : olift o o') t,
-    kl k (fun K L e o' w v => kl kp g (ext_right M e) w (f K (ext_mid M e) (ext_left M e) o' w v)) e w t
-    = kl k g (ext_right M e) w (kl k f (ext_left M e) w t) }.
+Fixpoint lcomp (ss : list S) (s : S) : forall b j1 j2, lifts ss s b j1 -> lifts ss s j1 j2 -> lifts ss s b j2 :=
+  match ss as ss0 return forall b j1 j2 : scopes ss0, lifts ss0 s b j1 -> lifts ss0 s j1 j2 -> lifts ss0 s b j2 with
+  | [] => fun _ _ _ _ _ => tt
+  | t :: ss => fun b j1 j2 w1 w2 =>
+      pair (match seqb t s as c
+                  return (if c then unit else ext (first b) (first b) (first j1) (first j1)) ->
+                         (if c then unit else ext (first j1) (first j1) (first j2) (first j2)) ->
+                         (if c then unit else ext (first b) (first b) (first j2) (first j2)) with
+            | true => fun _ _ => tt
+            | false => fun x y => ext_app x y
+            end (first w1) (first w2))
+           (lcomp ss s (second b) (second j1) (second j2) (second w1) (second w2))
+  end.
+
+Arguments lcomp {ss s b j1 j2} w1 w2.
+
+Context (ss : list S) (s : S).
+
+(** A morphism of sort [s] into its carrier [P] (over the sorts [ss]):
+    liftable along [s]'s binders ([ext]) and along the others' ([lifts]). *)
+Definition morph (P : scopes ss -> Type) (N M : nat) (b : scopes ss) : Type :=
+  forall K L, ext N M K L -> forall j, lifts ss s b j -> var K -> P (upd ss s L j).
+
+Definition rebase_m {P N M K L b} (e1 : ext N M K L) (f : morph P N M b) : morph P K L b :=
+  fun K' L' e j w v => f K' L' (ext_app e1 e) j w v.
+
+Definition orebase_m {P N M b j1} (w1 : lifts ss s b j1) (f : morph P N M b) : morph P N M j1 :=
+  fun K L e j2 w2 v => f K L e j2 (lcomp w1 w2) v.
+
+(** The carrier's own Kleisli function, and another family's (over more
+    sorts [ssT], the carrier's sorts among them). *)
+Record sort_kl (P : scopes ss -> Type) := mk_skl {
+  skl : forall {N M b} (f : morph P N M b) {K L} (e : ext N M K L) {j} (w : lifts ss s b j),
+          P (upd ss s K j) -> P (upd ss s L j) }.
+
+Record fam_kl (P : scopes ss -> Type) (ssT : list S) (T : scopes ssT -> Type) := mk_fkl {
+  fkl : forall {N M b} (f : morph P N M b) {K L} (e : ext N M K L) {jT} (w : lifts ss s b (restrict ssT ss jT)),
+          T (upd ssT s K jT) -> T (upd ssT s L jT) }.
+
+Arguments skl {P} _ {N M b} f {K L} e {j} w _.
+Arguments fkl {P ssT T} _ {N M b} f {K L} e {jT} w _.
+
+Section Laws.
+
+Context (P : scopes ss -> Type) (tv : forall K j, var K -> P (upd ss s K j)) (kp : sort_kl P).
+
+Definition unit_m {N b} : morph P N N b := fun K L e j w v => tv L j (ext_var e v).
+
+Definition comp_m {N M P' b} (g : morph P M P' b) (f : morph P N M b) : morph P N P' b :=
+  fun K L e j w v => skl kp g (ext_right M e) w (f K (ext_mid M e) (ext_left M e) j w v).
+
+(** The laws of a sort's syntax: the current ones, the other sorts'
+    witness threaded through, and [orebase]: those witnesses compose. *)
+Record sort_laws : Prop := {
+  s_var : forall N M b (f : morph P N M b) K L (e : ext N M K L) j (w : lifts ss s b j) v,
+    skl kp f e w (tv K j v) = f K L e j w v;
+  s_ext : forall N M b (f g : morph P N M b), (forall K L e j w v, f K L e j w v = g K L e j w v) ->
+    forall K L (e : ext N M K L) j (w : lifts ss s b j) t, skl kp f e w t = skl kp g e w t;
+  s_rebase : forall N M b (f : morph P N M b) K L K' L' (e1 : ext N M K L) (e2 : ext K L K' L') j
+      (w : lifts ss s b j) t,
+    skl kp f (ext_app e1 e2) w t = skl kp (rebase_m e1 f) e2 w t;
+  s_orebase : forall N M b (f : morph P N M b) K L (e : ext N M K L) j1 j2 (w1 : lifts ss s b j1)
+      (w2 : lifts ss s j1 j2) t,
+    skl kp f e (lcomp w1 w2) t = skl kp (orebase_m w1 f) e w2 t;
+  s_unit : forall N K (e : ext N N K K) b j (w : lifts ss s b j) t, skl kp (unit_m (b := b)) e w t = t;
+  s_assoc : forall N M P' b (g : morph P M P' b) (f : morph P N M b) K L (e : ext N P' K L) j
+      (w : lifts ss s b j) t,
+    skl kp (comp_m g f) e w t = skl kp g (ext_right M e) w (skl kp f (ext_left M e) w t) }.
+
+(** Another family: the same laws, along the carrier's morphisms. *)
+Record fam_laws (ssT : list S) (T : scopes ssT -> Type) (k : fam_kl P ssT T) : Prop := {
+  f_ext : forall N M b (f g : morph P N M b), (forall K L e j w v, f K L e j w v = g K L e j w v) ->
+    forall K L (e : ext N M K L) jT (w : lifts ss s b (restrict ssT ss jT)) t, fkl k f e w t = fkl k g e w t;
+  f_rebase : forall N M b (f : morph P N M b) K L K' L' (e1 : ext N M K L) (e2 : ext K L K' L') jT
+      (w : lifts ss s b (restrict ssT ss jT)) t,
+    fkl k f (ext_app e1 e2) w t = fkl k (rebase_m e1 f) e2 w t;
+  f_orebase : forall N M b (f : morph P N M b) K L (e : ext N M K L) j1 jT (w1 : lifts ss s b j1)
+      (w2 : lifts ss s j1 (restrict ssT ss jT)) t,
+    fkl k f e (lcomp w1 w2) t = fkl k (orebase_m w1 f) e w2 t;
+  f_unit : forall N K (e : ext N N K K) b jT (w : lifts ss s b (restrict ssT ss jT)) t,
+    fkl k (unit_m (b := b)) e w t = t;
+  f_assoc : forall N M P' b (g : morph P M P' b) (f : morph P N M b) K L (e : ext N P' K L) jT
+      (w : lifts ss s b (restrict ssT ss jT)) t,
+    fkl k (comp_m g f) e w t = fkl k g (ext_right M e) w (fkl k f (ext_left M e) w t) }.
+
+End Laws.
 
 End Generic.
 
-(** ** System F *)
+Arguments skl {S SS ss s P} _ {N M b} f {K L} e {j} w _.
+Arguments fkl {S SS ss s P ssT T} _ {N M b} f {K L} e {jT} w _.
+
+(** ** System F: two sorts, types over one of them *)
+
+Inductive sortF := TY | TM.
+
+#[export] Instance sortF_sorts : Sorts sortF :=
+  {| seqb a b := match a, b with TY, TY | TM, TM => true | _, _ => false end |}.
 
 Inductive ty (N : nat) : Type :=
 | tyvar (v : var N)
@@ -111,225 +197,176 @@ Arguments app {N K} t u.
 Arguments tlam {N K} b.
 Arguments tapp {N K} t A.
 
-(** *** The type sort: types only have it ([O] is [unit]) *)
+(** The families over their lists of sorts. *)
+Definition Ty (x : scopes [TY]) : Type := ty (first x).
+Definition Tm (x : scopes [TY; TM]) : Type := tm (first x) (first (second x)).
 
-Definition Ty (K : nat) (_ : unit) : Type := ty K.
-
-Fixpoint kl_ty {N M} (f : morph Ty N M tt) {K L} (e : ext N M K L) (A : ty K) : ty L :=
+(** Types, the type sort: the other sorts' witness is threaded through
+    (there are none). *)
+Fixpoint kl_ty {N M b} (f : morph [TY] TY Ty N M b) {K L} (e : ext N M K L) (j : scopes [TY])
+    (w : lifts [TY] TY b j) (A : ty K) : ty L :=
   match A with
-  | tyvar v => f K L e tt tt v
-  | tyarr A B => tyarr (kl_ty f e A) (kl_ty f e B)
-  | tyall B => tyall (kl_ty f (ext_under e) B)
+  | tyvar v => f K L e j w v
+  | tyarr A B => tyarr (kl_ty f e j w A) (kl_ty f e j w B)
+  | tyall B => tyall (kl_ty f (ext_under e) j w B)
   end.
 
-Definition ty_k : kleisli_of Ty Ty := mk_kleisli Ty Ty (fun N M o f K L e o' w A => kl_ty f e A).
+Definition ty_k : sort_kl [TY] TY Ty := mk_skl _ _ _ (fun N M b f K L e j w A => kl_ty f e j w A).
 
-(** The type sort over terms: the term scope [J] is a parameter. *)
-Definition TmTy (J : nat) (K : nat) (_ : unit) : Type := tm K J.
-
-Fixpoint kl_tmty {J N M} (f : morph Ty N M tt) {K L} (e : ext N M K L) (t : tm K J) : tm L J :=
+(** Terms, the type sort: a family over [TY; TM] with the carrier over
+    [TY]; types inside are the carrier itself. *)
+Fixpoint kl_tmty {J N M b} (f : morph [TY] TY Ty N M b) {K L} (e : ext N M K L) (j : scopes [TY])
+    (w : lifts [TY] TY b j) (t : tm K J) : tm L J :=
   match t with
   | tmvar v => tmvar v
-  | lam A b => lam (kl_ty f e A) (kl_tmty f e b)
-  | app t u => app (kl_tmty f e t) (kl_tmty f e u)
-  | tlam b => tlam (kl_tmty f (ext_under e) b)
-  | tapp t A => tapp (kl_tmty f e t) (kl_ty f e A)
+  | lam A u => lam (kl_ty f e j w A) (kl_tmty f e j w u)
+  | app t u => app (kl_tmty f e j w t) (kl_tmty f e j w u)
+  | tlam u => tlam (kl_tmty f (ext_under e) j w u)
+  | tapp t A => tapp (kl_tmty f e j w t) (kl_ty f e j w A)
   end.
 
-Definition tmty_k J : kleisli_of Ty (TmTy J) := mk_kleisli Ty (TmTy J) (fun N M o f K L e o' w t => kl_tmty f e t).
+Definition tmty_k : fam_kl [TY] TY Ty [TY; TM] Tm :=
+  mk_fkl _ _ _ _ _ (fun N M b f K L e jT w t => kl_tmty f e _ w t).
 
-(** *** The term sort: the other sort is types *)
-
-(** Terms as the term sort sees them: the term scope first, the type
-    scope as the other scope. *)
-Definition Tm (K : nat) (N : nat) : Type := tm N K.
-
-(** The morphism goes under type binders too ([ext_under w]); nothing
-    here weakens anything. *)
-Fixpoint kl_tm {N M G} (f : morph Tm N M G) {K L} (e : ext N M K L) {J} (w : ext G G J J) (t : tm J K) : tm J L :=
+(** Terms, the term sort: under a type binder only the witness moves. *)
+Fixpoint kl_tm {N M b} (f : morph [TY; TM] TM Tm N M b) {K L} (e : ext N M K L) (J : nat) (r : scopes [TM])
+    (w : lifts [TY; TM] TM b (pair J r)) (t : tm J K) : tm J L :=
   match t with
-  | tmvar v => f K L e J w v
-  | lam A b => lam A (kl_tm f (ext_under e) w b)
-  | app t u => app (kl_tm f e w t) (kl_tm f e w u)
-  | tlam b => tlam (kl_tm f e (ext_under w) b)
-  | tapp t A => tapp (kl_tm f e w t) A
+  | tmvar v => f K L e (pair J r) w v
+  | lam A u => lam A (kl_tm f (ext_under e) J r w u)
+  | app t u => app (kl_tm f e J r w t) (kl_tm f e J r w u)
+  | tlam u => tlam (kl_tm f e (S J) r (pair (ext_under (first w)) (second w)) u)
+  | tapp t A => tapp (kl_tm f e J r w t) A
   end.
 
-Definition tm_k : kleisli_of Tm Tm := mk_kleisli Tm Tm (fun N M o f K L e o' w t => kl_tm f e w t).
+Definition tm_k : sort_kl [TY; TM] TM Tm := mk_skl _ _ _ (fun N M b f K L e j w t => kl_tm f e (first j) (second j) w t).
 
-(** ** The laws: routine inductions *)
+(** *** Their laws: routine inductions *)
 
-Section TyLaws.
+(** A term's type as the user wrote it, from the one computed. *)
+Ltac sc t := cbv beta iota delta [Ty Tm upd get restrict seqb sortF_sorts] in t |- *; cbn in t |- *.
 
-Lemma kl_ty_ext N M (f g : morph Ty N M tt) :
-  (forall K L e o' w v, f K L e o' w v = g K L e o' w v) ->
-  forall K L (e : ext N M K L) A, kl_ty f e A = kl_ty g e A.
-Proof. intros H K L e A; revert L e; induction A; intros L e; cbn; f_equal; auto. Qed.
+(** The induction hypotheses, which [auto] does not see through the
+    computed witness types. *)
+Ltac ih := try solve [match goal with IH : _ |- _ => apply IH end].
 
-Lemma kl_ty_rebase N M (f : morph Ty N M tt) K L K' L' (e1 : ext N M K L) (e2 : ext K L K' L') A :
-  kl_ty f (ext_app e1 e2) A = kl_ty (rebase_m e1 f) e2 A.
-Proof. revert L' e2; induction A; intros L' e2; cbn; f_equal; auto; rewrite <- IHA; reflexivity. Qed.
-
-Lemma kl_ty_unit N K (e : ext N N K K) A : kl_ty (fun K L e o' w v => tyvar (ext_var e v)) e A = A.
-Proof. induction A; cbn; f_equal; auto; apply ext_var_same. Qed.
-
-Lemma kl_ty_assoc N M P' (g : morph Ty M P' tt) (f : morph Ty N M tt) K L (e : ext N P' K L) A :
-  kl_ty (fun K L e o' w v => kl_ty g (ext_right M e) (f K (ext_mid M e) (ext_left M e) o' w v)) e A
-  = kl_ty g (ext_right M e) (kl_ty f (ext_left M e) A).
-Proof.
-  revert L e; induction A; intros L e; cbn; f_equal; auto; rewrite <- IHA; reflexivity.
-Qed.
-
-End TyLaws.
-
-(** The other-sort witnesses of [Ty] are [unit]: the laws for them hold
-    because there is nothing to say. *)
-Theorem ty_laws : sort_laws Ty (fun N o v => tyvar v) ty_k.
-Proof.
-  split; cbn.
-  - intros; destruct o', w; reflexivity.
-  - intros N M o f g H K L e o' w t; destruct o; apply kl_ty_ext; exact H.
-  - intros; apply kl_ty_rebase.
-  - intros; apply kl_ty_ext; intros K' L' e' x y v; destruct x, y; reflexivity.
-  - intros; apply kl_ty_unit.
-  - intros N M P' o g f K L e o' w t; destruct o, o', w; apply kl_ty_assoc.
-Qed.
-
-Section TmTyLaws.
-
-Lemma kl_tmty_ext J N M (f g : morph Ty N M tt) :
-  (forall K L e o' w v, f K L e o' w v = g K L e o' w v) ->
-  forall K L (e : ext N M K L) (t : tm K J), kl_tmty f e t = kl_tmty g e t.
-Proof.
-  intros H K L e t; revert L e; induction t; intros L e; cbn; f_equal; auto; apply kl_ty_ext; exact H.
-Qed.
-
-Lemma kl_tmty_rebase J N M (f : morph Ty N M tt) K L K' L' (e1 : ext N M K L) (e2 : ext K L K' L') (t : tm K' J) :
-  kl_tmty f (ext_app e1 e2) t = kl_tmty (rebase_m e1 f) e2 t.
-Proof.
-  revert L' e2; induction t; intros L' e2; cbn; f_equal; auto; try apply kl_ty_rebase.
-  rewrite <- IHt; reflexivity.
-Qed.
-
-Lemma kl_tmty_unit J N K (e : ext N N K K) (t : tm K J) :
-  kl_tmty (fun K L e o' w v => tyvar (ext_var e v)) e t = t.
-Proof. induction t; cbn; f_equal; auto; apply kl_ty_unit. Qed.
-
-Lemma kl_tmty_assoc J N M P' (g : morph Ty M P' tt) (f : morph Ty N M tt) K L (e : ext N P' K L) (t : tm K J) :
-  kl_tmty (fun K L e o' w v => kl_ty g (ext_right M e) (f K (ext_mid M e) (ext_left M e) o' w v)) e t
-  = kl_tmty g (ext_right M e) (kl_tmty f (ext_left M e) t).
-Proof.
-  revert L e; induction t; intros L e; cbn; f_equal; auto; try apply kl_ty_assoc;
-    rewrite <- IHt; reflexivity.
-Qed.
-
-End TmTyLaws.
-
-Theorem tmty_laws J : family_laws Ty (TmTy J) (fun N o v => tyvar v) ty_k (tmty_k J).
-Proof.
-  split; cbn.
-  - intros N M o f g H K L e o' w t; destruct o; apply kl_tmty_ext; exact H.
-  - intros; apply kl_tmty_rebase.
-  - intros; apply kl_tmty_ext; intros K' L' e' x y v; destruct x, y; reflexivity.
-  - intros; apply kl_tmty_unit.
-  - intros N M P' o g f K L e o' w t; destruct o, o', w; apply kl_tmty_assoc.
-Qed.
-
-Section TmLaws.
-
-Lemma kl_tm_ext N M G (f g : morph Tm N M G) :
-  (forall K L e o' w v, f K L e o' w v = g K L e o' w v) ->
-  forall K L (e : ext N M K L) J (w : ext G G J J) t, kl_tm f e w t = kl_tm g e w t.
-Proof. intros H K L e J w t; revert L e; induction t; intros L e; cbn; f_equal; auto. Qed.
-
-Lemma kl_tm_rebase N M G (f : morph Tm N M G) K L K' L' (e1 : ext N M K L) (e2 : ext K L K' L') J (w : ext G G J J) t :
-  kl_tm f (ext_app e1 e2) w t = kl_tm (rebase_m e1 f) e2 w t.
-Proof. revert L' e2; induction t; intros L' e2; cbn; f_equal; auto; rewrite <- IHt; reflexivity. Qed.
-
-(** Going under type binders composes with the witness it starts from. *)
-Lemma kl_tm_orebase N M G (f : morph Tm N M G) K L (e : ext N M K L) J1 J2 (w1 : ext G G J1 J1) (w2 : ext J1 J1 J2 J2) t :
-  kl_tm f e (ext_app w1 w2) t = kl_tm (orebase_m (OS := others_one) w1 f) e w2 t.
-Proof.
-  revert L e; induction t; intros L e; cbn; f_equal; auto.
-  apply (IHt (ext_under w2) L e).
-Qed.
-
-Lemma kl_tm_unit N K (e : ext N N K K) G J (w : ext G G J J) t :
-  kl_tm (fun K L e o' w v => tmvar (ext_var e v)) e w t = t.
-Proof. induction t; cbn; f_equal; auto; apply ext_var_same. Qed.
-
-Lemma kl_tm_assoc N M P' G (g : morph Tm M P' G) (f : morph Tm N M G) K L (e : ext N P' K L) J (w : ext G G J J) t :
-  kl_tm (fun K L e o' w v => kl_tm g (ext_right M e) w (f K (ext_mid M e) (ext_left M e) o' w v)) e w t
-  = kl_tm g (ext_right M e) w (kl_tm f (ext_left M e) w t).
-Proof. revert L e; induction t; intros L e; cbn; f_equal; auto; rewrite <- IHt; reflexivity. Qed.
-
-End TmLaws.
-
-Theorem tm_laws : sort_laws Tm (fun K N v => tmvar v) tm_k.
+Theorem ty_laws : sort_laws [TY] TY Ty (fun K j v => tyvar v) ty_k.
 Proof.
   split; cbn.
   - reflexivity.
-  - intros; apply kl_tm_ext; assumption.
-  - intros; apply kl_tm_rebase.
-  - intros; apply kl_tm_orebase.
-  - intros; apply kl_tm_unit.
-  - intros; apply kl_tm_assoc.
+  - intros N M b f g H K L e j w t; sc t; revert L e; induction t; intros L e; cbn; f_equal; auto; ih.
+  - intros N M b f K L K' L' e1 e2 j w t; sc t; revert L' e2; induction t; intros L' e2; cbn; f_equal; auto; ih;
+      rewrite <- IHt; reflexivity.
+  - intros N M b f K L e j1 j2 w1 w2 t; sc t; revert L e; induction t; intros L e; cbn; f_equal; auto; ih.
+  - intros N K e b j w t; sc t; induction t; cbn; f_equal; auto; ih; unfold unit_m; rewrite ext_var_same; reflexivity.
+  - intros N M P' b g f K L e j w t; sc t; revert L e; induction t; intros L e; cbn; f_equal; auto; ih;
+      rewrite <- IHt; reflexivity.
 Qed.
 
-(** ** What the library builds from these
+Theorem tmty_laws : fam_laws [TY] TY Ty (fun K j v => tyvar v) ty_k [TY; TM] Tm tmty_k.
+Proof.
+  pose proof ty_laws as [_ Hext Hreb Horeb Hunit Hassoc]; cbn in *.
+  split; cbn.
+  - intros N M b f g H K L e [D [J u]] w t; sc t; revert L e; induction t; intros L e; cbn; f_equal; auto; ih; apply Hext; exact H.
+  - intros N M b f K L K' L' e1 e2 [D [J u]] w t; sc t; revert L' e2; induction t; intros L' e2; cbn; f_equal; auto; ih;
+      try apply Hreb; rewrite <- IHt; reflexivity.
+  - intros N M b f K L e j1 jT w1 w2 t; sc t; revert L e; induction t; intros L e; cbn; f_equal; auto; ih; apply Horeb.
+  - intros N K e b [D [J u]] w t; sc t; induction t; cbn; f_equal; auto; ih; apply Hunit.
+  - intros N M P' b g f K L e [D [J u]] w t; sc t; revert L e; induction t; intros L e; cbn; f_equal; auto; ih;
+      try apply Hassoc; rewrite <- IHt; reflexivity.
+Qed.
 
-    The weakening of a carrier along the other sorts' binders, from the
-    carrier's Kleisli function for that sort and a weakening morphism
-    built from the variable constructor alone.  For terms, along type
-    binders: [oweak w u] sees a term over type base [G] over [J], for
-    [w : ext G G J J].  The library's [apply a] would put it on each
-    payload, at the witness the morphism is given, so that substituting
-    under a type binder needs no shifting in the user's code.  It needs
-    only the laws above. *)
+Theorem tm_laws : sort_laws [TY; TM] TM Tm (fun K j v => tmvar v) tm_k.
+Proof.
+  split; cbn.
+  - reflexivity.
+  - intros N M b f g H K L e [J r] w t; sc t; revert L e r w; induction t; intros L e r w; cbn;
+      f_equal; auto; ih.
+  - intros N M b f K L K' L' e1 e2 [J r] w t; sc t; revert L' e2 r w; induction t; intros L' e2 r w;
+      cbn; f_equal; auto; ih; rewrite <- IHt; reflexivity.
+  - intros N M b f K L e j1 [J r] w1 w2 t; sc t; revert L e r w2; induction t; intros L e r w2; cbn;
+      f_equal; auto; ih.
+    apply (IHt L e r (pair (ext_under (first w2)) (second w2))).
+  - intros N K e b [J r] w t; sc t; revert r w; induction t; intros r w; cbn; f_equal; auto; ih;
+      unfold unit_m; rewrite ext_var_same; reflexivity.
+  - intros N M P' b g f K L e [J r] w t; sc t; revert L e r w; induction t; intros L e r w; cbn;
+      f_equal; auto; ih; rewrite <- IHt; reflexivity.
+Qed.
 
-(** Bound variables at or above the [D] binders crossed move up by [d]. *)
-Definition wk_raw (D d : nat) (v : rvar) : rvar :=
-  match v_label v with
-  | None => if Nat.ltb (v_index v) D then v else mk_rvar None (v_index v + d)
-  | Some _ => v
+(** ** Three sorts: types, regions and terms
+
+    Types may mention regions and bind types; terms bind all three.  Only
+    the definitions, to check that the witnesses come out right for more
+    sorts and for a family over a middle-sized list. *)
+
+Inductive sort3 := TY3 | RG3 | TM3.
+
+#[export] Instance sort3_sorts : Sorts sort3 :=
+  {| seqb a b := match a, b with TY3, TY3 | RG3, RG3 | TM3, TM3 => true | _, _ => false end |}.
+
+(** [ty3 N R]: [N] type variables, [R] region variables. *)
+Inductive ty3 (N R : nat) : Type :=
+| ty3var (v : var N)
+| ty3arr (A B : ty3 N R)
+| ty3ref (r : var R) (A : ty3 N R)
+| ty3all (B : ty3 (S N) R)
+| ty3rall (B : ty3 N (S R)).
+
+Arguments ty3var {N R} v.
+Arguments ty3arr {N R} A B.
+Arguments ty3ref {N R} r A.
+Arguments ty3all {N R} B.
+Arguments ty3rall {N R} B.
+
+(** [tm3 N R K]: and [K] term variables. *)
+Inductive tm3 (N R K : nat) : Type :=
+| tm3var (v : var K)
+| lam3 (A : ty3 N R) (b : tm3 N R (S K))
+| app3 (t u : tm3 N R K)
+| tlam3 (b : tm3 (S N) R K)
+| rlam3 (b : tm3 N (S R) K)
+| new3 (r : var R) (t : tm3 N R K).
+
+Arguments tm3var {N R K} v.
+Arguments lam3 {N R K} A b.
+Arguments app3 {N R K} t u.
+Arguments tlam3 {N R K} b.
+Arguments rlam3 {N R K} b.
+Arguments new3 {N R K} r t.
+
+Definition Ty3 (x : scopes [TY3; RG3]) : Type := ty3 (first x) (first (second x)).
+Definition Tm3 (x : scopes [TY3; RG3; TM3]) : Type := tm3 (first x) (first (second x)) (first (second (second x))).
+
+(** The type sort of types: going under a region binder moves the
+    region component of the witness. *)
+Fixpoint kl_ty3 {N M b} (f : morph [TY3; RG3] TY3 Ty3 N M b) {K L} (e : ext N M K L) (D R : nat) (r : scopes [])
+    (w : lifts [TY3; RG3] TY3 b (pair D (pair R r))) (A : ty3 K R) : ty3 L R :=
+  match A with
+  | ty3var v => f K L e (pair D (pair R r)) w v
+  | ty3arr A B => ty3arr (kl_ty3 f e D R r w A) (kl_ty3 f e D R r w B)
+  | ty3ref x A => ty3ref x (kl_ty3 f e D R r w A)
+  | ty3all B => ty3all (kl_ty3 f (ext_under e) D R r w B)
+  | ty3rall B => ty3rall (kl_ty3 f e D (S R) r (pair (first w) (pair (ext_under (first (second w))) (second (second w)))) B)
   end.
 
-Lemma wk_wf {G J K L} (w : ext G G J J) (e : ext G J K L) v :
-  wf_var K v = true -> wf_var L (wk_raw (Syntax.ext_depth e) (Syntax.ext_depth w) v) = true.
-Proof.
-  pose proof (Syntax.ext_depth_K e); pose proof (Syntax.ext_depth_L e); pose proof (Syntax.ext_depth_K w).
-  destruct v as [[x|] i]; unfold wk_raw, wf_var; cbn [v_label v_index]; [reflexivity|].
-  intros Hi; apply Nat.ltb_lt in Hi.
-  destruct (Nat.ltb i (Syntax.ext_depth e)) eqn:E; cbn [v_label v_index]; apply Nat.ltb_lt;
-    [apply Nat.ltb_lt in E|apply Nat.ltb_ge in E]; lia.
-Qed.
+(** The term sort of terms: a witness for types and one for regions. *)
+Fixpoint kl_tm3 {N M b} (f : morph [TY3; RG3; TM3] TM3 Tm3 N M b) {K L} (e : ext N M K L) (J R : nat) (r : scopes [TM3])
+    (w : lifts [TY3; RG3; TM3] TM3 b (pair J (pair R r))) (t : tm3 J R K) : tm3 J R L :=
+  match t with
+  | tm3var v => f K L e (pair J (pair R r)) w v
+  | lam3 A u => lam3 A (kl_tm3 f (ext_under e) J R r w u)
+  | app3 t u => app3 (kl_tm3 f e J R r w t) (kl_tm3 f e J R r w u)
+  | tlam3 u => tlam3 (kl_tm3 f e (S J) R r (pair (ext_under (first w)) (second w)) u)
+  | rlam3 u => rlam3 (kl_tm3 f e J (S R) r (pair (first w) (pair (ext_under (first (second w))) (second (second w)))) u)
+  | new3 x t => new3 x (kl_tm3 f e J R r w t)
+  end.
 
-Definition wk_m {G J} (w : ext G G J J) : morph Ty G J tt :=
-  fun K L e _ _ v => tyvar (mk_var (wk_raw (Syntax.ext_depth e) (Syntax.ext_depth w) (var_raw v))
-                                   (Is_true_s_intro (wk_wf w e _ (Is_true_s_elim (var_ok v))))).
+(** What the witnesses are, computed from the lists: *)
+Example lifts_tm3 b J R r :
+  lifts [TY3; RG3; TM3] TM3 b (pair J (pair R r))
+  = both (ext (first b) (first b) J J) (both (ext (first (second b)) (first (second b)) R R) (both unit unit)).
+Proof. reflexivity. Qed.
 
-Definition oweak {G J K} (w : ext G G J J) (u : tm G K) : tm J K := kl_tmty (wk_m w) ext_here u.
-
-Lemma oweak_here {G K} (u : tm G K) : oweak ext_here u = u.
-Proof.
-  unfold oweak; transitivity (kl_tmty (fun K L e o' w v => tyvar (ext_var e v)) ext_here u);
-    [apply kl_tmty_ext|apply kl_tmty_unit].
-  intros K' L' e o' w v; unfold wk_m; f_equal; apply var_eq; cbn [var_raw ext_var Syntax.ext_depth].
-  destruct (var_raw v) as [[x|] i]; unfold wk_raw; cbn [v_label v_index]; [reflexivity|].
-  destruct (Nat.ltb i (Syntax.ext_depth e)); [reflexivity|]; rewrite Nat.add_0_r; reflexivity.
-Qed.
-
-Lemma oweak_comp {G J1 J2 K} (w1 : ext G G J1 J1) (w2 : ext J1 J1 J2 J2) (u : tm G K) :
-  oweak (ext_app w1 w2) u = oweak w2 (oweak w1 u).
-Proof.
-  unfold oweak; etransitivity; [|exact (kl_tmty_assoc K G J1 J2 (wk_m w2) (wk_m w1) G J2 ext_here u)].
-  apply kl_tmty_ext; intros K' L' e o' w v; unfold wk_m; cbn [kl_ty]; f_equal; apply var_eq;
-    cbn [var_raw].
-  rewrite Syntax.ext_depth_right, Syntax.ext_depth_left, Syntax.ext_depth_app.
-  destruct (var_raw v) as [[x|] i]; unfold wk_raw; cbn [v_label v_index]; [reflexivity|].
-  destruct (Nat.ltb i (Syntax.ext_depth e)) eqn:E; cbn [v_label v_index]; rewrite ?E; [reflexivity|].
-  apply Nat.ltb_ge in E.
-  replace (Nat.ltb (i + Syntax.ext_depth w1) (Syntax.ext_depth e)) with false
-    by (symmetry; apply Nat.ltb_ge; lia).
-  f_equal; lia.
-Qed.
+Example lifts_ty3 b D R r :
+  lifts [TY3; RG3] TY3 b (pair D (pair R r)) = both unit (both (ext (first (second b)) (first (second b)) R R) unit).
+Proof. reflexivity. Qed.
