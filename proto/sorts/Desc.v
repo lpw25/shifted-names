@@ -75,37 +75,43 @@ Arguments vother {n i B Mi} t {K Li} e Ht.
 Definition morph (n i : nat) (P : vec n -> Type) (B : vec n) (Mi : nat) : Type :=
   forall K Li, vext n i B Mi K Li -> var (get n i K) -> P (upd n i Li K).
 
-(** ** System F, indexed directly by vectors *)
+(** ** System F: the user's own curried families, seen through vectors
 
-Inductive ty (x : vec 1) : Type :=
-| tyvar (v : var (first x))
-| tyarr (A B : ty x)
-| tyall (B : ty (pair (S (first x)) (second x))).
+    The constructors are ordinary; the library sees each family through a
+    one-line view.  Unification only matches nats (the view's projections
+    reduce), never a vector against its components. *)
 
-(* [&]: the constructors' vector is taken from the expected type, so the
-   Kleisli functions need no annotations. *)
-Arguments tyvar {x} v.
-Arguments tyarr {x} & A B.
-Arguments tyall {x} & B.
+Inductive ty (N : nat) : Type :=
+| tyvar (v : var N)
+| tyarr (A B : ty N)
+| tyall (B : ty (S N)).
+
+Arguments tyvar {N} v.
+Arguments tyarr {N} A B.
+Arguments tyall {N} B.
+
+(** [tm N K]: [N] type variables, [K] term variables. *)
+Inductive tm (N K : nat) : Type :=
+| tmvar (v : var K)
+| lam (A : ty N) (b : tm N (S K))
+| app (t u : tm N K)
+| tlam (b : tm (S N) K)
+| tapp (t : tm N K) (A : ty N).
+
+Arguments tmvar {N K} v.
+Arguments lam {N K} A b.
+Arguments app {N K} t u.
+Arguments tlam {N K} b.
+Arguments tapp {N K} t A.
+
+Definition Ty (x : vec 1) : Type := ty (first x).
+Definition Tm (x : vec 2) : Type := tm (first x) (first (second x)).
 
 (** Types are sort 0 of terms. *)
 Definition ty_in_tm : thin 1 2 := tkeep (tskip tdone).
 
-Inductive tm (x : vec 2) : Type :=
-| tmvar (v : var (first (second x)))
-| lam (A : ty (select ty_in_tm x)) (b : tm (pair (first x) (pair (S (first (second x))) (second (second x)))))
-| app (t u : tm x)
-| tlam (b : tm (pair (S (first x)) (second x)))
-| tapp (t : tm x) (A : ty (select ty_in_tm x)).
-
-Arguments tmvar {x} & v.
-Arguments lam {x} & A b.
-Arguments app {x} & t u.
-Arguments tlam {x} & b.
-Arguments tapp {x} & t A.
-
 (** Types, the type sort. *)
-Fixpoint kl_ty {B Mi} (f : morph 1 0 ty B Mi) {K Li} (e : vext 1 0 B Mi K Li) (A : ty K) : ty (upd 1 0 Li K) :=
+Fixpoint kl_ty {B Mi} (f : morph 1 0 Ty B Mi) {K Li} (e : vext 1 0 B Mi K Li) (A : Ty K) : Ty (upd 1 0 Li K) :=
   match A with
   | tyvar v => f K Li e v
   | tyarr A A' => tyarr (kl_ty f e A) (kl_ty f e A')
@@ -114,7 +120,7 @@ Fixpoint kl_ty {B Mi} (f : morph 1 0 ty B Mi) {K Li} (e : vext 1 0 B Mi K Li) (A
 
 (** Terms, the term sort: one witness, moved under every binder; the
     annotations are passed through untouched. *)
-Fixpoint kl_tm {B Mi} (f : morph 2 1 tm B Mi) {K Li} (e : vext 2 1 B Mi K Li) (t : tm K) : tm (upd 2 1 Li K) :=
+Fixpoint kl_tm {B Mi} (f : morph 2 1 Tm B Mi) {K Li} (e : vext 2 1 B Mi K Li) (t : Tm K) : Tm (upd 2 1 Li K) :=
   match t with
   | tmvar v => f K Li e v
   | lam A u => lam A (kl_tm f (vunder e) u)
@@ -123,24 +129,40 @@ Fixpoint kl_tm {B Mi} (f : morph 2 1 tm B Mi) {K Li} (e : vext 2 1 B Mi K Li) (t
   | tapp t A => tapp (kl_tm f e t) A
   end.
 
-(** Terms, the type sort, through the thinning: the witness is over the
-    types' sorts; term binders leave it alone. *)
-Fixpoint kl_tmty {B Mi} (f : morph 1 0 ty B Mi) {x Li} (t : tm x) (e : vext 1 0 B Mi (select ty_in_tm x) Li)
-    : tm (upd 2 (timg ty_in_tm 0) Li x) :=
+(** Terms, the type sort: the witness is over the types' sorts, and the
+    term scope [J] is an ordinary argument (term binders change it). *)
+Fixpoint kl_tmty {B Mi} (f : morph 1 0 Ty B Mi) {K Li} (e : vext 1 0 B Mi K Li) {J} (t : tm (first K) J)
+    : tm Li J :=
   match t with
   | tmvar v => tmvar v
-  | lam A u => lam (kl_ty f e A) (kl_tmty f u e)
-  | app t u => app (kl_tmty f t e) (kl_tmty f u e)
-  | tlam u => tlam (kl_tmty f u (vunder e))
-  | tapp t A => tapp (kl_tmty f t e) (kl_ty f e A)
+  | lam A u => lam (kl_ty f e A) (kl_tmty f e u)
+  | app t u => app (kl_tmty f e t) (kl_tmty f e u)
+  | tlam u => tlam (kl_tmty f (vunder e) u)
+  | tapp t A => tapp (kl_tmty f e t) (kl_ty f e A)
   end.
 
-(** A law, by the usual induction: the witness's input vector is an
-    index, so induction generalises over it. *)
-Lemma kl_tm_ext {B Mi} (f g : morph 2 1 tm B Mi) :
+(** What the library sees: the family's vector put back together from the
+    carrier's scopes and the others ([merge], through the thinning). *)
+Fixpoint skips {m n} (th : thin m n) : nat :=
+  match th with tdone => 0 | tkeep th => skips th | tskip th => S (skips th) end.
+
+Fixpoint merge {m n} (th : thin m n) : vec m -> vec (skips th) -> vec n :=
+  match th in thin m0 n0 return vec m0 -> vec (skips th) -> vec n0 with
+  | tdone => fun _ _ => tt
+  | tkeep th => fun x r => pair (first x) (merge th (second x) r)
+  | tskip th => fun x r => pair (first r) (merge th x (second r))
+  end.
+
+Definition fam_kl_tmty {B Mi} (f : morph 1 0 Ty B Mi) {K Li} (e : vext 1 0 B Mi K Li) (r : vec (skips ty_in_tm))
+    (t : Tm (merge ty_in_tm K r)) : Tm (merge ty_in_tm (upd 1 0 Li K) r) :=
+  kl_tmty f e t.
+
+(** A law, by the usual induction. *)
+Lemma kl_tm_ext {B Mi} (f g : morph 2 1 Tm B Mi) :
   (forall K Li e v, f K Li e v = g K Li e v) ->
   forall K Li (e : vext 2 1 B Mi K Li) t, kl_tm f e t = kl_tm g e t.
 Proof.
-  intros H K Li e t; revert Li e; induction t; intros Li e; cbn; f_equal;
+  intros H K Li e t; destruct K as [N [J r]]; unfold Tm in t; cbn in t.
+  revert Li e; induction t; intros Li e; cbn; f_equal;
     try apply H; try apply IHt; try apply IHt1; try apply IHt2.
 Qed.
