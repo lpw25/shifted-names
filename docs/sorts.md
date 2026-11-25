@@ -10,18 +10,20 @@ proto/sorts/Sorts.v`). Nothing in the library uses it yet.
 
 **Scopes.** A family is indexed by a vector of nats, one scope per sort; a
 sort is a position in the vector. `vec n` is `n` nats (pairs with eta,
-ending in `unit`); `upd n i k` replaces sort `i`'s scope; `prefix m n` is
-the first `m` scopes. The user's families stay curried, and are seen
-through their vectors:
+ending in `unit`); `upd n i k` replaces sort `i`'s scope. The user's
+families stay curried, and are seen through their vectors:
 
 ```coq
 Definition Ty (x : vec 1) : Type := ty (first x).                    (* types: sort 0 *)
 Definition Tm (x : vec 2) : Type := tm (first x) (first (second x)). (* terms: sorts 0 and 1 *)
 ```
 
-A family inside another, types inside terms, is indexed by a prefix of the
-other's vector, so the sorts are numbered with the contained families'
-first.
+A family inside another, types inside terms, is indexed by some of the
+other's sorts, in order: a thinning `th : thin m n` (keep or skip each of
+the `n` positions). `select th` picks its scopes from the larger vector, and
+`timg th i` is where its sort `i` is among the `n`. In the three-sort
+example, types are over (types, regions) and terms over (types, terms,
+regions), with `tkeep (tskip (tkeep tdone))` between them.
 
 **Witnesses.** Substituting sort `i`:
 - `ext N M K L` for `i`'s own binders, as now;
@@ -49,9 +51,10 @@ Definition morph (P : vec n -> Type) (N M : nat) (b : vec n) : Type :=
 
 **Kleisli functions, one per family and sort.**
 - The carrier's own: `P (upd n i K j) -> P (upd n i L j)`.
-- Another family's, over a longer vector of `nT` sorts:
-  `T (upd nT i K jT) -> T (upd nT i L jT)`, with the witness for the
-  carrier's sorts taken through `prefix n nT jT`.
+- Another family's, over a longer vector of `nT` sorts with the carrier's
+  among them by `th`: `T (upd nT (timg th i) K jT) -> T (upd nT (timg th i)
+  L jT)`, with the witness for the carrier's sorts taken through `select th
+  jT`.
 
 The user's functions thread the other sorts' witness, moving the component
 of the sort whose binder they cross. System F's:

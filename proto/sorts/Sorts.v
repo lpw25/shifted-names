@@ -2,7 +2,7 @@
 
     Checks the scheme of [docs/sorts.md].  A family is indexed by a vector
     of nats, one scope per sort, a sort being a position; a family inside
-    another is indexed by a prefix of its vector.  A sort's morphisms,
+    another by a thinning of its vector.  A sort's morphisms,
     Kleisli functions and laws are generic over the vector's length and
     the position.  Instances: System F (types over the first sort, terms
     over two) and a calculus with three (types, regions, terms).  Standalone:
@@ -27,7 +27,8 @@ Arguments second {A B} _.
 
     A family is indexed by a vector of nats, one scope per sort; a sort is
     a position in the vector.  A family inside another (types inside
-    terms) is indexed by a prefix of the other's vector. *)
+    terms) is indexed by some of the other's sorts, in order: a thinning
+    of its vector. *)
 
 Fixpoint vec (n : nat) : Type := match n with 0 => unit | S n => both nat (vec n) end.
 
@@ -38,14 +39,26 @@ Fixpoint upd (n : nat) (i : nat) (k : nat) : vec n -> vec n :=
   | S n => fun x => match i with 0 => pair k (second x) | S i => pair (first x) (upd n i k (second x)) end
   end.
 
-(** The first [m] scopes (of a vector at least as long). *)
-Fixpoint prefix (m n : nat) : vec n -> vec m :=
-  match m as m0 return vec n -> vec m0 with
-  | 0 => fun _ => tt
-  | S m => match n as n0 return vec n0 -> vec (S m) with
-           | 0 => fun _ => pair 0 (prefix m 0 tt)
-           | S n => fun x => pair (first x) (prefix m n (second x))
-           end
+(** Thinnings: which of [n] sorts a family over [m] of them has, in
+    order.  [select] picks its scopes from the larger vector, [timg] where
+    its sort [i] is among the [n]. *)
+Inductive thin : nat -> nat -> Type :=
+| tdone : thin 0 0
+| tkeep {m n} : thin m n -> thin (S m) (S n)
+| tskip {m n} : thin m n -> thin m (S n).
+
+Fixpoint select {m n} (th : thin m n) : vec n -> vec m :=
+  match th in thin m0 n0 return vec n0 -> vec m0 with
+  | tdone => fun _ => tt
+  | tkeep th => fun x => pair (first x) (select th (second x))
+  | tskip th => fun x => select th (second x)
+  end.
+
+Fixpoint timg {m n} (th : thin m n) (i : nat) : nat :=
+  match th with
+  | tdone => i
+  | tkeep th => match i with 0 => 0 | S i => S (timg th i) end
+  | tskip th => S (timg th i)
   end.
 
 (** Substituting sort [i]: the other sorts' binders crossed, each over
@@ -110,17 +123,18 @@ Definition orebase_m {P N M b j1} (w1 : lifts n i b j1) (f : morph P N M b) : mo
   fun K L e j2 w2 v => f K L e j2 (lcomp w1 w2) v.
 
 (** The carrier's own Kleisli function, and that of a family over a
-    longer vector ([nT] sorts, the carrier's first). *)
+    longer vector ([nT] sorts, the carrier's among them by [th]; the
+    carrier's sort [i] is the family's [timg th i]). *)
 Record sort_kl (P : vec n -> Type) := mk_skl {
   skl : forall {N M b} (f : morph P N M b) {K L} (e : ext N M K L) {j} (w : lifts n i b j),
           P (upd n i K j) -> P (upd n i L j) }.
 
-Record fam_kl (P : vec n -> Type) (nT : nat) (T : vec nT -> Type) := mk_fkl {
-  fkl : forall {N M b} (f : morph P N M b) {K L} (e : ext N M K L) {jT} (w : lifts n i b (prefix n nT jT)),
-          T (upd nT i K jT) -> T (upd nT i L jT) }.
+Record fam_kl (P : vec n -> Type) {nT : nat} (th : thin n nT) (T : vec nT -> Type) := mk_fkl {
+  fkl : forall {N M b} (f : morph P N M b) {K L} (e : ext N M K L) {jT} (w : lifts n i b (select th jT)),
+          T (upd nT (timg th i) K jT) -> T (upd nT (timg th i) L jT) }.
 
 Arguments skl {P} _ {N M b} f {K L} e {j} w _.
-Arguments fkl {P nT T} _ {N M b} f {K L} e {jT} w _.
+Arguments fkl {P nT th T} _ {N M b} f {K L} e {jT} w _.
 
 Section Laws.
 
@@ -151,19 +165,19 @@ Record sort_laws : Prop := {
 
 (** A family over a longer vector: the same laws, along the carrier's
     morphisms. *)
-Record fam_laws (nT : nat) (T : vec nT -> Type) (k : fam_kl P nT T) : Prop := {
+Record fam_laws {nT : nat} (th : thin n nT) (T : vec nT -> Type) (k : fam_kl P th T) : Prop := {
   f_ext : forall N M b (f g : morph P N M b), (forall K L e j w v, f K L e j w v = g K L e j w v) ->
-    forall K L (e : ext N M K L) jT (w : lifts n i b (prefix n nT jT)) t, fkl k f e w t = fkl k g e w t;
+    forall K L (e : ext N M K L) jT (w : lifts n i b (select th jT)) t, fkl k f e w t = fkl k g e w t;
   f_rebase : forall N M b (f : morph P N M b) K L K' L' (e1 : ext N M K L) (e2 : ext K L K' L') jT
-      (w : lifts n i b (prefix n nT jT)) t,
+      (w : lifts n i b (select th jT)) t,
     fkl k f (ext_app e1 e2) w t = fkl k (rebase_m e1 f) e2 w t;
   f_orebase : forall N M b (f : morph P N M b) K L (e : ext N M K L) j1 jT (w1 : lifts n i b j1)
-      (w2 : lifts n i j1 (prefix n nT jT)) t,
+      (w2 : lifts n i j1 (select th jT)) t,
     fkl k f e (lcomp w1 w2) t = fkl k (orebase_m w1 f) e w2 t;
-  f_unit : forall N K (e : ext N N K K) b jT (w : lifts n i b (prefix n nT jT)) t,
+  f_unit : forall N K (e : ext N N K K) b jT (w : lifts n i b (select th jT)) t,
     fkl k (unit_m (b := b)) e w t = t;
   f_assoc : forall N M P' b (g : morph P M P' b) (f : morph P N M b) K L (e : ext N P' K L) jT
-      (w : lifts n i b (prefix n nT jT)) t,
+      (w : lifts n i b (select th jT)) t,
     fkl k (comp_m g f) e w t = fkl k g (ext_right M e) w (fkl k f (ext_left M e) w t) }.
 
 End Laws.
@@ -171,7 +185,7 @@ End Laws.
 End Generic.
 
 Arguments skl {n i P} _ {N M b} f {K L} e {j} w _.
-Arguments fkl {n i P nT T} _ {N M b} f {K L} e {jT} w _.
+Arguments fkl {n i P nT th T} _ {N M b} f {K L} e {jT} w _.
 
 (** ** System F: types are sort 0, terms sort 1; types over the first *)
 
@@ -226,8 +240,11 @@ Fixpoint kl_tmty {J N M b} (f : morph 1 0 Ty N M b) {K L} (e : ext N M K L) (j :
   | tapp t A => tapp (kl_tmty f e j w t) (kl_ty f e j w A)
   end.
 
-Definition tmty_k : fam_kl 1 0 Ty 2 Tm :=
-  mk_fkl _ _ _ _ _ (fun N M b f K L e jT w t => kl_tmty f e _ w t).
+(** Types are the first of terms' two sorts. *)
+Definition ty_in_tm : thin 1 2 := tkeep (tskip tdone).
+
+Definition tmty_k : fam_kl 1 0 Ty ty_in_tm Tm :=
+  mk_fkl _ _ _ _ _ _ (fun N M b f K L e jT w t => kl_tmty f e _ w t).
 
 (** Terms, the term sort: under a type binder only the witness moves. *)
 Fixpoint kl_tm {N M b} (f : morph 2 1 Tm N M b) {K L} (e : ext N M K L) (J : nat) (r : vec 1)
@@ -245,7 +262,7 @@ Definition tm_k : sort_kl 2 1 Tm := mk_skl _ _ _ (fun N M b f K L e j w t => kl_
 (** *** Their laws: routine inductions *)
 
 (** A term's type as the user wrote it, from the one computed. *)
-Ltac sc t := cbv beta iota delta [Ty Tm upd prefix] in t |- *; cbn in t |- *.
+Ltac sc t := cbv beta iota delta [Ty Tm upd select timg ty_in_tm] in t |- *; cbn in t |- *.
 
 (** The induction hypotheses, which [auto] does not see through the
     computed witness types. *)
@@ -264,7 +281,7 @@ Proof.
       rewrite <- IHt; reflexivity.
 Qed.
 
-Theorem tmty_laws : fam_laws 1 0 Ty (fun K j v => tyvar v) ty_k 2 Tm tmty_k.
+Theorem tmty_laws : fam_laws 1 0 Ty (fun K j v => tyvar v) ty_k ty_in_tm Tm tmty_k.
 Proof.
   pose proof ty_laws as [_ Hext Hreb Horeb Hunit Hassoc]; cbn in *.
   split; cbn.
@@ -294,12 +311,11 @@ Proof.
       f_equal; auto; ih; rewrite <- IHt; reflexivity.
 Qed.
 
-(** ** Three sorts: types 0, regions 1, terms 2
+(** ** Three sorts: types 0, terms 1, regions 2
 
-    Types may mention regions and bind types, over the first two sorts;
-    terms bind all three.  Only the definitions, to check that the
-    witnesses come out right for more sorts and for a family over a
-    middle-sized prefix. *)
+    Types mention regions and bind types: they are over sorts 0 and 2,
+    not a prefix.  Only the definitions, to check that the witnesses and
+    the thinning come out right. *)
 
 (** [ty3 N R]: [N] type variables, [R] region variables. *)
 Inductive ty3 (N R : nat) : Type :=
@@ -315,27 +331,30 @@ Arguments ty3ref {N R} r A.
 Arguments ty3all {N R} B.
 Arguments ty3rall {N R} B.
 
-(** [tm3 N R K]: and [K] term variables. *)
-Inductive tm3 (N R K : nat) : Type :=
+(** [tm3 N K R]: [N] type variables, [K] term variables, [R] regions. *)
+Inductive tm3 (N K R : nat) : Type :=
 | tm3var (v : var K)
-| lam3 (A : ty3 N R) (b : tm3 N R (S K))
-| app3 (t u : tm3 N R K)
-| tlam3 (b : tm3 (S N) R K)
-| rlam3 (b : tm3 N (S R) K)
-| new3 (r : var R) (t : tm3 N R K).
+| lam3 (A : ty3 N R) (b : tm3 N (S K) R)
+| app3 (t u : tm3 N K R)
+| tlam3 (b : tm3 (S N) K R)
+| rlam3 (b : tm3 N K (S R))
+| new3 (r : var R) (t : tm3 N K R).
 
-Arguments tm3var {N R K} v.
-Arguments lam3 {N R K} A b.
-Arguments app3 {N R K} t u.
-Arguments tlam3 {N R K} b.
-Arguments rlam3 {N R K} b.
-Arguments new3 {N R K} r t.
+Arguments tm3var {N K R} v.
+Arguments lam3 {N K R} A b.
+Arguments app3 {N K R} t u.
+Arguments tlam3 {N K R} b.
+Arguments rlam3 {N K R} b.
+Arguments new3 {N K R} r t.
 
 Definition Ty3 (x : vec 2) : Type := ty3 (first x) (first (second x)).
 Definition Tm3 (x : vec 3) : Type := tm3 (first x) (first (second x)) (first (second (second x))).
 
-(** The type sort of types: going under a region binder moves the
-    region component of the witness. *)
+(** Types are sorts 0 and 2 of terms. *)
+Definition ty_in_tm3 : thin 2 3 := tkeep (tskip (tkeep tdone)).
+
+(** The type sort of types: under a region binder the region component
+    of the witness moves. *)
 Fixpoint kl_ty3 {N M b} (f : morph 2 0 Ty3 N M b) {K L} (e : ext N M K L) (D R : nat)
     (w : lifts 2 0 b (pair D (pair R tt))) (A : ty3 K R) : ty3 L R :=
   match A with
@@ -346,24 +365,42 @@ Fixpoint kl_ty3 {N M b} (f : morph 2 0 Ty3 N M b) {K L} (e : ext N M K L) (D R :
   | ty3rall B => ty3rall (kl_ty3 f e D (S R) (pair (first w) (pair (ext_under (first (second w))) (second (second w)))) B)
   end.
 
-(** The term sort of terms: a witness for types and one for regions. *)
-Fixpoint kl_tm3 {N M b} (f : morph 3 2 Tm3 N M b) {K L} (e : ext N M K L) (J R : nat) (r : vec 1)
-    (w : lifts 3 2 b (pair J (pair R r))) (t : tm3 J R K) : tm3 J R L :=
+(** The type sort of terms, through the thinning: term binders change
+    nothing the witness sees; region binders move its region component. *)
+Fixpoint kl_tm3ty {J N M b} (f : morph 2 0 Ty3 N M b) {K L} (e : ext N M K L) (D R : nat)
+    (w : lifts 2 0 b (pair D (pair R tt))) (t : tm3 K J R) : tm3 L J R :=
   match t with
-  | tm3var v => f K L e (pair J (pair R r)) w v
-  | lam3 A u => lam3 A (kl_tm3 f (ext_under e) J R r w u)
-  | app3 t u => app3 (kl_tm3 f e J R r w t) (kl_tm3 f e J R r w u)
-  | tlam3 u => tlam3 (kl_tm3 f e (S J) R r (pair (ext_under (first w)) (second w)) u)
-  | rlam3 u => rlam3 (kl_tm3 f e J (S R) r (pair (first w) (pair (ext_under (first (second w))) (second (second w)))) u)
-  | new3 x t => new3 x (kl_tm3 f e J R r w t)
+  | tm3var v => tm3var v
+  | lam3 A u => lam3 (kl_ty3 f e D R w A) (kl_tm3ty f e D R w u)
+  | app3 t u => app3 (kl_tm3ty f e D R w t) (kl_tm3ty f e D R w u)
+  | tlam3 u => tlam3 (kl_tm3ty f (ext_under e) D R w u)
+  | rlam3 u => rlam3 (kl_tm3ty f e D (S R) (pair (first w) (pair (ext_under (first (second w))) (second (second w)))) u)
+  | new3 x t => new3 x (kl_tm3ty f e D R w t)
   end.
 
-(** What the witnesses are, computed from the vectors: *)
-Example lifts_tm3 b J R r :
-  lifts 3 2 b (pair J (pair R r))
-  = both (ext (first b) (first b) J J) (both (ext (first (second b)) (first (second b)) R R) (both unit unit)).
+Definition tm3ty_k : fam_kl 2 0 Ty3 ty_in_tm3 Tm3 :=
+  mk_fkl _ _ _ _ _ _ (fun N M b f K L e jT w t => kl_tm3ty f e _ _ w t).
+
+(** The term sort of terms: a witness for types and one for regions. *)
+Fixpoint kl_tm3 {N M b} (f : morph 3 1 Tm3 N M b) {K L} (e : ext N M K L) (J R : nat)
+    (w : lifts 3 1 b (pair J (pair 0 (pair R tt)))) (t : tm3 J K R) : tm3 J L R :=
+  match t with
+  | tm3var v => f K L e (pair J (pair 0 (pair R tt))) w v
+  | lam3 A u => lam3 A (kl_tm3 f (ext_under e) J R w u)
+  | app3 t u => app3 (kl_tm3 f e J R w t) (kl_tm3 f e J R w u)
+  | tlam3 u => tlam3 (kl_tm3 f e (S J) R (pair (ext_under (first w)) (second w)) u)
+  | rlam3 u => rlam3 (kl_tm3 f e J (S R) (pair (first w) (pair (first (second w)) (pair (ext_under (first (second (second w)))) tt))) u)
+  | new3 x t => new3 x (kl_tm3 f e J R w t)
+  end.
+
+(** What the witnesses and the thinning give, computed: *)
+Example lifts_tm3 b J R :
+  lifts 3 1 b (pair J (pair 0 (pair R tt)))
+  = both (ext (first b) (first b) J J) (both unit (both (ext (first (second (second b))) (first (second (second b))) R R) unit)).
 Proof. reflexivity. Qed.
 
-Example lifts_ty3 b D R :
-  lifts 2 0 b (pair D (pair R tt)) = both unit (both (ext (first (second b)) (first (second b)) R R) unit).
+Example select_ty_in_tm3 N K R : select ty_in_tm3 (pair N (pair K (pair R tt))) = pair N (pair R tt).
 Proof. reflexivity. Qed.
+
+Example timg_ty_in_tm3 : timg ty_in_tm3 0 = 0 /\ timg ty_in_tm3 1 = 2.
+Proof. split; reflexivity. Qed.
