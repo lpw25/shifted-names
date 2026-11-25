@@ -82,9 +82,11 @@ Inductive ty (x : vec 1) : Type :=
 | tyarr (A B : ty x)
 | tyall (B : ty (pair (S (first x)) (second x))).
 
+(* [&]: the constructors' vector is taken from the expected type, so the
+   Kleisli functions need no annotations. *)
 Arguments tyvar {x} v.
-Arguments tyarr {x} A B.
-Arguments tyall {x} B.
+Arguments tyarr {x} & A B.
+Arguments tyall {x} & B.
 
 (** Types are sort 0 of terms. *)
 Definition ty_in_tm : thin 1 2 := tkeep (tskip tdone).
@@ -96,18 +98,18 @@ Inductive tm (x : vec 2) : Type :=
 | tlam (b : tm (pair (S (first x)) (second x)))
 | tapp (t : tm x) (A : ty (select ty_in_tm x)).
 
-Arguments tmvar {x} v.
-Arguments lam {x} A b.
-Arguments app {x} t u.
-Arguments tlam {x} b.
-Arguments tapp {x} t A.
+Arguments tmvar {x} & v.
+Arguments lam {x} & A b.
+Arguments app {x} & t u.
+Arguments tlam {x} & b.
+Arguments tapp {x} & t A.
 
 (** Types, the type sort. *)
 Fixpoint kl_ty {B Mi} (f : morph 1 0 ty B Mi) {K Li} (e : vext 1 0 B Mi K Li) (A : ty K) : ty (upd 1 0 Li K) :=
   match A with
   | tyvar v => f K Li e v
   | tyarr A A' => tyarr (kl_ty f e A) (kl_ty f e A')
-  | tyall A => tyall (x := upd 1 0 Li K) (kl_ty f (vunder e) A)
+  | tyall A => tyall (kl_ty f (vunder e) A)
   end.
 
 (** Terms, the term sort: one witness, moved under every binder; the
@@ -115,9 +117,9 @@ Fixpoint kl_ty {B Mi} (f : morph 1 0 ty B Mi) {K Li} (e : vext 1 0 B Mi K Li) (A
 Fixpoint kl_tm {B Mi} (f : morph 2 1 tm B Mi) {K Li} (e : vext 2 1 B Mi K Li) (t : tm K) : tm (upd 2 1 Li K) :=
   match t with
   | tmvar v => f K Li e v
-  | lam A u => lam (x := upd 2 1 Li K) A (kl_tm f (vunder e) u)
+  | lam A u => lam A (kl_tm f (vunder e) u)
   | app t u => app (kl_tm f e t) (kl_tm f e u)
-  | tlam u => tlam (x := upd 2 1 Li K) (kl_tm f (vother 0 e stt) u)
+  | tlam u => tlam (kl_tm f (vother 0 e stt) u)
   | tapp t A => tapp (kl_tm f e t) A
   end.
 
@@ -126,11 +128,11 @@ Fixpoint kl_tm {B Mi} (f : morph 2 1 tm B Mi) {K Li} (e : vext 2 1 B Mi K Li) (t
 Fixpoint kl_tmty {B Mi} (f : morph 1 0 ty B Mi) {x Li} (t : tm x) (e : vext 1 0 B Mi (select ty_in_tm x) Li)
     : tm (upd 2 (timg ty_in_tm 0) Li x) :=
   match t with
-  | tmvar v => tmvar (x := upd 2 0 Li x) v
-  | lam A u => lam (x := upd 2 0 Li x) (kl_ty f e A) (kl_tmty f u e)
-  | app t u => app (x := upd 2 0 Li x) (kl_tmty f t e) (kl_tmty f u e)
-  | tlam u => tlam (x := upd 2 0 Li x) (kl_tmty f u (vunder e))
-  | tapp t A => tapp (x := upd 2 0 Li x) (kl_tmty f t e) (kl_ty f e A)
+  | tmvar v => tmvar v
+  | lam A u => lam (kl_ty f e A) (kl_tmty f u e)
+  | app t u => app (kl_tmty f t e) (kl_tmty f u e)
+  | tlam u => tlam (kl_tmty f u (vunder e))
+  | tapp t A => tapp (kl_tmty f t e) (kl_ty f e A)
   end.
 
 (** A law, by the usual induction: the witness's input vector is an
