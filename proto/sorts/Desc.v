@@ -5,10 +5,11 @@
     the input scopes [K] (a vector) and the substituted sort's output scope
     [Li].  The output scopes are [K] with [i]'s replaced by [Li], so the
     other sorts' scopes are visibly unchanged and nothing containing only
-    them is visited.  Build with
+    them is visited.  Going under a binder of sort [i] ([vunder]) and of
+    another sort ([vother]) are separate constructors.  Build with
       rocq compile -R theories ShiftedNames proto/sorts/Desc.v *)
 
-From Stdlib Require Import Arith.
+From Stdlib Require Import Arith StrictProp.
 From ShiftedNames.Core Require Import Strict Label Var Scoped Indexed.
 
 Set Primitive Projections.
@@ -57,16 +58,18 @@ Fixpoint timg {m n} (th : thin m n) (i : nat) : nat :=
 (** ** The descent witness
 
     Substituting sort [i] from base scopes [B] (a vector) to the base
-    output scope [Mi]: under a binder of sort [t], [t]'s input scope goes
-    up, and so does the output scope when [t] is [i].  With one sort this
-    is [ext]. *)
+    output scope [Mi]: under a binder of sort [i] its input and output
+    scopes go up; under a binder of another sort [t], only [t]'s input
+    scope (which is also its output scope).  With one sort this is [ext]. *)
 Inductive vext (n i : nat) (B : vec n) (Mi : nat) : vec n -> nat -> Type :=
 | vhere : vext n i B Mi B Mi
-| vunder (t : nat) {K Li} : vext n i B Mi K Li ->
-    vext n i B Mi (upd n t (S (get n t K)) K) (if Nat.eqb t i then S Li else Li).
+| vunder {K Li} : vext n i B Mi K Li -> vext n i B Mi (upd n i (S (get n i K)) K) (S Li)
+| vother (t : nat) {K Li} : vext n i B Mi K Li -> Is_true_s (negb (Nat.eqb t i)) ->
+    vext n i B Mi (upd n t (S (get n t K)) K) Li.
 
 Arguments vhere {n i B Mi}.
-Arguments vunder {n i B Mi} t {K Li} e.
+Arguments vunder {n i B Mi K Li} e.
+Arguments vother {n i B Mi} t {K Li} e Ht.
 
 (** A morphism of sort [i] into its carrier [P]. *)
 Definition morph (n i : nat) (P : vec n -> Type) (B : vec n) (Mi : nat) : Type :=
@@ -104,7 +107,7 @@ Fixpoint kl_ty {B Mi} (f : morph 1 0 ty B Mi) {K Li} (e : vext 1 0 B Mi K Li) (A
   match A with
   | tyvar v => f K Li e v
   | tyarr A A' => tyarr (kl_ty f e A) (kl_ty f e A')
-  | tyall A => tyall (x := upd 1 0 Li K) (kl_ty f (vunder 0 e) A)
+  | tyall A => tyall (x := upd 1 0 Li K) (kl_ty f (vunder e) A)
   end.
 
 (** Terms, the term sort: one witness, moved under every binder; the
@@ -112,9 +115,9 @@ Fixpoint kl_ty {B Mi} (f : morph 1 0 ty B Mi) {K Li} (e : vext 1 0 B Mi K Li) (A
 Fixpoint kl_tm {B Mi} (f : morph 2 1 tm B Mi) {K Li} (e : vext 2 1 B Mi K Li) (t : tm K) : tm (upd 2 1 Li K) :=
   match t with
   | tmvar v => f K Li e v
-  | lam A u => lam (x := upd 2 1 Li K) A (kl_tm f (vunder 1 e) u)
+  | lam A u => lam (x := upd 2 1 Li K) A (kl_tm f (vunder e) u)
   | app t u => app (kl_tm f e t) (kl_tm f e u)
-  | tlam u => tlam (x := upd 2 1 Li K) (kl_tm f (vunder 0 e) u)
+  | tlam u => tlam (x := upd 2 1 Li K) (kl_tm f (vother 0 e stt) u)
   | tapp t A => tapp (kl_tm f e t) A
   end.
 
@@ -126,7 +129,7 @@ Fixpoint kl_tmty {B Mi} (f : morph 1 0 ty B Mi) {x Li} (t : tm x) (e : vext 1 0 
   | tmvar v => tmvar (x := upd 2 0 Li x) v
   | lam A u => lam (x := upd 2 0 Li x) (kl_ty f e A) (kl_tmty f u e)
   | app t u => app (x := upd 2 0 Li x) (kl_tmty f t e) (kl_tmty f u e)
-  | tlam u => tlam (x := upd 2 0 Li x) (kl_tmty f u (vunder 0 e))
+  | tlam u => tlam (x := upd 2 0 Li x) (kl_tmty f u (vunder e))
   | tapp t A => tapp (x := upd 2 0 Li x) (kl_tmty f t e) (kl_ty f e A)
   end.
 
