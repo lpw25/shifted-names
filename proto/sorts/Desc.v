@@ -104,8 +104,18 @@ Arguments app {N K} t u.
 Arguments tlam {N K} b.
 Arguments tapp {N K} t A.
 
-Definition Ty (x : vec 1) : Type := ty (first x).
-Definition Tm (x : vec 2) : Type := tm (first x) (first (second x)).
+(** The views are the library's: a curried family seen through a vector,
+    by recursion on the number of sorts. *)
+Fixpoint arity (n : nat) : Type := match n with 0 => Type | S n => nat -> arity n end.
+
+Fixpoint uncurry (n : nat) : arity n -> vec n -> Type :=
+  match n as n0 return arity n0 -> vec n0 -> Type with
+  | 0 => fun F _ => F
+  | S n => fun F x => uncurry n (F (first x)) (second x)
+  end.
+
+Notation Ty := (uncurry 1 ty).
+Notation Tm := (uncurry 2 tm).
 
 (** Types are sort 0 of terms. *)
 Definition ty_in_tm : thin 1 2 := tkeep (tskip tdone).
@@ -162,7 +172,7 @@ Lemma kl_tm_ext {B Mi} (f g : morph 2 1 Tm B Mi) :
   (forall K Li e v, f K Li e v = g K Li e v) ->
   forall K Li (e : vext 2 1 B Mi K Li) t, kl_tm f e t = kl_tm g e t.
 Proof.
-  intros H K Li e t; destruct K as [N [J r]]; unfold Tm in t; cbn in t.
+  intros H K Li e t; destruct K as [N [J r]]; cbn [uncurry] in t; cbn in t.
   revert Li e; induction t; intros Li e; cbn; f_equal;
     try apply H; try apply IHt; try apply IHt1; try apply IHt2.
 Qed.
