@@ -30,11 +30,12 @@ regions), with `tkeep (tskip (tkeep tdone))` between them.
 - `lifts n i b j` for the other sorts' binders: one `ext Bt Bt Jt Jt` per
   other position `t` (`Bt` its base, `Jt` the scope reached, the base
   unchanged), computed from `n` and `i`. For System F's term sort it is one
-  `ext` for types; for terms over types, regions and terms it is two:
+  `ext` for types; for terms over types, terms and regions (term sort 1) it
+  is two:
 
 ```coq
-lifts 3 2 b (pair J (pair R r))
-  = both (ext b0 b0 J J) (both (ext b1 b1 R R) (both unit unit))
+lifts 3 1 b (pair J (pair K (pair R tt)))
+  = both (ext b0 b0 J J) (both unit (both (ext b2 b2 R R) unit))
 ```
 
 `lhere` (no binders crossed) and `lcomp` (composition) are generic in `n`
