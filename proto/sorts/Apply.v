@@ -22,7 +22,7 @@ From Stdlib Require Import PArith Arith List Lia Bool StrictProp.
 From ShiftedNames.Core Require Import Trie Label Var Counts Based Skew ATrie Repr Point Deep Compose
   Lookup Adjustment Laws Scoped Indexed Normalise Conv Names.
 From ShiftedNames.Core Require Syntax Subst.
-Import Syntax (ext, ext_here, ext_under, ext_depth).
+Import Syntax (ext, ext_here, ext_under, ext_depth, ext_var).
 Import Subst (up, down, aok, absn, adj_aok, rel_some, rel_ge, W_inner, W_down, W_HL, W_var, W_pay, W_pass, W_none, W_absurd, aok_squash).
 From Proto Require Import Focus.
 
@@ -41,58 +41,61 @@ Local Notation nadj := (@nadj Pay).
 Local Notation entry := (@entry Pay).
 Local Notation target := (@target Pay).
 
-(** [gapply2 rt x Kx Mx s L0]: as [gapply]. *)
-Fixpoint gapply2 (rt : counts -> lbase) (x : nadj) (Kx Mx s L0 : nat) (HL : Is_true_s (Nat.eqb L0 (s + Mx)))
-  (Hx : Is_true_s (aok Kx Mx (absn rt x))) {struct x} : morph a b P (refocus Bo Kx) (refocus Mo L0) :=
-  fun K L dx v =>
-  let e := main dx in
-  let rv := var_raw v in
-  let look (v' : rvar) (Hv' : wf_var Kx v' = true) : P (plug (out K L)) :=
-    match x as x0 return Is_true_s (aok Kx Mx (absn rt x0)) -> P (plug (out K L)) with
-    | NAdj r es => fun Hx =>
-        aget_with (label_key (v_label v')) es (rt r)
-          (fun Be ent =>
-             match ent as ent0
-                   return Squash (option_map (unshift (lcounts (rt r))) (aget (label_key (v_label v')) es) = Some (unshift (lcounts Be) ent0)) -> P (plug (out K L)) with
-             | Entry h ts len p => fun H1 =>
-                 match lt_dec (v_index v') len with
-                 | Specif.left Hi =>
-                     knth_with (v_index v') ts Be
-                       (fun Bt t =>
-                          match t as t0
-                                return Squash (option_map (unshift (lcounts Be)) (knth ts (v_index v')) = Some (unshift (lcounts Bt) t0)) -> P (plug (out K L)) with
-                          | TVar y' j => fun H2 =>
-                              tv (out K L) (mk_var (up (s + ext_depth e) (mk_rvar y' (ldval Bt (label_key y') + j)))
-                                      (W_var Kx Mx s L0 e (lcounts (rt r)) es v' Hv' Be h ts len p Bt y' j HL Hx H1 Hi H2))
-                          | TBind u rho => fun H2 =>
-                              wk _ _ _ _ dx (focus L)
-                                (kp _ _ (gapply2 (LAdd Bt) rho (projT1 u) Mx (s + ext_depth e) (focus L) (W_HL Mx s e HL)
-                                           (W_pay Kx Mx (lcounts (rt r)) es v' Hv' Be h ts len p Bt u rho Hx H1 Hi H2))
-                                    _ _ here (projT2 u))
-                          end)
-                       (fun H2 => match W_absurd (lcounts (rt r)) es _ (v_index v') Be h ts len p (aok_squash Kx Mx _ Hx) H1 Hi H2
-                                  with end)
-                 | Specif.right Hi =>
-                     tv (out K L) (mk_var (up (s + ext_depth e) (mk_rvar h (ldval Be (label_key h) + (v_index v' - len + p))))
-                             (W_pass Kx Mx s L0 e (lcounts (rt r)) es v' Hv' Be h ts len p HL Hx H1 Hi))
-                 end
-             end)
-          (fun H1 =>
-             tv (out K L) (mk_var (up (s + ext_depth e) (mk_rvar (v_label v') (ldval (rt r) (label_key (v_label v')) + v_index v')))
-                     (W_none Kx Mx s L0 e (rt r) es v' Hv' HL Hx H1)))
-    end Hx in
-  match v_label rv as o return v_label rv = o -> P (plug (out K L)) with
-  | None => fun Hl =>
-      match lt_dec (v_index rv) (ext_depth e) with
-      | Specif.left Hb => tv (out K L) (mk_var rv (W_inner e rv Hl Hb))
-      | Specif.right Hb => look (down (ext_depth e) rv) (W_down e rv (var_ok v) (rel_ge rv _ Hb))
-      end
-  | Some y => fun Hl => look (down (ext_depth e) rv) (W_down e rv (var_ok v) (fun H => rel_some rv y Hl H _))
-  end eq_refl.
+(** As [gapply]: descents of the sort's own [ext] ([main]); a variable
+    result built at the output scopes; a payload result weakened along
+    the other sorts. *)
+Local Notation multi f := (f (fun K : scopes a b => focus K) (fun L : scopes a b => focus L)
+  (fun Kx L0 K L => descent a b (refocus Bo Kx) (refocus Mo L0) K L) (fun Kx L0 K L x => main x)
+  (fun K L => P (plug (out K L))) (fun K L rv H => tv (out K L) (mk_var rv H))
+  (fun Kx L0 K L x u m => wk _ _ _ _ x (focus L) (kp _ _ m _ _ here (projT2 u)))) (only parsing).
+
+Definition gapply2 (rt : counts -> lbase) (x : nadj) (Kx Mx s L0 : nat) (HL : Is_true_s (Nat.eqb L0 (s + Mx)))
+  (Hx : Is_true_s (aok Kx Mx (absn rt x))) : morph a b P (refocus Bo Kx) (refocus Mo L0) :=
+  multi (@Subst.ggapply (fun K => term K) (scopes a b)) rt x Kx Mx s L0 HL Hx.
 
 (** The morphism of an adjustment of the sort, its payloads at [Bo]. *)
 Definition apply2 {N M} (ad : adj (fun K => term K) N M) : morph a b P (refocus Bo N) (refocus Mo M) :=
   gapply2 LAbs (radj_n (adj_raw ad)) N M 0 M (Is_true_s_intro (Nat.eqb_refl M)) (adj_aok ad).
+
+(** ** Its laws *)
+
+Context (laws : sort_laws a b P tv kp).
+
+Lemma multi_pres_ext Kx L0 K L (x : descent a b (refocus Bo Kx) (refocus Mo L0) K L) (u : Pay)
+    (m1 m2 : morph a b P (refocus Bo (projT1 u)) (refocus Mo (focus L))) :
+  (forall K' L' x' v', m1 K' L' x' v' = m2 K' L' x' v') ->
+  wk _ _ _ _ x (focus L) (kp _ _ m1 _ _ here (projT2 u)) = wk _ _ _ _ x (focus L) (kp _ _ m2 _ _ here (projT2 u)).
+Proof. intros H; f_equal; apply (s_ext _ _ _ _ _ laws), H. Qed.
+
+(** The identity adjustment is the identity morphism. *)
+Lemma apply2_identity {N K L} (x : descent a b (refocus Bo N) (refocus Mo N) K L) v :
+  apply2 identity K L x v = tv (out K L) (ext_var (main x) v).
+Proof.
+  set (e := main x).
+  assert (A : apply2 identity K L x v
+              = multi (@Subst.ggapply0 (fun K => term K) (scopes a b)) (radj_n (adj_raw (@identity _ N))) N N 0 N
+                  (Is_true_s_intro (Nat.eqb_refl N)) (Subst.top_aok identity) K L x v) by reflexivity.
+  rewrite A; clear A.
+  destruct (Subst.option_cases (v_label (var_raw v))) as [[y El]|El];
+    [|destruct (lt_dec (v_index (var_raw v)) (ext_depth e)) as [Hi|Hi]].
+  2: { rewrite (multi (@Subst.ggapply0_inner (fun K => term K) (scopes a b)) _ _ _ _ _ _ _ x v (W_inner e _ El Hi) El Hi).
+       f_equal; apply var_eq; reflexivity. }
+  all: assert (Hr : Subst.outer (ext_depth e) (var_raw v)) by (unfold Subst.outer; intros; first [lia|congruence]).
+  all: assert (Hn : napply (radj_n (adj_raw (@identity (fun K => term K) N))) (down (ext_depth e) (var_raw v))
+                    = inl (down (ext_depth e) (var_raw v))) by apply napply_identity.
+  all: assert (H : Is_true_s (wf_var (focus L) (up (0 + ext_depth e) (down (ext_depth e) (var_raw v)))))
+         by (cbn [Nat.add]; rewrite (Subst.up_down _ _ Hr); apply (var_ok (ext_var e v))).
+  all: rewrite (multi (@Subst.ggapply0_var (fun K => term K) (scopes a b)) multi_pres_ext _ _ _ _ _ _ _ x v _ H Hr Hn).
+  all: f_equal; apply var_eq; cbn; apply Subst.up_down, Hr.
+Qed.
+
+(** Substituting by the identity adjustment, at the root. *)
+Theorem subst2_identity {N} (t : P (plug (refocus Bo N))) :
+  kp _ _ (apply2 (N := N) identity) _ _ (here (B := refocus Bo N) (M := refocus Mo N)) t = t.
+Proof.
+  rewrite (s_ext _ _ _ _ _ laws _ _ (apply2 identity) (unit_m a b P tv) (fun K L x v => apply2_identity x v)).
+  apply (s_unit _ _ _ _ _ laws (refocus Bo N) Mo (refocus Bo N) Mo).
+Qed.
 
 End Apply.
 
