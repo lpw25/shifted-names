@@ -16,6 +16,8 @@
 
 From Stdlib Require Import Arith Lia StrictProp.
 From ShiftedNames.Core Require Import Strict Label Var Scoped Indexed.
+From ShiftedNames.Core Require Syntax.
+Import Syntax (ext, ext_here, ext_under, ext_app, ext_mid, ext_left, ext_right, ext_depth).
 
 Set Primitive Projections.
 Record both (A B : Type) : Type := pair { first : A; second : B }.
@@ -97,13 +99,17 @@ Fixpoint vapp {Bo Bi Mi O1 K1 L1 O2 K2 L2} (e1 : vext n i Bo Bi Mi O1 K1 L1) (e2
   | vother t e2 => vother t (vapp e1 e2)
   end.
 
-(** Splitting a witness [Bi ⇝ Pi] through a middle base [Mi] ([assoc]). *)
-Fixpoint vmid {Bo Bi Pi O Ki Li} (Mi : nat) (e : vext n i Bo Bi Pi O Ki Li) : nat :=
+(** The witness's part for sort [i]: a one-sorted witness. *)
+Fixpoint vext_i {Bo Bi Mi O Ki Li} (e : vext n i Bo Bi Mi O Ki Li) : ext Bi Mi Ki Li :=
   match e with
-  | vhere => Mi
-  | vunder e => S (vmid Mi e)
-  | vother _ e => vmid Mi e
+  | vhere => ext_here
+  | vunder e => ext_under (vext_i e)
+  | vother _ e => vext_i e
   end.
+
+(** Splitting a witness [Bi ⇝ Pi] through a middle base [Mi] ([assoc]);
+    the middle scope is the one-sorted split's, so the two agree. *)
+Definition vmid {Bo Bi Pi O Ki Li} (Mi : nat) (e : vext n i Bo Bi Pi O Ki Li) : nat := ext_mid Mi (vext_i e).
 
 Fixpoint vleft {Bo Bi Pi O Ki Li} (Mi : nat) (e : vext n i Bo Bi Pi O Ki Li) : vext n i Bo Bi Mi O Ki (vmid Mi e) :=
   match e as e0 in vext _ _ _ _ _ O0 K0 L0 return vext n i Bo Bi Mi O0 K0 (vmid Mi e0) with
@@ -121,18 +127,13 @@ Fixpoint vright {Bo Bi Pi O Ki Li} (Mi : nat) (e : vext n i Bo Bi Pi O Ki Li) : 
 
 (** How many binders of sort [i]: its scopes are that many above the
     bases. *)
-Fixpoint vdepth {Bo Bi Mi O Ki Li} (e : vext n i Bo Bi Mi O Ki Li) : nat :=
-  match e with
-  | vhere => 0
-  | vunder e => S (vdepth e)
-  | vother _ e => vdepth e
-  end.
+Definition vdepth {Bo Bi Mi O Ki Li} (e : vext n i Bo Bi Mi O Ki Li) : nat := ext_depth (vext_i e).
 
 Lemma vdepth_K {Bo Bi Mi O Ki Li} (e : vext n i Bo Bi Mi O Ki Li) : Ki = vdepth e + Bi.
-Proof. induction e; cbn; lia. Qed.
+Proof. unfold vdepth; induction e; cbn; lia. Qed.
 
 Lemma vdepth_L {Bo Bi Mi O Ki Li} (e : vext n i Bo Bi Mi O Ki Li) : Li = vdepth e + Mi.
-Proof. induction e; cbn; lia. Qed.
+Proof. unfold vdepth; induction e; cbn; lia. Qed.
 
 (** A variable along a witness that keeps the base ([unit]). *)
 Lemma vvar_wf {Bo Bi O Ki Li} (e : vext n i Bo Bi Bi O Ki Li) v : wf_var Ki v = true -> wf_var Li v = true.
