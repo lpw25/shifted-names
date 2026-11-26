@@ -8,61 +8,75 @@ Proto proto/sorts/Focus.v`). Nothing in the library uses it yet.
 ## What the user writes
 
 Their own curried families, with plain constructors, one Kleisli function
-per family and sort, and the laws (routine inductions). For System F terms,
-substituting term variables:
+per family and sort, and the laws (routine inductions). Sorts are counted
+from the left (System F: types 0, terms 1). For terms, substituting term
+variables:
 
 ```coq
-Fixpoint kl_tm f {C C' Ki Li} (w : cwit 1 0 B M C C') (e : ext Bi Mi Ki Li)
-    (t : tm (first (first C)) Ki) : tm (first (first C)) Li :=
+Fixpoint kl_tm {B M} (f : morph 1 0 (uncurry 2 tm) B M) {K L} (x : fwit 1 0 B M K L)
+    (t : tm @ K) : tm @ out K L :=
   match t with
-  | tmvar v => f C C' Ki Li w e v
-  | lam A u => lam A (kl_tm f w (ext_under e) u)     (* annotation untouched *)
-  | app t u => app (kl_tm f w e t) (kl_tm f w e u)
-  | tlam u => tlam (kl_tm f (cunder 0 w) e u)         (* under a type binder *)
-  | tapp t A => tapp (kl_tm f w e t) A
+  | tmvar v => f K L x v
+  | lam A u => lam A (kl_tm f (under 1 x) u)     (* annotation untouched *)
+  | app t u => app (kl_tm f x t) (kl_tm f x u)
+  | tlam u => tlam (kl_tm f (under 0 x) u)
+  | tapp t A => tapp (kl_tm f x t) A
   end.
 ```
 
-with `kl_ty` (types) and `kl_tmty` (terms, substituting type variables)
-alike.
+and for terms substituting type variables, where the types inside are a
+family over fewer sorts:
+
+```coq
+  | lam A u => lam (kl_ty f (ty_in_tm x) A) (kl_tmty f (under 1 x) u)
+```
+
+with `ty_in_tm := restrict tdone (tskip tdone)` (types keep nothing to the
+left of their focus and skip the term sort to the right). The helpers, all
+of which compute away since the sorts are concrete:
+
+* `F @ K`: the family `F` at the zipper of scopes `K`;
+* `out K L`: the zipper `K` with `L`'s focus (the output of a
+  substitution);
+* `under t x`: the witness under a binder of sort `t`, whichever sort is
+  focused;
+* `restrict tl tr x`: the witness for a family inside another, over some of
+  the sorts on each side;
+* `here`: the witness at the root (`kl_tm f here t`).
 
 ## A substitution is focused on its sort
 
 A family over `n` sorts is seen through a vector of scopes (`uncurry`).
-Substituting sort `i`, the scopes are a *zipper*: the sorts to the left of
-`i` (nearest first), `i`'s scope, and the sorts to the right; the family is
-at the zipper plugged back (`plug`, putting the left part back onto the
-right). Sort `i` of `n` is "`a` sorts to the left, `b` to the right".
+Substituting sort `i`, the scopes are a *zipper* (`zip a b`): the `a` sorts
+to the left of `i` (nearest first), `i`'s scope (the focus), and the `b`
+sorts to the right; the family is at the zipper plugged back (`plug`,
+putting the left part back onto the right one sort at a time).
 
-The witness has the same shape: an `ext` for sort `i` (its input and output
-scopes), and a context with an `ext` for each other sort (`cwit`: the
-other sorts' scopes, and those on the other side of a substitution of
-theirs). Under a binder of sort `i` the `ext` goes under; under one of
-another sort `t`, the context does (`cunder t`, `t` counted from the left
-as the user counts). A Kleisli function goes from `plug C Ki` to `plug C
-Li`: the other sorts are the same context on both sides, so nothing
-containing only them is visited.
+The witness is a zipper of `ext`s (`fwit a b B M K L`): the focus's input
+and output scopes, and for each other sort its scope and the one on the
+other side of a substitution of it. A Kleisli function goes from `K` to
+`out K L`, `K` with the focus's output scope: the other sorts are the same
+on both sides, so nothing containing only them is visited.
 
-Nothing is cut out of a vector or put back, so there are no casts:
+The focus is at a fixed place in the zipper, read by a projection, so
+nothing is cut out of a vector or put back, and there are no casts:
 
-* composing witnesses (rebase) is `ext_app` and componentwise on the
-  context; splitting through a middle scope (assoc) is on the `ext` alone;
-* a family inside another (types in terms) is focused on the same sort,
-  over thinnings of the left and right contexts; its morphism sees its
-  part of the context (`cwrestr`), componentwise;
+* composing witnesses (rebase) is componentwise; splitting through a
+  middle scope (assoc) is on the focus alone;
+* a family inside another is focused on the same sort, over thinnings of
+  each side; its morphism sees its part of the witness, componentwise;
 * the order of binders of different sorts is not recorded, so it needs no
   law;
 * moving the focus one sort along leaves the plugged vector the same by
-  computation (`plug_move`, `reflexivity` for any number of sorts),
-  because `plug` puts the left part back one sort at a time.
+  computation (`plug_right1`, `reflexivity` for any number of sorts).
 
 ## Morphisms, Kleisli functions, laws
 
 ```coq
-morph a b P B M Bi Mi := forall C C' Ki Li, cwit a b B M C C' -> ext Bi Mi Ki Li -> var Ki -> P (plug a b C Li)
-sort_kl a b P := … f … (w : cwit a b B M C C') (e : ext Bi Mi Ki Li), P (plug a b C Ki) -> P (plug a b C Li)
-fam_kl a b P tl tr T := … (f : morph a b P (crestr tl tr B) (crestr tl tr M) Bi Mi) … (w : cwit aT bT B M C C') e,
-  T (plug aT bT C Ki) -> T (plug aT bT C Li)
+morph a b P B M := forall K L, fwit a b B M K L -> var (focus K) -> P (plug (out K L))
+sort_kl a b P := … (f : morph a b P B M) … (x : fwit a b B M K L), P (plug K) -> P (plug (out K L))
+fam_kl a b P tl tr T := … (f : morph a b P (zrestr tl tr B) (zrestr tl tr M)) … (x : fwit aT bT B M K L),
+  T (plug K) -> T (plug (out K L))
 ```
 
 Laws, per family and sort: `var`, `ext`, `rebase`, `unit`, `assoc`; all
@@ -75,9 +89,12 @@ it is on (`ext_flip`). Moving a type substitution `h` past a term
 substitution `f`, `f`'s results have their types substituted (`tmap h f`):
 
 ```coq
-kl_tmty h (rwit (ext_flip e1)) e0 (kl_tm f (lwit e0) e1 t)
-  = kl_tm (tmap h f) (lwit (ext_flip e0)) e1 (kl_tmty h (rwit e1) e0 t)
+kl_tmty h (rw e0 (ext_flip e1)) (kl_tm f (lw e0 e1) t)
+  = kl_tm (tmap h f) (lw (ext_flip e0) e1) (kl_tmty h (rw e0 e1) t)
 ```
+
+(`lw`, `rw`: the witnesses with the type witness `e0` and the term witness
+`e1`, focused on terms and on types.)
 
 proved by the same routine induction (`commute`).
 
