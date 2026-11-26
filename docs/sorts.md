@@ -75,13 +75,40 @@ fam_kl n i P th T := … f … e (r : vec (skips th)),
 `unit` and `assoc` (along `vleft`, `vright`), as for one sort. For System
 F all of them are routine inductions (`ty_laws`, `tm_laws`, `tmty_laws`).
 
+## One sort at a time: slices (`proto/sorts/Slice.v`)
+
+With the other sorts' scopes fixed at `Bo`, sort `i` is a one-sorted syntax
+of the library, on `fun K => P (upd n i K Bo)`: its Kleisli function is the
+user's along the morphism *lifted* to the new witnesses, whose results are
+weakened along the other sorts' binders crossed (`wk`, one `step` per
+binder). So the library's `apply`, `Subst` and `names` apply unchanged.
+`slice_laws` proves the library's laws from the user's, given two
+hypotheses: a step keeps sort `i`'s variables (`step_var`), and weakening
+commutes with the Kleisli function of a lifted morphism (`wk_kl`).
+
+For System F (`proto/sorts/SliceF.v`): the step past a type binder shifts
+the term's types (`shN 1`, by `kl_tmty`), past a term binder nothing.
+`wk_kl`, the node lemma for `tlam` (substitution under a type binder is the
+next slice's, along the morphism mapped by `shN 1`) and `shN 1` being a map
+of syntaxes (`SyntaxMap`, for `pmap`) all come from one lemma: renaming
+types by a shift commutes with substituting terms (`kl_commute`).
+`proto/sorts/SliceFTest.v` registers the instances and checks `names` on
+term substitution, under type binders included (`(tlam b) [a] = tlam (b
+[pmap tsh a])`), as in `theories/Examples/SystemF.v`.
+
 ## Still to do
 
-1. `apply` for one sort: the payload's own adjustment absorbs the binders
-   of sort `i` (as now); a payload substituted under binders of other
-   sorts is weakened along them (from `O` against `Bo`), only for those
-   with binders crossed, by the payload family's Kleisli functions for
-   those sorts.
-2. Substitution, the notation `t [a]` per sort, and `names` on it.
-3. Moving a substitution of one sort past one of another (one law per pair
-   of sorts, for `names` to commute them).
+1. `kl_commute` and its renaming lemmas are System F's own (about 150
+   lines). They are an instance of two generic laws: moving a Kleisli
+   function of one sort past one of another (one law per pair of sorts,
+   proved by the user by a routine induction), and a Kleisli function
+   depending on its witness only through the morphism (naturality). With
+   those, `wk_kl`, the node lemmas for binders of other sorts and the
+   `SyntaxMap` instances would be derived generically.
+2. Node lemmas: the slice's Kleisli function does not compute to the
+   library's shape (`cbn` exposes the multi-sorted one), so the examples
+   rewrite with node lemmas (`kleisli_tlam`, …) before `names`.
+3. Weakening along several binders is done one step per binder; it could
+   be batched.
+4. The notation `t [a]` per sort, and moving a substitution of one sort
+   past one of another in `names`.
