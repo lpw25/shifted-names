@@ -25,23 +25,30 @@ Fixpoint kl_tm {B M} (f : morph 1 0 (uncurry 2 tm) B M) {K L} (x : fwit 1 0 B M 
 ```
 
 and for terms substituting type variables, where the types inside are a
-family over fewer sorts:
+family over fewer sorts, said once for all foci:
 
 ```coq
-  | lam A u => lam (kl_ty f (ty_in_tm x) A) (kl_tmty f (under 1 x) u)
+Definition ty_in_tm : mask := ‹+ -›.      (* types have sort 0 of terms, not sort 1 *)
+
+Fixpoint kl_tmty {B M : zip 0 1} (f : morph_in ty_in_tm B M ty) {K L} (x : fwit 0 1 B M K L)
+    (t : tm @ K) : tm @ out K L :=
+  match t with
+  | lam A u => lam (kl_ty f (restrict ty_in_tm x) A) (kl_tmty f (under 1 x) u)
+  …
 ```
 
-with `ty_in_tm := restrict tdone (tskip tdone)` (types keep nothing to the
-left of their focus and skip the term sort to the right). The helpers, all
-of which compute away since the sorts are concrete:
+The helpers, all of which compute away since the sorts are concrete:
 
 * `F @ K`: the family `F` at the zipper of scopes `K`;
 * `out K L`: the zipper `K` with `L`'s focus (the output of a
   substitution);
 * `under t x`: the witness under a binder of sort `t`, whichever sort is
   focused;
-* `restrict tl tr x`: the witness for a family inside another, over some of
-  the sorts on each side;
+* `‹+ - …›`: which of the sorts, in order, a family inside another has;
+* `restrict s x`, `morph_in s B M F`: the witness, and the morphisms, for a
+  family inside another over the sorts `s` keeps, whichever sort is
+  focused (the mask is split at the focus, the left part nearest first, by
+  computation);
 * `here`: the witness at the root (`kl_tm f here t`).
 
 ## A substitution is focused on its sort

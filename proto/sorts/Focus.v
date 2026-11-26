@@ -14,8 +14,9 @@
 
     For the user ([What the user writes] below): [fam F K], the family at a
     zipper; [under t x], going under a binder of sort [t] (counted from the
-    left); [restrict tl tr x], the part of the witness for a family inside
-    another.  The sorts are concrete there, so all of them compute away.
+    left); [‹+ -›], which sorts a family inside another has, all at once;
+    [restrict s x] and [morph_in s B M F], the witness and the morphisms
+    for it, whichever sort is focused.  The sorts are concrete there, so all of them compute away.
     Build with
       rocq compile -R theories ShiftedNames -Q proto/sorts Proto proto/sorts/Focus.v *)
 
@@ -111,6 +112,57 @@ Fixpoint restr {m n} (th : thin m n) : vec n -> vec m :=
 Definition zrestr {a b aT bT} (tl : thin a aT) (tr : thin b bT) (z : zip aT bT) : zip a b :=
   pair (restr tl (zleft z)) (pair (focus z) (restr tr (zright z))).
 
+(** ** Thinnings for the user: which sorts, all at once
+
+    [‹+ -›]: of the sorts in order, keep the first, skip the second (types
+    inside terms).  Whatever sort is focused, the left part (nearest
+    first) and the right part are read off it ([tl_of], [tr_of]); the
+    focus is always kept. *)
+
+From Stdlib Require Import List.
+
+Declare Custom Entry sorts.
+Notation "‹ m" := m (at level 0, m custom sorts at level 2, format "‹ m").
+Notation "›" := nil (in custom sorts at level 0).
+Notation "+ m" := (cons true m) (in custom sorts at level 2, m custom sorts at level 2, format "+ m").
+Notation "- m" := (cons false m) (in custom sorts at level 2, m custom sorts at level 2, format "- m").
+
+Definition mask : Type := list bool.
+
+Fixpoint nthb (p : nat) (s : mask) : bool :=
+  match s with nil => false | cons c s => match p with 0 => c | S p => nthb p s end end.
+
+(** How many of the [a] sorts left of the focus are kept, and which. *)
+Fixpoint lkept (s : mask) (a : nat) : nat :=
+  match a with 0 => 0 | S a => if nthb a s then S (lkept s a) else lkept s a end.
+
+Fixpoint tl_of (s : mask) (a : nat) : thin (lkept s a) a :=
+  match a as a0 return thin (lkept s a0) a0 with
+  | 0 => tdone
+  | S a =>
+      match nthb a s as c return thin (if c then S (lkept s a) else lkept s a) (S a) with
+      | true => tkeep (tl_of s a)
+      | false => tskip (tl_of s a)
+      end
+  end.
+
+(** The same for the [b] sorts right of the focus at [a]. *)
+Fixpoint rkept (s : mask) (a b : nat) : nat :=
+  match b with 0 => 0 | S b => if nthb (S a) s then S (rkept s (S a) b) else rkept s (S a) b end.
+
+Fixpoint tr_of (s : mask) (a b : nat) : thin (rkept s a b) b :=
+  match b as b0 return thin (rkept s a b0) b0 with
+  | 0 => tdone
+  | S b =>
+      match nthb (S a) s as c return thin (if c then S (rkept s (S a) b) else rkept s (S a) b) (S b) with
+      | true => tkeep (tr_of s (S a) b)
+      | false => tskip (tr_of s (S a) b)
+      end
+  end.
+
+(** A zipper over the sorts [s] keeps. *)
+Definition zsub {a b} (s : mask) (z : zip a b) : zip (lkept s a) (rkept s a b) := zrestr (tl_of s a) (tr_of s a b) z.
+
 (** ** Witnesses *)
 
 Fixpoint ext_flip {N M K L} (e : ext N M K L) : ext M N L K :=
@@ -200,9 +252,14 @@ Definition under {a b} (t : nat) {B M K L} (x : fwit a b B M K L) : fwit a b B M
 
 (** The part for a family inside another, over some of the sorts on each
     side ([tl] on the left, nearest first; [tr] on the right). *)
-Definition restrict {a b aT bT} (tl : thin a aT) (tr : thin b bT) {B M K L} (x : fwit aT bT B M K L)
+Definition restrict_lr {a b aT bT} (tl : thin a aT) (tr : thin b bT) {B M K L} (x : fwit aT bT B M K L)
     : fwit a b (zrestr tl tr B) (zrestr tl tr M) (zrestr tl tr K) (zrestr tl tr L) :=
   pair (wrestr tl _ _ _ _ (first x)) (pair (main x) (wrestr tr _ _ _ _ (second (second x)))).
+
+(** The witness for a family inside another, over the sorts [s] keeps. *)
+Definition restrict {a b} (s : mask) {B M K L} (x : fwit a b B M K L)
+    : fwit (lkept s a) (rkept s a b) (zsub s B) (zsub s M) (zsub s K) (zsub s L) :=
+  restrict_lr (tl_of s a) (tr_of s a b) x.
 
 (** ** Operations of the library *)
 
@@ -265,7 +322,7 @@ Record fam_laws {aT bT} (tl : thin a aT) (tr : thin b bT) (T : vec (radd aT (S b
     forall K L (x : fwit aT bT B M K L) t, k _ _ f _ _ x t = k _ _ g _ _ x t;
   f_rebase : forall B M (f : morph P (zrestr tl tr B) (zrestr tl tr M)) K1 L1 K2 L2
       (x1 : fwit aT bT B M K1 L1) (x2 : fwit aT bT K1 L1 K2 L2) t,
-    k _ _ f _ _ (fapp x1 x2) t = k _ _ (rebase_m (restrict tl tr x1) f) _ _ x2 t;
+    k _ _ f _ _ (fapp x1 x2) t = k _ _ (rebase_m (restrict_lr tl tr x1) f) _ _ x2 t;
   f_unit : forall B M K L (x : fwit aT bT B (refocus M (focus B)) K (refocus L (focus K))) t,
     k B (refocus M (focus B)) (@unit_m (zrestr tl tr B) (zrestr tl tr M)) _ _ x t = t;
   f_assoc : forall B M Mi (g : morph P (zrestr tl tr (refocus B Mi)) (zrestr tl tr M)) (f : morph P (zrestr tl tr B) (zrestr tl tr (refocus M Mi)))
@@ -275,6 +332,15 @@ Record fam_laws {aT bT} (tl : thin a aT) (tr : thin b bT) (T : vec (radd aT (S b
 End Laws.
 
 End Generic.
+
+(** For a family over sorts [aT], [bT] around the focus, containing a family
+    over the sorts [s] keeps: that family's morphisms and the family's
+    Kleisli function along them. *)
+Definition morph_in {aT bT} (s : mask) (B M : zip aT bT) (F : arity (radd (lkept s aT) (S (rkept s aT bT)))) : Type :=
+  morph (lkept s aT) (rkept s aT bT) (uncurry _ F) (zsub s B) (zsub s M).
+
+Definition fam_kl_in (aT bT : nat) (s : mask) (P : vec (radd (lkept s aT) (S (rkept s aT bT))) -> Type) (T : vec (radd aT (S bT)) -> Type) : Type :=
+  fam_kl (lkept s aT) (rkept s aT bT) P (tl_of s aT) (tr_of s aT bT) T.
 
 (** ** System F *)
 
@@ -320,23 +386,23 @@ Fixpoint kl_tm {B M} (f : morph 1 0 (uncurry 2 tm) B M) {K L} (x : fwit 1 0 B M 
   | tapp t A => tapp (kl_tm f x t) A
   end.
 
-(** Terms, focused on type variables: types have no term sort (on the
-    right). *)
-Notation ty_in_tm := (restrict tdone (tskip tdone)).
+(** Terms, focused on type variables.  Types are inside terms, over the
+    first of their sorts. *)
+Definition ty_in_tm : mask := ‹+ -›.
 
-Fixpoint kl_tmty {B M} (f : morph 0 0 (uncurry 1 ty) (zrestr tdone (tskip tdone) B) (zrestr tdone (tskip tdone) M))
+Fixpoint kl_tmty {B M : zip 0 1} (f : morph_in ty_in_tm B M ty)
     {K L} (x : fwit 0 1 B M K L) (t : tm @ K) : tm @ out K L :=
   match t with
   | tmvar v => tmvar v
-  | lam A u => lam (kl_ty f (ty_in_tm x) A) (kl_tmty f (under 1 x) u)
+  | lam A u => lam (kl_ty f (restrict ty_in_tm x) A) (kl_tmty f (under 1 x) u)
   | app t u => app (kl_tmty f x t) (kl_tmty f x u)
   | tlam u => tlam (kl_tmty f (under 0 x) u)
-  | tapp t A => tapp (kl_tmty f x t) (kl_ty f (ty_in_tm x) A)
+  | tapp t A => tapp (kl_tmty f x t) (kl_ty f (restrict ty_in_tm x) A)
   end.
 
 Definition ty_k : sort_kl 0 0 (uncurry 1 ty) := fun B M f K L x A => kl_ty f x A.
 Definition tm_k : sort_kl 1 0 (uncurry 2 tm) := fun B M f K L x t => kl_tm f x t.
-Definition tmty_k : fam_kl 0 0 (uncurry 1 ty) tdone (tskip tdone) (uncurry 2 tm) := fun B M f K L x t => kl_tmty f x t.
+Definition tmty_k : fam_kl_in 0 1 ty_in_tm (uncurry 1 ty) (uncurry 2 tm) := fun B M f K L x t => kl_tmty f x t.
 
 (** ** Their laws: routine inductions *)
 
@@ -406,39 +472,39 @@ Proof.
   - intros B M Mi g f; exact (kl_tm_assoc Mi g f).
 Qed.
 
-Lemma kl_tmty_ext {B M} (f g : morph 0 0 (uncurry 1 ty) (zrestr tdone (tskip tdone) B) (zrestr tdone (tskip tdone) M))
+Lemma kl_tmty_ext {B M : zip 0 1} (f g : morph_in ty_in_tm B M ty)
     (H : forall K L x v, f K L x v = g K L x v) :
   forall K L (x : fwit 0 1 B M K L) t, kl_tmty f x t = kl_tmty g x t.
 Proof. kl_ind IH; f_equal; auto; apply kl_ty_ext; exact H. Qed.
 
-Lemma kl_tmty_rebase {B M} (f : morph 0 0 (uncurry 1 ty) (zrestr tdone (tskip tdone) B) (zrestr tdone (tskip tdone) M))
+Lemma kl_tmty_rebase {B M : zip 0 1} (f : morph_in ty_in_tm B M ty)
     K1 L1 (x1 : fwit 0 1 B M K1 L1) :
-  forall K2 L2 (x2 : fwit 0 1 K1 L1 K2 L2) t, kl_tmty f (fapp x1 x2) t = kl_tmty (rebase_m 0 0 (ty_in_tm x1) f) x2 t.
+  forall K2 L2 (x2 : fwit 0 1 K1 L1 K2 L2) t, kl_tmty f (fapp x1 x2) t = kl_tmty (rebase_m 0 0 (restrict ty_in_tm x1) f) x2 t.
 Proof.
   kl_ind IH; f_equal;
-    first [exact (kl_ty_rebase f _ _ (ty_in_tm x1) _ _ (ty_in_tm x) _)
+    first [exact (kl_ty_rebase f _ _ (restrict ty_in_tm x1) _ _ (restrict ty_in_tm x) _)
           | apply IH | exact (IH _ _ (under 1 x) t) | exact (IH _ _ (under 0 x) t)].
 Qed.
 
-Lemma kl_tmty_unit {B M} : forall K L (x : fwit 0 1 B (refocus M (focus B)) K (refocus L (focus K))) t,
+Lemma kl_tmty_unit {B M : zip 0 1} : forall K L (x : fwit 0 1 B (refocus M (focus B)) K (refocus L (focus K))) t,
   kl_tmty (B := B) (M := refocus M (focus B))
-    (unit_m 0 0 (uncurry 1 ty) (fun K v => tyvar v) (B := zrestr tdone (tskip tdone) B) (M := zrestr tdone (tskip tdone) M)) x t = t.
+    (unit_m 0 0 (uncurry 1 ty) (fun K v => tyvar v) (B := zsub ty_in_tm B) (M := zsub ty_in_tm M)) x t = t.
 Proof.
   kl_ind IH; f_equal;
-    first [exact (kl_ty_unit _ _ (ty_in_tm x) _) | apply IH | exact (IH _ _ (under 1 x) t) | exact (IH _ _ (under 0 x) t)].
+    first [exact (kl_ty_unit _ _ (restrict ty_in_tm x) _) | apply IH | exact (IH _ _ (under 1 x) t) | exact (IH _ _ (under 0 x) t)].
 Qed.
 
-Lemma kl_tmty_assoc {B M} Mi (g : morph 0 0 (uncurry 1 ty) (zrestr tdone (tskip tdone) (refocus B Mi)) (zrestr tdone (tskip tdone) M))
-    (f : morph 0 0 (uncurry 1 ty) (zrestr tdone (tskip tdone) B) (zrestr tdone (tskip tdone) (refocus M Mi))) :
+Lemma kl_tmty_assoc {B M : zip 0 1} Mi (g : morph_in ty_in_tm (refocus B Mi) M ty)
+    (f : morph_in ty_in_tm B (refocus M Mi) ty) :
   forall K L (x : fwit 0 1 B M K L) t,
-  kl_tmty (B := B) (M := M) (comp_m 0 0 (uncurry 1 ty) ty_k (B := zrestr tdone (tskip tdone) B) (M := zrestr tdone (tskip tdone) M) Mi g f) x t
+  kl_tmty (B := B) (M := M) (comp_m 0 0 (uncurry 1 ty) ty_k (B := zsub ty_in_tm B) (M := zsub ty_in_tm M) Mi g f) x t
   = kl_tmty g (fright Mi x) (kl_tmty f (fleft Mi x) t).
 Proof.
   kl_ind IH; f_equal;
-    first [exact (kl_ty_assoc (B := zrestr tdone (tskip tdone) B) (M := zrestr tdone (tskip tdone) M) Mi g f _ _ (ty_in_tm x) _) | apply IH | exact (IH _ _ (under 1 x) t) | exact (IH _ _ (under 0 x) t)].
+    first [exact (kl_ty_assoc (B := zsub ty_in_tm B) (M := zsub ty_in_tm M) Mi g f _ _ (restrict ty_in_tm x) _) | apply IH | exact (IH _ _ (under 1 x) t) | exact (IH _ _ (under 0 x) t)].
 Qed.
 
-Theorem tmty_laws : fam_laws 0 0 (uncurry 1 ty) (fun K v => tyvar v) ty_k tdone (tskip tdone) (uncurry 2 tm) tmty_k.
+Theorem tmty_laws : fam_laws 0 0 (uncurry 1 ty) (fun K v => tyvar v) ty_k (tl_of ty_in_tm 0) (tr_of ty_in_tm 0 1) (uncurry 2 tm) tmty_k.
 Proof.
   split; cbn [tmty_k].
   - intros B M f g H; exact (kl_tmty_ext f g H).
@@ -484,3 +550,17 @@ End Proofs.
 (** ** Using it: substituting at the root *)
 
 Definition subst_tm {B M} (f : morph 1 0 (uncurry 2 tm) B M) (t : tm @ B) : tm @ out B M := kl_tm f here t.
+
+(** ** One mask, any focus
+
+    Three sorts, the inner family having the first and third: focused on
+    any of them, the left part (nearest first) and the right part are read
+    off by computation. *)
+Example mask_at_0 : tl_of ‹+ - +› 0 = tdone /\ tr_of ‹+ - +› 0 2 = tskip (tkeep tdone).
+Proof. split; reflexivity. Qed.
+
+Example mask_at_2 : tl_of ‹+ - +› 2 = tskip (tkeep tdone) /\ tr_of ‹+ - +› 2 0 = tdone.
+Proof. split; reflexivity. Qed.
+
+Example zsub_at_2 (r k : nat) x : zsub ‹+ - +› (pair (pair r (pair k tt)) (pair x tt) : zip 2 0) = pair (pair k tt) (pair x tt).
+Proof. reflexivity. Qed.
