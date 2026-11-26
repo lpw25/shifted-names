@@ -1,10 +1,10 @@
 (** * Prototype: a substitution is focused on its sort
 
     Substituting sort [i] of a family over [a + 1 + b] sorts, the scopes
-    are a zipper ([zip a b]): the sorts to the left of [i] (nearest
+    are a zipper ([scopes a b]): the sorts to the left of [i] (nearest
     first), [i]'s scope (the focus), and the sorts to the right.  The
     family is at the zipper plugged back ([plug]).  The witness is a
-    zipper of [ext]s ([fwit]): the focus's input and output scopes, and for
+    zipper of [ext]s ([descent]): the focus's input and output scopes, and for
     each other sort its scope and the one on the other side of a
     substitution of it.  A Kleisli function goes from the input zipper to
     the same zipper with the focus's output scope ([out]): the other sorts
@@ -58,26 +58,26 @@ Fixpoint rev_app (a b : nat) : vec a -> vec b -> vec (radd a b) :=
   end.
 
 (** A zipper: the left part (nearest first), the focus, the right part. *)
-Definition zip (a b : nat) : Type := both (vec a) (both nat (vec b)).
+Definition scopes (a b : nat) : Type := both (vec a) (both nat (vec b)).
 
-Definition focus {a b} (z : zip a b) : nat := first (second z).
-Definition zleft {a b} (z : zip a b) : vec a := first z.
-Definition zright {a b} (z : zip a b) : vec b := second (second z).
+Definition focus {a b} (z : scopes a b) : nat := first (second z).
+Definition zleft {a b} (z : scopes a b) : vec a := first z.
+Definition zright {a b} (z : scopes a b) : vec b := second (second z).
 
-Definition plug {a b} (z : zip a b) : vec (radd a (S b)) := rev_app a (S b) (zleft z) (second z).
+Definition plug {a b} (z : scopes a b) : vec (radd a (S b)) := rev_app a (S b) (zleft z) (second z).
 
 (** The zipper [K] with [L]'s focus. *)
-Definition out {a b} (K L : zip a b) : zip a b := pair (zleft K) (pair (focus L) (zright K)).
+Definition out {a b} (K L : scopes a b) : scopes a b := pair (zleft K) (pair (focus L) (zright K)).
 
 (** The zipper [z] with focus [k]. *)
-Definition refocus {a b} (z : zip a b) (k : nat) : zip a b := pair (zleft z) (pair k (zright z)).
+Definition refocus {a b} (z : scopes a b) (k : nat) : scopes a b := pair (zleft z) (pair k (zright z)).
 
 (** Moving the focus one sort to the right: the same vector, by
     computation, whatever the number of sorts. *)
-Definition zright1 {a b} (z : zip a (S b)) : zip (S a) b :=
+Definition zright1 {a b} (z : scopes a (S b)) : scopes (S a) b :=
   pair (pair (focus z) (zleft z)) (zright z).
 
-Lemma plug_right1 {a b} (z : zip a (S b)) : plug (zright1 z) = plug z.
+Lemma plug_right1 {a b} (z : scopes a (S b)) : plug (zright1 z) = plug z.
 Proof. reflexivity. Qed.
 
 (** ** Families *)
@@ -91,7 +91,7 @@ Fixpoint uncurry (n : nat) : arity n -> vec n -> Type :=
   end.
 
 (** The user's family at a zipper. *)
-Definition fam {a b} (K : zip a b) (F : arity (radd a (S b))) : Type := uncurry _ F (plug K).
+Definition fam {a b} (K : scopes a b) (F : arity (radd a (S b))) : Type := uncurry _ F (plug K).
 Notation "F @ K" := (fam K F) (at level 11, K at level 10, no associativity).
 
 (** Some of [n] sorts, in order. *)
@@ -108,7 +108,7 @@ Fixpoint restr {m n} (th : thin m n) : vec n -> vec m :=
   end.
 
 (** A zipper over some of the sorts around the focus. *)
-Definition zrestr {a b aT bT} (tl : thin a aT) (tr : thin b bT) (z : zip aT bT) : zip a b :=
+Definition zrestr {a b aT bT} (tl : thin a aT) (tr : thin b bT) (z : scopes aT bT) : scopes a b :=
   pair (restr tl (zleft z)) (pair (focus z) (restr tr (zright z))).
 
 (** ** Thinnings for the user: which sorts, all at once
@@ -159,7 +159,7 @@ Fixpoint tr_of (s : mask) (a b : nat) : thin (rkept s a b) b :=
   end.
 
 (** A zipper over the sorts [s] keeps. *)
-Definition zsub {a b} (s : mask) (z : zip a b) : zip (lkept s a) (rkept s a b) := zrestr (tl_of s a) (tr_of s a b) z.
+Definition zsub {a b} (s : mask) (z : scopes a b) : scopes (lkept s a) (rkept s a b) := zrestr (tl_of s a) (tr_of s a b) z.
 
 (** ** Witnesses *)
 
@@ -205,23 +205,23 @@ Fixpoint wrestr {m n} (th : thin m n) : forall B M K L, wit n B M K L ->
   end.
 
 (** A zipper of [ext]s. *)
-Definition fwit (a b : nat) (B M K L : zip a b) : Type :=
+Definition descent (a b : nat) (B M K L : scopes a b) : Type :=
   both (wit a (zleft B) (zleft M) (zleft K) (zleft L))
        (both (ext (focus B) (focus M) (focus K) (focus L)) (wit b (zright B) (zright M) (zright K) (zright L))).
 
-Definition main {a b B M K L} (x : fwit a b B M K L) : ext (focus B) (focus M) (focus K) (focus L) := first (second x).
+Definition main {a b B M K L} (x : descent a b B M K L) : ext (focus B) (focus M) (focus K) (focus L) := first (second x).
 
-Definition with_main {a b B M K L} Bi Mi Ki Li (x : fwit a b B M K L) (e : ext Bi Mi Ki Li)
-    : fwit a b (refocus B Bi) (refocus M Mi) (refocus K Ki) (refocus L Li) :=
+Definition with_main {a b B M K L} Bi Mi Ki Li (x : descent a b B M K L) (e : ext Bi Mi Ki Li)
+    : descent a b (refocus B Bi) (refocus M Mi) (refocus K Ki) (refocus L Li) :=
   pair (first x) (pair e (second (second x))).
 
 (** ** What the user writes *)
 
 (** At the root: nothing gone under. *)
-Definition here {a b} {B M : zip a b} : fwit a b B M B M := pair (whome a _ _) (pair ext_here (whome b _ _)).
+Definition here {a b} {B M : scopes a b} : descent a b B M B M := pair (whome a _ _) (pair ext_here (whome b _ _)).
 
 (** Sort [t]'s scope one up (counted from the left). *)
-Definition zup {a b} (t : nat) (z : zip a b) : zip a b :=
+Definition zup {a b} (t : nat) (z : scopes a b) : scopes a b :=
   match Nat.compare t a with
   | Lt => pair (upd a (a - S t) (S (get a (a - S t) (zleft z))) (zleft z)) (second z)
   | Eq => refocus z (S (focus z))
@@ -229,9 +229,9 @@ Definition zup {a b} (t : nat) (z : zip a b) : zip a b :=
   end.
 
 (** Under a binder of sort [t]. *)
-Definition under {a b} (t : nat) {B M K L} (x : fwit a b B M K L) : fwit a b B M (zup t K) (zup t L) :=
+Definition under {a b} (t : nat) {B M K L} (x : descent a b B M K L) : descent a b B M (zup t K) (zup t L) :=
   match Nat.compare t a as c return
-    fwit a b B M
+    descent a b B M
       (match c with
        | Lt => pair (upd a (a - S t) (S (get a (a - S t) (zleft K))) (zleft K)) (second K)
        | Eq => refocus K (S (focus K))
@@ -250,13 +250,13 @@ Definition under {a b} (t : nat) {B M K L} (x : fwit a b B M K L) : fwit a b B M
 
 (** The part for a family inside another, over some of the sorts on each
     side ([tl] on the left, nearest first; [tr] on the right). *)
-Definition restrict_lr {a b aT bT} (tl : thin a aT) (tr : thin b bT) {B M K L} (x : fwit aT bT B M K L)
-    : fwit a b (zrestr tl tr B) (zrestr tl tr M) (zrestr tl tr K) (zrestr tl tr L) :=
+Definition restrict_lr {a b aT bT} (tl : thin a aT) (tr : thin b bT) {B M K L} (x : descent aT bT B M K L)
+    : descent a b (zrestr tl tr B) (zrestr tl tr M) (zrestr tl tr K) (zrestr tl tr L) :=
   pair (wrestr tl _ _ _ _ (first x)) (pair (main x) (wrestr tr _ _ _ _ (second (second x)))).
 
 (** The witness for a family inside another, over the sorts [s] keeps. *)
-Definition restrict {a b} (s : mask) {B M K L} (x : fwit a b B M K L)
-    : fwit (lkept s a) (rkept s a b) (zsub s B) (zsub s M) (zsub s K) (zsub s L) :=
+Definition restrict {a b} (s : mask) {B M K L} (x : descent a b B M K L)
+    : descent (lkept s a) (rkept s a b) (zsub s B) (zsub s M) (zsub s K) (zsub s L) :=
   restrict_lr (tl_of s a) (tr_of s a b) x.
 
 (** Written after the witness: [x‹+ -›]. *)
@@ -265,17 +265,17 @@ Notation "x ‹ m" := (restrict m x) (at level 1, left associativity, m custom s
 
 (** ** Operations of the library *)
 
-Definition fapp {a b B M K L K' L'} (x1 : fwit a b B M K L) (x2 : fwit a b K L K' L') : fwit a b B M K' L' :=
+Definition fapp {a b B M K L K' L'} (x1 : descent a b B M K L) (x2 : descent a b K L K' L') : descent a b B M K' L' :=
   pair (wapp a _ _ _ _ _ _ (first x1) (first x2))
        (pair (ext_app (main x1) (main x2)) (wapp b _ _ _ _ _ _ (second (second x1)) (second (second x2)))).
 
 (** Through a middle base [Mi] of the focus (assoc). *)
-Definition fmid {a b B M K L} Mi (x : fwit a b B M K L) : nat := ext_mid Mi (main x).
+Definition fmid {a b B M K L} Mi (x : descent a b B M K L) : nat := ext_mid Mi (main x).
 
-Definition fleft {a b B M K L} Mi (x : fwit a b B M K L) : fwit a b B (refocus M Mi) K (refocus L (fmid Mi x)) :=
+Definition fleft {a b B M K L} Mi (x : descent a b B M K L) : descent a b B (refocus M Mi) K (refocus L (fmid Mi x)) :=
   with_main _ _ _ _ x (ext_left Mi (main x)).
 
-Definition fright {a b B M K L} Mi (x : fwit a b B M K L) : fwit a b (refocus B Mi) M (refocus K (fmid Mi x)) L :=
+Definition fright {a b B M K L} Mi (x : descent a b B M K L) : descent a b (refocus B Mi) M (refocus K (fmid Mi x)) L :=
   with_main _ _ _ _ x (ext_right Mi (main x)).
 
 (** ** Morphisms, Kleisli functions and their laws *)
@@ -287,18 +287,18 @@ Notation n := (radd a (S b)).
 
 (** A morphism of the focused sort into its carrier [P], from the bases
     [B] (the other side [M]; the focus goes from [B]'s to [M]'s). *)
-Definition morph (P : vec n -> Type) (B M : zip a b) : Type :=
-  forall K L, fwit a b B M K L -> var (focus K) -> P (plug (out K L)).
+Definition morph (P : vec n -> Type) (B M : scopes a b) : Type :=
+  forall K L, descent a b B M K L -> var (focus K) -> P (plug (out K L)).
 
-Definition rebase_m {P B M K1 L1} (x1 : fwit a b B M K1 L1) (f : morph P B M) : morph P K1 L1 :=
+Definition rebase_m {P B M K1 L1} (x1 : descent a b B M K1 L1) (f : morph P B M) : morph P K1 L1 :=
   fun K L x v => f K L (fapp x1 x) v.
 
 Definition sort_kl (P : vec n -> Type) : Type :=
-  forall B M (f : morph P B M) K L, fwit a b B M K L -> P (plug K) -> P (plug (out K L)).
+  forall B M (f : morph P B M) K L, descent a b B M K L -> P (plug K) -> P (plug (out K L)).
 
 (** A family over more sorts, focused on the same sort. *)
 Definition fam_kl (P : vec n -> Type) {aT bT} (tl : thin a aT) (tr : thin b bT) (T : vec (radd aT (S bT)) -> Type) : Type :=
-  forall B M (f : morph P (zrestr tl tr B) (zrestr tl tr M)) K L, fwit aT bT B M K L -> T (plug K) -> T (plug (out K L)).
+  forall B M (f : morph P (zrestr tl tr B) (zrestr tl tr M)) K L, descent aT bT B M K L -> T (plug K) -> T (plug (out K L)).
 
 Section Laws.
 
@@ -310,25 +310,25 @@ Definition comp_m {B M} Mi (g : morph P (refocus B Mi) M) (f : morph P B (refocu
   fun K L x v => kp _ _ g _ _ (fright Mi x) (f K _ (fleft Mi x) v).
 
 Record sort_laws : Prop := {
-  s_var : forall B M (f : morph P B M) K L (x : fwit a b B M K L) v, kp _ _ f _ _ x (tv K v) = f K L x v;
+  s_var : forall B M (f : morph P B M) K L (x : descent a b B M K L) v, kp _ _ f _ _ x (tv K v) = f K L x v;
   s_ext : forall B M (f g : morph P B M), (forall K L x v, f K L x v = g K L x v) ->
-    forall K L (x : fwit a b B M K L) t, kp _ _ f _ _ x t = kp _ _ g _ _ x t;
-  s_rebase : forall B M (f : morph P B M) K1 L1 K2 L2 (x1 : fwit a b B M K1 L1) (x2 : fwit a b K1 L1 K2 L2) t,
+    forall K L (x : descent a b B M K L) t, kp _ _ f _ _ x t = kp _ _ g _ _ x t;
+  s_rebase : forall B M (f : morph P B M) K1 L1 K2 L2 (x1 : descent a b B M K1 L1) (x2 : descent a b K1 L1 K2 L2) t,
     kp _ _ f _ _ (fapp x1 x2) t = kp _ _ (rebase_m x1 f) _ _ x2 t;
-  s_unit : forall B M K L (x : fwit a b B (refocus M (focus B)) K (refocus L (focus K))) t, kp _ _ unit_m _ _ x t = t;
-  s_assoc : forall B M Mi (g : morph P (refocus B Mi) M) (f : morph P B (refocus M Mi)) K L (x : fwit a b B M K L) t,
+  s_unit : forall B M K L (x : descent a b B (refocus M (focus B)) K (refocus L (focus K))) t, kp _ _ unit_m _ _ x t = t;
+  s_assoc : forall B M Mi (g : morph P (refocus B Mi) M) (f : morph P B (refocus M Mi)) K L (x : descent a b B M K L) t,
     kp _ _ (comp_m Mi g f) _ _ x t = kp _ _ g _ _ (fright Mi x) (kp _ _ f _ _ (fleft Mi x) t) }.
 
 Record fam_laws {aT bT} (tl : thin a aT) (tr : thin b bT) (T : vec (radd aT (S bT)) -> Type) (k : fam_kl P tl tr T) : Prop := {
   f_ext : forall B M (f g : morph P (zrestr tl tr B) (zrestr tl tr M)), (forall K L x v, f K L x v = g K L x v) ->
-    forall K L (x : fwit aT bT B M K L) t, k _ _ f _ _ x t = k _ _ g _ _ x t;
+    forall K L (x : descent aT bT B M K L) t, k _ _ f _ _ x t = k _ _ g _ _ x t;
   f_rebase : forall B M (f : morph P (zrestr tl tr B) (zrestr tl tr M)) K1 L1 K2 L2
-      (x1 : fwit aT bT B M K1 L1) (x2 : fwit aT bT K1 L1 K2 L2) t,
+      (x1 : descent aT bT B M K1 L1) (x2 : descent aT bT K1 L1 K2 L2) t,
     k _ _ f _ _ (fapp x1 x2) t = k _ _ (rebase_m (restrict_lr tl tr x1) f) _ _ x2 t;
-  f_unit : forall B M K L (x : fwit aT bT B (refocus M (focus B)) K (refocus L (focus K))) t,
+  f_unit : forall B M K L (x : descent aT bT B (refocus M (focus B)) K (refocus L (focus K))) t,
     k B (refocus M (focus B)) (@unit_m (zrestr tl tr B) (zrestr tl tr M)) _ _ x t = t;
   f_assoc : forall B M Mi (g : morph P (zrestr tl tr (refocus B Mi)) (zrestr tl tr M)) (f : morph P (zrestr tl tr B) (zrestr tl tr (refocus M Mi)))
-      K L (x : fwit aT bT B M K L) t,
+      K L (x : descent aT bT B M K L) t,
     k B M (@comp_m (zrestr tl tr B) (zrestr tl tr M) Mi g f) _ _ x t = k _ _ g _ _ (fright Mi x) (k _ _ f _ _ (fleft Mi x) t) }.
 
 End Laws.
@@ -338,7 +338,7 @@ End Generic.
 (** For a family over sorts [aT], [bT] around the focus, containing a family
     over the sorts [s] keeps: that family's morphisms and the family's
     Kleisli function along them. *)
-Definition morph_in {aT bT} (s : mask) (B M : zip aT bT) (F : arity (radd (lkept s aT) (S (rkept s aT bT)))) : Type :=
+Definition morph_in {aT bT} (s : mask) (B M : scopes aT bT) (F : arity (radd (lkept s aT) (S (rkept s aT bT)))) : Type :=
   morph (lkept s aT) (rkept s aT bT) (uncurry _ F) (zsub s B) (zsub s M).
 
 Definition fam_kl_in (aT bT : nat) (s : mask) (P : vec (radd (lkept s aT) (S (rkept s aT bT))) -> Type) (T : vec (radd aT (S bT)) -> Type) : Type :=
@@ -371,7 +371,7 @@ Arguments tapp {N K} t A.
 (** The user's three Kleisli functions.  Sorts: types 0, terms 1. *)
 
 (** Types, focused on their one sort. *)
-Fixpoint kl_ty {B M} (f : morph 0 0 (uncurry 1 ty) B M) {K L} (x : fwit 0 0 B M K L) (A : ty @ K) : ty @ out K L :=
+Fixpoint kl_ty {B M} (f : morph 0 0 (uncurry 1 ty) B M) {K L} (x : descent 0 0 B M K L) (A : ty @ K) : ty @ out K L :=
   match A with
   | tyvar v => f K L x v
   | tyarr A A' => tyarr (kl_ty f x A) (kl_ty f x A')
@@ -379,7 +379,7 @@ Fixpoint kl_ty {B M} (f : morph 0 0 (uncurry 1 ty) B M) {K L} (x : fwit 0 0 B M 
   end.
 
 (** Terms, focused on term variables. *)
-Fixpoint kl_tm {B M} (f : morph 1 0 (uncurry 2 tm) B M) {K L} (x : fwit 1 0 B M K L) (t : tm @ K) : tm @ out K L :=
+Fixpoint kl_tm {B M} (f : morph 1 0 (uncurry 2 tm) B M) {K L} (x : descent 1 0 B M K L) (t : tm @ K) : tm @ out K L :=
   match t with
   | tmvar v => f K L x v
   | lam A u => lam A (kl_tm f (under 1 x) u)
@@ -390,8 +390,8 @@ Fixpoint kl_tm {B M} (f : morph 1 0 (uncurry 2 tm) B M) {K L} (x : fwit 1 0 B M 
 
 (** Terms, focused on type variables.  Types are inside terms, over the
     first of their sorts ([x‹+ -›]). *)
-Fixpoint kl_tmty {B M : zip 0 1} (f : morph 0 0 (uncurry 1 ty) _ _)
-    {K L} (x : fwit 0 1 B M K L) (t : tm @ K) : tm @ out K L :=
+Fixpoint kl_tmty {B M : scopes 0 1} (f : morph 0 0 (uncurry 1 ty) _ _)
+    {K L} (x : descent 0 1 B M K L) (t : tm @ K) : tm @ out K L :=
   match t with
   | tmvar v => tmvar v
   | lam A u => lam (kl_ty f x‹+ -› A) (kl_tmty f (under 1 x) u)
@@ -402,7 +402,7 @@ Fixpoint kl_tmty {B M : zip 0 1} (f : morph 0 0 (uncurry 1 ty) _ _)
 
 Definition ty_k : sort_kl 0 0 (uncurry 1 ty) := fun B M f K L x A => kl_ty f x A.
 Definition tm_k : sort_kl 1 0 (uncurry 2 tm) := fun B M f K L x t => kl_tm f x t.
-Definition tmty_k := fun (B M : zip 0 1) f K L (x : fwit 0 1 B M K L) t => kl_tmty f x t.
+Definition tmty_k := fun (B M : scopes 0 1) f K L (x : descent 0 1 B M K L) t => kl_tmty f x t.
 
 (** ** Their laws: routine inductions *)
 
@@ -414,21 +414,21 @@ Let ty_in_tm : mask := true :: false :: nil.
 Ltac kl_ind IH := fix IH 4; intros K L x t; destruct t; cbn [kl_ty kl_tm kl_tmty].
 
 Lemma kl_ty_ext {B M} (f g : morph 0 0 (uncurry 1 ty) B M) (H : forall K L x v, f K L x v = g K L x v) :
-  forall K L (x : fwit 0 0 B M K L) A, kl_ty f x A = kl_ty g x A.
+  forall K L (x : descent 0 0 B M K L) A, kl_ty f x A = kl_ty g x A.
 Proof. kl_ind IH; f_equal; auto. Qed.
 
-Lemma kl_ty_rebase {B M} (f : morph 0 0 (uncurry 1 ty) B M) K1 L1 (x1 : fwit 0 0 B M K1 L1) :
-  forall K2 L2 (x2 : fwit 0 0 K1 L1 K2 L2) A, kl_ty f (fapp x1 x2) A = kl_ty (rebase_m 0 0 x1 f) x2 A.
+Lemma kl_ty_rebase {B M} (f : morph 0 0 (uncurry 1 ty) B M) K1 L1 (x1 : descent 0 0 B M K1 L1) :
+  forall K2 L2 (x2 : descent 0 0 K1 L1 K2 L2) A, kl_ty f (fapp x1 x2) A = kl_ty (rebase_m 0 0 x1 f) x2 A.
 Proof. kl_ind IH; f_equal; first [reflexivity | apply IH | exact (IH _ _ (under 0 x) t)]. Qed.
 
-Lemma kl_ty_unit {B M} : forall K L (x : fwit 0 0 B (refocus M (focus B)) K (refocus L (focus K))) A,
+Lemma kl_ty_unit {B M} : forall K L (x : descent 0 0 B (refocus M (focus B)) K (refocus L (focus K))) A,
   kl_ty (unit_m 0 0 (uncurry 1 ty) (fun K v => tyvar v)) x A = A.
 Proof.
   kl_ind IH; [unfold unit_m; f_equal; apply ext_var_same | f_equal; apply IH..].
 Qed.
 
 Lemma kl_ty_assoc {B M} Mi (g : morph 0 0 (uncurry 1 ty) (refocus B Mi) M) (f : morph 0 0 (uncurry 1 ty) B (refocus M Mi)) :
-  forall K L (x : fwit 0 0 B M K L) A,
+  forall K L (x : descent 0 0 B M K L) A,
   kl_ty (comp_m 0 0 (uncurry 1 ty) ty_k Mi g f) x A = kl_ty g (fright Mi x) (kl_ty f (fleft Mi x) A).
 Proof. kl_ind IH; f_equal; first [reflexivity | apply IH | exact (IH _ _ (under 0 x) t)]. Qed.
 
@@ -443,23 +443,23 @@ Proof.
 Qed.
 
 Lemma kl_tm_ext {B M} (f g : morph 1 0 (uncurry 2 tm) B M) (H : forall K L x v, f K L x v = g K L x v) :
-  forall K L (x : fwit 1 0 B M K L) t, kl_tm f x t = kl_tm g x t.
+  forall K L (x : descent 1 0 B M K L) t, kl_tm f x t = kl_tm g x t.
 Proof. kl_ind IH; f_equal; auto. Qed.
 
-Lemma kl_tm_rebase {B M} (f : morph 1 0 (uncurry 2 tm) B M) K1 L1 (x1 : fwit 1 0 B M K1 L1) :
-  forall K2 L2 (x2 : fwit 1 0 K1 L1 K2 L2) t, kl_tm f (fapp x1 x2) t = kl_tm (rebase_m 1 0 x1 f) x2 t.
+Lemma kl_tm_rebase {B M} (f : morph 1 0 (uncurry 2 tm) B M) K1 L1 (x1 : descent 1 0 B M K1 L1) :
+  forall K2 L2 (x2 : descent 1 0 K1 L1 K2 L2) t, kl_tm f (fapp x1 x2) t = kl_tm (rebase_m 1 0 x1 f) x2 t.
 Proof.
   kl_ind IH; f_equal; first [reflexivity | apply IH | exact (IH _ _ (under 1 x) t) | exact (IH _ _ (under 0 x) t)].
 Qed.
 
-Lemma kl_tm_unit {B M} : forall K L (x : fwit 1 0 B (refocus M (focus B)) K (refocus L (focus K))) t,
+Lemma kl_tm_unit {B M} : forall K L (x : descent 1 0 B (refocus M (focus B)) K (refocus L (focus K))) t,
   kl_tm (unit_m 1 0 (uncurry 2 tm) (fun K v => tmvar v)) x t = t.
 Proof.
   kl_ind IH; [unfold unit_m; f_equal; apply ext_var_same | f_equal; first [apply IH | exact (IH _ _ (under 1 x) t) | exact (IH _ _ (under 0 x) t)]..].
 Qed.
 
 Lemma kl_tm_assoc {B M} Mi (g : morph 1 0 (uncurry 2 tm) (refocus B Mi) M) (f : morph 1 0 (uncurry 2 tm) B (refocus M Mi)) :
-  forall K L (x : fwit 1 0 B M K L) t,
+  forall K L (x : descent 1 0 B M K L) t,
   kl_tm (comp_m 1 0 (uncurry 2 tm) tm_k Mi g f) x t = kl_tm g (fright Mi x) (kl_tm f (fleft Mi x) t).
 Proof.
   kl_ind IH; f_equal; first [reflexivity | apply IH | exact (IH _ _ (under 1 x) t) | exact (IH _ _ (under 0 x) t)].
@@ -475,21 +475,21 @@ Proof.
   - intros B M Mi g f; exact (kl_tm_assoc Mi g f).
 Qed.
 
-Lemma kl_tmty_ext {B M : zip 0 1} (f g : morph_in ty_in_tm B M ty)
+Lemma kl_tmty_ext {B M : scopes 0 1} (f g : morph_in ty_in_tm B M ty)
     (H : forall K L x v, f K L x v = g K L x v) :
-  forall K L (x : fwit 0 1 B M K L) t, kl_tmty f x t = kl_tmty g x t.
+  forall K L (x : descent 0 1 B M K L) t, kl_tmty f x t = kl_tmty g x t.
 Proof. kl_ind IH; f_equal; auto; apply kl_ty_ext; exact H. Qed.
 
-Lemma kl_tmty_rebase {B M : zip 0 1} (f : morph_in ty_in_tm B M ty)
-    K1 L1 (x1 : fwit 0 1 B M K1 L1) :
-  forall K2 L2 (x2 : fwit 0 1 K1 L1 K2 L2) t, kl_tmty f (fapp x1 x2) t = kl_tmty (rebase_m 0 0 (restrict ty_in_tm x1) f) x2 t.
+Lemma kl_tmty_rebase {B M : scopes 0 1} (f : morph_in ty_in_tm B M ty)
+    K1 L1 (x1 : descent 0 1 B M K1 L1) :
+  forall K2 L2 (x2 : descent 0 1 K1 L1 K2 L2) t, kl_tmty f (fapp x1 x2) t = kl_tmty (rebase_m 0 0 (restrict ty_in_tm x1) f) x2 t.
 Proof.
   kl_ind IH; f_equal;
     first [exact (kl_ty_rebase f _ _ (restrict ty_in_tm x1) _ _ (restrict ty_in_tm x) _)
           | apply IH | exact (IH _ _ (under 1 x) t) | exact (IH _ _ (under 0 x) t)].
 Qed.
 
-Lemma kl_tmty_unit {B M : zip 0 1} : forall K L (x : fwit 0 1 B (refocus M (focus B)) K (refocus L (focus K))) t,
+Lemma kl_tmty_unit {B M : scopes 0 1} : forall K L (x : descent 0 1 B (refocus M (focus B)) K (refocus L (focus K))) t,
   kl_tmty (B := B) (M := refocus M (focus B))
     (unit_m 0 0 (uncurry 1 ty) (fun K v => tyvar v) (B := zsub ty_in_tm B) (M := zsub ty_in_tm M)) x t = t.
 Proof.
@@ -497,9 +497,9 @@ Proof.
     first [exact (kl_ty_unit _ _ (restrict ty_in_tm x) _) | apply IH | exact (IH _ _ (under 1 x) t) | exact (IH _ _ (under 0 x) t)].
 Qed.
 
-Lemma kl_tmty_assoc {B M : zip 0 1} Mi (g : morph_in ty_in_tm (refocus B Mi) M ty)
+Lemma kl_tmty_assoc {B M : scopes 0 1} Mi (g : morph_in ty_in_tm (refocus B Mi) M ty)
     (f : morph_in ty_in_tm B (refocus M Mi) ty) :
-  forall K L (x : fwit 0 1 B M K L) t,
+  forall K L (x : descent 0 1 B M K L) t,
   kl_tmty (B := B) (M := M) (comp_m 0 0 (uncurry 1 ty) ty_k (B := zsub ty_in_tm B) (M := zsub ty_in_tm M) Mi g f) x t
   = kl_tmty g (fright Mi x) (kl_tmty f (fleft Mi x) t).
 Proof.
@@ -523,12 +523,12 @@ Qed.
     The term morphism mapped by the type substitution ([tmap]) substitutes
     its results' types, at its type witness read back. *)
 
-Definition z1 (N K : nat) : zip 1 0 := pair (pair N tt) (pair K tt).
-Definition z0 (N K : nat) : zip 0 1 := pair tt (pair N (pair K tt)).
+Definition z1 (N K : nat) : scopes 1 0 := pair (pair N tt) (pair K tt).
+Definition z0 (N K : nat) : scopes 0 1 := pair tt (pair N (pair K tt)).
 Definition lw {Gs Gt Ks Kt Bi Mi Ki Li} (e0 : ext Gs Gt Ks Kt) (e1 : ext Bi Mi Ki Li)
-  : fwit 1 0 (z1 Gs Bi) (z1 Gt Mi) (z1 Ks Ki) (z1 Kt Li) := pair (pair e0 tt) (pair e1 tt).
+  : descent 1 0 (z1 Gs Bi) (z1 Gt Mi) (z1 Ks Ki) (z1 Kt Li) := pair (pair e0 tt) (pair e1 tt).
 Definition rw {Gs Gt Ks Kt Bi Mi Ki Li} (e0 : ext Gs Gt Ks Kt) (e1 : ext Bi Mi Ki Li)
-  : fwit 0 1 (z0 Gs Bi) (z0 Gt Mi) (z0 Ks Ki) (z0 Kt Li) := pair tt (pair e0 (pair e1 tt)).
+  : descent 0 1 (z0 Gs Bi) (z0 Gt Mi) (z0 Ks Ki) (z0 Kt Li) := pair tt (pair e0 (pair e1 tt)).
 
 Definition tmap {Gs Gt Bi Mi} (h : morph 0 0 (uncurry 1 ty) (pair tt (pair Gs tt)) (pair tt (pair Gt tt)))
     (f : morph 1 0 (uncurry 2 tm) (z1 Gs Bi) (z1 Gt Mi)) : morph 1 0 (uncurry 2 tm) (z1 Gt Bi) (z1 Gs Mi) :=
@@ -567,5 +567,5 @@ Proof. split; reflexivity. Qed.
 Example mask_at_2 : tl_of keep13 2 = tskip (tkeep tdone) /\ tr_of keep13 2 0 = tdone.
 Proof. split; reflexivity. Qed.
 
-Example zsub_at_2 (r k : nat) x : zsub keep13 (pair (pair r (pair k tt)) (pair x tt) : zip 2 0) = pair (pair k tt) (pair x tt).
+Example zsub_at_2 (r k : nat) x : zsub keep13 (pair (pair r (pair k tt)) (pair x tt) : scopes 2 0) = pair (pair k tt) (pair x tt).
 Proof. reflexivity. Qed.

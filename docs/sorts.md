@@ -13,7 +13,7 @@ from the left (System F: types 0, terms 1). For terms, substituting term
 variables:
 
 ```coq
-Fixpoint kl_tm {B M} (f : morph 1 0 (uncurry 2 tm) B M) {K L} (x : fwit 1 0 B M K L)
+Fixpoint kl_tm {B M} (f : morph 1 0 (uncurry 2 tm) B M) {K L} (x : descent 1 0 B M K L)
     (t : tm @ K) : tm @ out K L :=
   match t with
   | tmvar v => f K L x v
@@ -28,7 +28,7 @@ and for terms substituting type variables, where the types inside are a
 family over fewer sorts:
 
 ```coq
-Fixpoint kl_tmty {B M : zip 0 1} (f : morph 0 0 (uncurry 1 ty) _ _) {K L} (x : fwit 0 1 B M K L)
+Fixpoint kl_tmty {B M : scopes 0 1} (f : morph 0 0 (uncurry 1 ty) _ _) {K L} (x : descent 0 1 B M K L)
     (t : tm @ K) : tm @ out K L :=
   match t with
   | tmvar v => tmvar v
@@ -58,12 +58,12 @@ The helpers, all of which compute away since the sorts are concrete:
 ## A substitution is focused on its sort
 
 A family over `n` sorts is seen through a vector of scopes (`uncurry`).
-Substituting sort `i`, the scopes are a *zipper* (`zip a b`): the `a` sorts
+Substituting sort `i`, the scopes are a *zipper* (`scopes a b`): the `a` sorts
 to the left of `i` (nearest first), `i`'s scope (the focus), and the `b`
 sorts to the right; the family is at the zipper plugged back (`plug`,
 putting the left part back onto the right one sort at a time).
 
-The witness is a zipper of `ext`s (`fwit a b B M K L`): the focus's input
+The witness is a zipper of `ext`s (`descent a b B M K L`): the focus's input
 and output scopes, and for each other sort its scope and the one on the
 other side of a substitution of it. A Kleisli function goes from `K` to
 `out K L`, `K` with the focus's output scope: the other sorts are the same
@@ -84,9 +84,9 @@ nothing is cut out of a vector or put back, and there are no casts:
 ## Morphisms, Kleisli functions, laws
 
 ```coq
-morph a b P B M := forall K L, fwit a b B M K L -> var (focus K) -> P (plug (out K L))
-sort_kl a b P := … (f : morph a b P B M) … (x : fwit a b B M K L), P (plug K) -> P (plug (out K L))
-fam_kl a b P tl tr T := … (f : morph a b P (zrestr tl tr B) (zrestr tl tr M)) … (x : fwit aT bT B M K L),
+morph a b P B M := forall K L, descent a b B M K L -> var (focus K) -> P (plug (out K L))
+sort_kl a b P := … (f : morph a b P B M) … (x : descent a b B M K L), P (plug K) -> P (plug (out K L))
+fam_kl a b P tl tr T := … (f : morph a b P (zrestr tl tr B) (zrestr tl tr M)) … (x : descent aT bT B M K L),
   T (plug K) -> T (plug (out K L))
 ```
 
@@ -96,7 +96,7 @@ routine inductions for System F (`ty_laws`, `tm_laws`, `tmty_laws`).
 ## Moving a substitution of one sort past one of another (`proto/sorts/Commute.v`)
 
 Two sorts `i` left of `j` are two foci at once: a zipper with two holes
-(`zip2 a c d`: the `a` sorts left of `i`, `i`, the `c` sorts between, `j`,
+(`scopes2 a c d`: the `a` sorts left of `i`, `i`, the `c` sorts between, `j`,
 the `d` sorts right of `j`). Seen from either hole it is a one-hole zipper
 (`zi`, `zj`), and a two-hole zipper of `ext`s is a witness for either sort
 (`wi`, `wj`); each substitution sees the other's `ext` read from the side it
@@ -111,29 +111,29 @@ relates the views. The morphism of `j`'s sort mapped by a substitution of
 
 ```coq
 Record commute kx ky := {
-  move : forall B M h f K L (X : fwit2 B M K L) t,
+  move : forall B M h f K L (X : descent2 B M K L) t,
     kx _ _ h _ _ (flipy X) (ky _ _ f _ _ X t) = ky _ _ (tmap kx h f) _ _ (flipx X) (kx _ _ h _ _ X t) }.
 ```
 
-The user registers their own two Kleisli functions, at their concrete
-sorts, and proves the law by the same routine induction as their other
-laws:
+The user registers their own two Kleisli functions, naming the two sorts
+(sorts 0 and 1 of 2), and the law's proof is a library tactic (recursion on
+the term; at a variable the views are unfolded, under a binder the witness
+goes under):
 
 ```coq
-Definition tm_kx : kx_t (a := 0) (c := 0) (d := 0) (uncurry 2 tm) (true :: false :: nil) (uncurry 1 ty) := from_i (@kl_tmty).
-Definition tm_ky : ky_t (a := 0) (c := 0) (d := 0) (uncurry 2 tm) := from_j (@kl_tm).
-Theorem tm_commute : commute … tm_kx tm_ky.
+Definition tm_types_terms := register 2 0 1 (uncurry 2 tm) (@kl_tmty) (@kl_tm).
+Theorem tm_commute : commute tm_types_terms.
+Proof. commute_proof. Qed.
 ```
+
+`register` reads the morphisms of the first sort's substitution off the
+user's function, so the mask is not repeated.
 
 Checked on System F (types past terms) and on a family with a sort between
 (types past terms, regions between: `tm3_commute`).
 
 ## Still to do
 
-1. Commuting: the registration still names the shape and the mask as a
-   list (`(a := 0) (c := 0) (d := 0)`, `true :: false :: nil`), and the
-   variable case of the law's proof unfolds the views by hand; both could
-   be packaged.
-2. `apply` for a sort: the payloads weakened along the other sorts' binders
+1. `apply` for a sort: the payloads weakened along the other sorts' binders
    by those sorts' Kleisli functions (moving the focus to each).
-3. `names` on the multi-sorted machinery.
+2. `names` on the multi-sorted machinery.
