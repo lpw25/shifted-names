@@ -93,26 +93,47 @@ fam_kl a b P tl tr T := … (f : morph a b P (zrestr tl tr B) (zrestr tl tr M)) 
 Laws, per family and sort: `var`, `ext`, `rebase`, `unit`, `assoc`; all
 routine inductions for System F (`ty_laws`, `tm_laws`, `tmty_laws`).
 
-## Moving a substitution of one sort past one of another
+## Moving a substitution of one sort past one of another (`proto/sorts/Commute.v`)
 
-Each substitution has the other's `ext` in its context, read from the side
-it is on (`ext_flip`). Moving a type substitution `h` past a term
-substitution `f`, `f`'s results have their types substituted (`tmap h f`):
+Two sorts `i` left of `j` are two foci at once: a zipper with two holes
+(`zip2 a c d`: the `a` sorts left of `i`, `i`, the `c` sorts between, `j`,
+the `d` sorts right of `j`). Seen from either hole it is a one-hole zipper
+(`zi`, `zj`), and a two-hole zipper of `ext`s is a witness for either sort
+(`wi`, `wj`); each substitution sees the other's `ext` read from the side it
+is on (`flipx`, `flipy`). All of these are plain functions.
+
+The two views plug to the same vector by computation only for a concrete
+number of sorts between (for an abstract `c` even the vectors' lengths
+differ as expressions), so the class is stated on the two-hole zipper
+itself: both substitutions act on the family there (`T2`), and nothing
+relates the views. The morphism of `j`'s sort mapped by a substitution of
+`i`'s (`tmap`) is defined once, from the class:
 
 ```coq
-kl_tmty h (rw e0 (ext_flip e1)) (kl_tm f (lw e0 e1) t)
-  = kl_tm (tmap h f) (lw (ext_flip e0) e1) (kl_tmty h (rw e0 e1) t)
+Record commute kx ky := {
+  move : forall B M h f K L (X : fwit2 B M K L) t,
+    kx _ _ h _ _ (flipy X) (ky _ _ f _ _ X t) = ky _ _ (tmap kx h f) _ _ (flipx X) (kx _ _ h _ _ X t) }.
 ```
 
-Here `lw` and `rw` are the witnesses holding the type witness `e0` and the
-term witness `e1`, focused on terms and on types. It is proved by the same
-routine induction (`commute`).
+The user registers their own two Kleisli functions, at their concrete
+sorts, and proves the law by the same routine induction as their other
+laws:
+
+```coq
+Definition tm_kx : kx_t (a := 0) (c := 0) (d := 0) (uncurry 2 tm) (true :: false :: nil) (uncurry 1 ty) := from_i (@kl_tmty).
+Definition tm_ky : ky_t (a := 0) (c := 0) (d := 0) (uncurry 2 tm) := from_j (@kl_tm).
+Theorem tm_commute : commute … tm_kx tm_ky.
+```
+
+Checked on System F (types past terms) and on a family with a sort between
+(types past terms, regions between: `tm3_commute`).
 
 ## Still to do
 
-1. The commuting law as a class over any family and pair of sorts (the two
-   foci related by moving the focus), which `names` uses to put
-   substitutions of different sorts in a canonical order.
+1. Commuting: the registration still names the shape and the mask as a
+   list (`(a := 0) (c := 0) (d := 0)`, `true :: false :: nil`), and the
+   variable case of the law's proof unfolds the views by hand; both could
+   be packaged.
 2. `apply` for a sort: the payloads weakened along the other sorts' binders
    by those sorts' Kleisli functions (moving the focus to each).
 3. `names` on the multi-sorted machinery.
