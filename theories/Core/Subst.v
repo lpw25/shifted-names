@@ -253,6 +253,300 @@ End Wrappers.
 
 (** ** Substitution for a syntax *)
 
+(** ** The morphism of an adjustment, whatever its results
+
+    [ggapply] applies an adjustment along any kind of descent [D] (read
+    for the substituted sort's witness by [dext]) into any results [Res]:
+    a variable result is built by [vres], a payload result by [pres] from
+    the payload's own morphism.  For one sort it is [gapply] below; for a
+    sort of several, a payload result is also weakened along the other
+    sorts.  What it computes is shown once, here. *)
+
+Section General.
+
+Context {term : nat -> Type}.
+Local Notation P := {K & term K}.
+Local Notation nadj := (@nadj P).
+Local Notation entry := (@entry P).
+Local Notation target := (@target P).
+
+Context {Ix : Type} (kin lout : Ix -> nat) (D : nat -> nat -> Ix -> Ix -> Type)
+  (dext : forall Kx L0 K L, D Kx L0 K L -> ext Kx L0 (kin K) (lout L)) (Res : Ix -> Ix -> Type).
+
+Definition gmorph (Kx L0 : nat) : Type := forall K L, D Kx L0 K L -> var (kin K) -> Res K L.
+
+Context (vres : forall K L (rv : rvar), Is_true_s (wf_var (lout L) rv) -> Res K L)
+  (pres : forall Kx L0 K L, D Kx L0 K L -> forall u : P, gmorph (projT1 u) (lout L) -> Res K L).
+
+Fixpoint ggapply (rt : counts -> lbase) (x : nadj) (Kx Mx s L0 : nat) (HL : Is_true_s (Nat.eqb L0 (s + Mx)))
+  (Hx : Is_true_s (aok Kx Mx (absn rt x))) {struct x} : gmorph Kx L0 :=
+  fun K L d v =>
+  let e := dext Kx L0 K L d in
+  let rv := var_raw v in
+  let look (v' : rvar) (Hv' : wf_var Kx v' = true) : Res K L :=
+    match x as x0 return Is_true_s (aok Kx Mx (absn rt x0)) -> Res K L with
+    | NAdj r es => fun Hx =>
+        aget_with (label_key (v_label v')) es (rt r)
+          (fun Be ent =>
+             match ent as ent0
+                   return Squash (option_map (unshift (lcounts (rt r))) (aget (label_key (v_label v')) es) = Some (unshift (lcounts Be) ent0)) -> Res K L with
+             | Entry h ts len p => fun H1 =>
+                 match lt_dec (v_index v') len with
+                 | Specif.left Hi =>
+                     knth_with (v_index v') ts Be
+                       (fun Bt t =>
+                          match t as t0
+                                return Squash (option_map (unshift (lcounts Be)) (knth ts (v_index v')) = Some (unshift (lcounts Bt) t0)) -> Res K L with
+                          | TVar y' j => fun H2 =>
+                              (vres K L (up (s + ext_depth e) (mk_rvar y' (ldval Bt (label_key y') + j)))
+                                      (W_var Kx Mx s L0 e (lcounts (rt r)) es v' Hv' Be h ts len p Bt y' j HL Hx H1 Hi H2))
+                          | TBind u rho => fun H2 =>
+                              pres Kx L0 K L d u (ggapply (LAdd Bt) rho (projT1 u) Mx (s + ext_depth e) (lout L) (W_HL Mx s e HL)
+                                         (W_pay Kx Mx (lcounts (rt r)) es v' Hv' Be h ts len p Bt u rho Hx H1 Hi H2))
+                          end)
+                       (fun H2 => match W_absurd (lcounts (rt r)) es _ (v_index v') Be h ts len p (aok_squash Kx Mx _ Hx) H1 Hi H2
+                                  with end)
+                 | Specif.right Hi =>
+                     (vres K L (up (s + ext_depth e) (mk_rvar h (ldval Be (label_key h) + (v_index v' - len + p))))
+                             (W_pass Kx Mx s L0 e (lcounts (rt r)) es v' Hv' Be h ts len p HL Hx H1 Hi))
+                 end
+             end)
+          (fun H1 =>
+             (vres K L (up (s + ext_depth e) (mk_rvar (v_label v') (ldval (rt r) (label_key (v_label v')) + v_index v')))
+                     (W_none Kx Mx s L0 e (rt r) es v' Hv' HL Hx H1)))
+    end Hx in
+  match v_label rv as o return v_label rv = o -> Res K L with
+  | None => fun Hl =>
+      match lt_dec (v_index rv) (ext_depth e) with
+      | Specif.left Hb => (vres K L rv (W_inner e rv Hl Hb))
+      | Specif.right Hb => look (down (ext_depth e) rv) (W_down e rv (var_ok v) (rel_ge rv _ Hb))
+      end
+  | Some y => fun Hl => look (down (ext_depth e) rv) (W_down e rv (var_ok v) (fun H => rel_some rv y Hl H _))
+  end eq_refl.
+
+Lemma vres_eq K L a b H1 H2 : a = b -> vres K L a H1 = vres K L b H2.
+Proof. intros ->; reflexivity. Qed.
+
+Lemma option_cases {X} (o : option X) : (exists x, o = Some x) \/ o = None.
+Proof. destruct o; eauto. Qed.
+
+(** An input outside the binders crossed so far. *)
+Definition outer (d : nat) (rv : rvar) : Prop := v_label rv = None -> d <= v_index rv.
+
+(** What [ggapply] computes on such an input, for any lazy base: a payload
+    result is looked up over the base the lookup reached. *)
+Lemma ggapply_result rt x Kx Mx s L0 HL Hx {K L} (d : D Kx L0 K L) v :
+  outer (ext_depth (dext Kx L0 K L d)) (var_raw v) ->
+  match napply (absn rt x) (down (ext_depth (dext Kx L0 K L d)) (var_raw v)) with
+  | inl w => forall H, ggapply rt x Kx Mx s L0 HL Hx K L d v = vres K L (up (s + ext_depth (dext Kx L0 K L d)) w) H
+  | inr (u, ρ) => exists Bt ρ0, ρ = absn (LAdd Bt) ρ0
+                  /\ forall HL' Hρ0, ggapply rt x Kx Mx s L0 HL Hx K L d v
+                                     = pres Kx L0 K L d u (ggapply (LAdd Bt) ρ0 (projT1 u) Mx (s + ext_depth (dext Kx L0 K L d)) (lout L) HL' Hρ0)
+  end.
+Proof.
+  pose proof (aok_local _ _ _ (Is_true_s_elim Hx)) as Hl.
+  intros Hout.
+  assert (Hlook : forall (Hv' : wf_var Kx (down (ext_depth (dext Kx L0 K L d)) (var_raw v)) = true),
+    ggapply rt x Kx Mx s L0 HL Hx K L d v =
+    (match x as x0 return Is_true_s (aok Kx Mx (absn rt x0)) -> Res K L with
+     | NAdj r es => fun Hx =>
+        aget_with (label_key (v_label (down (ext_depth (dext Kx L0 K L d)) (var_raw v)))) es (rt r)
+          (fun Be ent =>
+             match ent as ent0
+                   return Squash (option_map (unshift (lcounts (rt r))) (aget (label_key (v_label (down (ext_depth (dext Kx L0 K L d)) (var_raw v)))) es) = Some (unshift (lcounts Be) ent0)) -> Res K L with
+             | Entry h ts len p => fun H1 =>
+                 match lt_dec (v_index (down (ext_depth (dext Kx L0 K L d)) (var_raw v))) len with
+                 | Specif.left Hi =>
+                     knth_with (v_index (down (ext_depth (dext Kx L0 K L d)) (var_raw v))) ts Be
+                       (fun Bt t =>
+                          match t as t0
+                                return Squash (option_map (unshift (lcounts Be)) (knth ts (v_index (down (ext_depth (dext Kx L0 K L d)) (var_raw v)))) = Some (unshift (lcounts Bt) t0)) -> Res K L with
+                          | TVar y' j => fun H2 =>
+                              (vres K L (up (s + ext_depth (dext Kx L0 K L d)) (mk_rvar y' (ldval Bt (label_key y') + j)))
+                                      (W_var Kx Mx s L0 (dext Kx L0 K L d) (lcounts (rt r)) es _ Hv' Be h ts len p Bt y' j HL Hx H1 Hi H2))
+                          | TBind u rho => fun H2 =>
+                              pres Kx L0 K L d u (ggapply (LAdd Bt) rho (projT1 u) Mx (s + ext_depth (dext Kx L0 K L d)) (lout L) (W_HL Mx s (dext Kx L0 K L d) HL)
+                                         (W_pay Kx Mx (lcounts (rt r)) es _ Hv' Be h ts len p Bt u rho Hx H1 Hi H2))
+                          end)
+                       (fun H2 => match W_absurd (lcounts (rt r)) es _ _ Be h ts len p (aok_squash Kx Mx _ Hx) H1 Hi H2
+                                  with end)
+                 | Specif.right Hi =>
+                     (vres K L (up (s + ext_depth (dext Kx L0 K L d)) (mk_rvar h (ldval Be (label_key h) + (v_index (down (ext_depth (dext Kx L0 K L d)) (var_raw v)) - len + p))))
+                             (W_pass Kx Mx s L0 (dext Kx L0 K L d) (lcounts (rt r)) es _ Hv' Be h ts len p HL Hx H1 Hi))
+                 end
+             end)
+          (fun H1 =>
+             (vres K L (up (s + ext_depth (dext Kx L0 K L d)) (mk_rvar (v_label (down (ext_depth (dext Kx L0 K L d)) (var_raw v)))
+                                                    (ldval (rt r) (label_key (v_label (down (ext_depth (dext Kx L0 K L d)) (var_raw v)))) + v_index (down (ext_depth (dext Kx L0 K L d)) (var_raw v)))))
+                     (W_none Kx Mx s L0 (dext Kx L0 K L d) (rt r) es _ Hv' HL Hx H1)))
+     end Hx)).
+  { intros Hv'; destruct v as [[[y|] i] Hv]; cbn [var_raw v_label v_index] in *.
+    - destruct x as [r es]; reflexivity.
+    - unfold outer in Hout; cbn [v_label v_index] in Hout; specialize (Hout eq_refl).
+      destruct x as [r es]; cbv beta iota zeta delta [ggapply var_raw v_label v_index].
+      destruct (lt_dec i (ext_depth (dext Kx L0 K L d))) as [Hb|Hb]; [lia|]; reflexivity. }
+  assert (Hv' : wf_var Kx (down (ext_depth (dext Kx L0 K L d)) (var_raw v)) = true)
+    by (apply (W_down (dext Kx L0 K L d) (var_raw v) (var_ok v)), Hout).
+  rewrite (Hlook Hv'); clear Hlook.
+  set (v' := down (ext_depth (dext Kx L0 K L d)) (var_raw v)) in *; clearbody v'.
+  destruct x as [r es]; cbn [absn] in *.
+  set (R := lcounts (rt r)) in *.
+  destruct (option_cases (aget (label_key (v_label v')) es)) as [[e0 E1]|E1].
+  - destruct (napply (NAdj R es) v') as [w|[u ρ]] eqn:En.
+    + intros H; apply (aget_with_some _ _ _ _ _ (unshift R e0)); [|rewrite E1; reflexivity].
+      intros Be [h ts len p] H1 Hy'.
+      assert (Loc : option_map (unshift R) (aget (label_key (v_label v')) es) = Some (unshift (lcounts Be) (Entry h ts len p)))
+        by (rewrite E1, Hy'; reflexivity).
+      destruct (found_entry _ _ _ _ _ _ _ _ Hl Loc) as [Hk [G [Hlen [Ht [Hp Hnn]]]]].
+      apply label_key_inj in Hk; subst h; rewrite (rvar_eta v') in En.
+      destruct (lt_dec (v_index v') len) as [Hi|Hi].
+      * destruct (option_cases (knth ts (v_index v'))) as [[t Et]|Et]; [|exfalso; exact (Hnn _ Hi Et)].
+        apply (knth_with_some _ _ _ _ _ (unshift (lcounts Be) t)); [|rewrite Et; reflexivity].
+        intros Bt t' H2 Ht'.
+        pose proof (Ht _ (lcounts Bt) t' Hi ltac:(rewrite Et, Ht'; reflexivity)) as Er; rewrite En in Er.
+        destruct t' as [y' j|u' [r0 es0]]; cbn in Er; [|discriminate Er].
+        injection Er as Ew; subst w; cbn beta iota; apply vres_eq; rewrite ldval_spec; reflexivity.
+      * rewrite (Hp (v_index v') ltac:(lia)) in En; injection En as <-; apply vres_eq; rewrite ldval_spec; reflexivity.
+    + set (Pz := fun z => exists Bt ρ0, ρ = absn (LAdd Bt) ρ0
+                   /\ forall HL' Hρ0, z = pres Kx L0 K L d u (ggapply (LAdd Bt) ρ0 (projT1 u) Mx (s + ext_depth (dext Kx L0 K L d)) (lout L) HL' Hρ0)).
+      apply (aget_with_prop _ _ _ _ _ (unshift R e0) Pz); [|rewrite E1; reflexivity].
+      intros Be [h ts len p] H1 Hy'.
+      assert (Loc : option_map (unshift R) (aget (label_key (v_label v')) es) = Some (unshift (lcounts Be) (Entry h ts len p)))
+        by (rewrite E1, Hy'; reflexivity).
+      destruct (found_entry _ _ _ _ _ _ _ _ Hl Loc) as [Hk [G [Hlen [Ht [Hp Hnn]]]]].
+      apply label_key_inj in Hk; subst h; rewrite (rvar_eta v') in En.
+      destruct (lt_dec (v_index v') len) as [Hi|Hi].
+      * destruct (option_cases (knth ts (v_index v'))) as [[t Et]|Et]; [|exfalso; exact (Hnn _ Hi Et)].
+        apply (knth_with_prop _ _ _ _ _ (unshift (lcounts Be) t) Pz); [|rewrite Et; reflexivity].
+        intros Bt t' H2 Ht'.
+        pose proof (Ht _ (lcounts Bt) t' Hi ltac:(rewrite Et, Ht'; reflexivity)) as Er; rewrite En in Er.
+        destruct t' as [y' j|u' [r0 es0]]; cbn in Er; [discriminate|].
+        injection Er as Eu Eρ; subst u ρ.
+        exists Bt, (NAdj r0 es0); split; [reflexivity|intros HL' Hρ0; reflexivity].
+      * rewrite (Hp (v_index v') ltac:(lia)) in En; discriminate.
+  - assert (En : napply (NAdj R es) v' = inl (mk_rvar (v_label v') (dval R (label_key (v_label v')) + v_index v')))
+      by (destruct v'; apply found_none, E1).
+    rewrite (aget_with_none _ _ _ _ _ E1), En.
+    intros H; apply vres_eq; rewrite ldval_spec; reflexivity.
+Qed.
+
+(** Inside the binders crossed so far, a variable stays. *)
+Lemma ggapply_inner rt x Kx Mx s L0 HL Hx {K L} (d : D Kx L0 K L) v H :
+  v_label (var_raw v) = None -> v_index (var_raw v) < ext_depth (dext Kx L0 K L d) ->
+  ggapply rt x Kx Mx s L0 HL Hx K L d v = vres K L (var_raw v) H.
+Proof.
+  destruct v as [[[y|] i] Hv]; cbn [var_raw v_label v_index]; intros Hl Hi; [discriminate|].
+  destruct x as [r es]; cbv beta iota zeta delta [ggapply var_raw v_label v_index].
+  destruct (lt_dec i (ext_depth (dext Kx L0 K L d))) as [Hb|Hb]; [reflexivity|contradiction].
+Qed.
+
+(** With the root read directly. *)
+Definition ggapply0 (x : nadj) (Kx Mx s L0 : nat) (HL : Is_true_s (Nat.eqb L0 (s + Mx)))
+  (Hx : Is_true_s (aok Kx Mx x)) : gmorph Kx L0 :=
+  ggapply LAbs x Kx Mx s L0 HL (match x as x0 return Is_true_s (aok Kx Mx x0) -> Is_true_s (aok Kx Mx (absn LAbs x0)) with
+                                  | NAdj r es => fun H => H end Hx).
+
+Lemma nnest_absn rt (x : nadj) : nnest (absn rt x) = nnest x.
+Proof. destruct x; cbn [absn]; rewrite !nnest_es; reflexivity. Qed.
+
+Lemma napply_depth_aok K M (x : nadj) v u (y : nadj) : aok K M x = true -> napply x v = inr (u, y) -> nnest y < nnest x.
+Proof.
+  intros Hx E; apply (nest_napply x v u y); [|exact E].
+  intros k e Ek; pose proof (aok_local _ _ _ Hx) as Hl; destruct x as [r es]; destruct Hl as [_ [_ [Hent _]]]; cbn [nentries] in Ek.
+  destruct (Hent k e Ek) as [Hok _]; destruct e; apply Hok.
+Qed.
+
+Lemma pay_var_wf (x : nadj) Kx Mx s L0 {K L} (e : ext Kx L0 K L) v' w :
+  aok Kx Mx x = true -> L0 = s + Mx -> wf_var Kx v' = true -> napply x v' = inl w ->
+  wf_var L (up (s + ext_depth e) w) = true.
+Proof.
+  intros Hx HL Hv Hw; pose proof (res_wf Kx Mx x v' Hx Hv) as H; rewrite Hw in H.
+  pose proof (ext_depth_L e) as HL'.
+  apply (wf_eq L ((s + ext_depth e) + Mx)); [lia|apply up_wf, H].
+Qed.
+
+Lemma pay_payload_ok (x : nadj) Kx Mx v' u ρ :
+  aok Kx Mx x = true -> wf_var Kx v' = true -> napply x v' = inr (u, ρ) -> aok (projT1 u) Mx ρ = true.
+Proof. intros Hx Hv Hw; pose proof (res_wf Kx Mx x v' Hx Hv) as H; rewrite Hw in H; exact H. Qed.
+
+Lemma outer_down_wf {Kx L0 K L} (e : ext Kx L0 K L) (v : var K) :
+  outer (ext_depth e) (var_raw v) -> wf_var Kx (down (ext_depth e) (var_raw v)) = true.
+Proof. intros H; apply (W_down e (var_raw v) (var_ok v)), H. Qed.
+
+(** A payload result depends on its morphism only through its values. *)
+Context (pres_ext : forall Kx L0 K L (d : D Kx L0 K L) u (m1 m2 : gmorph (projT1 u) (lout L)),
+  (forall K' L' d' v', m1 K' L' d' v' = m2 K' L' d' v') -> pres Kx L0 K L d u m1 = pres Kx L0 K L d u m2).
+
+(** The lazy base only matters through what it denotes. *)
+Lemma ggapply_abs n : forall rt x Kx Mx s L0 HL Hx, nnest x < n ->
+  forall K L (d : D Kx L0 K L) v,
+  ggapply rt x Kx Mx s L0 HL Hx K L d v = ggapply0 (absn rt x) Kx Mx s L0 HL Hx K L d v.
+Proof.
+  induction n as [|n IH]; intros rt x Kx Mx s L0 HL Hx Hn K L d v; [lia|].
+  destruct (option_cases (v_label (var_raw v))) as [[y Hy]|Hv]
+    ; [|destruct (lt_dec (v_index (var_raw v)) (ext_depth (dext Kx L0 K L d))) as [Hb|Hb]].
+  2: { rewrite (ggapply_inner _ _ _ _ _ _ _ _ d v (W_inner (dext Kx L0 K L d) _ Hv Hb) Hv Hb); unfold ggapply0;
+         rewrite (ggapply_inner _ _ _ _ _ _ _ _ d v (W_inner (dext Kx L0 K L d) _ Hv Hb) Hv Hb); reflexivity. }
+  all: assert (Hout : outer (ext_depth (dext Kx L0 K L d)) (var_raw v)) by (unfold outer; intros H; first [congruence|lia]).
+  all: destruct x as [r es]; unfold ggapply0; cbn [absn lcounts] in *.
+  all: pose proof (ggapply_result rt (NAdj r es) Kx Mx s L0 HL Hx d v Hout) as A.
+  all: pose proof (ggapply_result LAbs (absn rt (NAdj r es)) Kx Mx s L0 HL Hx d v Hout) as B.
+  all: cbn [absn lcounts] in A, B.
+  all: pose proof (Is_true_s_elim Hx) as Hx0; cbn [absn] in Hx0.
+  all: pose proof (outer_down_wf (dext Kx L0 K L d) v Hout) as Hv'.
+  all: destruct (napply (NAdj (lcounts (rt r)) es) (down (ext_depth (dext Kx L0 K L d)) (var_raw v))) as [w|[u ρ]] eqn:En;
+       [ assert (H : Is_true_s (wf_var (lout L) (up (s + ext_depth (dext Kx L0 K L d)) w)))
+           by (apply Is_true_s_intro, (pay_var_wf _ Kx Mx s L0 (dext Kx L0 K L d) (down (ext_depth (dext Kx L0 K L d)) (var_raw v)) w Hx0); [apply Nat.eqb_eq, Is_true_s_elim, HL|exact Hv'|exact En]);
+         rewrite (A H), (B H); reflexivity
+       | ].
+  all: destruct A as [Bt [ρ0 [E0 A]]], B as [Bt' [ρ1 [E1 B]]].
+  all: assert (Hρ : aok (projT1 u) Mx ρ = true) by apply (pay_payload_ok _ Kx Mx (down (ext_depth (dext Kx L0 K L d)) (var_raw v)) u ρ Hx0 Hv' En).
+  all: assert (Hd : nnest ρ < nnest (NAdj (lcounts (rt r)) es)) by apply (napply_depth_aok _ _ _ (down (ext_depth (dext Kx L0 K L d)) (var_raw v)) _ _ Hx0 En).
+  all: assert (HL' : Is_true_s (Nat.eqb (lout L) ((s + ext_depth (dext Kx L0 K L d)) + Mx))) by apply (W_HL Mx s (dext Kx L0 K L d) HL).
+  all: assert (H0 : Is_true_s (aok (projT1 u) Mx (absn (LAdd Bt) ρ0))) by (rewrite <- E0; apply Is_true_s_intro, Hρ).
+  all: assert (H1 : Is_true_s (aok (projT1 u) Mx (absn (LAdd Bt') ρ1))) by (rewrite <- E1; apply Is_true_s_intro, Hρ).
+  all: rewrite (A HL' H0), (B HL' H1); apply pres_ext; intros K' L' e' v'.
+  all: rewrite (IH (LAdd Bt) ρ0), (IH (LAdd Bt') ρ1);
+         [revert H0 H1; rewrite <- E0, <- E1; reflexivity
+         |rewrite E1, nnest_absn, nnest_es in Hd; rewrite nnest_es in Hn; lia
+         |rewrite E0, nnest_absn, nnest_es in Hd; rewrite nnest_es in Hn; lia].
+Qed.
+
+(** What [ggapply0] computes on an input outside the binders crossed. *)
+Lemma ggapply0_result x Kx Mx s L0 HL Hx {K L} (d : D Kx L0 K L) v :
+  outer (ext_depth (dext Kx L0 K L d)) (var_raw v) ->
+  match napply x (down (ext_depth (dext Kx L0 K L d)) (var_raw v)) with
+  | inl w => forall H, ggapply0 x Kx Mx s L0 HL Hx K L d v = vres K L (up (s + ext_depth (dext Kx L0 K L d)) w) H
+  | inr (u, ρ) => forall HL' Hρ, ggapply0 x Kx Mx s L0 HL Hx K L d v
+                                 = pres Kx L0 K L d u (ggapply0 ρ (projT1 u) Mx (s + ext_depth (dext Kx L0 K L d)) (lout L) HL' Hρ)
+  end.
+Proof.
+  intros Hv; destruct x as [r es]; pose proof (ggapply_result LAbs (NAdj r es) Kx Mx s L0 HL Hx d v Hv) as A.
+  unfold ggapply0; cbn [absn lcounts] in A |- *.
+  destruct (napply (NAdj r es) _) as [w|[u ρ]]; [exact A|].
+  destruct A as [Bt [ρ0 [-> A]]]; intros HL' Hρ; rewrite (A HL' Hρ).
+  apply pres_ext; intros K' L' e' v'.
+  rewrite (ggapply_abs (S (nnest ρ0)) (LAdd Bt) ρ0) by lia; reflexivity.
+Qed.
+
+Lemma ggapply0_inner x Kx Mx s L0 HL Hx {K L} (d : D Kx L0 K L) v H :
+  v_label (var_raw v) = None -> v_index (var_raw v) < ext_depth (dext Kx L0 K L d) ->
+  ggapply0 x Kx Mx s L0 HL Hx K L d v = vres K L (var_raw v) H.
+Proof. unfold ggapply0; apply ggapply_inner. Qed.
+
+Lemma ggapply0_var x Kx Mx s L0 HL Hx {K L} (d : D Kx L0 K L) v w H :
+  outer (ext_depth (dext Kx L0 K L d)) (var_raw v) -> napply x (down (ext_depth (dext Kx L0 K L d)) (var_raw v)) = inl w ->
+  ggapply0 x Kx Mx s L0 HL Hx K L d v = vres K L (up (s + ext_depth (dext Kx L0 K L d)) w) H.
+Proof. intros Hv E; pose proof (ggapply0_result x Kx Mx s L0 HL Hx d v Hv) as R; rewrite E in R; apply R. Qed.
+
+Lemma ggapply0_pay x Kx Mx s L0 HL Hx {K L} (d : D Kx L0 K L) v u ρ HL' Hρ :
+  outer (ext_depth (dext Kx L0 K L d)) (var_raw v) -> napply x (down (ext_depth (dext Kx L0 K L d)) (var_raw v)) = inr (u, ρ) ->
+  ggapply0 x Kx Mx s L0 HL Hx K L d v
+  = pres Kx L0 K L d u (ggapply0 ρ (projT1 u) Mx (s + ext_depth (dext Kx L0 K L d)) (lout L) HL' Hρ).
+Proof. intros Hv E; pose proof (ggapply0_result x Kx Mx s L0 HL Hx d v Hv) as R; rewrite E in R; apply R. Qed.
+
+End General.
+
 (** The substitution of any syntax ([Syntax]): its definitions and laws
     take the syntax's instance as an implicit argument. *)
 Section Subst0.
@@ -265,54 +559,15 @@ Local Notation nadj := (@nadj P).
 Local Notation entry := (@entry P).
 Local Notation target := (@target P).
 
+(** One sort: descents are [ext]s, results terms. *)
+Local Notation one f := (f (fun K : nat => K) (fun L : nat => L) (fun Kx L0 K L => ext Kx L0 K L) (fun _ _ _ _ e => e)
+  (fun _ L => term L) (fun K L rv H => tvar (mk_var rv H)) (fun Kx L0 K L e u m => kleisli m ext_here (projT2 u))) (only parsing).
+
 (** [gapply rt x Kx Mx s L0]: the morphism of the adjustment [x] from [Kx]
     to [Mx], its root read through [rt] (adding the base it is stored
     over), used under [s] outer binders, into [L0]. *)
-Fixpoint gapply (rt : counts -> lbase) (x : nadj) (Kx Mx s L0 : nat) (HL : Is_true_s (Nat.eqb L0 (s + Mx)))
-  (Hx : Is_true_s (aok Kx Mx (absn rt x))) {struct x} : morph Kx L0 :=
-  fun K L e v =>
-  let rv := var_raw v in
-  let look (v' : rvar) (Hv' : wf_var Kx v' = true) : term L :=
-    match x as x0 return Is_true_s (aok Kx Mx (absn rt x0)) -> term L with
-    | NAdj r es => fun Hx =>
-        aget_with (label_key (v_label v')) es (rt r)
-          (fun Be ent =>
-             match ent as ent0
-                   return Squash (option_map (unshift (lcounts (rt r))) (aget (label_key (v_label v')) es) = Some (unshift (lcounts Be) ent0)) -> term L with
-             | Entry h ts len p => fun H1 =>
-                 match lt_dec (v_index v') len with
-                 | Specif.left Hi =>
-                     knth_with (v_index v') ts Be
-                       (fun Bt t =>
-                          match t as t0
-                                return Squash (option_map (unshift (lcounts Be)) (knth ts (v_index v')) = Some (unshift (lcounts Bt) t0)) -> term L with
-                          | TVar y' j => fun H2 =>
-                              tvar (mk_var (up (s + ext_depth e) (mk_rvar y' (ldval Bt (label_key y') + j)))
-                                      (W_var Kx Mx s L0 e (lcounts (rt r)) es v' Hv' Be h ts len p Bt y' j HL Hx H1 Hi H2))
-                          | TBind u rho => fun H2 =>
-                              kleisli (gapply (LAdd Bt) rho (projT1 u) Mx (s + ext_depth e) L (W_HL Mx s e HL)
-                                         (W_pay Kx Mx (lcounts (rt r)) es v' Hv' Be h ts len p Bt u rho Hx H1 Hi H2))
-                                      ext_here (projT2 u)
-                          end)
-                       (fun H2 => match W_absurd (lcounts (rt r)) es _ (v_index v') Be h ts len p (aok_squash Kx Mx _ Hx) H1 Hi H2
-                                  with end)
-                 | Specif.right Hi =>
-                     tvar (mk_var (up (s + ext_depth e) (mk_rvar h (ldval Be (label_key h) + (v_index v' - len + p))))
-                             (W_pass Kx Mx s L0 e (lcounts (rt r)) es v' Hv' Be h ts len p HL Hx H1 Hi))
-                 end
-             end)
-          (fun H1 =>
-             tvar (mk_var (up (s + ext_depth e) (mk_rvar (v_label v') (ldval (rt r) (label_key (v_label v')) + v_index v')))
-                     (W_none Kx Mx s L0 e (rt r) es v' Hv' HL Hx H1)))
-    end Hx in
-  match v_label rv as o return v_label rv = o -> term L with
-  | None => fun Hl =>
-      match lt_dec (v_index rv) (ext_depth e) with
-      | Specif.left Hb => tvar (mk_var rv (W_inner e rv Hl Hb))
-      | Specif.right Hb => look (down (ext_depth e) rv) (W_down e rv (var_ok v) (rel_ge rv _ Hb))
-      end
-  | Some y => fun Hl => look (down (ext_depth e) rv) (W_down e rv (var_ok v) (fun H => rel_some rv y Hl H _))
-  end eq_refl.
+Definition gapply (rt : counts -> lbase) (x : nadj) (Kx Mx s L0 : nat) (HL : Is_true_s (Nat.eqb L0 (s + Mx)))
+  (Hx : Is_true_s (aok Kx Mx (absn rt x))) : morph Kx L0 := one (@ggapply term nat) rt x Kx Mx s L0 HL Hx.
 
 Lemma adj_aok {N M} (a : adj term N M) : Is_true_s (aok N M (absn LAbs (radj_n (adj_raw a)))).
 Proof.
@@ -349,14 +604,17 @@ Local Notation target := (@target P).
 
 Section Char.
 
-Lemma option_cases {X} (o : option X) : (exists x, o = Some x) \/ o = None.
-Proof. destruct o; eauto. Qed.
+(** One sort: descents are [ext]s, results terms. *)
+Local Notation one f := (f (fun K : nat => K) (fun L : nat => L) (fun Kx L0 K L => ext Kx L0 K L) (fun _ _ _ _ e => e)
+  (fun _ L => term L) (fun K L rv H => tvar (mk_var rv H)) (fun Kx L0 K L e u m => kleisli m ext_here (projT2 u))) (only parsing).
 
-(** An input outside the binders crossed so far. *)
-Definition outer (d : nat) (rv : rvar) : Prop := v_label rv = None -> d <= v_index rv.
+Lemma one_pres_ext Kx L0 K L (e : ext Kx L0 K L) (u : P) (m1 m2 : morph (projT1 u) L) :
+  (forall K' L' e' v', m1 K' L' e' v' = m2 K' L' e' v') -> kleisli m1 ext_here (projT2 u) = kleisli m2 ext_here (projT2 u).
+Proof. intros H; apply kleisli_ext, H. Qed.
 
-(** What [gapply] computes on such an input, for any lazy base: a payload
-    result is looked up over the base the lookup reached. *)
+(** What [gapply] computes on an input outside the binders crossed, for
+    any lazy base: a payload result is looked up over the base the lookup
+    reached. *)
 Lemma gapply_result rt x Kx Mx s L0 HL Hx {K L} (e : ext Kx L0 K L) v :
   outer (ext_depth e) (var_raw v) ->
   match napply (absn rt x) (down (ext_depth e) (var_raw v)) with
@@ -366,174 +624,26 @@ Lemma gapply_result rt x Kx Mx s L0 HL Hx {K L} (e : ext Kx L0 K L) v :
                                      = kleisli (gapply (LAdd Bt) ρ0 (projT1 u) Mx (s + ext_depth e) L HL' Hρ0)
                                                ext_here (projT2 u)
   end.
-Proof.
-  pose proof (aok_local _ _ _ (Is_true_s_elim Hx)) as Hl.
-  intros Hout.
-  assert (Hlook : forall (Hv' : wf_var Kx (down (ext_depth e) (var_raw v)) = true),
-    gapply rt x Kx Mx s L0 HL Hx K L e v =
-    (match x as x0 return Is_true_s (aok Kx Mx (absn rt x0)) -> term L with
-     | NAdj r es => fun Hx =>
-        aget_with (label_key (v_label (down (ext_depth e) (var_raw v)))) es (rt r)
-          (fun Be ent =>
-             match ent as ent0
-                   return Squash (option_map (unshift (lcounts (rt r))) (aget (label_key (v_label (down (ext_depth e) (var_raw v)))) es) = Some (unshift (lcounts Be) ent0)) -> term L with
-             | Entry h ts len p => fun H1 =>
-                 match lt_dec (v_index (down (ext_depth e) (var_raw v))) len with
-                 | Specif.left Hi =>
-                     knth_with (v_index (down (ext_depth e) (var_raw v))) ts Be
-                       (fun Bt t =>
-                          match t as t0
-                                return Squash (option_map (unshift (lcounts Be)) (knth ts (v_index (down (ext_depth e) (var_raw v)))) = Some (unshift (lcounts Bt) t0)) -> term L with
-                          | TVar y' j => fun H2 =>
-                              tvar (mk_var (up (s + ext_depth e) (mk_rvar y' (ldval Bt (label_key y') + j)))
-                                      (W_var Kx Mx s L0 e (lcounts (rt r)) es _ Hv' Be h ts len p Bt y' j HL Hx H1 Hi H2))
-                          | TBind u rho => fun H2 =>
-                              kleisli (gapply (LAdd Bt) rho (projT1 u) Mx (s + ext_depth e) L (W_HL Mx s e HL)
-                                         (W_pay Kx Mx (lcounts (rt r)) es _ Hv' Be h ts len p Bt u rho Hx H1 Hi H2))
-                                      ext_here (projT2 u)
-                          end)
-                       (fun H2 => match W_absurd (lcounts (rt r)) es _ _ Be h ts len p (aok_squash Kx Mx _ Hx) H1 Hi H2
-                                  with end)
-                 | Specif.right Hi =>
-                     tvar (mk_var (up (s + ext_depth e) (mk_rvar h (ldval Be (label_key h) + (v_index (down (ext_depth e) (var_raw v)) - len + p))))
-                             (W_pass Kx Mx s L0 e (lcounts (rt r)) es _ Hv' Be h ts len p HL Hx H1 Hi))
-                 end
-             end)
-          (fun H1 =>
-             tvar (mk_var (up (s + ext_depth e) (mk_rvar (v_label (down (ext_depth e) (var_raw v)))
-                                                    (ldval (rt r) (label_key (v_label (down (ext_depth e) (var_raw v)))) + v_index (down (ext_depth e) (var_raw v)))))
-                     (W_none Kx Mx s L0 e (rt r) es _ Hv' HL Hx H1)))
-     end Hx)).
-  { intros Hv'; destruct v as [[[y|] i] Hv]; cbn [var_raw v_label v_index] in *.
-    - destruct x as [r es]; reflexivity.
-    - unfold outer in Hout; cbn [v_label v_index] in Hout; specialize (Hout eq_refl).
-      destruct x as [r es]; cbv beta iota zeta delta [gapply var_raw v_label v_index].
-      destruct (lt_dec i (ext_depth e)) as [Hb|Hb]; [lia|]; reflexivity. }
-  assert (Hv' : wf_var Kx (down (ext_depth e) (var_raw v)) = true)
-    by (apply (W_down e (var_raw v) (var_ok v)), Hout).
-  rewrite (Hlook Hv'); clear Hlook.
-  set (v' := down (ext_depth e) (var_raw v)) in *; clearbody v'.
-  destruct x as [r es]; cbn [absn] in *.
-  set (R := lcounts (rt r)) in *.
-  destruct (option_cases (aget (label_key (v_label v')) es)) as [[e0 E1]|E1].
-  - destruct (napply (NAdj R es) v') as [w|[u ρ]] eqn:En.
-    + intros H; apply (aget_with_some _ _ _ _ _ (unshift R e0)); [|rewrite E1; reflexivity].
-      intros Be [h ts len p] H1 Hy'.
-      assert (Loc : option_map (unshift R) (aget (label_key (v_label v')) es) = Some (unshift (lcounts Be) (Entry h ts len p)))
-        by (rewrite E1, Hy'; reflexivity).
-      destruct (found_entry _ _ _ _ _ _ _ _ Hl Loc) as [Hk [G [Hlen [Ht [Hp Hnn]]]]].
-      apply label_key_inj in Hk; subst h; rewrite (rvar_eta v') in En.
-      destruct (lt_dec (v_index v') len) as [Hi|Hi].
-      * destruct (option_cases (knth ts (v_index v'))) as [[t Et]|Et]; [|exfalso; exact (Hnn _ Hi Et)].
-        apply (knth_with_some _ _ _ _ _ (unshift (lcounts Be) t)); [|rewrite Et; reflexivity].
-        intros Bt t' H2 Ht'.
-        pose proof (Ht _ (lcounts Bt) t' Hi ltac:(rewrite Et, Ht'; reflexivity)) as Er; rewrite En in Er.
-        destruct t' as [y' j|u' [r0 es0]]; cbn in Er; [|discriminate Er].
-        injection Er as Ew; subst w; cbn beta iota; f_equal; apply var_eq; cbn [var_raw]; rewrite ldval_spec; reflexivity.
-      * rewrite (Hp (v_index v') ltac:(lia)) in En; injection En as <-; f_equal; apply var_eq; cbn [var_raw]; rewrite ldval_spec; reflexivity.
-    + set (Pz := fun z => exists Bt ρ0, ρ = absn (LAdd Bt) ρ0
-                   /\ forall HL' Hρ0, z = kleisli (gapply (LAdd Bt) ρ0 (projT1 u) Mx (s + ext_depth e) L HL' Hρ0) ext_here (projT2 u)).
-      apply (aget_with_prop _ _ _ _ _ (unshift R e0) Pz); [|rewrite E1; reflexivity].
-      intros Be [h ts len p] H1 Hy'.
-      assert (Loc : option_map (unshift R) (aget (label_key (v_label v')) es) = Some (unshift (lcounts Be) (Entry h ts len p)))
-        by (rewrite E1, Hy'; reflexivity).
-      destruct (found_entry _ _ _ _ _ _ _ _ Hl Loc) as [Hk [G [Hlen [Ht [Hp Hnn]]]]].
-      apply label_key_inj in Hk; subst h; rewrite (rvar_eta v') in En.
-      destruct (lt_dec (v_index v') len) as [Hi|Hi].
-      * destruct (option_cases (knth ts (v_index v'))) as [[t Et]|Et]; [|exfalso; exact (Hnn _ Hi Et)].
-        apply (knth_with_prop _ _ _ _ _ (unshift (lcounts Be) t) Pz); [|rewrite Et; reflexivity].
-        intros Bt t' H2 Ht'.
-        pose proof (Ht _ (lcounts Bt) t' Hi ltac:(rewrite Et, Ht'; reflexivity)) as Er; rewrite En in Er.
-        destruct t' as [y' j|u' [r0 es0]]; cbn in Er; [discriminate|].
-        injection Er as Eu Eρ; subst u ρ.
-        exists Bt, (NAdj r0 es0); split; [reflexivity|intros HL' Hρ0; reflexivity].
-      * rewrite (Hp (v_index v') ltac:(lia)) in En; discriminate.
-  - assert (En : napply (NAdj R es) v' = inl (mk_rvar (v_label v') (dval R (label_key (v_label v')) + v_index v')))
-      by (destruct v'; apply found_none, E1).
-    rewrite (aget_with_none _ _ _ _ _ E1), En.
-    intros H; f_equal; apply var_eq; cbn [var_raw]; rewrite ldval_spec; reflexivity.
-Qed.
+Proof. exact (one (@ggapply_result term nat) rt x Kx Mx s L0 HL Hx e v). Qed.
 
 (** Inside the binders crossed so far, a variable stays. *)
 Lemma gapply_inner rt x Kx Mx s L0 HL Hx {K L} (e : ext Kx L0 K L) v H :
   v_label (var_raw v) = None -> v_index (var_raw v) < ext_depth e ->
   gapply rt x Kx Mx s L0 HL Hx K L e v = tvar (mk_var (var_raw v) H).
-Proof.
-  destruct v as [[[y|] i] Hv]; cbn [var_raw v_label v_index]; intros Hl Hi; [discriminate|].
-  destruct x as [r es]; cbv beta iota zeta delta [gapply var_raw v_label v_index].
-  destruct (lt_dec i (ext_depth e)) as [Hb|Hb]; [reflexivity|contradiction].
-Qed.
+Proof. exact (one (@ggapply_inner term nat) rt x Kx Mx s L0 HL Hx e v H). Qed.
 
 (** With the root read directly. *)
 Definition gapply0 (x : nadj) (Kx Mx s L0 : nat) (HL : Is_true_s (Nat.eqb L0 (s + Mx)))
-  (Hx : Is_true_s (aok Kx Mx x)) : morph Kx L0 :=
-  gapply LAbs x Kx Mx s L0 HL (match x as x0 return Is_true_s (aok Kx Mx x0) -> Is_true_s (aok Kx Mx (absn LAbs x0)) with
-                                 | NAdj r es => fun H => H end Hx).
+  (Hx : Is_true_s (aok Kx Mx x)) : morph Kx L0 := one (@ggapply0 term nat) x Kx Mx s L0 HL Hx.
 
 Lemma apply_gapply0 {N M} (a : adj term N M) HL Hx : apply a = gapply0 (radj_n (adj_raw a)) N M 0 M HL Hx.
-Proof. unfold apply, gapply0; reflexivity. Qed.
-
-Lemma nnest_absn rt (x : nadj) : nnest (absn rt x) = nnest x.
-Proof. destruct x; cbn [absn]; rewrite !nnest_es; reflexivity. Qed.
-
-Lemma napply_depth_aok K M (x : nadj) v u (y : nadj) : aok K M x = true -> napply x v = inr (u, y) -> nnest y < nnest x.
-Proof.
-  intros Hx E; apply (nest_napply x v u y); [|exact E].
-  intros k e Ek; pose proof (aok_local _ _ _ Hx) as Hl; destruct x as [r es]; destruct Hl as [_ [_ [Hent _]]]; cbn [nentries] in Ek.
-  destruct (Hent k e Ek) as [Hok _]; destruct e; apply Hok.
-Qed.
-
-Lemma pay_var_wf (x : nadj) Kx Mx s L0 {K L} (e : ext Kx L0 K L) v' w :
-  aok Kx Mx x = true -> L0 = s + Mx -> wf_var Kx v' = true -> napply x v' = inl w ->
-  wf_var L (up (s + ext_depth e) w) = true.
-Proof.
-  intros Hx HL Hv Hw; pose proof (res_wf Kx Mx x v' Hx Hv) as H; rewrite Hw in H.
-  pose proof (ext_depth_L e) as HL'.
-  apply (wf_eq L ((s + ext_depth e) + Mx)); [lia|apply up_wf, H].
-Qed.
-
-Lemma pay_payload_ok (x : nadj) Kx Mx v' u ρ :
-  aok Kx Mx x = true -> wf_var Kx v' = true -> napply x v' = inr (u, ρ) -> aok (projT1 u) Mx ρ = true.
-Proof. intros Hx Hv Hw; pose proof (res_wf Kx Mx x v' Hx Hv) as H; rewrite Hw in H; exact H. Qed.
-
-Lemma outer_down_wf {Kx L0 K L} (e : ext Kx L0 K L) (v : var K) :
-  outer (ext_depth e) (var_raw v) -> wf_var Kx (down (ext_depth e) (var_raw v)) = true.
-Proof. intros H; apply (W_down e (var_raw v) (var_ok v)), H. Qed.
+Proof. unfold apply, gapply0, ggapply0; reflexivity. Qed.
 
 (** The lazy base only matters through what it denotes. *)
 Lemma gapply_abs n : forall rt x Kx Mx s L0 HL Hx, nnest x < n ->
   forall K L (e : ext Kx L0 K L) v,
   gapply rt x Kx Mx s L0 HL Hx K L e v = gapply0 (absn rt x) Kx Mx s L0 HL Hx K L e v.
-Proof.
-  induction n as [|n IH]; intros rt x Kx Mx s L0 HL Hx Hn K L e v; [lia|].
-  destruct (option_cases (v_label (var_raw v))) as [[y Hy]|Hv]
-    ; [|destruct (lt_dec (v_index (var_raw v)) (ext_depth e)) as [Hb|Hb]].
-  2: { rewrite (gapply_inner _ _ _ _ _ _ _ _ e v (W_inner e _ Hv Hb) Hv Hb); unfold gapply0;
-         rewrite (gapply_inner _ _ _ _ _ _ _ _ e v (W_inner e _ Hv Hb) Hv Hb); reflexivity. }
-  all: assert (Hout : outer (ext_depth e) (var_raw v)) by (unfold outer; intros H; first [congruence|lia]).
-  all: destruct x as [r es]; unfold gapply0; cbn [absn lcounts] in *.
-  all: pose proof (gapply_result rt (NAdj r es) Kx Mx s L0 HL Hx e v Hout) as A.
-  all: pose proof (gapply_result LAbs (absn rt (NAdj r es)) Kx Mx s L0 HL Hx e v Hout) as B.
-  all: cbn [absn lcounts] in A, B.
-  all: pose proof (Is_true_s_elim Hx) as Hx0; cbn [absn] in Hx0.
-  all: pose proof (outer_down_wf e v Hout) as Hv'.
-  all: destruct (napply (NAdj (lcounts (rt r)) es) (down (ext_depth e) (var_raw v))) as [w|[u ρ]] eqn:En;
-       [ assert (H : Is_true_s (wf_var L (up (s + ext_depth e) w)))
-           by (apply Is_true_s_intro, (pay_var_wf _ Kx Mx s L0 e (down (ext_depth e) (var_raw v)) w Hx0); [apply Nat.eqb_eq, Is_true_s_elim, HL|exact Hv'|exact En]);
-         rewrite (A H), (B H); reflexivity
-       | ].
-  all: destruct A as [Bt [ρ0 [E0 A]]], B as [Bt' [ρ1 [E1 B]]].
-  all: assert (Hρ : aok (projT1 u) Mx ρ = true) by apply (pay_payload_ok _ Kx Mx (down (ext_depth e) (var_raw v)) u ρ Hx0 Hv' En).
-  all: assert (Hd : nnest ρ < nnest (NAdj (lcounts (rt r)) es)) by apply (napply_depth_aok _ _ _ (down (ext_depth e) (var_raw v)) _ _ Hx0 En).
-  all: assert (HL' : Is_true_s (Nat.eqb L ((s + ext_depth e) + Mx))) by apply (W_HL Mx s e HL).
-  all: assert (H0 : Is_true_s (aok (projT1 u) Mx (absn (LAdd Bt) ρ0))) by (rewrite <- E0; apply Is_true_s_intro, Hρ).
-  all: assert (H1 : Is_true_s (aok (projT1 u) Mx (absn (LAdd Bt') ρ1))) by (rewrite <- E1; apply Is_true_s_intro, Hρ).
-  all: rewrite (A HL' H0), (B HL' H1); apply kleisli_ext; intros K' L' e' v'.
-  all: rewrite (IH (LAdd Bt) ρ0), (IH (LAdd Bt') ρ1);
-         [revert H0 H1; rewrite <- E0, <- E1; reflexivity
-         |rewrite E1, nnest_absn, nnest_es in Hd; rewrite nnest_es in Hn; lia
-         |rewrite E0, nnest_absn, nnest_es in Hd; rewrite nnest_es in Hn; lia].
-Qed.
+Proof. exact (one (@ggapply_abs term nat) one_pres_ext n). Qed.
 
 (** What [gapply0] computes on an input outside the binders crossed. *)
 Lemma gapply0_result x Kx Mx s L0 HL Hx {K L} (e : ext Kx L0 K L) v :
@@ -543,29 +653,22 @@ Lemma gapply0_result x Kx Mx s L0 HL Hx {K L} (e : ext Kx L0 K L) v :
   | inr (u, ρ) => forall HL' Hρ, gapply0 x Kx Mx s L0 HL Hx K L e v
                                  = kleisli (gapply0 ρ (projT1 u) Mx (s + ext_depth e) L HL' Hρ) ext_here (projT2 u)
   end.
-Proof.
-  intros Hv; destruct x as [r es]; pose proof (gapply_result LAbs (NAdj r es) Kx Mx s L0 HL Hx e v Hv) as A.
-  unfold gapply0; cbn [absn lcounts] in A |- *.
-  destruct (napply (NAdj r es) _) as [w|[u ρ]]; [exact A|].
-  destruct A as [Bt [ρ0 [-> A]]]; intros HL' Hρ; rewrite (A HL' Hρ).
-  apply kleisli_ext; intros K' L' e' v'.
-  rewrite (gapply_abs (S (nnest ρ0)) (LAdd Bt) ρ0) by lia; reflexivity.
-Qed.
+Proof. exact (one (@ggapply0_result term nat) one_pres_ext x Kx Mx s L0 HL Hx e v). Qed.
 
 Lemma gapply0_inner x Kx Mx s L0 HL Hx {K L} (e : ext Kx L0 K L) v H :
   v_label (var_raw v) = None -> v_index (var_raw v) < ext_depth e ->
   gapply0 x Kx Mx s L0 HL Hx K L e v = tvar (mk_var (var_raw v) H).
-Proof. unfold gapply0; apply gapply_inner. Qed.
+Proof. exact (one (@ggapply0_inner term nat) x Kx Mx s L0 HL Hx e v H). Qed.
 
 Lemma gapply0_var x Kx Mx s L0 HL Hx {K L} (e : ext Kx L0 K L) v w H :
   outer (ext_depth e) (var_raw v) -> napply x (down (ext_depth e) (var_raw v)) = inl w ->
   gapply0 x Kx Mx s L0 HL Hx K L e v = tvar (mk_var (up (s + ext_depth e) w) H).
-Proof. intros Hv E; pose proof (gapply0_result x Kx Mx s L0 HL Hx e v Hv) as R; rewrite E in R; apply R. Qed.
+Proof. exact (one (@ggapply0_var term nat) one_pres_ext x Kx Mx s L0 HL Hx e v w H). Qed.
 
 Lemma gapply0_pay x Kx Mx s L0 HL Hx {K L} (e : ext Kx L0 K L) v u ρ HL' Hρ :
   outer (ext_depth e) (var_raw v) -> napply x (down (ext_depth e) (var_raw v)) = inr (u, ρ) ->
   gapply0 x Kx Mx s L0 HL Hx K L e v = kleisli (gapply0 ρ (projT1 u) Mx (s + ext_depth e) L HL' Hρ) ext_here (projT2 u).
-Proof. intros Hv E; pose proof (gapply0_result x Kx Mx s L0 HL Hx e v Hv) as R; rewrite E in R; apply R. Qed.
+Proof. exact (one (@ggapply0_pay term nat) one_pres_ext x Kx Mx s L0 HL Hx e v u ρ HL' Hρ). Qed.
 
 (** The SProp arguments are irrelevant; the scope arguments only through
     their value. *)
