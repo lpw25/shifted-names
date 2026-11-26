@@ -132,8 +132,26 @@ user's function, so the mask is not repeated.
 Checked on System F (types past terms) and on a family with a sort between
 (types past terms, regions between: `tm3_commute`).
 
+## `apply` (`proto/sorts/Apply.v`)
+
+The morphism of an adjustment of one sort: its payloads are terms of the
+family at the other sorts' base scopes. It is the library's `gapply` with
+three changes: the depth is that of the sort's own `ext` in the descent; a
+variable result is built at the output scopes directly; a payload result is
+weakened along the other sorts' binders crossed (`wk`). Weakening along
+another sort is a substitution of that sort, which can only be written
+where the sorts are concrete, so `wk` is a parameter that a syntax supplies
+from its own Kleisli functions. For System F, term substitution weakens
+payloads by shifting their types (`kl_tmty` along a shift); type
+substitution has nothing to weaken. Checked by computation: instantiating
+under a type binder shifts the payload's types, and type substitution in
+terms under term and type binders.
+
 ## Still to do
 
-1. `apply` for a sort: the payloads weakened along the other sorts' binders
-   by those sorts' Kleisli functions (moving the focus to each).
+1. The laws of `apply` (identity, going under binders of its own sort and
+   of others, composition). The library proves them for `gapply` through a
+   characterisation of its results; the multi-sorted `gapply2` differs only
+   in how a variable result and a payload result are built, so the natural
+   route is one `gapply` over those two, with one set of proofs.
 2. `names` on the multi-sorted machinery.
