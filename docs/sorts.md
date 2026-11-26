@@ -93,10 +93,9 @@ kl_tmty h (rw e0 (ext_flip e1)) (kl_tm f (lw e0 e1) t)
   = kl_tm (tmap h f) (lw (ext_flip e0) e1) (kl_tmty h (rw e0 e1) t)
 ```
 
-(`lw`, `rw`: the witnesses with the type witness `e0` and the term witness
-`e1`, focused on terms and on types.)
-
-proved by the same routine induction (`commute`).
+Here `lw` and `rw` are the witnesses holding the type witness `e0` and the
+term witness `e1`, focused on terms and on types. It is proved by the same
+routine induction (`commute`).
 
 ## Still to do
 
