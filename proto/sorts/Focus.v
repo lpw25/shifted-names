@@ -14,9 +14,8 @@
 
     For the user ([What the user writes] below): [fam F K], the family at a
     zipper; [under t x], going under a binder of sort [t] (counted from the
-    left); [‹+ -›], which sorts a family inside another has, all at once;
-    [restrict s x] and [morph_in s B M F], the witness and the morphisms
-    for it, whichever sort is focused.  The sorts are concrete there, so all of them compute away.
+    left); [x‹+ -›], the witness for a family inside another, saying which
+    of the sorts (in order) it has, whichever sort is focused.  The sorts are concrete there, so all of them compute away.
     Build with
       rocq compile -R theories ShiftedNames -Q proto/sorts Proto proto/sorts/Focus.v *)
 
@@ -114,15 +113,14 @@ Definition zrestr {a b aT bT} (tl : thin a aT) (tr : thin b bT) (z : zip aT bT) 
 
 (** ** Thinnings for the user: which sorts, all at once
 
-    [‹+ -›]: of the sorts in order, keep the first, skip the second (types
-    inside terms).  Whatever sort is focused, the left part (nearest
+    A mask: of the sorts in order, which to keep ([x‹+ -›] below: keep the
+    first, skip the second; types inside terms).  Whatever sort is focused, the left part (nearest
     first) and the right part are read off it ([tl_of], [tr_of]); the
     focus is always kept. *)
 
 From Stdlib Require Import List.
 
 Declare Custom Entry sorts.
-Notation "‹ m" := m (at level 0, m custom sorts at level 2, format "‹ m").
 Notation "›" := nil (in custom sorts at level 0).
 Notation "+ m" := (cons true m) (in custom sorts at level 2, m custom sorts at level 2, format "+ m").
 Notation "- m" := (cons false m) (in custom sorts at level 2, m custom sorts at level 2, format "- m").
@@ -261,6 +259,10 @@ Definition restrict {a b} (s : mask) {B M K L} (x : fwit a b B M K L)
     : fwit (lkept s a) (rkept s a b) (zsub s B) (zsub s M) (zsub s K) (zsub s L) :=
   restrict_lr (tl_of s a) (tr_of s a b) x.
 
+(** Written after the witness: [x‹+ -›]. *)
+Notation "z ‹ m" := (zsub m z) (only printing, at level 1, left associativity, m custom sorts at level 2, format "z ‹ m").
+Notation "x ‹ m" := (restrict m x) (at level 1, left associativity, m custom sorts at level 2, format "x ‹ m").
+
 (** ** Operations of the library *)
 
 Definition fapp {a b B M K L K' L'} (x1 : fwit a b B M K L) (x2 : fwit a b K L K' L') : fwit a b B M K' L' :=
@@ -387,26 +389,27 @@ Fixpoint kl_tm {B M} (f : morph 1 0 (uncurry 2 tm) B M) {K L} (x : fwit 1 0 B M 
   end.
 
 (** Terms, focused on type variables.  Types are inside terms, over the
-    first of their sorts. *)
-Definition ty_in_tm : mask := ‹+ -›.
-
-Fixpoint kl_tmty {B M : zip 0 1} (f : morph_in ty_in_tm B M ty)
+    first of their sorts ([x‹+ -›]). *)
+Fixpoint kl_tmty {B M : zip 0 1} (f : morph 0 0 (uncurry 1 ty) _ _)
     {K L} (x : fwit 0 1 B M K L) (t : tm @ K) : tm @ out K L :=
   match t with
   | tmvar v => tmvar v
-  | lam A u => lam (kl_ty f (restrict ty_in_tm x) A) (kl_tmty f (under 1 x) u)
+  | lam A u => lam (kl_ty f x‹+ -› A) (kl_tmty f (under 1 x) u)
   | app t u => app (kl_tmty f x t) (kl_tmty f x u)
   | tlam u => tlam (kl_tmty f (under 0 x) u)
-  | tapp t A => tapp (kl_tmty f x t) (kl_ty f (restrict ty_in_tm x) A)
+  | tapp t A => tapp (kl_tmty f x t) (kl_ty f x‹+ -› A)
   end.
 
 Definition ty_k : sort_kl 0 0 (uncurry 1 ty) := fun B M f K L x A => kl_ty f x A.
 Definition tm_k : sort_kl 1 0 (uncurry 2 tm) := fun B M f K L x t => kl_tm f x t.
-Definition tmty_k : fam_kl_in 0 1 ty_in_tm (uncurry 1 ty) (uncurry 2 tm) := fun B M f K L x t => kl_tmty f x t.
+Definition tmty_k := fun (B M : zip 0 1) f K L (x : fwit 0 1 B M K L) t => kl_tmty f x t.
 
 (** ** Their laws: routine inductions *)
 
 Section Proofs.
+
+(** The mask [kl_tmty] uses, named in its laws. *)
+Let ty_in_tm : mask := true :: false :: nil.
 
 Ltac kl_ind IH := fix IH 4; intros K L x t; destruct t; cbn [kl_ty kl_tm kl_tmty].
 
@@ -556,11 +559,13 @@ Definition subst_tm {B M} (f : morph 1 0 (uncurry 2 tm) B M) (t : tm @ B) : tm @
     Three sorts, the inner family having the first and third: focused on
     any of them, the left part (nearest first) and the right part are read
     off by computation. *)
-Example mask_at_0 : tl_of ‹+ - +› 0 = tdone /\ tr_of ‹+ - +› 0 2 = tskip (tkeep tdone).
+Let keep13 : mask := true :: false :: true :: nil.
+
+Example mask_at_0 : tl_of keep13 0 = tdone /\ tr_of keep13 0 2 = tskip (tkeep tdone).
 Proof. split; reflexivity. Qed.
 
-Example mask_at_2 : tl_of ‹+ - +› 2 = tskip (tkeep tdone) /\ tr_of ‹+ - +› 2 0 = tdone.
+Example mask_at_2 : tl_of keep13 2 = tskip (tkeep tdone) /\ tr_of keep13 2 0 = tdone.
 Proof. split; reflexivity. Qed.
 
-Example zsub_at_2 (r k : nat) x : zsub ‹+ - +› (pair (pair r (pair k tt)) (pair x tt) : zip 2 0) = pair (pair k tt) (pair x tt).
+Example zsub_at_2 (r k : nat) x : zsub keep13 (pair (pair r (pair k tt)) (pair x tt) : zip 2 0) = pair (pair k tt) (pair x tt).
 Proof. reflexivity. Qed.

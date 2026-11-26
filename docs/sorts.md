@@ -25,17 +25,23 @@ Fixpoint kl_tm {B M} (f : morph 1 0 (uncurry 2 tm) B M) {K L} (x : fwit 1 0 B M 
 ```
 
 and for terms substituting type variables, where the types inside are a
-family over fewer sorts, said once for all foci:
+family over fewer sorts:
 
 ```coq
-Definition ty_in_tm : mask := ‹+ -›.      (* types have sort 0 of terms, not sort 1 *)
-
-Fixpoint kl_tmty {B M : zip 0 1} (f : morph_in ty_in_tm B M ty) {K L} (x : fwit 0 1 B M K L)
+Fixpoint kl_tmty {B M : zip 0 1} (f : morph 0 0 (uncurry 1 ty) _ _) {K L} (x : fwit 0 1 B M K L)
     (t : tm @ K) : tm @ out K L :=
   match t with
-  | lam A u => lam (kl_ty f (restrict ty_in_tm x) A) (kl_tmty f (under 1 x) u)
-  …
+  | tmvar v => tmvar v
+  | lam A u => lam (kl_ty f x‹+ -› A) (kl_tmty f (under 1 x) u)
+  | app t u => app (kl_tmty f x t) (kl_tmty f x u)
+  | tlam u => tlam (kl_tmty f (under 0 x) u)
+  | tapp t A => tapp (kl_tmty f x t) (kl_ty f x‹+ -› A)
+  end.
 ```
+
+`x‹+ -›` is the witness for the types inside: of the terms' sorts in order,
+keep the first and skip the second. `f`'s bases are left for Coq to infer
+from that use (they print as `B‹+-›`, `M‹+-›`).
 
 The helpers, all of which compute away since the sorts are concrete:
 
@@ -44,11 +50,9 @@ The helpers, all of which compute away since the sorts are concrete:
   substitution);
 * `under t x`: the witness under a binder of sort `t`, whichever sort is
   focused;
-* `‹+ - …›`: which of the sorts, in order, a family inside another has;
-* `restrict s x`, `morph_in s B M F`: the witness, and the morphisms, for a
-  family inside another over the sorts `s` keeps, whichever sort is
-  focused (the mask is split at the focus, the left part nearest first, by
-  computation);
+* `x‹+ - …›`: the witness for a family inside another, saying which of the
+  sorts, in order, it has, whichever sort is focused (split at the focus,
+  the left part nearest first, by computation);
 * `here`: the witness at the root (`kl_tm f here t`).
 
 ## A substitution is focused on its sort
