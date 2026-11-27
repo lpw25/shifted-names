@@ -4,17 +4,21 @@
     two holes ([scopes2 a c d]: the [a] sorts left of [i], nearest first;
     [i]'s scope; the [c] sorts between, in order; [j]'s scope; the [d]
     sorts right of [j]).  Seen from either hole it is a one-hole zipper
-    ([zi], [zj]), and a two-hole zipper of [ext]s is a one-hole witness
-    for either sort ([wi], [wj]); all of these are plain functions.
+    ([zi], [zj]).  The witness is a path of two-hole zippers of [ext]s
+    ([descent2]), seen from either hole step by step ([wi], [wj]); all of
+    these are plain functions.
 
     The commuting law is a class over two-hole zippers ([commute]): both
     substitutions act on the family at the two-hole zipper ([T2]), so
     nothing relates the two views.  A user registers their own two
     Kleisli functions with [from_i] and [from_j]: at their concrete
-    number of sorts both views plug to the same vector by computation.
-    The morphism mapped by the other substitution ([tmap]) is defined
-    once, from the class.  Checked on System F, the law by a routine
-    induction.  Build with
+    number of sorts both views plug to the same vector by computation,
+    and going back from [j]'s view ([unzj], [unwj]) lands on the same
+    zippers (the sorts between take their unit tail from the zipper seen
+    from).  The morphism mapped by the other substitution ([tmap]) is
+    defined once, from the class.  Checked on System F and on a syntax
+    with a sort between, the law by a routine induction
+    ([commute_proof]).  Build with
       rocq compile -R theories ShiftedNames -Q proto/sorts Proto proto/sorts/Focus.v
       rocq compile -R theories ShiftedNames -Q proto/sorts Proto proto/sorts/Commute.v *)
 
@@ -73,65 +77,97 @@ Definition outy (K L : scopes2 a c d) : scopes2 a c d := sety K (zy L).
 Definition zi (Z : scopes2 a c d) : scopes a (c + S d) := pair (zl Z) (pair (zx Z) (vapp c (S d) (zm Z) (pair (zy Z) (zr Z)))).
 Definition zj (Z : scopes2 a c d) : scopes (radd c (S a)) d := pair (rev_app c (S a) (zm Z) (pair (zx Z) (zl Z))) (pair (zy Z) (zr Z)).
 
-(** A two-hole zipper of [ext]s. *)
-Definition descent2 (B M K L : scopes2 a c d) : Type :=
+(** One step: a two-hole zipper of [ext]s. *)
+Definition step2 (B M K L : scopes2 a c d) : Type :=
   both (wit a (zl B) (zl M) (zl K) (zl L))
     (both (ext (zx B) (zx M) (zx K) (zx L))
        (both (wit c (zm B) (zm M) (zm K) (zm L))
           (both (ext (zy B) (zy M) (zy K) (zy L)) (wit d (zr B) (zr M) (zr K) (zr L))))).
 
+(** The witness: the steps gone under, in order. *)
+Notation descent2 := (path step2).
+
+Definition shere2 {B M : scopes2 a c d} : step2 B M B M :=
+  pair (whome a _ _) (pair ext_here (pair (whome c _ _) (pair ext_here (whome d _ _)))).
+
+Section Step.
+
 Context {B M K L : scopes2 a c d}.
 
-Definition ex (X : descent2 B M K L) := first (second X).
-Definition ey (X : descent2 B M K L) := first (second (second (second X))).
+Definition ex (X : step2 B M K L) := first (second X).
+Definition ey (X : step2 B M K L) := first (second (second (second X))).
 
-Definition wi (X : descent2 B M K L) : descent a (c + S d) (zi B) (zi M) (zi K) (zi L) :=
+Definition swi (X : step2 B M K L) : step a (c + S d) (zi B) (zi M) (zi K) (zi L) :=
   pair (first X) (pair (ex X) (wvapp c (S d) _ _ _ _ (pair (zy B) (zr B)) (pair (zy M) (zr M)) (pair (zy K) (zr K)) (pair (zy L) (zr L))
                                  (first (second (second X))) (second (second (second X))))).
 
-Definition wj (X : descent2 B M K L) : descent (radd c (S a)) d (zj B) (zj M) (zj K) (zj L) :=
+Definition swj (X : step2 B M K L) : step (radd c (S a)) d (zj B) (zj M) (zj K) (zj L) :=
   pair (wrev_app c (S a) _ _ _ _ (pair (zx B) (zl B)) (pair (zx M) (zl M)) (pair (zx K) (zl K)) (pair (zx L) (zl L))
           (first (second (second X))) (pair (ex X) (first X))) (second (second (second X))).
 
-(** [i]'s witness read from the other side; [j]'s. *)
-Definition flipx (X : descent2 B M K L) : descent2 (setx B (zx M)) (setx M (zx B)) (setx K (zx L)) (setx L (zx K)) :=
+Definition sflipx (X : step2 B M K L) : step2 (setx B (zx M)) (setx M (zx B)) (setx K (zx L)) (setx L (zx K)) :=
   pair (first X) (pair (ext_flip (ex X)) (second (second X))).
-Definition flipy (X : descent2 B M K L) : descent2 (sety B (zy M)) (sety M (zy B)) (sety K (zy L)) (sety L (zy K)) :=
+Definition sflipy (X : step2 B M K L) : step2 (sety B (zy M)) (sety M (zy B)) (sety K (zy L)) (sety L (zy K)) :=
   pair (first X) (pair (ex X) (pair (first (second (second X))) (pair (ext_flip (ey X)) (second (second (second (second X))))))).
 
+End Step.
+
+(** Seen from [i], from [j]: step by step. *)
+Definition wi {B M K L} (X : descent2 B M K L) : descent a (c + S d) (zi B) (zi M) (zi K) (zi L) :=
+  pmap (fun K _ => zi K) (fun _ L => zi L) (fun _ _ _ _ s => swi s) X.
+Definition wj {B M K L} (X : descent2 B M K L) : descent (radd c (S a)) d (zj B) (zj M) (zj K) (zj L) :=
+  pmap (fun K _ => zj K) (fun _ L => zj L) (fun _ _ _ _ s => swj s) X.
+
+(** [i]'s witness read from the other side; [j]'s. *)
+Definition flipx {B M K L} (X : descent2 B M K L) : descent2 (setx B (zx M)) (setx M (zx B)) (setx K (zx L)) (setx L (zx K)) :=
+  pmap (fun K L => setx K (zx L)) (fun K L => setx L (zx K)) (fun _ _ _ _ s => sflipx s) X.
+Definition flipy {B M K L} (X : descent2 B M K L) : descent2 (sety B (zy M)) (sety M (zy B)) (sety K (zy L)) (sety L (zy K)) :=
+  pmap (fun K L => sety K (zy L)) (fun K L => sety L (zy K)) (fun _ _ _ _ s => sflipy s) X.
+
 (** Under a binder of [i]'s sort, of [j]'s (for the user's proofs). *)
-Definition xunder (X : descent2 B M K L) : descent2 B M (setx K (S (zx K))) (setx L (S (zx L))) :=
-  pair (first X) (pair (ext_under (ex X)) (second (second X))).
-Definition yunder (X : descent2 B M K L) : descent2 B M (sety K (S (zy K))) (sety L (S (zy L))) :=
-  pair (first X) (pair (ex X) (pair (first (second (second X))) (pair (ext_under (ey X)) (second (second (second (second X))))))).
+Definition xstep {K L : scopes2 a c d} : step2 K L (setx K (S (zx K))) (setx L (S (zx L))) :=
+  pair (whome a _ _) (pair (ext_under ext_here) (pair (whome c _ _) (pair ext_here (whome d _ _)))).
+Definition ystep {K L : scopes2 a c d} : step2 K L (sety K (S (zy K))) (sety L (S (zy L))) :=
+  pair (whome a _ _) (pair ext_here (pair (whome c _ _) (pair (ext_under ext_here) (whome d _ _)))).
+
+Definition xunder {B M K L} (X : descent2 B M K L) : descent2 B M (setx K (S (zx K))) (setx L (S (zx L))) := psnoc X xstep.
+Definition yunder {B M K L} (X : descent2 B M K L) : descent2 B M (sety K (S (zy K))) (sety L (S (zy L))) := psnoc X ystep.
 
 End Holes.
 
-(** Back from [j]'s view (registering a user's Kleisli function for [j]). *)
-Fixpoint unzj (c : nat) : forall a d, scopes (radd c (S a)) d -> scopes2 a c d :=
-  match c with
-  | 0 => fun a d z => pair (second (zleft z)) (pair (first (zleft z)) (pair tt (second z)))
-  | S c => fun a d z =>
-      let Z := unzj c (S a) d z in
-      pair (second (zl Z)) (pair (first (zl Z)) (pair (pair (zx Z) (zm Z)) (second (second (second Z)))))
-  end.
+Notation descent2 := (path step2).
 
 (** The first sort between moved to the left of [i]'s hole: the same
     view from [j]. *)
 Definition shift {a c d} (Z : scopes2 a (S c) d) : scopes2 (S a) c d :=
   pair (pair (zx Z) (zl Z)) (pair (first (zm Z)) (pair (second (zm Z)) (second (second (second Z))))).
 
-(** A witness from [j]'s view, at the two-hole bases it was seen from. *)
-Fixpoint unwj (c : nat) : forall a d (B M : scopes2 a c d) K L, descent (radd c (S a)) d (zj B) (zj M) K L -> descent2 B M (unzj c a d K) (unzj c a d L) :=
+(** Back from [j]'s view (registering a user's Kleisli function for
+    [j]), the sorts between taking their tail from [R]. *)
+Fixpoint unzj (c : nat) : forall a d, scopes2 a c d -> scopes (radd c (S a)) d -> scopes2 a c d :=
+  match c with
+  | 0 => fun a d R z => pair (second (zleft z)) (pair (first (zleft z)) (pair (zm R) (second z)))
+  | S c => fun a d R z =>
+      let Z := unzj c (S a) d (shift R) z in
+      pair (second (zl Z)) (pair (first (zl Z)) (pair (pair (zx Z) (zm Z)) (second (second (second Z)))))
+  end.
+
+(** A step from [j]'s view, at the two-hole zippers it was seen from. *)
+Fixpoint swunj (c : nat) : forall a d (B M : scopes2 a c d) K L, step (radd c (S a)) d (zj B) (zj M) K L -> step2 B M (unzj c a d B K) (unzj c a d M L) :=
   match c with
   | 0 => fun a d B M K L x => pair (second (first x)) (pair (first (first x)) (pair tt (second x)))
   | S c => fun a d B M K L x =>
-      let X := unwj c (S a) d (shift B) (shift M) K L x in
+      let X := swunj c (S a) d (shift B) (shift M) K L x in
       pair (second (first X)) (pair (first (first X)) (pair (pair (ex X) (first (second (second X)))) (second (second (second X)))))
   end.
 
-Arguments unzj {c a d} & z.
-Arguments unwj {c a d} B M {K L} x.
+Arguments unzj {c a d} R & z.
+Arguments swunj {c a d} B M {K L} x.
+
+(** A witness from [j]'s view, at the two-hole bases it was seen from
+    (at the user's concrete sorts). *)
+Notation unwj B M x :=
+  (pmap (fun K _ => unzj B K) (fun _ L => unzj M L) (fun K L _ _ s => swunj (unzj B K) (unzj M L) s) x) (only parsing).
 
 (** ** The commuting law *)
 
@@ -179,7 +215,7 @@ Arguments commute {a c d T} p.
 (** Registering the user's Kleisli functions (one hole each). *)
 Notation from_i k := (fun B M h yb ym K L X t => k (zi (sety B yb)) (zi (sety M ym)) h _ _ (wi X) t) (only parsing).
 Notation from_j k := (fun B M f K L X t =>
-  k (zj B) (zj M) (fun K' L' x v => f (unzj K') (unzj L') (unwj B M x) v) _ _ (wj X) t) (only parsing).
+  k (zj B) (zj M) (fun K' L' x v => f (unzj B K') (unzj M L') (unwj B M x) v) _ _ (wj X) t) (only parsing).
 (** Sorts [i] and [j] of [n], with the user's Kleisli functions for them. *)
 (** [i]'s morphisms are read off the user's function (its first argument
     at [j]'s bases 0, which it does not see). *)
@@ -195,21 +231,26 @@ Definition setl {a c d} (Z : scopes2 a c d) (l : vec a) : scopes2 a c d := pair 
 Definition setm {a c d} (Z : scopes2 a c d) (m : vec c) : scopes2 a c d := pair (zl Z) (pair (zx Z) (pair m (second (second (second Z))))).
 Definition setr {a c d} (Z : scopes2 a c d) (r : vec d) : scopes2 a c d := pair (zl Z) (pair (zx Z) (pair (zm Z) (pair (zy Z) r))).
 
-Definition lunder {a c d} p {B M K L : scopes2 a c d} (X : descent2 B M K L)
-    : descent2 B M (setl K (upd a p (S (get a p (zl K))) (zl K))) (setl L (upd a p (S (get a p (zl L))) (zl L))) :=
-  pair (wunder a p _ _ _ _ (first X)) (second X).
-Definition munder {a c d} p {B M K L : scopes2 a c d} (X : descent2 B M K L)
-    : descent2 B M (setm K (upd c p (S (get c p (zm K))) (zm K))) (setm L (upd c p (S (get c p (zm L))) (zm L))) :=
-  pair (first X) (pair (ex X) (pair (wunder c p _ _ _ _ (first (second (second X)))) (second (second (second X))))).
-Definition runder {a c d} p {B M K L : scopes2 a c d} (X : descent2 B M K L)
-    : descent2 B M (setr K (upd d p (S (get d p (zr K))) (zr K))) (setr L (upd d p (S (get d p (zr L))) (zr L))) :=
-  pair (first X) (pair (ex X) (pair (first (second (second X))) (pair (ey X) (wunder d p _ _ _ _ (second (second (second (second X)))))))).
+Definition lstep {a c d} p {K L : scopes2 a c d}
+    : step2 K L (setl K (upd a p (S (get a p (zl K))) (zl K))) (setl L (upd a p (S (get a p (zl L))) (zl L))) :=
+  pair (wunder a p _ _ _ _ (whome a (zl K) (zl L))) (second (@shere2 a c d K L)).
+Definition mstep {a c d} p {K L : scopes2 a c d}
+    : step2 K L (setm K (upd c p (S (get c p (zm K))) (zm K))) (setm L (upd c p (S (get c p (zm L))) (zm L))) :=
+  pair (whome a _ _) (pair ext_here (pair (wunder c p _ _ _ _ (whome c (zm K) (zm L))) (second (second (second (@shere2 a c d K L)))))).
+Definition rstep {a c d} p {K L : scopes2 a c d}
+    : step2 K L (setr K (upd d p (S (get d p (zr K))) (zr K))) (setr L (upd d p (S (get d p (zr L))) (zr L))) :=
+  pair (whome a _ _) (pair ext_here (pair (whome c _ _) (pair ext_here (wunder d p _ _ _ _ (whome d (zr K) (zr L)))))).
 
-(** The law's proof: by recursion on the term; at a variable the views
-    are unfolded; under a binder, the witness goes under. *)
-Ltac commute_var :=
-  cbv [tmap flipx flipy wj wi ex ey shift setx sety outx outy];
-  cbn [first second unwj wrev_app wvapp];
+Definition lunder {a c d} p {B M K L : scopes2 a c d} (X : descent2 B M K L) := psnoc X (lstep p).
+Definition munder {a c d} p {B M K L : scopes2 a c d} (X : descent2 B M K L) := psnoc X (mstep p).
+Definition runder {a c d} p {B M K L : scopes2 a c d} (X : descent2 B M K L) := psnoc X (rstep p).
+
+(** Two paths over the descent [X], equal step by step. *)
+Ltac path_eq X :=
+  clear - X; unfold wi, wj, flipx, flipy, restrict, restrict_lr;
+  induction X as [|? ? ? ? X IHX s]; cbn [pmap]; [reflexivity|rewrite IHX; f_equal];
+  cbv [swi swj sflipx sflipy ex ey shift setx sety zi zj zl zx zm zy zr srestrict_lr];
+  cbn [first second swunj unzj wrev_app wvapp wrestr];
   rewrite ?ext_flip_flip; reflexivity.
 
 Ltac commute_ih IH X :=
@@ -218,11 +259,14 @@ Ltac commute_ih IH X :=
         | exact (IH _ _ (lunder 0 X) _) | exact (IH _ _ (lunder 1 X) _) | exact (IH _ _ (lunder 2 X) _)
         | exact (IH _ _ (runder 0 X) _) | exact (IH _ _ (runder 1 X) _) | exact (IH _ _ (runder 2 X) _) ].
 
+(** The law's proof: by recursion on the term.  At a variable, and at a
+    family inside, the two sides' witnesses are the same step by step;
+    under a binder, the witness goes under. *)
 Ltac commute_proof :=
   let IH := fresh "IH" in let X := fresh "X" in let t := fresh "t" in
-  constructor; intros ? ? ? ?; cbn;
-  fix IH 4; intros ? ? X t; destruct t; cbn;
-  first [ commute_var | f_equal; try reflexivity; commute_ih IH X ].
+  constructor; intros ? ? ? ?; cbn -[unzj pmap];
+  fix IH 4; intros ? ? X t; destruct t; cbn -[unzj pmap];
+  f_equal; first [ reflexivity | commute_ih IH X | path_eq X | f_equal; path_eq X ].
 
 (** ** System F: types (sort 0) past terms (sort 1) *)
 

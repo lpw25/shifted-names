@@ -3,10 +3,11 @@
     Substituting sort [i] of a family over [a + 1 + b] sorts, the scopes
     are a zipper ([scopes a b]): the sorts to the left of [i] (nearest
     first), [i]'s scope (the focus), and the sorts to the right.  The
-    family is at the zipper plugged back ([plug]).  The witness is a
-    zipper of [ext]s ([descent]): the focus's input and output scopes, and for
-    each other sort its scope and the one on the other side of a
-    substitution of it.  A Kleisli function goes from the input zipper to
+    family is at the zipper plugged back ([plug]).  The witness
+    ([descent]) is a path of steps, in the order the binders were gone
+    under; a step is a zipper of [ext]s: the focus's input and output
+    scopes, and for each other sort its scope and the one on the other
+    side of a substitution of it.  A Kleisli function goes from the input zipper to
     the same zipper with the focus's output scope ([out]): the other sorts
     are the same on both sides, so nothing containing only them is
     visited.  Nothing is cut out of a vector or put back, so there are no
@@ -16,6 +17,7 @@
     zipper; [under t x], going under a binder of sort [t] (counted from the
     left); [x‹+ -›], the witness for a family inside another, saying which
     of the sorts (in order) it has, whichever sort is focused.  The sorts are concrete there, so all of them compute away.
+    The laws of a Kleisli function are one tactic call ([laws_proof]).
     Build with
       rocq compile -R theories ShiftedNames -Q proto/sorts Proto proto/sorts/Focus.v *)
 
@@ -258,39 +260,60 @@ Definition sleft {a b B M K L} Mi (x : step a b B M K L) : step a b B (refocus M
 Definition sright {a b B M K L} Mi (x : step a b B M K L) : step a b (refocus B Mi) M (refocus K (smid Mi x)) L :=
   swith_main _ _ _ _ x (ext_right Mi (smain x)).
 
-(** A descent: the steps gone under, in order. *)
-Inductive descent (a b : nat) (B M : scopes a b) : scopes a b -> scopes a b -> Type :=
-| dnil : descent a b B M B M
-| dsnoc {K L K' L'} : descent a b B M K L -> step a b K L K' L' -> descent a b B M K' L'.
+(** A path of steps, in order. *)
+Inductive path {Z : Type} (St : Z -> Z -> Z -> Z -> Type) (B M : Z) : Z -> Z -> Type :=
+| pnil : path St B M B M
+| psnoc {K L K' L'} : path St B M K L -> St K L K' L' -> path St B M K' L'.
 
-Arguments dnil {a b B M}.
-Arguments dsnoc {a b B M K L K' L'} x s.
+Arguments pnil {Z St B M}.
+Arguments psnoc {Z St B M K L K' L'} x s.
+
+(** One path after another. *)
+Fixpoint papp {Z St} {B M K L K' L' : Z} (x1 : path St B M K L) (x2 : path St K L K' L') : path St B M K' L' :=
+  match x2 in path _ _ _ K0 L0 return path St B M K0 L0 with
+  | pnil => x1
+  | psnoc x2 s => psnoc (papp x1 x2) s
+  end.
+
+(** Step by step, the scopes mapped. *)
+Fixpoint pmap {Z Z' St St'} (gK gL : Z -> Z -> Z')
+    (h : forall K L K' L', St K L K' L' -> St' (gK K L) (gL K L) (gK K' L') (gL K' L')) {B M K L}
+    (x : path St B M K L) : path St' (gK B M) (gL B M) (gK K L) (gL K L) :=
+  match x in path _ _ _ K0 L0 return path St' (gK B M) (gL B M) (gK K0 L0) (gL K0 L0) with
+  | pnil => pnil
+  | psnoc x s => psnoc (pmap gK gL h x) (h _ _ _ _ s)
+  end.
+
+Lemma pmap_papp {Z Z' : Type} {St : Z -> Z -> Z -> Z -> Type} {St' : Z' -> Z' -> Z' -> Z' -> Type} gK gL h
+    {B M K L K' L' : Z} (x1 : path St B M K L) (x2 : path St K L K' L') :
+  pmap (St' := St') gK gL h (papp x1 x2) = papp (pmap gK gL h x1) (pmap gK gL h x2).
+Proof. induction x2; cbn; [reflexivity|rewrite IHx2; reflexivity]. Qed.
+
+(** A descent: the steps gone under, in order. *)
+Notation descent a b := (path (step a b)).
 
 (** The focused sort's [ext] over the whole descent. *)
 Fixpoint main {a b B M K L} (x : descent a b B M K L) : ext (focus B) (focus M) (focus K) (focus L) :=
-  match x in descent _ _ _ _ K0 L0 return ext (focus B) (focus M) (focus K0) (focus L0) with
-  | dnil => ext_here
-  | dsnoc x s => ext_app (main x) (smain s)
+  match x in path _ _ _ K0 L0 return ext (focus B) (focus M) (focus K0) (focus L0) with
+  | pnil => ext_here
+  | psnoc x s => ext_app (main x) (smain s)
   end.
 
 (** ** What the user writes *)
 
 (** At the root: nothing gone under. *)
-Definition here {a b} {B M : scopes a b} : descent a b B M B M := dnil.
+Definition here {a b} {B M : scopes a b} : descent a b B M B M := pnil.
 
 (** Under a binder of sort [t]. *)
 Definition under {a b} (t : nat) {B M K L} (x : descent a b B M K L) : descent a b B M (zup t K) (zup t L) :=
-  dsnoc x (sunder t shere).
+  psnoc x (sunder t shere).
 
 (** The part for a family inside another, over some of the sorts on each
     side ([tl] on the left, nearest first; [tr] on the right): step by
     step. *)
-Fixpoint restrict_lr {a b aT bT} (tl : thin a aT) (tr : thin b bT) {B M K L} (x : descent aT bT B M K L)
+Definition restrict_lr {a b aT bT} (tl : thin a aT) (tr : thin b bT) {B M K L} (x : descent aT bT B M K L)
     : descent a b (zrestr tl tr B) (zrestr tl tr M) (zrestr tl tr K) (zrestr tl tr L) :=
-  match x in descent _ _ _ _ K0 L0 return descent a b (zrestr tl tr B) (zrestr tl tr M) (zrestr tl tr K0) (zrestr tl tr L0) with
-  | dnil => dnil
-  | dsnoc x s => dsnoc (restrict_lr tl tr x) (srestrict_lr tl tr s)
-  end.
+  pmap (fun K _ => zrestr tl tr K) (fun _ L => zrestr tl tr L) (fun _ _ _ _ s => srestrict_lr tl tr s) x.
 
 (** The witness for a family inside another, over the sorts [s] keeps. *)
 Definition restrict {a b} (s : mask) {B M K L} (x : descent a b B M K L)
@@ -304,36 +327,33 @@ Notation "x ‹ m" := (restrict m x) (at level 1, left associativity, m custom s
 (** ** Operations of the library *)
 
 (** Composing (rebase): one descent after another. *)
-Fixpoint fapp {a b B M K L K' L'} (x1 : descent a b B M K L) (x2 : descent a b K L K' L') : descent a b B M K' L' :=
-  match x2 in descent _ _ _ _ K0 L0 return descent a b B M K0 L0 with
-  | dnil => x1
-  | dsnoc x2 s => dsnoc (fapp x1 x2) s
-  end.
+Definition fapp {a b} {B M K L K' L' : scopes a b} (x1 : descent a b B M K L) (x2 : descent a b K L K' L') : descent a b B M K' L' :=
+  papp x1 x2.
 
 (** Through a middle base [Mi] of the focus (assoc): step by step. *)
 Fixpoint fmid {a b B M K L} Mi (x : descent a b B M K L) : nat :=
   match x with
-  | dnil => Mi
-  | dsnoc x s => smid (fmid Mi x) s
+  | pnil => Mi
+  | psnoc x s => smid (fmid Mi x) s
   end.
 
 Fixpoint fleft {a b B M K L} Mi (x : descent a b B M K L) : descent a b B (refocus M Mi) K (refocus L (fmid Mi x)) :=
-  match x in descent _ _ _ _ K0 L0 return descent a b B (refocus M Mi) K0 (refocus L0 (fmid Mi x)) with
-  | dnil => dnil
-  | dsnoc x s => dsnoc (fleft Mi x) (sleft (fmid Mi x) s)
+  match x in path _ _ _ K0 L0 return descent a b B (refocus M Mi) K0 (refocus L0 (fmid Mi x)) with
+  | pnil => pnil
+  | psnoc x s => psnoc (fleft Mi x) (sleft (fmid Mi x) s)
   end.
 
 Fixpoint fright {a b B M K L} Mi (x : descent a b B M K L) : descent a b (refocus B Mi) M (refocus K (fmid Mi x)) L :=
-  match x in descent _ _ _ _ K0 L0 return descent a b (refocus B Mi) M (refocus K0 (fmid Mi x)) L0 with
-  | dnil => dnil
-  | dsnoc x s => dsnoc (fright Mi x) (sright (fmid Mi x) s)
+  match x in path _ _ _ K0 L0 return descent a b (refocus B Mi) M (refocus K0 (fmid Mi x)) L0 with
+  | pnil => pnil
+  | psnoc x s => psnoc (fright Mi x) (sright (fmid Mi x) s)
   end.
 
 (** Restricting commutes with composing. *)
 Lemma restrict_lr_fapp {a b aT bT} (tl : thin a aT) (tr : thin b bT) {B M K L K' L'}
     (x1 : descent aT bT B M K L) (x2 : descent aT bT K L K' L') :
   restrict_lr tl tr (fapp x1 x2) = fapp (restrict_lr tl tr x1) (restrict_lr tl tr x2).
-Proof. induction x2; cbn; [reflexivity|rewrite IHx2; reflexivity]. Qed.
+Proof. exact (pmap_papp _ _ _ x1 x2). Qed.
 
 (** Restricting commutes with splitting: the two halves and their middle
     scope, as a dependent pair. *)
@@ -349,7 +369,7 @@ Proof.
                     let (m, pr) := p in
                     existT (fun m => (descent a b (zrestr tl tr B) (refocus (zrestr tl tr M) Mi) (zrestr tl tr K') (refocus (zrestr tl tr L') m)
                                       * descent a b (refocus (zrestr tl tr B) Mi) (zrestr tl tr M) (refocus (zrestr tl tr K') m) (zrestr tl tr L'))%type)
-                      (smid m s) (dsnoc (fst pr) (srestrict_lr tl tr (sleft m s)), dsnoc (snd pr) (srestrict_lr tl tr (sright m s)))) IH).
+                      (smid m s) (psnoc (fst pr) (srestrict_lr tl tr (sleft m s)), psnoc (snd pr) (srestrict_lr tl tr (sright m s)))) IH).
 Qed.
 
 (** ** Morphisms, Kleisli functions and their laws *)

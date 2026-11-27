@@ -8,7 +8,7 @@ Proto proto/sorts/Focus.v`). Nothing in the library uses it yet.
 ## What the user writes
 
 Their own curried families, with plain constructors, one Kleisli function
-per family and sort, and the laws (routine inductions). Sorts are counted
+per family and sort, and the laws (one tactic call each). Sorts are counted
 from the left (System F: types 0, terms 1). For terms, substituting term
 variables:
 
@@ -63,21 +63,26 @@ to the left of `i` (nearest first), `i`'s scope (the focus), and the `b`
 sorts to the right; the family is at the zipper plugged back (`plug`,
 putting the left part back onto the right one sort at a time).
 
-The witness is a zipper of `ext`s (`descent a b B M K L`): the focus's input
-and output scopes, and for each other sort its scope and the one on the
-other side of a substitution of it. A Kleisli function goes from `K` to
-`out K L`, `K` with the focus's output scope: the other sorts are the same
-on both sides, so nothing containing only them is visited.
+The witness (`descent a b B M K L`) is a path of steps, in the order the
+binders were gone under; a step is a zipper of `ext`s (`step a b B M K L`):
+the focus's input and output scopes, and for each other sort its scope and
+the one on the other side of a substitution of it. `under t x` adds a step
+with one binder of sort `t`. A Kleisli function goes from `K` to `out K L`,
+`K` with the focus's output scope: the other sorts are the same on both
+sides, so nothing containing only them is visited.
 
-The focus is at a fixed place in the zipper, read by a projection, so
+The order of binders of different sorts is kept, so nothing relies on
+binders of different sorts commuting (weakening a payload in `apply`
+follows it, below).
+
+The focus is at a fixed place in each step, read by a projection, so
 nothing is cut out of a vector or put back, and there are no casts:
 
-* composing witnesses (rebase) is componentwise; splitting through a
-  middle scope (assoc) is on the focus alone;
+* composing witnesses (rebase) is appending paths; splitting through a
+  middle scope (assoc) is on the focus alone, step by step;
 * a family inside another is focused on the same sort, over thinnings of
-  each side; its morphism sees its part of the witness, componentwise;
-* the order of binders of different sorts is not recorded, so it needs no
-  law;
+  each side; its witness is the restriction of each step (a `pmap` over
+  the path);
 * moving the focus one sort along leaves the plugged vector the same by
   computation (`plug_right1`, `reflexivity` for any number of sorts).
 
@@ -90,17 +95,29 @@ fam_kl a b P tl tr T := … (f : morph a b P (zrestr tl tr B) (zrestr tl tr M)) 
   T (plug K) -> T (plug (out K L))
 ```
 
-Laws, per family and sort: `var`, `ext`, `rebase`, `unit`, `assoc`; all
-routine inductions for System F (`ty_laws`, `tm_laws`, `tmty_laws`).
+Laws, per family and sort: `var`, `ext`, `rebase`, `unit`, `assoc`. Each is
+an induction on the term, every case of which is the induction hypothesis
+(at the same witness or one more binder down), the carrier's law through
+the restriction (`rebase_restrict`, `unit_restrict`, `assoc_restrict`), or
+computation; one library tactic does all of them, so the user writes
+
+```coq
+Theorem ty_laws : sort_laws 0 0 (uncurry 1 ty) (fun K v => tyvar v) ty_k.
+Proof. laws_proof. Qed.
+Theorem tmty_laws : fam_laws 0 0 (uncurry 1 ty) (fun K v => tyvar v) ty_k
+    (tl_of (true :: false :: nil) 0) (tr_of (true :: false :: nil) 0 1) (uncurry 2 tm) tmty_k.
+Proof. laws_proof using ty_laws. Qed.
+```
 
 ## Moving a substitution of one sort past one of another (`proto/sorts/Commute.v`)
 
 Two sorts `i` left of `j` are two foci at once: a zipper with two holes
 (`scopes2 a c d`: the `a` sorts left of `i`, `i`, the `c` sorts between, `j`,
 the `d` sorts right of `j`). Seen from either hole it is a one-hole zipper
-(`zi`, `zj`), and a two-hole zipper of `ext`s is a witness for either sort
-(`wi`, `wj`); each substitution sees the other's `ext` read from the side it
-is on (`flipx`, `flipy`). All of these are plain functions.
+(`zi`, `zj`). The witness is a path of two-hole zippers of `ext`s
+(`descent2`), a witness for either sort step by step (`wi`, `wj`); each
+substitution sees the other's `ext` read from the side it is on (`flipx`,
+`flipy`). All of these are plain functions (maps over the path).
 
 The two views plug to the same vector by computation only for a concrete
 number of sorts between (for an abstract `c` even the vectors' lengths
@@ -117,8 +134,9 @@ Record commute kx ky := {
 
 The user registers their own two Kleisli functions, naming the two sorts
 (sorts 0 and 1 of 2), and the law's proof is a library tactic (recursion on
-the term; at a variable the views are unfolded, under a binder the witness
-goes under):
+the term; at a variable, and at a family inside, the two sides' witnesses
+are the same step by step, by induction on the path; under a binder the
+witness goes under):
 
 ```coq
 Definition tm_types_terms := register 2 0 1 (uncurry 2 tm) (@kl_tmty) (@kl_tm).
@@ -127,7 +145,10 @@ Proof. commute_proof. Qed.
 ```
 
 `register` reads the morphisms of the first sort's substitution off the
-user's function, so the mask is not repeated.
+user's function, so the mask is not repeated. Going back from `j`'s view
+(`unzj`, `unwj`) rebuilds the sorts between, whose vector ends in a unit
+tail with no eta; the tail is taken from the zipper seen from, so the
+result is the same zipper by computation.
 
 Checked on System F (types past terms) and on a family with a sort between
 (types past terms, regions between: `tm3_commute`).
@@ -137,25 +158,39 @@ Checked on System F (types past terms) and on a family with a sort between
 The morphism of an adjustment of one sort: its payloads are terms of the
 family at the other sorts' base scopes. It is the library's `ggapply`
 (`gapply` over any descent and results, characterised once in `Subst.v`)
-with: the depth is that of the sort's own `ext` in the descent; a
-variable result is built at the output scopes directly; a payload result is
-weakened along the other sorts' binders crossed (`wk`). Weakening along
-another sort is a substitution of that sort, which can only be written
-where the sorts are concrete, so `wk` is a parameter that a syntax supplies
-from its own Kleisli functions. For System F, term substitution weakens
-payloads by shifting their types (`kl_tmty` along a shift); type
-substitution has nothing to weaken. Checked by computation: instantiating
-under a type binder shifts the payload's types, and type substitution in
-terms under term and type binders. Proved from the generic
+with: the depth is that of the sort's own `ext` in the descent (`main`,
+folded over the steps); a variable result is built at the output scopes
+directly; a payload result is weakened along the other sorts' binders
+crossed, step by step in the descent's order (`wk`, a fold of `wks`).
+
+Weakening along one step is a substitution of the other sort by a shift.
+Both pieces come from what the user already wrote: the shift is a
+morphism built from that sort's `tvar` (`shift_m`), and the substitution
+is the user's own Kleisli function for it, taken from the registration of
+the two sorts (`weaken_x`):
+
+```coq
+Definition wks_tm : forall K L K' L' (s : step 1 0 K L K' L') k, tm @ refocus K k -> tm @ refocus K' k :=
+  weaken_x tm_types_terms (fun K v => tyvar v).
+```
+
+Type substitution has nothing to weaken. Checked by computation:
+instantiating under a type binder shifts the payload's types, and type
+substitution in terms under term and type binders. Proved from the generic
 characterisation: the identity adjustment is the identity morphism, and
 substituting by it is the identity (`apply2_identity`, `subst2_identity`);
-going under a binder of the sort is substituting by the lifted adjustment
-(`kp_apply2_under`, given that weakening does not see the sort's own
-binders, `wk_lift`; for System F `tm_apply_under`).
+going under a binder of the sort at the root is substituting by the lifted
+adjustment (`kp_apply2_lift`, given that weakening along a step with only
+the sort's own binder is the identity, `wks_focus`; for System F
+`tm_apply_lift`, whose `wks_focus` is the unit law of `kl_tmty` since a
+shift by none is the unit, `shift_m_0`).
 
 ## Still to do
 
 1. The other laws of `apply`: going under a binder of another sort
    (payloads weakened; `PMap`'s lemma generalised to `ggapply`), and
    composition (`Subst.v`'s composition section generalised likewise).
-2. `names` on the multi-sorted machinery.
+2. Weakening along a step for families with more than two sorts: one
+   `weaken_x` per other sort, in turn (`weaken_x` updates only its own
+   sort's scope).
+3. `names` on the multi-sorted machinery.
