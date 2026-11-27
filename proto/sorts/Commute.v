@@ -291,7 +291,7 @@ Arguments rlam3 {N R K} b.
 Arguments tlam3 {N R K} b.
 
 (** The user's two Kleisli functions. *)
-Fixpoint kl_tm3 {B M} (f : morph 2 0 (uncurry 3 tm3) B M) {K L} (x : descent 2 0 B M K L) (t : tm3 @ K) : tm3 @ out K L :=
+Fixpoint kl_tm3 {B M} (f : morph 2 0 tm3 B M) {K L} (x : descent 2 0 B M K L) (t : tm3 @ K) : tm3 @ out K L :=
   match t with
   | var3 v => f K L x v
   | lam3 A u => lam3 A (kl_tm3 f (under 2 x) u)
@@ -300,7 +300,7 @@ Fixpoint kl_tm3 {B M} (f : morph 2 0 (uncurry 3 tm3) B M) {K L} (x : descent 2 0
   | tlam3 u => tlam3 (kl_tm3 f (under 0 x) u)
   end.
 
-Fixpoint kl_tm3ty {B M : scopes 0 2} (f : morph 0 0 (uncurry 1 ty) _ _) {K L} (x : descent 0 2 B M K L) (t : tm3 @ K) : tm3 @ out K L :=
+Fixpoint kl_tm3ty {B M : scopes 0 2} (f : morph 0 0 ty _ _) {K L} (x : descent 0 2 B M K L) (t : tm3 @ K) : tm3 @ out K L :=
   match t with
   | var3 v => var3 v
   | lam3 A u => lam3 (kl_ty f x‹+ - -› A) (kl_tm3ty f (under 2 x) u)

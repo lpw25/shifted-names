@@ -8,12 +8,12 @@ Proto proto/sorts/Focus.v`). Nothing in the library uses it yet.
 ## What the user writes
 
 Their own curried families, with plain constructors, one Kleisli function
-per family and sort, and the laws (one tactic call each). Sorts are counted
+per family and sort, and the laws (each by induction on the term). Sorts are counted
 from the left (System F: types 0, terms 1). For terms, substituting term
 variables:
 
 ```coq
-Fixpoint kl_tm {B M} (f : morph 1 0 (uncurry 2 tm) B M) {K L} (x : descent 1 0 B M K L)
+Fixpoint kl_tm {B M} (f : morph 1 0 tm B M) {K L} (x : descent 1 0 B M K L)
     (t : tm @ K) : tm @ out K L :=
   match t with
   | tmvar v => f K L x v
@@ -28,7 +28,7 @@ and for terms substituting type variables, where the types inside are a
 family over fewer sorts:
 
 ```coq
-Fixpoint kl_tmty {B M : scopes 0 1} (f : morph 0 0 (uncurry 1 ty) _ _) {K L} (x : descent 0 1 B M K L)
+Fixpoint kl_tmty {B M : scopes 0 1} (f : morph 0 0 ty _ _) {K L} (x : descent 0 1 B M K L)
     (t : tm @ K) : tm @ out K L :=
   match t with
   | tmvar v => tmvar v
@@ -89,25 +89,46 @@ nothing is cut out of a vector or put back, and there are no casts:
 ## Morphisms, Kleisli functions, laws
 
 ```coq
-morph a b P B M := forall K L, descent a b B M K L -> var (focus K) -> P (plug (out K L))
-sort_kl a b P := … (f : morph a b P B M) … (x : descent a b B M K L), P (plug K) -> P (plug (out K L))
-fam_kl a b P tl tr T := … (f : morph a b P (zrestr tl tr B) (zrestr tl tr M)) … (x : descent aT bT B M K L),
-  T (plug K) -> T (plug (out K L))
+morph a b F B M := forall K L, descent a b B M K L -> var (focus K) -> F @ out K L
+sort_kl a b F := … (f : morph a b F B M) … (x : descent a b B M K L), F @ K -> F @ out K L
+fam_kl a b F tl tr T := … (f : morph a b F (zrestr tl tr B) (zrestr tl tr M)) … (x : descent aT bT B M K L),
+  T @ K -> T @ out K L
 ```
+
+`F` is the user's own family (`ty`, `tm`), and the user's Kleisli function
+itself (`@kl_ty`) is the `sort_kl`.
 
 Laws, per family and sort: `var`, `ext`, `rebase`, `unit`, `assoc`. Each is
-an induction on the term, every case of which is the induction hypothesis
-(at the same witness or one more binder down), the carrier's law through
-the restriction (`rebase_restrict`, `unit_restrict`, `assoc_restrict`), or
-computation; one library tactic does all of them, so the user writes
+stated over the term's scope, the term, then the output scope and the
+witness (which vary under a binder), the scopes one sort at a time
+(`sall`), so that at concrete sorts the term's indices are variables.
+Unit is over `descent B B K K` (the other sorts the same on both sides);
+rebase is `kp (rebase_m x1 f) x t = kp f (fapp x1 x) t`. Each is then an
+induction on the term:
 
 ```coq
-Theorem ty_laws : sort_laws 0 0 (uncurry 1 ty) (fun K v => tyvar v) ty_k.
-Proof. laws_proof. Qed.
-Theorem tmty_laws : fam_laws 0 0 (uncurry 1 ty) (fun K v => tyvar v) ty_k
-    (tl_of (true :: false :: nil) 0) (tr_of (true :: false :: nil) 0 1) (uncurry 2 tm) tmty_k.
-Proof. laws_proof using ty_laws. Qed.
+Theorem ty_laws : sort_laws 0 0 ty (fun K v => tyvar v) (@kl_ty).
+Proof. split; try reflexivity; intros until t; cbn in t; induction t; cbn in *; intros; f_equal; easy. Qed.
+
+Theorem tmty_laws : fam_laws 0 1 (true :: false :: nil) ty (fun K v => tyvar v) (@kl_ty) tm (@kl_tmty).
+Proof.
+  split; intros until t; cbn in t; induction t; cbn in *; intros; f_equal;
+    eauto using ty_laws, kp_ext, kp_unit, rebase_restrict, assoc_restrict.
+Qed.
 ```
+
+`cbn in t` turns the term's type `ty @ K` into `ty k`, so that `induction`
+sees a variable index. Every case is the induction hypothesis (at the same
+witness or one more binder down) or computation. A family's laws also use
+its carrier's where it calls the carrier's Kleisli function: ext and unit
+directly, rebase and assoc through the restriction (`rebase_restrict`,
+`assoc_restrict`: restricting a path commutes with appending and splitting
+it, by induction on the path). `var` is a primitive record, so the unit
+law's variable case holds by computation.
+
+Three `Arguments` declarations keep what `cbn` leaves the same in the goal
+and the induction hypothesis: `refocus` and `fam` unfold on a concrete
+zipper (`!z … /`), and `out` stays folded.
 
 ## Moving a substitution of one sort past one of another (`proto/sorts/Commute.v`)
 
@@ -171,7 +192,7 @@ the two sorts (`weaken_x`):
 
 ```coq
 Definition wks_tm : forall K L K' L' (s : step 1 0 K L K' L') k, tm @ refocus K k -> tm @ refocus K' k :=
-  weaken_x tm_types_terms (fun K v => tyvar v).
+  weaken_x tm_types_terms ty (fun K v => tyvar v).
 ```
 
 Type substitution has nothing to weaken. Checked by computation:

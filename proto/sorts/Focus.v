@@ -13,11 +13,11 @@
     visited.  Nothing is cut out of a vector or put back, so there are no
     casts.
 
-    For the user ([What the user writes] below): [fam F K], the family at a
+    For the user ([What the user writes] below): [F @ K], the family at a
     zipper; [under t x], going under a binder of sort [t] (counted from the
     left); [x‹+ -›], the witness for a family inside another, saying which
     of the sorts (in order) it has, whichever sort is focused.  The sorts are concrete there, so all of them compute away.
-    The laws of a Kleisli function are one tactic call ([laws_proof]).
+    The laws of a Kleisli function are proved by induction on the term.
     Build with
       rocq compile -R theories ShiftedNames -Q proto/sorts Proto proto/sorts/Focus.v *)
 
@@ -70,9 +70,15 @@ Definition plug {a b} (z : scopes a b) : vec (radd a (S b)) := rev_app a (S b) (
 
 (** The zipper [K] with [L]'s focus. *)
 Definition out {a b} (K L : scopes a b) : scopes a b := pair (zleft K) (pair (focus L) (zright K)).
+(** Kept as is by [cbn]: it appears in the types of Kleisli functions'
+    results, which then stay as the user wrote them. *)
+Arguments out : simpl never.
 
 (** The zipper [z] with focus [k]. *)
 Definition refocus {a b} (z : scopes a b) (k : nat) : scopes a b := pair (zleft z) (pair k (zright z)).
+(** Unfolded by [cbn] on a concrete zipper: a scope under a binder is
+    then the plain zipper the induction hypothesis has. *)
+Arguments refocus {a b} !z k /.
 
 (** Moving the focus one sort to the right: the same vector, by
     computation, whatever the number of sorts. *)
@@ -95,6 +101,9 @@ Fixpoint uncurry (n : nat) : arity n -> vec n -> Type :=
 (** The user's family at a zipper. *)
 Definition fam {a b} (K : scopes a b) (F : arity (radd a (S b))) : Type := uncurry _ F (plug K).
 Notation "F @ K" := (fam K F) (at level 11, K at level 10, no associativity).
+(** Unfolded by [cbn] on a concrete zipper (a term's type, to [ty k]), not
+    on [out K L] (a result's type). *)
+Arguments fam {a b} !K F /.
 
 (** Some of [n] sorts, in order. *)
 Inductive thin : nat -> nat -> Type :=
@@ -146,9 +155,11 @@ Fixpoint tl_of (s : mask) (a : nat) : thin (lkept s a) a :=
       end
   end.
 
+
 (** The same for the [b] sorts right of the focus at [a]. *)
 Fixpoint rkept (s : mask) (a b : nat) : nat :=
   match b with 0 => 0 | S b => if nthb (S a) s then S (rkept s (S a) b) else rkept s (S a) b end.
+
 
 Fixpoint tr_of (s : mask) (a b : nat) : thin (rkept s a b) b :=
   match b as b0 return thin (rkept s a b0) b0 with
@@ -374,164 +385,175 @@ Qed.
 
 (** ** Morphisms, Kleisli functions and their laws *)
 
+(** Quantifying over the scopes one sort at a time: at concrete sorts it
+    computes to [forall] over numbers, so a law's term is indexed by
+    variables and can be proved by [induction]. *)
+Fixpoint vall (n : nat) : (vec n -> Prop) -> Prop :=
+  match n with 0 => fun Q => Q tt | S n => fun Q => forall k : nat, vall n (fun v => Q (pair k v)) end.
+
+Definition sall {a b} (Q : scopes a b -> Prop) : Prop :=
+  vall a (fun l => forall k : nat, vall b (fun r => Q (pair l (pair k r)))).
+
+Lemma vall_elim n Q : vall n Q -> forall v, Q v.
+Proof.
+  induction n as [|n IH]; cbn; [intros H []; exact H|].
+  intros H [k v]; exact (IH _ (H k) v).
+Qed.
+
+Lemma sall_elim {a b} (Q : scopes a b -> Prop) : sall Q -> forall z, Q z.
+Proof. intros H [l [k r]]; exact (vall_elim _ _ (vall_elim _ _ H l k) r). Qed.
+
 Section Generic.
 
 Context (a b : nat).
 Notation n := (radd a (S b)).
 
-(** A morphism of the focused sort into its carrier [P], from the bases
+(** A morphism of the focused sort into its carrier [F], from the bases
     [B] (the other side [M]; the focus goes from [B]'s to [M]'s). *)
-Definition morph (P : vec n -> Type) (B M : scopes a b) : Type :=
-  forall K L, descent a b B M K L -> var (focus K) -> P (plug (out K L)).
+Definition morph (F : arity n) (B M : scopes a b) : Type :=
+  forall K L, descent a b B M K L -> var (focus K) -> F @ out K L.
 
-Definition rebase_m {P B M K1 L1} (x1 : descent a b B M K1 L1) (f : morph P B M) : morph P K1 L1 :=
+Definition rebase_m {F B M K1 L1} (x1 : descent a b B M K1 L1) (f : morph F B M) : morph F K1 L1 :=
   fun K L x v => f K L (fapp x1 x) v.
 
-Definition sort_kl (P : vec n -> Type) : Type :=
-  forall B M (f : morph P B M) K L, descent a b B M K L -> P (plug K) -> P (plug (out K L)).
+Definition sort_kl (F : arity n) : Type :=
+  forall B M (f : morph F B M) K L, descent a b B M K L -> F @ K -> F @ out K L.
 
 (** A family over more sorts, focused on the same sort. *)
-Definition fam_kl (P : vec n -> Type) {aT bT} (tl : thin a aT) (tr : thin b bT) (T : vec (radd aT (S bT)) -> Type) : Type :=
-  forall B M (f : morph P (zrestr tl tr B) (zrestr tl tr M)) K L, descent aT bT B M K L -> T (plug K) -> T (plug (out K L)).
+Definition fam_kl (F : arity n) {aT bT} (tl : thin a aT) (tr : thin b bT) (T : arity (radd aT (S bT))) : Type :=
+  forall B M (f : morph F (zrestr tl tr B) (zrestr tl tr M)) K L, descent aT bT B M K L -> T @ K -> T @ out K L.
 
 Section Laws.
 
-Context (P : vec n -> Type) (tv : forall K, var (focus K) -> P (plug K)) (kp : sort_kl P).
+Context (F : arity n) (tv : forall K, var (focus K) -> F @ K) (kp : sort_kl F).
 
-Definition unit_m {B M} : morph P B (refocus M (focus B)) := fun K L x v => tv (out K L) (ext_var (main x) v).
+Definition unit_m {B M} : morph F B (refocus M (focus B)) := fun K L x v => tv (out K L) (ext_var (main x) v).
 
-Definition comp_m {B M} Mi (g : morph P (refocus B Mi) M) (f : morph P B (refocus M Mi)) : morph P B M :=
+Definition comp_m {B M} Mi (g : morph F (refocus B Mi) M) (f : morph F B (refocus M Mi)) : morph F B M :=
   fun K L x v => kp _ _ g _ _ (fright Mi x) (f K _ (fleft Mi x) v).
 
+(** The laws, each over the term's scope, the term, then the output scope
+    and the witness (which vary under a binder).  The term's scope is
+    given one sort at a time ([sall]), so the term is indexed by variables. *)
 Record sort_laws : Prop := {
-  s_var : forall B M (f : morph P B M) K L (x : descent a b B M K L) v, kp _ _ f _ _ x (tv K v) = f K L x v;
-  s_ext : forall B M (f g : morph P B M), (forall K L x v, f K L x v = g K L x v) ->
-    forall K L (x : descent a b B M K L) t, kp _ _ f _ _ x t = kp _ _ g _ _ x t;
-  s_rebase : forall B M (f : morph P B M) K1 L1 K2 L2 (x1 : descent a b B M K1 L1) (x2 : descent a b K1 L1 K2 L2) t,
-    kp _ _ f _ _ (fapp x1 x2) t = kp _ _ (rebase_m x1 f) _ _ x2 t;
-  s_unit : forall B M K L (x : descent a b B (refocus M (focus B)) K (refocus L (focus K))) t, kp _ _ unit_m _ _ x t = t;
-  s_assoc : forall B M Mi (g : morph P (refocus B Mi) M) (f : morph P B (refocus M Mi)) K L (x : descent a b B M K L) t,
-    kp _ _ (comp_m Mi g f) _ _ x t = kp _ _ g _ _ (fright Mi x) (kp _ _ f _ _ (fleft Mi x) t) }.
+  s_var : forall B M (f : morph F B M) K L (x : descent a b B M K L) v, kp _ _ f _ _ x (tv K v) = f K L x v;
+  s_ext : forall B M (f g : morph F B M), (forall K L x v, f K L x v = g K L x v) ->
+    sall (fun K => forall t : F @ K, sall (fun L => forall x : descent a b B M K L,
+      kp _ _ f _ _ x t = kp _ _ g _ _ x t));
+  s_rebase : forall B M (f : morph F B M) K1 L1 (x1 : descent a b B M K1 L1),
+    sall (fun K => forall t : F @ K, sall (fun L => forall x : descent a b K1 L1 K L,
+      kp _ _ (rebase_m x1 f) _ _ x t = kp _ _ f _ _ (fapp x1 x) t));
+  s_unit : forall B,
+    sall (fun K => forall t : F @ K, forall x : descent a b B B K K,
+      kp B B (unit_m (B := B) (M := B)) K K x t = t);
+  s_assoc : forall B M Mi (g : morph F (refocus B Mi) M) (f : morph F B (refocus M Mi)),
+    sall (fun K => forall t : F @ K, sall (fun L => forall x : descent a b B M K L,
+      kp _ _ (comp_m Mi g f) _ _ x t = kp _ _ g _ _ (fright Mi x) (kp _ _ f _ _ (fleft Mi x) t))) }.
 
-Record fam_laws {aT bT} (tl : thin a aT) (tr : thin b bT) (T : vec (radd aT (S bT)) -> Type) (k : fam_kl P tl tr T) : Prop := {
-  f_ext : forall B M (f g : morph P (zrestr tl tr B) (zrestr tl tr M)), (forall K L x v, f K L x v = g K L x v) ->
-    forall K L (x : descent aT bT B M K L) t, k _ _ f _ _ x t = k _ _ g _ _ x t;
-  f_rebase : forall B M (f : morph P (zrestr tl tr B) (zrestr tl tr M)) K1 L1 K2 L2
-      (x1 : descent aT bT B M K1 L1) (x2 : descent aT bT K1 L1 K2 L2) t,
-    k _ _ f _ _ (fapp x1 x2) t = k _ _ (rebase_m (restrict_lr tl tr x1) f) _ _ x2 t;
-  f_unit : forall B M K L (x : descent aT bT B (refocus M (focus B)) K (refocus L (focus K))) t,
-    k B (refocus M (focus B)) (@unit_m (zrestr tl tr B) (zrestr tl tr M)) _ _ x t = t;
-  f_assoc : forall B M Mi (g : morph P (zrestr tl tr (refocus B Mi)) (zrestr tl tr M)) (f : morph P (zrestr tl tr B) (zrestr tl tr (refocus M Mi)))
-      K L (x : descent aT bT B M K L) t,
-    k B M (@comp_m (zrestr tl tr B) (zrestr tl tr M) Mi g f) _ _ x t = k _ _ g _ _ (fright Mi x) (k _ _ f _ _ (fleft Mi x) t) }.
+(** The laws at any scopes. *)
+Section Use.
 
-(** Associativity through a restriction (a family's Kleisli function
-    passes its restricted witness to its carrier's). *)
-Lemma assoc_restrict (H : sort_laws) {aT bT} (tl : thin a aT) (tr : thin b bT) {B M : scopes aT bT} Mi
-    (g : morph P (refocus (zrestr tl tr B) Mi) (zrestr tl tr M)) (f : morph P (zrestr tl tr B) (refocus (zrestr tl tr M) Mi))
+Context (H : sort_laws).
+
+Lemma kp_ext {B M} (f g : morph F B M) (E : forall K L x v, f K L x v = g K L x v) {K L} (x : descent a b B M K L) t :
+  kp _ _ f _ _ x t = kp _ _ g _ _ x t.
+Proof. exact (sall_elim _ (sall_elim _ (s_ext H B M f g E) K t) L x). Qed.
+
+Lemma kp_rebase {B M} (f : morph F B M) {K1 L1} (x1 : descent a b B M K1 L1) {K L} (x : descent a b K1 L1 K L) t :
+  kp _ _ (rebase_m x1 f) _ _ x t = kp _ _ f _ _ (fapp x1 x) t.
+Proof. exact (sall_elim _ (sall_elim _ (s_rebase H B M f K1 L1 x1) K t) L x). Qed.
+
+Lemma kp_unit {B K} (x : descent a b B B K K) t : kp B B (unit_m (B := B) (M := B)) K K x t = t.
+Proof. exact (sall_elim _ (s_unit H B) K t x). Qed.
+
+Lemma kp_assoc {B M} Mi (g : morph F (refocus B Mi) M) (f : morph F B (refocus M Mi)) {K L} (x : descent a b B M K L) t :
+  kp _ _ (comp_m Mi g f) _ _ x t = kp _ _ g _ _ (fright Mi x) (kp _ _ f _ _ (fleft Mi x) t).
+Proof. exact (sall_elim _ (sall_elim _ (s_assoc H B M Mi g f) K t) L x). Qed.
+
+(** Through a restriction (a family's Kleisli function passes its
+    restricted witness to its carrier's): rebase and assoc. *)
+Lemma rebase_restrict {aT bT} (tl : thin a aT) (tr : thin b bT) {B M : scopes aT bT}
+    (f : morph F (zrestr tl tr B) (zrestr tl tr M)) {K1 L1 K2 L2}
+    (x1 : descent aT bT B M K1 L1) (x2 : descent aT bT K1 L1 K2 L2) t :
+  kp _ _ (rebase_m (restrict_lr tl tr x1) f) _ _ (restrict_lr tl tr x2) t = kp _ _ f _ _ (restrict_lr tl tr (fapp x1 x2)) t.
+Proof. rewrite restrict_lr_fapp; apply kp_rebase. Qed.
+
+Lemma assoc_restrict {aT bT} (tl : thin a aT) (tr : thin b bT) {B M : scopes aT bT} Mi
+    (g : morph F (refocus (zrestr tl tr B) Mi) (zrestr tl tr M)) (f : morph F (zrestr tl tr B) (refocus (zrestr tl tr M) Mi))
     {K L} (x : descent aT bT B M K L) t :
   kp _ _ (comp_m (B := zrestr tl tr B) (M := zrestr tl tr M) Mi g f) _ _ (restrict_lr tl tr x) t
   = kp _ _ g _ _ (restrict_lr tl tr (fright Mi x)) (kp _ _ f _ _ (restrict_lr tl tr (fleft Mi x)) t).
 Proof.
-  rewrite (s_assoc H).
+  rewrite kp_assoc.
   exact (f_equal (fun p : {m & (descent a b (zrestr tl tr B) (refocus (zrestr tl tr M) Mi) (zrestr tl tr K) (refocus (zrestr tl tr L) m)
                                * descent a b (refocus (zrestr tl tr B) Mi) (zrestr tl tr M) (refocus (zrestr tl tr K) m) (zrestr tl tr L))%type} =>
-                    let (m, pr) := p in (kp _ _ g _ _ (snd pr) (kp _ _ f _ _ (fst pr) t) : P (plug (out (zrestr tl tr K) (zrestr tl tr L)))))
+                    let (m, pr) := p in (kp _ _ g _ _ (snd pr) (kp _ _ f _ _ (fst pr) t) : F @ out (zrestr tl tr K) (zrestr tl tr L)))
                  (eq_sym (restrict_lr_split tl tr Mi x))).
 Qed.
 
-(** Rebase and unit through a restriction. *)
-Lemma rebase_restrict (H : sort_laws) {aT bT} (tl : thin a aT) (tr : thin b bT) {B M : scopes aT bT}
-    (f : morph P (zrestr tl tr B) (zrestr tl tr M)) {K1 L1 K2 L2}
-    (x1 : descent aT bT B M K1 L1) (x2 : descent aT bT K1 L1 K2 L2) t :
-  kp _ _ f _ _ (restrict_lr tl tr (fapp x1 x2)) t = kp _ _ (rebase_m (restrict_lr tl tr x1) f) _ _ (restrict_lr tl tr x2) t.
-Proof. rewrite restrict_lr_fapp; apply (s_rebase H). Qed.
-
-Lemma unit_restrict (H : sort_laws) {aT bT} (tl : thin a aT) (tr : thin b bT) {B M : scopes aT bT}
-    {K L} (x : descent aT bT B (refocus M (focus B)) K (refocus L (focus K))) t :
-  kp _ _ (unit_m (B := zrestr tl tr B) (M := zrestr tl tr M)) _ _ (restrict_lr tl tr x) t = t.
-Proof. exact (s_unit H _ _ (zrestr tl tr K) (zrestr tl tr L) _ t). Qed.
+End Use.
 
 End Laws.
 
 End Generic.
 
-(** ** Proving the laws of a Kleisli function
-
-    [laws_proof] proves [sort_laws] of a Kleisli function, and
-    [laws_proof using Lc] the [fam_laws] of one whose family contains
-    another, with [Lc] the laws of the other's.  Each law is an induction
-    on the term; every case is the induction hypothesis (at the same
-    witness, or one more binder down), the carrier's law (through the
-    restriction), or holds by computation. *)
-
-Ltac head_of t := lazymatch t with ?g _ => head_of g | _ => t end.
-
-(** The fixpoint behind a Kleisli function [k]. *)
-Ltac kl_fix k :=
-  let t := open_constr:(k _ _ _ _ _ _ _) in
-  let t := eval cbv beta delta [k] in t in head_of t.
-
-Ltac laws_case IH Lc :=
-  first
-    [ reflexivity
-    | exact (IH _ _ _ _)
-    | match goal with
-      | |- context [under ?t ?x] =>
-          first [ exact (IH _ _ (under t x) _)
-                | lazymatch type of x with descent _ _ _ _ _ (refocus ?L _) => exact (IH _ (zup t L) (under t x) _) end ]
-      end
-    | apply (s_ext _ _ _ _ _ Lc); assumption
-    | apply (rebase_restrict _ _ _ _ _ Lc)
-    | unfold restrict;
-      match goal with
-      | |- context [@restrict_lr _ _ _ _ ?tl ?tr ?B ?M0 ?K ?L0 ?x] =>
-          first
-            [ exact (assoc_restrict _ _ _ _ _ Lc tl tr (B := B) (M := M0) _ _ _ x _)
-            | lazymatch type of x with
-              | descent _ _ _ (refocus ?M _) _ (refocus ?L _) =>
-                  exact (unit_restrict _ _ _ _ _ Lc tl tr (B := B) (M := M) (K := K) (L := L) x _)
-              end ]
-      end ].
-
-(** One law, after its parameters: by induction on the term. *)
-Ltac laws_ind k Lc :=
-  let h := kl_fix k in
-  let IH := fresh "IH" in
-  fix IH 4; intros ? ? ? t; destruct t; cbn [k h];
-  first
-    [ reflexivity
-    | solve [unfold unit_m; cbv beta; f_equal; apply ext_var_same]
-    | solve [f_equal; laws_case IH Lc] ].
-
-Ltac laws_proof_with Lc :=
-  lazymatch goal with
-  | |- sort_laws _ _ _ _ ?k =>
-      split;
-      [ intros; reflexivity
-      | intros ? ? ? ? Hfg; laws_ind k Lc
-      | intros ? ? ? ? ? K2 L2 ?; revert K2 L2; laws_ind k Lc
-      | intros ? ?; laws_ind k Lc
-      | intros ? ? ? ? ?; laws_ind k Lc ]
-  | |- @fam_laws _ _ _ _ _ _ _ _ _ _ ?k =>
-      split;
-      [ intros ? ? ? ? Hfg; laws_ind k Lc
-      | intros ? ? ? ? ? K2 L2 ?; revert K2 L2; laws_ind k Lc
-      | intros ? ?; laws_ind k Lc
-      | intros ? ? ? ? ?; laws_ind k Lc ]
-  end.
-
-Tactic Notation "laws_proof" := laws_proof_with I.
-Tactic Notation "laws_proof" "using" constr(Lc) := laws_proof_with Lc.
+Arguments kp_ext {a b F tv kp} H {B M} f g E {K L} x t.
+Arguments kp_rebase {a b F tv kp} H {B M} f {K1 L1} x1 {K L} x t.
+Arguments kp_unit {a b F tv kp} H {B K} x t.
+Arguments kp_assoc {a b F tv kp} H {B M} Mi g f {K L} x t.
+Arguments rebase_restrict {a b F tv kp} H {aT bT} tl tr {B M} f {K1 L1 K2 L2} x1 x2 t.
+Arguments assoc_restrict {a b F tv kp} H {aT bT} tl tr {B M} Mi g f {K L} x t.
 
 (** For a family over sorts [aT], [bT] around the focus, containing a family
     over the sorts [s] keeps: that family's morphisms and the family's
     Kleisli function along them. *)
 Definition morph_in {aT bT} (s : mask) (B M : scopes aT bT) (F : arity (radd (lkept s aT) (S (rkept s aT bT)))) : Type :=
-  morph (lkept s aT) (rkept s aT bT) (uncurry _ F) (zsub s B) (zsub s M).
+  morph (lkept s aT) (rkept s aT bT) F (zsub s B) (zsub s M).
 
-Definition fam_kl_in (aT bT : nat) (s : mask) (P : vec (radd (lkept s aT) (S (rkept s aT bT))) -> Type) (T : vec (radd aT (S bT)) -> Type) : Type :=
-  fam_kl (lkept s aT) (rkept s aT bT) P (tl_of s aT) (tr_of s aT bT) T.
+Definition fam_kl_in (aT bT : nat) (s : mask) (F : arity (radd (lkept s aT) (S (rkept s aT bT)))) (T : arity (radd aT (S bT))) : Type :=
+  fam_kl (lkept s aT) (rkept s aT bT) F (tl_of s aT) (tr_of s aT bT) T.
+
+(** The laws of a family's Kleisli function, its carrier over the sorts
+    [s] keeps; stated as the user writes the witness, [x‹…›]. *)
+Section Fam.
+
+Context (aT bT : nat) (s : mask).
+Local Notation a := (lkept s aT).
+Local Notation b := (rkept s aT bT).
+Context (F : arity (radd a (S b))) (tv : forall K, var (focus K) -> F @ K) (kp : sort_kl a b F).
+
+Record fam_laws (T : arity (radd aT (S bT))) (k : fam_kl_in aT bT s F T) : Prop := {
+  f_ext : forall B M (f g : morph_in s B M F), (forall K L x v, f K L x v = g K L x v) ->
+    sall (fun K => forall t : T @ K, sall (fun L => forall x : descent aT bT B M K L,
+      k _ _ f _ _ x t = k _ _ g _ _ x t));
+  f_rebase : forall B M (f : morph_in s B M F) K1 L1 (x1 : descent aT bT B M K1 L1),
+    sall (fun K => forall t : T @ K, sall (fun L => forall x : descent aT bT K1 L1 K L,
+      k _ _ (rebase_m a b (restrict s x1) f) _ _ x t = k _ _ f _ _ (fapp x1 x) t));
+  f_unit : forall B,
+    sall (fun K => forall t : T @ K, forall x : descent aT bT B B K K,
+      k B B (unit_m a b F tv (B := zsub s B) (M := zsub s B)) _ _ x t = t);
+  f_assoc : forall B M Mi (g : morph_in s (refocus B Mi) M F) (f : morph_in s B (refocus M Mi) F),
+    sall (fun K => forall t : T @ K, sall (fun L => forall x : descent aT bT B M K L,
+      k B M (comp_m a b F kp (B := zsub s B) (M := zsub s M) Mi g f) _ _ x t = k _ _ g _ _ (fright Mi x) (k _ _ f _ _ (fleft Mi x) t))) }.
+
+End Fam.
+
+
+(** A family's laws at any scopes. *)
+Section FamUse.
+
+Context {aT bT : nat} {s : mask} {F : arity (radd (lkept s aT) (S (rkept s aT bT)))} {tv : forall K, var (focus K) -> F @ K}
+  {kp : sort_kl _ _ F} {T : arity (radd aT (S bT))} {k : fam_kl_in aT bT s F T} (H : fam_laws aT bT s F tv kp T k).
+
+Lemma fk_ext {B M} (f g : morph_in s B M F) (E : forall K L x v, f K L x v = g K L x v) {K L} (x : descent aT bT B M K L) t :
+  k _ _ f _ _ x t = k _ _ g _ _ x t.
+Proof. exact (sall_elim _ (sall_elim _ (f_ext _ _ _ _ _ _ _ _ H B M f g E) K t) L x). Qed.
+
+Lemma fk_unit {B K} (x : descent aT bT B B K K) t :
+  k B B (unit_m _ _ F tv (B := zsub s B) (M := zsub s B)) _ _ x t = t.
+Proof. exact (sall_elim _ (f_unit _ _ _ _ _ _ _ _ H B) K t x). Qed.
+
+End FamUse.
 
 (** ** System F *)
 
@@ -560,7 +582,7 @@ Arguments tapp {N K} t A.
 (** The user's three Kleisli functions.  Sorts: types 0, terms 1. *)
 
 (** Types, focused on their one sort. *)
-Fixpoint kl_ty {B M} (f : morph 0 0 (uncurry 1 ty) B M) {K L} (x : descent 0 0 B M K L) (A : ty @ K) : ty @ out K L :=
+Fixpoint kl_ty {B M} (f : morph 0 0 ty B M) {K L} (x : descent 0 0 B M K L) (A : ty @ K) : ty @ out K L :=
   match A with
   | tyvar v => f K L x v
   | tyarr A A' => tyarr (kl_ty f x A) (kl_ty f x A')
@@ -568,7 +590,7 @@ Fixpoint kl_ty {B M} (f : morph 0 0 (uncurry 1 ty) B M) {K L} (x : descent 0 0 B
   end.
 
 (** Terms, focused on term variables. *)
-Fixpoint kl_tm {B M} (f : morph 1 0 (uncurry 2 tm) B M) {K L} (x : descent 1 0 B M K L) (t : tm @ K) : tm @ out K L :=
+Fixpoint kl_tm {B M} (f : morph 1 0 tm B M) {K L} (x : descent 1 0 B M K L) (t : tm @ K) : tm @ out K L :=
   match t with
   | tmvar v => f K L x v
   | lam A u => lam A (kl_tm f (under 1 x) u)
@@ -579,7 +601,7 @@ Fixpoint kl_tm {B M} (f : morph 1 0 (uncurry 2 tm) B M) {K L} (x : descent 1 0 B
 
 (** Terms, focused on type variables.  Types are inside terms, over the
     first of their sorts ([x‹+ -›]). *)
-Fixpoint kl_tmty {B M : scopes 0 1} (f : morph 0 0 (uncurry 1 ty) _ _)
+Fixpoint kl_tmty {B M : scopes 0 1} (f : morph 0 0 ty _ _)
     {K L} (x : descent 0 1 B M K L) (t : tm @ K) : tm @ out K L :=
   match t with
   | tmvar v => tmvar v
@@ -589,30 +611,32 @@ Fixpoint kl_tmty {B M : scopes 0 1} (f : morph 0 0 (uncurry 1 ty) _ _)
   | tapp t A => tapp (kl_tmty f x t) (kl_ty f x‹+ -› A)
   end.
 
-Definition ty_k : sort_kl 0 0 (uncurry 1 ty) := fun B M f K L x A => kl_ty f x A.
-Definition tm_k : sort_kl 1 0 (uncurry 2 tm) := fun B M f K L x t => kl_tm f x t.
-Definition tmty_k := fun (B M : scopes 0 1) f K L (x : descent 0 1 B M K L) t => kl_tmty f x t.
 
 (** ** Their laws: routine inductions *)
 
 Section Proofs.
 
-Theorem ty_laws : sort_laws 0 0 (uncurry 1 ty) (fun K v => tyvar v) ty_k.
-Proof. laws_proof. Qed.
+(** By induction on the term; under a binder, the induction hypothesis
+    at the witness one binder down. *)
+Theorem ty_laws : sort_laws 0 0 ty (fun K v => tyvar v) (@kl_ty).
+Proof. split; try reflexivity; intros until t; cbn in t; induction t; cbn in *; intros; f_equal; easy. Qed.
 
-Theorem tm_laws : sort_laws 1 0 (uncurry 2 tm) (fun K v => tmvar v) tm_k.
-Proof. laws_proof. Qed.
+Theorem tm_laws : sort_laws 1 0 tm (fun K v => tmvar v) (@kl_tm).
+Proof. split; try reflexivity; intros until t; cbn in t; induction t; cbn in *; intros; f_equal; easy. Qed.
 
-(** Types inside terms, over the first of their sorts. *)
-Theorem tmty_laws : fam_laws 0 0 (uncurry 1 ty) (fun K v => tyvar v) ty_k
-    (tl_of (true :: false :: nil) 0) (tr_of (true :: false :: nil) 0 1) (uncurry 2 tm) tmty_k.
-Proof. laws_proof using ty_laws. Qed.
+(** Types inside terms, over the first of their sorts: where [kl_tmty]
+    calls [kl_ty], the laws of [kl_ty] (through the restriction). *)
+Theorem tmty_laws : fam_laws 0 1 (true :: false :: nil) ty (fun K v => tyvar v) (@kl_ty) tm (@kl_tmty).
+Proof.
+  split; intros until t; cbn in t; induction t; cbn in *; intros; f_equal;
+    eauto using ty_laws, kp_ext, kp_unit, rebase_restrict, assoc_restrict.
+Qed.
 
 End Proofs.
 
 (** ** Using it: substituting at the root *)
 
-Definition subst_tm {B M} (f : morph 1 0 (uncurry 2 tm) B M) (t : tm @ B) : tm @ out B M := kl_tm f here t.
+Definition subst_tm {B M} (f : morph 1 0 tm B M) (t : tm @ B) : tm @ out B M := kl_tm f here t.
 
 (** ** One mask, any focus
 
