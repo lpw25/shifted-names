@@ -148,13 +148,14 @@ substitution has nothing to weaken. Checked by computation: instantiating
 under a type binder shifts the payload's types, and type substitution in
 terms under term and type binders. Proved from the generic
 characterisation: the identity adjustment is the identity morphism, and
-substituting by it is the identity (`apply2_identity`, `subst2_identity`).
+substituting by it is the identity (`apply2_identity`, `subst2_identity`);
+going under a binder of the sort is substituting by the lifted adjustment
+(`kp_apply2_under`, given that weakening does not see the sort's own
+binders, `wk_lift`; for System F `tm_apply_under`).
 
 ## Still to do
 
-1. The other laws of `apply` (going under binders of its own sort and of
-   others, composition): the rest of `Subst.v`'s lemmas about `apply`
-   (`Top`, `Lift`, composition) generalised to `ggapply` as its
-   characterisation was, with what they need of a payload result (for
-   several sorts, that weakening depends only on the other sorts' depths).
+1. The other laws of `apply`: going under a binder of another sort
+   (payloads weakened; `PMap`'s lemma generalised to `ggapply`), and
+   composition (`Subst.v`'s composition section generalised likewise).
 2. `names` on the multi-sorted machinery.

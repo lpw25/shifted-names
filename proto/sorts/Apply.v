@@ -22,7 +22,7 @@ From Stdlib Require Import PArith Arith List Lia Bool StrictProp.
 From ShiftedNames.Core Require Import Trie Label Var Counts Based Skew ATrie Repr Point Deep Compose
   Lookup Adjustment Laws Scoped Indexed Normalise Conv Names.
 From ShiftedNames.Core Require Syntax Subst.
-Import Syntax (ext, ext_here, ext_under, ext_depth, ext_var).
+Import Syntax (ext, ext_here, ext_under, ext_depth, ext_var, ext_app, ext_shift).
 Import Subst (up, down, aok, absn, adj_aok, rel_some, rel_ge, W_inner, W_down, W_HL, W_var, W_pay, W_pass, W_none, W_absurd, aok_squash).
 From Proto Require Import Focus.
 
@@ -97,6 +97,61 @@ Proof.
   apply (s_unit _ _ _ _ _ laws (refocus Bo N) Mo (refocus Bo N) Mo).
 Qed.
 
+(** ** Under a binder of the sort *)
+
+(** The descent at the root under one binder of the sort. *)
+Definition root1 {N M} : descent a b (refocus Bo N) (refocus Mo M) (refocus Bo (S N)) (refocus Mo (S M)) :=
+  pair (whome a _ _) (pair (ext_under ext_here) (whome b _ _)).
+
+(** A descent rebased under it. *)
+Definition dlift {N M K L} (x : descent a b (refocus Bo (S N)) (refocus Mo (S M)) K L) : descent a b (refocus Bo N) (refocus Mo M) K L :=
+  fapp root1 x.
+
+(** Weakening does not see the sort's own binders. *)
+Context (wk_lift : forall N M K L (x : descent a b (refocus Bo (S N)) (refocus Mo (S M)) K L) k u,
+  wk _ _ _ _ (dlift x) k u = wk _ _ _ _ x k u).
+
+Lemma apply2_lift_rebase {N M K L} (ad : adj (fun K => term K) N M) (x : descent a b (refocus Bo (S N)) (refocus Mo (S M)) K L) v :
+  apply2 ad K L (dlift x) v = apply2 (lift ad) K L x v.
+Proof.
+  exact (multi (@Subst.gtop_lift_rebase (fun K => term K) (scopes a b)) multi_pres_ext (fun N M K L x => dlift x)
+           (fun N M K L x => eq_refl) (fun N M K L x u m => wk_lift N M K L x (focus L) _) ad x v).
+Qed.
+
+(** Under a binder of the sort, the descent ([dunder]); the same with the
+    bases one up ([dshift]). *)
+Definition dunder {B M K L} (x : descent a b B M K L) : descent a b B M (refocus K (S (focus K))) (refocus L (S (focus L))) :=
+  pair (first x) (pair (ext_under (main x)) (second (second x))).
+Definition dshift {B M K L} (x : descent a b B M K L)
+    : descent a b (refocus B (S (focus B))) (refocus M (S (focus M))) (refocus K (S (focus K))) (refocus L (S (focus L))) :=
+  pair (first x) (pair (ext_shift (main x)) (second (second x))).
+
+Lemma ext_app_here_l {N M K L} (e : ext N M K L) : ext_app ext_here e = e.
+Proof. induction e; cbn; [reflexivity|rewrite IHe; reflexivity]. Qed.
+
+Lemma wapp_home_l n : forall B M K L (w : wit n B M K L), wapp n _ _ _ _ _ _ (whome n B M) w = w.
+Proof.
+  induction n as [|n IH]; intros B M K L w; cbn; [destruct w; reflexivity|].
+  rewrite IH, ext_app_here_l; reflexivity.
+Qed.
+
+Lemma dlift_dshift {N M K L} (x : descent a b (refocus Bo N) (refocus Mo M) K L) : dlift (dshift x) = dunder x.
+Proof.
+  unfold dlift, fapp, root1, dshift, dunder, main; cbn [first second].
+  f_equal; [apply wapp_home_l|f_equal; [apply Syntax.ext_app_shift|apply wapp_home_l]].
+Qed.
+
+(** Going under a binder of the sort is substituting by the lifted
+    adjustment, with the bases one up. *)
+Theorem kp_apply2_under {N M K L} (ad : adj (fun K => term K) N M) (x : descent a b (refocus Bo N) (refocus Mo M) K L) t :
+  kp _ _ (apply2 ad) _ _ (dunder x) t = kp _ _ (apply2 (lift ad)) _ _ (dshift x) t.
+Proof.
+  rewrite <- dlift_dshift; unfold dlift.
+  rewrite (s_rebase _ _ _ _ _ laws).
+  apply (s_ext _ _ _ _ _ laws); intros K' L' x' v; unfold rebase_m.
+  exact (apply2_lift_rebase ad x' v).
+Qed.
+
 End Apply.
 
 (** ** System F *)
@@ -134,6 +189,29 @@ Definition wk_tm (B M K L : scopes 1 0) (x : descent 1 0 B M K L) (k : nat) (u :
 
 Definition apply_tm {Bo Mo : scopes 1 0} {N M} (ad : adj (fun K => tm @ refocus Bo K) N M) :=
   apply2 (a := 1) (b := 0) (uncurry 2 tm) (fun K v => tmvar v) (fun B M f K L x t => kl_tm f x t) wk_tm Bo Mo ad.
+
+(** Weakening shifts by the type binders crossed, so it does not see the
+    term binders at the root. *)
+Lemma kl_shift_irr {G H} k1 k2 (E1 : H = k1 + G) (E2 : H = k2 + G) {J} (u : tm G J) :
+  k1 = k2 ->
+  kl_tmty (B := pair tt (pair G (pair J tt))) (M := pair tt (pair H (pair J tt))) (shift_ty k1 E1) here u
+  = kl_tmty (B := pair tt (pair G (pair J tt))) (M := pair tt (pair H (pair J tt))) (shift_ty k2 E2) here u.
+Proof. intros ->; reflexivity. Qed.
+
+Lemma wk_tm_lift (Bo Mo : scopes 1 0) N M K L (x : descent 1 0 (refocus Bo (S N)) (refocus Mo (S M)) K L) k u :
+  wk_tm _ _ _ _ (dlift Bo Mo x) k u = wk_tm _ _ _ _ x k u.
+Proof.
+  unfold wk_tm; apply kl_shift_irr; cbn [dlift fapp root1 first second wapp whome].
+  rewrite Syntax.ext_depth_app; cbn [Syntax.ext_depth]; lia.
+Qed.
+
+(** Going under a term binder: substituting by the lifted adjustment. *)
+Theorem tm_apply_under {Bo Mo : scopes 1 0} {N M K L} (ad : adj (fun K => tm @ refocus Bo K) N M)
+    (x : descent 1 0 (refocus Bo N) (refocus Mo M) K L) (t : tm @ refocus K (S (focus K))) :
+  kl_tm (apply_tm (Bo := Bo) (Mo := Mo) ad) (dunder x) t = kl_tm (apply_tm (Bo := Bo) (Mo := Mo) (lift ad)) (dshift x) t.
+Proof.
+  exact (kp_apply2_under (a := 1) (b := 0) (uncurry 2 tm) (fun K v => tmvar v) tm_k wk_tm Bo Mo tm_laws (wk_tm_lift Bo Mo) ad x t).
+Qed.
 
 (** Type substitution: nothing to weaken. *)
 Definition apply_ty {Bo Mo : scopes 0 0} {N M} (ad : adj (fun K => ty @ refocus Bo K) N M) :=
