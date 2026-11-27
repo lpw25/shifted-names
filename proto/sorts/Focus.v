@@ -420,9 +420,89 @@ Proof.
                  (eq_sym (restrict_lr_split tl tr Mi x))).
 Qed.
 
+(** Rebase and unit through a restriction. *)
+Lemma rebase_restrict (H : sort_laws) {aT bT} (tl : thin a aT) (tr : thin b bT) {B M : scopes aT bT}
+    (f : morph P (zrestr tl tr B) (zrestr tl tr M)) {K1 L1 K2 L2}
+    (x1 : descent aT bT B M K1 L1) (x2 : descent aT bT K1 L1 K2 L2) t :
+  kp _ _ f _ _ (restrict_lr tl tr (fapp x1 x2)) t = kp _ _ (rebase_m (restrict_lr tl tr x1) f) _ _ (restrict_lr tl tr x2) t.
+Proof. rewrite restrict_lr_fapp; apply (s_rebase H). Qed.
+
+Lemma unit_restrict (H : sort_laws) {aT bT} (tl : thin a aT) (tr : thin b bT) {B M : scopes aT bT}
+    {K L} (x : descent aT bT B (refocus M (focus B)) K (refocus L (focus K))) t :
+  kp _ _ (unit_m (B := zrestr tl tr B) (M := zrestr tl tr M)) _ _ (restrict_lr tl tr x) t = t.
+Proof. exact (s_unit H _ _ (zrestr tl tr K) (zrestr tl tr L) _ t). Qed.
+
 End Laws.
 
 End Generic.
+
+(** ** Proving the laws of a Kleisli function
+
+    [laws_proof] proves [sort_laws] of a Kleisli function, and
+    [laws_proof using Lc] the [fam_laws] of one whose family contains
+    another, with [Lc] the laws of the other's.  Each law is an induction
+    on the term; every case is the induction hypothesis (at the same
+    witness, or one more binder down), the carrier's law (through the
+    restriction), or holds by computation. *)
+
+Ltac head_of t := lazymatch t with ?g _ => head_of g | _ => t end.
+
+(** The fixpoint behind a Kleisli function [k]. *)
+Ltac kl_fix k :=
+  let t := open_constr:(k _ _ _ _ _ _ _) in
+  let t := eval cbv beta delta [k] in t in head_of t.
+
+Ltac laws_case IH Lc :=
+  first
+    [ reflexivity
+    | exact (IH _ _ _ _)
+    | match goal with
+      | |- context [under ?t ?x] =>
+          first [ exact (IH _ _ (under t x) _)
+                | lazymatch type of x with descent _ _ _ _ _ (refocus ?L _) => exact (IH _ (zup t L) (under t x) _) end ]
+      end
+    | apply (s_ext _ _ _ _ _ Lc); assumption
+    | apply (rebase_restrict _ _ _ _ _ Lc)
+    | unfold restrict;
+      match goal with
+      | |- context [@restrict_lr _ _ _ _ ?tl ?tr ?B ?M0 ?K ?L0 ?x] =>
+          first
+            [ exact (assoc_restrict _ _ _ _ _ Lc tl tr (B := B) (M := M0) _ _ _ x _)
+            | lazymatch type of x with
+              | descent _ _ _ (refocus ?M _) _ (refocus ?L _) =>
+                  exact (unit_restrict _ _ _ _ _ Lc tl tr (B := B) (M := M) (K := K) (L := L) x _)
+              end ]
+      end ].
+
+(** One law, after its parameters: by induction on the term. *)
+Ltac laws_ind k Lc :=
+  let h := kl_fix k in
+  let IH := fresh "IH" in
+  fix IH 4; intros ? ? ? t; destruct t; cbn [k h];
+  first
+    [ reflexivity
+    | solve [unfold unit_m; cbv beta; f_equal; apply ext_var_same]
+    | solve [f_equal; laws_case IH Lc] ].
+
+Ltac laws_proof_with Lc :=
+  lazymatch goal with
+  | |- sort_laws _ _ _ _ ?k =>
+      split;
+      [ intros; reflexivity
+      | intros ? ? ? ? Hfg; laws_ind k Lc
+      | intros ? ? ? ? ? K2 L2 ?; revert K2 L2; laws_ind k Lc
+      | intros ? ?; laws_ind k Lc
+      | intros ? ? ? ? ?; laws_ind k Lc ]
+  | |- @fam_laws _ _ _ _ _ _ _ _ _ _ ?k =>
+      split;
+      [ intros ? ? ? ? Hfg; laws_ind k Lc
+      | intros ? ? ? ? ? K2 L2 ?; revert K2 L2; laws_ind k Lc
+      | intros ? ?; laws_ind k Lc
+      | intros ? ? ? ? ?; laws_ind k Lc ]
+  end.
+
+Tactic Notation "laws_proof" := laws_proof_with I.
+Tactic Notation "laws_proof" "using" constr(Lc) := laws_proof_with Lc.
 
 (** For a family over sorts [aT], [bT] around the focus, containing a family
     over the sorts [s] keeps: that family's morphisms and the family's
@@ -497,114 +577,16 @@ Definition tmty_k := fun (B M : scopes 0 1) f K L (x : descent 0 1 B M K L) t =>
 
 Section Proofs.
 
-(** The mask [kl_tmty] uses, named in its laws. *)
-Let ty_in_tm : mask := true :: false :: nil.
-
-Ltac kl_ind IH := fix IH 4; intros K L x t; destruct t; cbn [kl_ty kl_tm kl_tmty].
-
-Lemma kl_ty_ext {B M} (f g : morph 0 0 (uncurry 1 ty) B M) (H : forall K L x v, f K L x v = g K L x v) :
-  forall K L (x : descent 0 0 B M K L) A, kl_ty f x A = kl_ty g x A.
-Proof. kl_ind IH; f_equal; auto. Qed.
-
-Lemma kl_ty_rebase {B M} (f : morph 0 0 (uncurry 1 ty) B M) K1 L1 (x1 : descent 0 0 B M K1 L1) :
-  forall K2 L2 (x2 : descent 0 0 K1 L1 K2 L2) A, kl_ty f (fapp x1 x2) A = kl_ty (rebase_m 0 0 x1 f) x2 A.
-Proof. kl_ind IH; f_equal; first [reflexivity | apply IH | exact (IH _ _ (under 0 x) t)]. Qed.
-
-Lemma kl_ty_unit {B M} : forall K L (x : descent 0 0 B (refocus M (focus B)) K (refocus L (focus K))) A,
-  kl_ty (unit_m 0 0 (uncurry 1 ty) (fun K v => tyvar v)) x A = A.
-Proof.
-  kl_ind IH; [unfold unit_m; f_equal; apply ext_var_same | f_equal; apply IH..].
-Qed.
-
-Lemma kl_ty_assoc {B M} Mi (g : morph 0 0 (uncurry 1 ty) (refocus B Mi) M) (f : morph 0 0 (uncurry 1 ty) B (refocus M Mi)) :
-  forall K L (x : descent 0 0 B M K L) A,
-  kl_ty (comp_m 0 0 (uncurry 1 ty) ty_k Mi g f) x A = kl_ty g (fright Mi x) (kl_ty f (fleft Mi x) A).
-Proof. kl_ind IH; f_equal; first [reflexivity | apply IH | exact (IH _ _ (under 0 x) t)]. Qed.
-
 Theorem ty_laws : sort_laws 0 0 (uncurry 1 ty) (fun K v => tyvar v) ty_k.
-Proof.
-  split; cbn [ty_k].
-  - reflexivity.
-  - intros B M f g H; exact (kl_ty_ext f g H).
-  - intros B M f K1 L1 K2 L2 x1; exact (kl_ty_rebase f K1 L1 x1 K2 L2).
-  - intros B M; exact kl_ty_unit.
-  - intros B M Mi g f; exact (kl_ty_assoc Mi g f).
-Qed.
-
-Lemma kl_tm_ext {B M} (f g : morph 1 0 (uncurry 2 tm) B M) (H : forall K L x v, f K L x v = g K L x v) :
-  forall K L (x : descent 1 0 B M K L) t, kl_tm f x t = kl_tm g x t.
-Proof. kl_ind IH; f_equal; auto. Qed.
-
-Lemma kl_tm_rebase {B M} (f : morph 1 0 (uncurry 2 tm) B M) K1 L1 (x1 : descent 1 0 B M K1 L1) :
-  forall K2 L2 (x2 : descent 1 0 K1 L1 K2 L2) t, kl_tm f (fapp x1 x2) t = kl_tm (rebase_m 1 0 x1 f) x2 t.
-Proof.
-  kl_ind IH; f_equal; first [reflexivity | apply IH | exact (IH _ _ (under 1 x) t) | exact (IH _ _ (under 0 x) t)].
-Qed.
-
-Lemma kl_tm_unit {B M} : forall K L (x : descent 1 0 B (refocus M (focus B)) K (refocus L (focus K))) t,
-  kl_tm (unit_m 1 0 (uncurry 2 tm) (fun K v => tmvar v)) x t = t.
-Proof.
-  kl_ind IH; [unfold unit_m; f_equal; apply ext_var_same | f_equal; first [apply IH | exact (IH _ L (under 1 x) t) | exact (IH _ (zup 0 L) (under 0 x) t)]..].
-Qed.
-
-Lemma kl_tm_assoc {B M} Mi (g : morph 1 0 (uncurry 2 tm) (refocus B Mi) M) (f : morph 1 0 (uncurry 2 tm) B (refocus M Mi)) :
-  forall K L (x : descent 1 0 B M K L) t,
-  kl_tm (comp_m 1 0 (uncurry 2 tm) tm_k Mi g f) x t = kl_tm g (fright Mi x) (kl_tm f (fleft Mi x) t).
-Proof.
-  kl_ind IH; f_equal; first [reflexivity | apply IH | exact (IH _ _ (under 1 x) t) | exact (IH _ _ (under 0 x) t)].
-Qed.
+Proof. laws_proof. Qed.
 
 Theorem tm_laws : sort_laws 1 0 (uncurry 2 tm) (fun K v => tmvar v) tm_k.
-Proof.
-  split; cbn [tm_k].
-  - reflexivity.
-  - intros B M f g H; exact (kl_tm_ext f g H).
-  - intros B M f K1 L1 K2 L2 x1; exact (kl_tm_rebase f K1 L1 x1 K2 L2).
-  - intros B M; exact kl_tm_unit.
-  - intros B M Mi g f; exact (kl_tm_assoc Mi g f).
-Qed.
+Proof. laws_proof. Qed.
 
-Lemma kl_tmty_ext {B M : scopes 0 1} (f g : morph_in ty_in_tm B M ty)
-    (H : forall K L x v, f K L x v = g K L x v) :
-  forall K L (x : descent 0 1 B M K L) t, kl_tmty f x t = kl_tmty g x t.
-Proof. kl_ind IH; f_equal; auto; apply kl_ty_ext; exact H. Qed.
-
-Lemma kl_tmty_rebase {B M : scopes 0 1} (f : morph_in ty_in_tm B M ty)
-    K1 L1 (x1 : descent 0 1 B M K1 L1) :
-  forall K2 L2 (x2 : descent 0 1 K1 L1 K2 L2) t, kl_tmty f (fapp x1 x2) t = kl_tmty (rebase_m 0 0 (restrict ty_in_tm x1) f) x2 t.
-Proof.
-  kl_ind IH; f_equal;
-    first [unfold restrict; rewrite restrict_lr_fapp; exact (kl_ty_rebase f _ _ (restrict ty_in_tm x1) _ _ (restrict ty_in_tm x) _)
-          | apply IH | exact (IH _ _ (under 1 x) t) | exact (IH _ _ (under 0 x) t)].
-Qed.
-
-Lemma kl_tmty_unit {B M : scopes 0 1} : forall K L (x : descent 0 1 B (refocus M (focus B)) K (refocus L (focus K))) t,
-  kl_tmty (B := B) (M := refocus M (focus B))
-    (unit_m 0 0 (uncurry 1 ty) (fun K v => tyvar v) (B := zsub ty_in_tm B) (M := zsub ty_in_tm M)) x t = t.
-Proof.
-  kl_ind IH; f_equal;
-    first [exact (kl_ty_unit (B := zsub ty_in_tm B) (M := zsub ty_in_tm M) (zsub ty_in_tm K) (zsub ty_in_tm L) (restrict ty_in_tm x) _) | apply IH
-          | exact (IH _ (zup 1 L) (under 1 x) t) | exact (IH _ L (under 0 x) t)].
-Qed.
-
-Lemma kl_tmty_assoc {B M : scopes 0 1} Mi (g : morph_in ty_in_tm (refocus B Mi) M ty)
-    (f : morph_in ty_in_tm B (refocus M Mi) ty) :
-  forall K L (x : descent 0 1 B M K L) t,
-  kl_tmty (B := B) (M := M) (comp_m 0 0 (uncurry 1 ty) ty_k (B := zsub ty_in_tm B) (M := zsub ty_in_tm M) Mi g f) x t
-  = kl_tmty g (fright Mi x) (kl_tmty f (fleft Mi x) t).
-Proof.
-  kl_ind IH; f_equal;
-    first [exact (assoc_restrict 0 0 (uncurry 1 ty) (fun K v => tyvar v) ty_k ty_laws (B := B) (M := M) _ _ Mi g f x _) | apply IH | exact (IH _ _ (under 1 x) t) | exact (IH _ _ (under 0 x) t)].
-Qed.
-
-Theorem tmty_laws : fam_laws 0 0 (uncurry 1 ty) (fun K v => tyvar v) ty_k (tl_of ty_in_tm 0) (tr_of ty_in_tm 0 1) (uncurry 2 tm) tmty_k.
-Proof.
-  split; cbn [tmty_k].
-  - intros B M f g H; exact (kl_tmty_ext f g H).
-  - intros B M f K1 L1 K2 L2 x1; exact (kl_tmty_rebase f K1 L1 x1 K2 L2).
-  - intros B M; exact kl_tmty_unit.
-  - intros B M Mi g f; exact (kl_tmty_assoc Mi g f).
-Qed.
+(** Types inside terms, over the first of their sorts. *)
+Theorem tmty_laws : fam_laws 0 0 (uncurry 1 ty) (fun K v => tyvar v) ty_k
+    (tl_of (true :: false :: nil) 0) (tr_of (true :: false :: nil) 0 1) (uncurry 2 tm) tmty_k.
+Proof. laws_proof using ty_laws. Qed.
 
 End Proofs.
 
