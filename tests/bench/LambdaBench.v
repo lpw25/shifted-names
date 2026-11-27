@@ -4,7 +4,7 @@ From Stdlib Require Import String Arith List.
 From ShiftedNames.Extraction Require Import Extraction.
 From ShiftedNames.Core Require Import Label Var Indexed.
 From ShiftedNames.Examples Require Import Lambda.
-Import LS.
+From ShiftedNames.Core Require Import Adjustment Laws Scoped Syntax Subst.
 Open Scope string_scope.
 
 Definition tsubst {N M} (a : sub N M) (t : tm N) : tm M := t [a].

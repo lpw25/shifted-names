@@ -3,7 +3,7 @@
 From ShiftedNames.Extraction Require Import Extraction.
 From ShiftedNames.Core Require Import Label Var Indexed.
 From ShiftedNames.Examples Require Import Lambda.
-Import LS.
+From ShiftedNames.Core Require Import Adjustment Laws Scoped Syntax Subst.
 
 (** Substitution [t [a]] is notation; these are functions to extract. *)
 Definition tsubst {N M} (a : sub N M) (t : tm N) : tm M := t [a].
