@@ -70,8 +70,7 @@ Module LambdaSyntax.
 
   Lemma kleisli_unit N K (e : ext N N K K) t : kleisli unit_m e t = t.
   Proof.
-    induction t; cbn; try rewrite IHt1, IHt2; try rewrite IHt; try reflexivity.
-    unfold unit_m; rewrite ext_var_same; reflexivity.
+    induction t; cbn; try rewrite IHt1, IHt2; try rewrite IHt; reflexivity.
   Qed.
 
   Lemma kleisli_assoc N M P (g : morph M P) (f : morph N M) K L (e : ext N P K L) t :

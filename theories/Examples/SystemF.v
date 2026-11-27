@@ -69,8 +69,7 @@ Module TySyntax.
   Lemma kleisli_unit N K (e : ext N N K K) A :
     kleisli (fun K L e v => tyvar (ext_var e v)) e A = A.
   Proof.
-    induction A; cbn; try rewrite IHA1, IHA2; try rewrite IHA; try reflexivity.
-    rewrite ext_var_same; reflexivity.
+    induction A; cbn; try rewrite IHA1, IHA2; try rewrite IHA; reflexivity.
   Qed.
 
   Lemma kleisli_assoc N M P (g : morph ty M P) (f : morph ty N M) K L (e : ext N P K L) A :
@@ -233,7 +232,6 @@ Module TmSyntax.
     kleisli (fun K L e v => tmvar (ext_var e v)) e t = t.
   Proof.
     induction t; cbn; f_equal; auto.
-    rewrite ext_var_same; reflexivity.
   Qed.
 
   (** Type substitution commutes with term substitution: the map's law. *)

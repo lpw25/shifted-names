@@ -15,8 +15,14 @@ From Stdlib Require Import Arith List Lia Bool StrictProp String.
 From ShiftedNames.Core Require Import Label Var Adjustment Laws Scoped.
 
 
+(** Primitive, so a variable is its raw variable and proof by
+    computation; with the proof in [SProp], two variables with the same
+    raw variable are convertible (renaming within the same scope is the
+    identity by computation). *)
+Set Primitive Projections.
 Record var (M : nat) : Type :=
   mk_var { var_raw : rvar; var_ok : Is_true_s (wf_var M var_raw) }.
+Unset Primitive Projections.
 
 Arguments mk_var {M} _ _.
 Arguments var_raw {M} _.
