@@ -215,14 +215,21 @@ Goal sort_laws 0 0 val (fun K v => vvar v) (@kl_val)
 Proof. kleisli_induction with val_comp_mut. Qed.
 ```
 
-Each form of the tactic matches the goal it is for (a `sort_laws`; a
-`fam_laws`, with `using`; a pair `R1 /\ R2` of either, with `with`, the
-pair split explicitly into its two records) and otherwise fails saying
-which form the goal needs. The tactic builds both records from four joint laws, each the
-conjunction of the two families' (split back by `sall_proj1`,
-`sall_proj2`), and proves each joint law by one `apply` of the scheme,
-whose cases have both families' induction hypotheses, closed as for one
-family.
+The tactic takes any number of law records joined by `/\`, and splits
+them first. Without `with`, each record is proved by its own induction
+(`using Lc` adding the carrier's laws, for families); with `with S`, all of
+them together by `S`. A goal that is not law records, or a case none of
+the expected kinds, fails saying so: for instance proving the values'
+laws alone stops at `kl_comp f x c = kl_comp g x c` and says a call of
+another family's Kleisli function needs its laws. Three mutually
+inductive families (values, computations, stacks) are checked the same
+way, in `CBPV.v`.
+
+With `with S`, the tactic builds every record from four joint laws, each
+the conjunction of every record's in the goal's shape (split at each
+conjunction by `sall_proj1`, `sall_proj2`), and proves each joint law by
+one `apply` of the scheme, whose cases have every family's induction
+hypotheses, closed as for one family.
 
 ## Moving a substitution of one sort past one of another (`proto/sorts/Commute.v`)
 

@@ -109,3 +109,39 @@ Definition comp_laws : fam_laws 0 0 all_sorts val (fun K v => vvar v) (@kl_val) 
 
 Goal sort_laws 0 0 val (fun K v => vvar v) (@kl_val) /\ fam_laws 0 0 all_sorts val (fun K v => vvar v) (@kl_val) comp (@kl_comp).
 Proof. kleisli_induction with val_comp_mut. Qed.
+
+(** ** Three families: computations push onto stacks
+
+    Values, computations and stacks, mutually inductive: the three
+    records proved together by their combined scheme. *)
+Inductive v3 (N : nat) : Type :=
+| v3var (v : var N) | v3thunk (c : c3 N)
+with c3 (N : nat) : Type :=
+| c3ret (v : v3 N) | c3lam (c : c3 (S N)) | c3push (c : c3 N) (k : s3 N)
+with s3 (N : nat) : Type :=
+| s3nil | s3arg (v : v3 N) (k : s3 N) | s3bind (c : c3 (S N)) (k : s3 N).
+Arguments v3var {N} v. Arguments v3thunk {N} c. Arguments c3ret {N} v. Arguments c3lam {N} c.
+Arguments c3push {N} c k. Arguments s3nil {N}. Arguments s3arg {N} v k. Arguments s3bind {N} c k.
+
+Scheme v3_mut := Induction for v3 Sort Prop with c3_mut := Induction for c3 Sort Prop with s3_mut := Induction for s3 Sort Prop.
+Combined Scheme vcs_mut from v3_mut, c3_mut, s3_mut.
+
+Fixpoint kl_v3 {B M} (f : morph 0 0 v3 B M) {K L} (x : descent 0 0 B M K L) (v : v3 @ K) : v3 @ out K L :=
+  match v with v3var v => f K L x v | v3thunk c => v3thunk (kl_c3 f x c) end
+with kl_c3 {B M} (f : morph 0 0 v3 B M) {K L} (x : descent 0 0 B M K L) (c : c3 @ K) : c3 @ out K L :=
+  match c with
+  | c3ret v => c3ret (kl_v3 f x v)
+  | c3lam c => c3lam (kl_c3 f (under 0 x) c)
+  | c3push c k => c3push (kl_c3 f x c) (kl_s3 f x k)
+  end
+with kl_s3 {B M} (f : morph 0 0 v3 B M) {K L} (x : descent 0 0 B M K L) (k : s3 @ K) : s3 @ out K L :=
+  match k with
+  | s3nil => s3nil
+  | s3arg v k => s3arg (kl_v3 f x v) (kl_s3 f x k)
+  | s3bind c k => s3bind (kl_c3 f (under 0 x) c) (kl_s3 f x k)
+  end.
+
+Goal sort_laws 0 0 v3 (fun K v => v3var v) (@kl_v3)
+     /\ fam_laws 0 0 all_sorts v3 (fun K v => v3var v) (@kl_v3) c3 (@kl_c3)
+     /\ fam_laws 0 0 all_sorts v3 (fun K v => v3var v) (@kl_v3) s3 (@kl_s3).
+Proof. kleisli_induction with vcs_mut. Qed.
