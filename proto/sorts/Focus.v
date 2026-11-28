@@ -398,6 +398,18 @@ Qed.
 Lemma sall_elim {a b} (Q : scopes a b -> Prop) : sall Q -> forall z, Q z.
 Proof. intros H [l [k r]]; exact (vall_elim _ _ (vall_elim _ _ H l k) r). Qed.
 
+Lemma vall_impl n (P Q : vec n -> Prop) : (forall v, P v -> Q v) -> vall n P -> vall n Q.
+Proof.
+  revert P Q; induction n as [|n IH]; cbn; intros P Q H; [apply H|].
+  intros HP k; exact (IH _ _ (fun v => H (pair k v)) (HP k)).
+Qed.
+
+Lemma sall_impl {a b} (P Q : scopes a b -> Prop) : (forall z, P z -> Q z) -> sall P -> sall Q.
+Proof.
+  intros H; apply vall_impl; intros l Hl k.
+  exact (vall_impl _ _ _ (fun r => H (pair l (pair k r))) (Hl k)).
+Qed.
+
 Section Generic.
 
 Context (a b : nat).
@@ -413,6 +425,11 @@ Definition rebase_m {F B M K1 L1} (x1 : descent a b B M K1 L1) (f : morph F B M)
 
 Definition sort_kl (F : arity n) : Type :=
   forall B M (f : morph F B M) K L, descent a b B M K L -> F @ K -> F @ out K L.
+
+(** A family over the same sorts, with carrier [F] (computations, with
+    values the carrier, in call-by-push-value). *)
+Definition same_kl (F T : arity n) : Type :=
+  forall B M (f : morph F B M) K L, descent a b B M K L -> T @ K -> T @ out K L.
 
 (** A family over more sorts, focused on the same sort. *)
 Definition fam_kl (F : arity n) {aT bT} (tl : thin a aT) (tr : thin b bT) (T : arity (radd aT (S bT))) : Type :=
@@ -444,6 +461,61 @@ Record sort_laws : Prop := {
   s_assoc : forall B M Mi (g : morph F (refocus B Mi) M) (f : morph F B (refocus M Mi)),
     sall (fun K => forall t : F @ K, sall (fun L => forall x : descent a b B M K L,
       kp _ _ (comp_m Mi g f) _ _ x t = kp _ _ g _ _ (fright Mi x) (kp _ _ f _ _ (fleft Mi x) t))) }.
+
+(** The laws of a family over the same sorts as its carrier. *)
+Record same_laws (T : arity n) (k : same_kl F T) : Prop := {
+  g_ext : forall B M (f g : morph F B M), (forall K L x v, f K L x v = g K L x v) ->
+    sall (fun K => forall t : T @ K, sall (fun L => forall x : descent a b B M K L,
+      k _ _ f _ _ x t = k _ _ g _ _ x t));
+  g_rebase : forall B M (f : morph F B M) K1 L1 (x1 : descent a b B M K1 L1),
+    sall (fun K => forall t : T @ K, sall (fun L => forall x : descent a b K1 L1 K L,
+      k _ _ (rebase_m x1 f) _ _ x t = k _ _ f _ _ (fapp x1 x) t));
+  g_unit : forall B,
+    sall (fun K => forall t : T @ K, forall x : descent a b B B K K,
+      k B B (unit_m (B := B) (M := B)) K K x t = t);
+  g_assoc : forall B M Mi (g : morph F (refocus B Mi) M) (f : morph F B (refocus M Mi)),
+    sall (fun K => forall t : T @ K, sall (fun L => forall x : descent a b B M K L,
+      k _ _ (comp_m Mi g f) _ _ x t = k _ _ g _ _ (fright Mi x) (k _ _ f _ _ (fleft Mi x) t))) }.
+
+(** A sort's family and one over the same sorts, defined together
+    (values and computations): each law for both at once, to be proved by
+    mutual induction. *)
+Record mutual_laws (T : arity n) (k : same_kl F T) : Prop := {
+  m_var : forall B M (f : morph F B M) K L (x : descent a b B M K L) v, kp _ _ f _ _ x (tv K v) = f K L x v;
+  m_ext : forall B M (f g : morph F B M), (forall K L x v, f K L x v = g K L x v) ->
+    sall (fun K =>
+      (forall t : F @ K, sall (fun L => forall x : descent a b B M K L, kp _ _ f _ _ x t = kp _ _ g _ _ x t))
+      /\ (forall t : T @ K, sall (fun L => forall x : descent a b B M K L, k _ _ f _ _ x t = k _ _ g _ _ x t)));
+  m_rebase : forall B M (f : morph F B M) K1 L1 (x1 : descent a b B M K1 L1),
+    sall (fun K =>
+      (forall t : F @ K, sall (fun L => forall x : descent a b K1 L1 K L,
+         kp _ _ (rebase_m x1 f) _ _ x t = kp _ _ f _ _ (fapp x1 x) t))
+      /\ (forall t : T @ K, sall (fun L => forall x : descent a b K1 L1 K L,
+         k _ _ (rebase_m x1 f) _ _ x t = k _ _ f _ _ (fapp x1 x) t)));
+  m_unit : forall B,
+    sall (fun K =>
+      (forall t : F @ K, forall x : descent a b B B K K, kp B B (unit_m (B := B) (M := B)) K K x t = t)
+      /\ (forall t : T @ K, forall x : descent a b B B K K, k B B (unit_m (B := B) (M := B)) K K x t = t));
+  m_assoc : forall B M Mi (g : morph F (refocus B Mi) M) (f : morph F B (refocus M Mi)),
+    sall (fun K =>
+      (forall t : F @ K, sall (fun L => forall x : descent a b B M K L,
+         kp _ _ (comp_m Mi g f) _ _ x t = kp _ _ g _ _ (fright Mi x) (kp _ _ f _ _ (fleft Mi x) t)))
+      /\ (forall t : T @ K, sall (fun L => forall x : descent a b B M K L,
+         k _ _ (comp_m Mi g f) _ _ x t = k _ _ g _ _ (fright Mi x) (k _ _ f _ _ (fleft Mi x) t)))) }.
+
+(** Each family's laws, from both's. *)
+Definition mutual_sort {T k} (H : mutual_laws T k) : sort_laws :=
+  {| s_var := m_var T k H;
+     s_ext B M f g E := sall_impl _ _ (fun K e => proj1 e) (m_ext T k H B M f g E);
+     s_rebase B M f K1 L1 x1 := sall_impl _ _ (fun K e => proj1 e) (m_rebase T k H B M f K1 L1 x1);
+     s_unit B := sall_impl _ _ (fun K e => proj1 e) (m_unit T k H B);
+     s_assoc B M Mi g f := sall_impl _ _ (fun K e => proj1 e) (m_assoc T k H B M Mi g f) |}.
+
+Definition mutual_same {T k} (H : mutual_laws T k) : same_laws T k :=
+  {| g_ext B M f g E := sall_impl _ _ (fun K e => proj2 e) (m_ext T k H B M f g E);
+     g_rebase B M f K1 L1 x1 := sall_impl _ _ (fun K e => proj2 e) (m_rebase T k H B M f K1 L1 x1);
+     g_unit B := sall_impl _ _ (fun K e => proj2 e) (m_unit T k H B);
+     g_assoc B M Mi g f := sall_impl _ _ (fun K e => proj2 e) (m_assoc T k H B M Mi g f) |}.
 
 (** The laws at any scopes. *)
 Section Use.
@@ -552,41 +624,48 @@ End FamUse.
 
 (** ** All the laws at once
 
-    [laws_proof] proves a law record ([sort_laws], or [fam_laws] with
-    [laws_proof using Lc], [Lc] the carrier's laws), each law exactly as by
-    hand (below, [kl_ty_ext] and so on):
+    [kleisli_induction] proves a law record ([sort_laws]; [fam_laws] with
+    [kleisli_induction using Lc], [Lc] the carrier's laws; [mutual_laws]
+    with [kleisli_induction with S], [S] the families' combined induction
+    scheme), each law exactly as by hand (below, [kl_ty_ext] and so on):
     - the record's statement is put into the hand-written lemma's form:
       the scopes one sort at a time unfold to numbers ([cbn [sall vall]]),
       and the term's type [F @ ⟪…⟫] computes to the user's [ty k];
-    - then [induction t; intros; cbn; f_equal], and each case is closed by
-      [easy] (computation, or the induction hypothesis at the witness or
-      one more binder down) or, in a family, by one law of the carrier
-      ([kp_ext], [kp_unit], [rebase_restrict], [assoc_restrict]).
-    The [var] law is computation.
+    - then [induction t] (or [apply S], for both families at once);
+      [intros; cbn; f_equal], and each case is closed by [easy]
+      (computation, or the induction hypothesis at the witness or one more
+      binder down) or, in a family, by one law of the carrier, tried in a
+      fixed order ([kp_ext], [kp_unit], [rebase_restrict],
+      [assoc_restrict]), each by [simple apply].
+    The [var] law is computation.  There is no search: a case is one of
+    these or the tactic fails on it, and that law is written by hand.
 
     It suffices when the Kleisli function is structural: its variable
     case is the morphism at the witness; each other case is a constructor
     whose arguments are a recursive call at the witness or [under t] of
-    it, the carrier's Kleisli function at [x‹…›], or the argument
-    unchanged.  After [f_equal] each such argument is one of those
-    goals. *)
+    it (of the same function or, for mutual families, the other one), the
+    carrier's Kleisli function at [x‹…›], or the argument unchanged.  After
+    [f_equal] each such argument is one of those goals. *)
 
-Ltac law_ind close :=
+Ltac kleisli_law_ind close :=
   intros until t; cbn [sall vall];
   (* the term, the last hypothesis *)
   match goal with u : _ |- _ => cbn in u; induction u end;
   intros; cbn; f_equal; close.
 
-Ltac laws_proof_with close := split; first [reflexivity | law_ind close].
+Ltac kleisli_laws_with close := split; first [reflexivity | kleisli_law_ind close].
 
-Tactic Notation "laws_proof" := laws_proof_with easy.
-Tactic Notation "laws_proof" "using" constr(Lc) :=
-  laws_proof_with
+Tactic Notation "kleisli_induction" := kleisli_laws_with easy.
+Tactic Notation "kleisli_induction" "using" constr(Lc) :=
+  kleisli_laws_with
     ltac:(first [ easy
                 | solve [simple apply (kp_ext Lc); assumption]
                 | solve [simple apply (kp_unit Lc)]
                 | solve [simple apply (rebase_restrict Lc)]
                 | solve [simple apply (assoc_restrict Lc)] ]).
+Tactic Notation "kleisli_induction" "with" constr(scheme) :=
+  split; first [ reflexivity
+               | intros; cbn [sall vall]; apply scheme; intros; cbn; f_equal; easy ].
 
 (** ** System F *)
 
@@ -682,18 +761,18 @@ Definition ty_laws : sort_laws 0 0 ty (fun K v => tyvar v) (@kl_ty) :=
 
 (** The same, all at once. *)
 Definition tm_laws : sort_laws 1 0 tm (fun K v => tmvar v) (@kl_tm).
-Proof. laws_proof. Defined.
+Proof. kleisli_induction. Defined.
 
 (** Types inside terms, over the first of their sorts: where [kl_tmty]
     calls [kl_ty], the laws of [kl_ty] (through the restriction). *)
 Let ty_in_tm := true :: false :: nil.
 
 Definition tmty_laws : fam_laws 0 1 ty_in_tm ty (fun K v => tyvar v) (@kl_ty) tm (@kl_tmty).
-Proof. laws_proof using ty_laws. Defined.
+Proof. kleisli_induction using ty_laws. Defined.
 
 (** The tactic proves the hand-written ones too. *)
 Goal sort_laws 0 0 ty (fun K v => tyvar v) (@kl_ty).
-Proof. laws_proof. Qed.
+Proof. kleisli_induction. Qed.
 
 (** ** Using it: substituting at the root *)
 

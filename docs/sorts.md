@@ -143,15 +143,15 @@ Proof. intros n k t; induction t; intros; cbn; f_equal; first [easy | simple app
 
 ### All at once
 
-`laws_proof` (and `laws_proof using ty_laws` for a family) proves a whole
-law record, each law exactly as by hand:
+`kleisli_induction` (and `kleisli_induction using ty_laws` for a family)
+proves a whole law record, each law exactly as by hand:
 
 ```coq
 Definition tm_laws : sort_laws 1 0 tm (fun K v => tmvar v) (@kl_tm).
-Proof. laws_proof. Defined.
+Proof. kleisli_induction. Defined.
 
 Definition tmty_laws : fam_laws 0 1 ty_in_tm ty (fun K v => tyvar v) (@kl_ty) tm (@kl_tmty).
-Proof. laws_proof using ty_laws. Defined.
+Proof. kleisli_induction using ty_laws. Defined.
 ```
 
 For each field it puts the record's statement into the hand-written
@@ -179,6 +179,29 @@ Two `Arguments` declarations make `cbn` leave a family's goals over
 `restrict_lr` and `zrestr`, the form the carrier's laws are stated in
 (`restrict` and `zsub` unfold), so that `simple apply` matches them
 syntactically.
+
+### Mutually inductive families (`proto/sorts/CBPV.v`)
+
+Call-by-push-value: values and computations are mutually inductive, with
+one sort of variable (value variables). Values are that sort's family;
+computations are a family over the same sorts with values as their
+carrier (`same_kl`, laws `same_laws`), so no restriction is involved. The
+two Kleisli functions are mutually recursive, so each law holds of both at
+once: the record `mutual_laws` states each as a conjunction, the scope
+shared (as Coq's combined induction scheme has it), and `mutual_sort`,
+`mutual_same` give each family's laws back. By hand, each law is one line:
+
+```coq
+Lemma kl_vc_rebase {B M} (f : morph 0 0 val B M) {K1 L1} (x1 : descent 0 0 B M K1 L1) :
+  forall n, (forall (v : val n) l (x : descent 0 0 K1 L1 ⟪[] | n | []⟫ ⟪[] | l | []⟫),
+     kl_val (rebase_m 0 0 x1 f) x v = kl_val f (fapp x1 x) v)
+  /\ (forall (c : comp n) l (x : descent 0 0 K1 L1 ⟪[] | n | []⟫ ⟪[] | l | []⟫),
+     kl_comp (rebase_m 0 0 x1 f) x c = kl_comp f (fapp x1 x) c).
+Proof. apply val_comp_mut; intros; cbn; f_equal; easy. Qed.
+```
+
+with `val_comp_mut` from `Scheme … with …` and `Combined Scheme`. All at
+once: `kleisli_induction with val_comp_mut`.
 
 ## Moving a substitution of one sort past one of another (`proto/sorts/Commute.v`)
 
