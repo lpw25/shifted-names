@@ -98,37 +98,54 @@ fam_kl a b F tl tr T := … (f : morph a b F (zrestr tl tr B) (zrestr tl tr M)) 
 `F` is the user's own family (`ty`, `tm`), and the user's Kleisli function
 itself (`@kl_ty`) is the `sort_kl`.
 
-Laws, per family and sort: `var`, `ext`, `rebase`, `unit`, `assoc`. Each is
-stated over the term's scope, the term, then the output scope and the
-witness (which vary under a binder), the scopes one sort at a time
-(`sall`), so that at concrete sorts the term's indices are variables.
-Unit is over `descent B B K K` (the other sorts the same on both sides);
-rebase is `kp (rebase_m x1 f) x t = kp f (fapp x1 x) t`. Each is then an
-induction on the term:
+Laws, per family and sort: `var`, `ext`, `rebase`, `unit`, `assoc`. The user
+proves each as a separate lemma about their own function, stated with the
+scopes as numbers (`⟪ l | k | r ⟫`: the sorts left of the focus, nearest
+first, the focus, the sorts right of it), and by plain induction:
 
 ```coq
-Theorem ty_laws : sort_laws 0 0 ty (fun K v => tyvar v) (@kl_ty).
-Proof. split; try reflexivity; intros until t; cbn in t; induction t; cbn in *; intros; f_equal; easy. Qed.
-
-Theorem tmty_laws : fam_laws 0 1 (true :: false :: nil) ty (fun K v => tyvar v) (@kl_ty) tm (@kl_tmty).
-Proof.
-  split; intros until t; cbn in t; induction t; cbn in *; intros; f_equal;
-    eauto using ty_laws, kp_ext, kp_unit, rebase_restrict, assoc_restrict.
-Qed.
+Lemma kl_ty_assoc {B M} Mi (g : morph 0 0 ty (refocus B Mi) M) (f : morph 0 0 ty B (refocus M Mi)) :
+  forall n (A : ty n) l (x : descent 0 0 B M ⟪[] | n | []⟫ ⟪[] | l | []⟫),
+  kl_ty (comp_m 0 0 ty (@kl_ty) Mi g f) x A = kl_ty g (fright Mi x) (kl_ty f (fleft Mi x) A).
+Proof. intros n A; induction A; intros; cbn; f_equal; easy. Qed.
 ```
 
-`cbn in t` turns the term's type `ty @ K` into `ty k`, so that `induction`
-sees a variable index. Every case is the induction hypothesis (at the same
-witness or one more binder down) or computation. A family's laws also use
-its carrier's where it calls the carrier's Kleisli function: ext and unit
-directly, rebase and assoc through the restriction (`rebase_restrict`,
-`assoc_restrict`: restricting a path commutes with appending and splitting
-it, by induction on the path). `var` is a primitive record, so the unit
-law's variable case holds by computation.
+The term comes before the output scope and the witness, which vary under
+a binder, so `induction` generalises them. Unit is over `descent B B K K`
+(the other sorts the same on both sides); rebase is
+`kp (rebase_m x1 f) x t = kp f (fapp x1 x) t`. The lemmas are then packed
+into the law record, by conversion alone:
 
-Three `Arguments` declarations keep what `cbn` leaves the same in the goal
-and the induction hypothesis: `refocus` and `fam` unfold on a concrete
-zipper (`!z … /`), and `out` stays folded.
+```coq
+Definition ty_laws : sort_laws 0 0 ty (fun K v => tyvar v) (@kl_ty) :=
+  {| s_var _ _ _ _ _ _ _ := eq_refl; s_ext := @kl_ty_ext; s_rebase := @kl_ty_rebase;
+     s_unit := kl_ty_unit; s_assoc := @kl_ty_assoc |}.
+```
+
+The record states each law over the scopes one sort at a time (`sall`),
+which at concrete sorts computes to the lemma's `forall n …`; vectors
+appear only there. `var` is a primitive record, so the unit law's variable
+case holds by computation.
+
+A family's laws also use its carrier's where it calls the carrier's
+Kleisli function, as `auto` hints from the carrier's record: ext and unit
+directly (`kp_ext ty_laws`, `kp_unit ty_laws`), rebase and assoc through the
+restriction (`rebase_restrict ty_laws`, `assoc_restrict ty_laws`;
+restricting a path commutes with appending and splitting it, by induction
+on the path):
+
+```coq
+Lemma kl_tmty_rebase {B M : scopes 0 1} (f : morph_in ty_in_tm B M ty) {K1 L1} (x1 : descent 0 1 B M K1 L1) :
+  forall n k (t : tm n k) n' l (x : descent 0 1 K1 L1 ⟪[] | n | [k]⟫ ⟪[] | n' | [l]⟫),
+  kl_tmty (rebase_m 0 0 (restrict ty_in_tm x1) f) x t = kl_tmty f (fapp x1 x) t.
+Proof. intros n k t; induction t; intros; cbn; f_equal; auto using (rebase_restrict ty_laws). Qed.
+```
+
+Three `Arguments` declarations make `cbn` leave goals in the form the
+lemmas are stated in: `refocus` unfolds on a concrete zipper (`!z … /`, so a
+scope under a binder is the plain zipper the induction hypothesis has),
+and `restrict` and `zsub` unfold (so a family's goals are over
+`restrict_lr`, `zrestr`, as its carrier's laws are).
 
 ## Moving a substitution of one sort past one of another (`proto/sorts/Commute.v`)
 

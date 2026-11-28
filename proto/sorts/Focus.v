@@ -70,9 +70,6 @@ Definition plug {a b} (z : scopes a b) : vec (radd a (S b)) := rev_app a (S b) (
 
 (** The zipper [K] with [L]'s focus. *)
 Definition out {a b} (K L : scopes a b) : scopes a b := pair (zleft K) (pair (focus L) (zright K)).
-(** Kept as is by [cbn]: it appears in the types of Kleisli functions'
-    results, which then stay as the user wrote them. *)
-Arguments out : simpl never.
 
 (** The zipper [z] with focus [k]. *)
 Definition refocus {a b} (z : scopes a b) (k : nat) : scopes a b := pair (zleft z) (pair k (zright z)).
@@ -101,9 +98,6 @@ Fixpoint uncurry (n : nat) : arity n -> vec n -> Type :=
 (** The user's family at a zipper. *)
 Definition fam {a b} (K : scopes a b) (F : arity (radd a (S b))) : Type := uncurry _ F (plug K).
 Notation "F @ K" := (fam K F) (at level 11, K at level 10, no associativity).
-(** Unfolded by [cbn] on a concrete zipper (a term's type, to [ty k]), not
-    on [out K L] (a result's type). *)
-Arguments fam {a b} !K F /.
 
 (** Some of [n] sorts, in order. *)
 Inductive thin : nat -> nat -> Type :=
@@ -173,6 +167,9 @@ Fixpoint tr_of (s : mask) (a b : nat) : thin (rkept s a b) b :=
 
 (** A zipper over the sorts [s] keeps. *)
 Definition zsub {a b} (s : mask) (z : scopes a b) : scopes (lkept s a) (rkept s a b) := zrestr (tl_of s a) (tr_of s a b) z.
+(** Unfolded by [cbn], as is [restrict] below: a family's laws then meet
+    its carrier's (stated over [zrestr], [restrict_lr]) as they are. *)
+Arguments zsub {a b} s z /.
 
 (** ** Witnesses *)
 
@@ -330,6 +327,7 @@ Definition restrict_lr {a b aT bT} (tl : thin a aT) (tr : thin b bT) {B M K L} (
 Definition restrict {a b} (s : mask) {B M K L} (x : descent a b B M K L)
     : descent (lkept s a) (rkept s a b) (zsub s B) (zsub s M) (zsub s K) (zsub s L) :=
   restrict_lr (tl_of s a) (tr_of s a b) x.
+Arguments restrict {a b} s {B M K L} x /.
 
 (** Written after the witness: [x‹+ -›]. *)
 Notation "z ‹ m" := (zsub m z) (only printing, at level 1, left associativity, m custom sorts at level 2, format "z ‹ m").
@@ -614,25 +612,88 @@ Fixpoint kl_tmty {B M : scopes 0 1} (f : morph 0 0 ty _ _)
 
 (** ** Their laws: routine inductions *)
 
-Section Proofs.
+(** Concrete zippers, for the laws' statements: [⟪ l | k | r ⟫], the sorts
+    left of the focus (nearest first), the focus, the sorts right of it. *)
+Declare Custom Entry vec.
+Notation "[ ]" := tt (in custom vec at level 0).
+Notation "[ x ; .. ; y ]" := (pair x .. (pair y tt) ..) (in custom vec at level 0, x constr at level 200, y constr at level 200).
+Notation "⟪ l | k | r ⟫" := (pair l (pair k r)) (at level 0, l custom vec at level 0, r custom vec at level 0, k constr at level 200).
 
-(** By induction on the term; under a binder, the induction hypothesis
-    at the witness one binder down. *)
-Theorem ty_laws : sort_laws 0 0 ty (fun K v => tyvar v) (@kl_ty).
-Proof. split; try reflexivity; intros until t; cbn in t; induction t; cbn in *; intros; f_equal; easy. Qed.
+(** Each law by induction on the term; under a binder, the induction
+    hypothesis at the witness one binder down. *)
 
-Theorem tm_laws : sort_laws 1 0 tm (fun K v => tmvar v) (@kl_tm).
-Proof. split; try reflexivity; intros until t; cbn in t; induction t; cbn in *; intros; f_equal; easy. Qed.
+Lemma kl_ty_ext {B M} (f g : morph 0 0 ty B M) (H : forall K L x v, f K L x v = g K L x v) :
+  forall n (A : ty n) l (x : descent 0 0 B M ⟪[] | n | []⟫ ⟪[] | l | []⟫), kl_ty f x A = kl_ty g x A.
+Proof. intros n A; induction A; intros; cbn; f_equal; easy. Qed.
+
+Lemma kl_ty_rebase {B M} (f : morph 0 0 ty B M) {K1 L1} (x1 : descent 0 0 B M K1 L1) :
+  forall n (A : ty n) l (x : descent 0 0 K1 L1 ⟪[] | n | []⟫ ⟪[] | l | []⟫),
+  kl_ty (rebase_m 0 0 x1 f) x A = kl_ty f (fapp x1 x) A.
+Proof. intros n A; induction A; intros; cbn; f_equal; easy. Qed.
+
+Lemma kl_ty_unit B :
+  forall n (A : ty n) (x : descent 0 0 B B ⟪[] | n | []⟫ ⟪[] | n | []⟫),
+  kl_ty (unit_m 0 0 ty (fun K v => tyvar v) (B := B) (M := B)) x A = A.
+Proof. intros n A; induction A; intros; cbn; f_equal; easy. Qed.
+
+Lemma kl_ty_assoc {B M} Mi (g : morph 0 0 ty (refocus B Mi) M) (f : morph 0 0 ty B (refocus M Mi)) :
+  forall n (A : ty n) l (x : descent 0 0 B M ⟪[] | n | []⟫ ⟪[] | l | []⟫),
+  kl_ty (comp_m 0 0 ty (@kl_ty) Mi g f) x A = kl_ty g (fright Mi x) (kl_ty f (fleft Mi x) A).
+Proof. intros n A; induction A; intros; cbn; f_equal; easy. Qed.
+
+Definition ty_laws : sort_laws 0 0 ty (fun K v => tyvar v) (@kl_ty) :=
+  {| s_var _ _ _ _ _ _ _ := eq_refl; s_ext := @kl_ty_ext; s_rebase := @kl_ty_rebase;
+     s_unit := kl_ty_unit; s_assoc := @kl_ty_assoc |}.
+
+Lemma kl_tm_ext {B M} (f g : morph 1 0 tm B M) (H : forall K L x v, f K L x v = g K L x v) :
+  forall n k (t : tm n k) n' l (x : descent 1 0 B M ⟪[n] | k | []⟫ ⟪[n'] | l | []⟫), kl_tm f x t = kl_tm g x t.
+Proof. intros n k t; induction t; intros; cbn; f_equal; easy. Qed.
+
+Lemma kl_tm_rebase {B M} (f : morph 1 0 tm B M) {K1 L1} (x1 : descent 1 0 B M K1 L1) :
+  forall n k (t : tm n k) n' l (x : descent 1 0 K1 L1 ⟪[n] | k | []⟫ ⟪[n'] | l | []⟫),
+  kl_tm (rebase_m 1 0 x1 f) x t = kl_tm f (fapp x1 x) t.
+Proof. intros n k t; induction t; intros; cbn; f_equal; easy. Qed.
+
+Lemma kl_tm_unit B :
+  forall n k (t : tm n k) (x : descent 1 0 B B ⟪[n] | k | []⟫ ⟪[n] | k | []⟫),
+  kl_tm (unit_m 1 0 tm (fun K v => tmvar v) (B := B) (M := B)) x t = t.
+Proof. intros n k t; induction t; intros; cbn; f_equal; easy. Qed.
+
+Lemma kl_tm_assoc {B M} Mi (g : morph 1 0 tm (refocus B Mi) M) (f : morph 1 0 tm B (refocus M Mi)) :
+  forall n k (t : tm n k) n' l (x : descent 1 0 B M ⟪[n] | k | []⟫ ⟪[n'] | l | []⟫),
+  kl_tm (comp_m 1 0 tm (@kl_tm) Mi g f) x t = kl_tm g (fright Mi x) (kl_tm f (fleft Mi x) t).
+Proof. intros n k t; induction t; intros; cbn; f_equal; easy. Qed.
+
+Definition tm_laws : sort_laws 1 0 tm (fun K v => tmvar v) (@kl_tm) :=
+  {| s_var _ _ _ _ _ _ _ := eq_refl; s_ext := @kl_tm_ext; s_rebase := @kl_tm_rebase;
+     s_unit := kl_tm_unit; s_assoc := @kl_tm_assoc |}.
 
 (** Types inside terms, over the first of their sorts: where [kl_tmty]
     calls [kl_ty], the laws of [kl_ty] (through the restriction). *)
-Theorem tmty_laws : fam_laws 0 1 (true :: false :: nil) ty (fun K v => tyvar v) (@kl_ty) tm (@kl_tmty).
-Proof.
-  split; intros until t; cbn in t; induction t; cbn in *; intros; f_equal;
-    eauto using ty_laws, kp_ext, kp_unit, rebase_restrict, assoc_restrict.
-Qed.
+Let ty_in_tm := true :: false :: nil.
 
-End Proofs.
+Lemma kl_tmty_ext {B M : scopes 0 1} (f g : morph_in ty_in_tm B M ty) (H : forall K L x v, f K L x v = g K L x v) :
+  forall n k (t : tm n k) n' l (x : descent 0 1 B M ⟪[] | n | [k]⟫ ⟪[] | n' | [l]⟫), kl_tmty f x t = kl_tmty g x t.
+Proof. intros n k t; induction t; intros; cbn; f_equal; auto using (kp_ext ty_laws). Qed.
+
+Lemma kl_tmty_rebase {B M : scopes 0 1} (f : morph_in ty_in_tm B M ty) {K1 L1} (x1 : descent 0 1 B M K1 L1) :
+  forall n k (t : tm n k) n' l (x : descent 0 1 K1 L1 ⟪[] | n | [k]⟫ ⟪[] | n' | [l]⟫),
+  kl_tmty (rebase_m 0 0 (restrict ty_in_tm x1) f) x t = kl_tmty f (fapp x1 x) t.
+Proof. intros n k t; induction t; intros; cbn; f_equal; auto using (rebase_restrict ty_laws). Qed.
+
+Lemma kl_tmty_unit (B : scopes 0 1) :
+  forall n k (t : tm n k) (x : descent 0 1 B B ⟪[] | n | [k]⟫ ⟪[] | n | [k]⟫),
+  kl_tmty (unit_m 0 0 ty (fun K v => tyvar v) (B := zsub ty_in_tm B) (M := zsub ty_in_tm B)) x t = t.
+Proof. intros n k t; induction t; intros; cbn; f_equal; auto using (kp_unit ty_laws). Qed.
+
+Lemma kl_tmty_assoc {B M : scopes 0 1} Mi (g : morph_in ty_in_tm (refocus B Mi) M ty) (f : morph_in ty_in_tm B (refocus M Mi) ty) :
+  forall n k (t : tm n k) n' l (x : descent 0 1 B M ⟪[] | n | [k]⟫ ⟪[] | n' | [l]⟫),
+  kl_tmty (comp_m 0 0 ty (@kl_ty) (B := zsub ty_in_tm B) (M := zsub ty_in_tm M) Mi g f) x t
+  = kl_tmty g (fright Mi x) (kl_tmty f (fleft Mi x) t).
+Proof. intros n k t; induction t; intros; cbn; f_equal; auto using (assoc_restrict ty_laws). Qed.
+
+Definition tmty_laws : fam_laws 0 1 ty_in_tm ty (fun K v => tyvar v) (@kl_ty) tm (@kl_tmty) :=
+  {| f_ext := @kl_tmty_ext; f_rebase := @kl_tmty_rebase; f_unit := kl_tmty_unit; f_assoc := @kl_tmty_assoc |}.
 
 (** ** Using it: substituting at the root *)
 
