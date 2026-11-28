@@ -128,24 +128,57 @@ appear only there. `var` is a primitive record, so the unit law's variable
 case holds by computation.
 
 A family's laws also use its carrier's where it calls the carrier's
-Kleisli function, as `auto` hints from the carrier's record: ext and unit
-directly (`kp_ext ty_laws`, `kp_unit ty_laws`), rebase and assoc through the
+Kleisli function, from the carrier's record: ext and unit directly
+(`kp_ext ty_laws`, `kp_unit ty_laws`), rebase and assoc through the
 restriction (`rebase_restrict ty_laws`, `assoc_restrict ty_laws`;
 restricting a path commutes with appending and splitting it, by induction
-on the path):
+on the path). Each such case is one `simple apply` of one of them:
 
 ```coq
 Lemma kl_tmty_rebase {B M : scopes 0 1} (f : morph_in ty_in_tm B M ty) {K1 L1} (x1 : descent 0 1 B M K1 L1) :
   forall n k (t : tm n k) n' l (x : descent 0 1 K1 L1 ⟪[] | n | [k]⟫ ⟪[] | n' | [l]⟫),
   kl_tmty (rebase_m 0 0 (restrict ty_in_tm x1) f) x t = kl_tmty f (fapp x1 x) t.
-Proof. intros n k t; induction t; intros; cbn; f_equal; auto using (rebase_restrict ty_laws). Qed.
+Proof. intros n k t; induction t; intros; cbn; f_equal; first [easy | simple apply (rebase_restrict ty_laws)]. Qed.
 ```
 
-Three `Arguments` declarations make `cbn` leave goals in the form the
-lemmas are stated in: `refocus` unfolds on a concrete zipper (`!z … /`, so a
-scope under a binder is the plain zipper the induction hypothesis has),
-and `restrict` and `zsub` unfold (so a family's goals are over
-`restrict_lr`, `zrestr`, as its carrier's laws are).
+### All at once
+
+`laws_proof` (and `laws_proof using ty_laws` for a family) proves a whole
+law record, each law exactly as by hand:
+
+```coq
+Definition tm_laws : sort_laws 1 0 tm (fun K v => tmvar v) (@kl_tm).
+Proof. laws_proof. Defined.
+
+Definition tmty_laws : fam_laws 0 1 ty_in_tm ty (fun K v => tyvar v) (@kl_ty) tm (@kl_tmty).
+Proof. laws_proof using ty_laws. Defined.
+```
+
+For each field it puts the record's statement into the hand-written
+lemma's form (`cbn [sall vall]` unfolds the scopes to numbers, `cbn in t`
+computes the term's type to `tm n k`), then does `induction t; intros; cbn;
+f_equal` and closes each case by `easy` or one `simple apply` of one of the
+carrier's four laws, tried in a fixed order. There is no search beyond
+that, so a case either is one of those or the tactic fails on it, and the
+user writes that law by hand instead.
+
+It suffices when the Kleisli function is structural: its variable case is
+the morphism at the witness; every other case is a constructor whose
+arguments are each a recursive call at the witness or `under t` of it,
+the carrier's Kleisli function at `x‹…›`, or the argument unchanged. After
+`f_equal` each argument is then a goal of one of these kinds:
+- both sides the same: `easy`;
+- a recursive call: the induction hypothesis, its output scope and witness
+  quantified, so `easy` instantiates them by matching (under a binder,
+  `under t x`, whose scope is a plain zipper by computation);
+- a call of the carrier: the carrier's law of the same name.
+The variable case of each law is computation (unit's because `var` is a
+primitive record).
+
+Two `Arguments` declarations make `cbn` leave a family's goals over
+`restrict_lr` and `zrestr`, the form the carrier's laws are stated in
+(`restrict` and `zsub` unfold), so that `simple apply` matches them
+syntactically.
 
 ## Moving a substitution of one sort past one of another (`proto/sorts/Commute.v`)
 

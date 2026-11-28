@@ -73,9 +73,6 @@ Definition out {a b} (K L : scopes a b) : scopes a b := pair (zleft K) (pair (fo
 
 (** The zipper [z] with focus [k]. *)
 Definition refocus {a b} (z : scopes a b) (k : nat) : scopes a b := pair (zleft z) (pair k (zright z)).
-(** Unfolded by [cbn] on a concrete zipper: a scope under a binder is
-    then the plain zipper the induction hypothesis has. *)
-Arguments refocus {a b} !z k /.
 
 (** Moving the focus one sort to the right: the same vector, by
     computation, whatever the number of sorts. *)
@@ -231,7 +228,7 @@ Definition shere {a b} {B M : scopes a b} : step a b B M B M := pair (whome a _ 
 Definition zup {a b} (t : nat) (z : scopes a b) : scopes a b :=
   match Nat.compare t a with
   | Lt => pair (upd a (a - S t) (S (get a (a - S t) (zleft z))) (zleft z)) (second z)
-  | Eq => refocus z (S (focus z))
+  | Eq => pair (zleft z) (pair (S (focus z)) (zright z))
   | Gt => pair (zleft z) (pair (focus z) (upd b (t - S a) (S (get b (t - S a) (zright z))) (zright z)))
   end.
 
@@ -241,12 +238,12 @@ Definition sunder {a b} (t : nat) {B M K L} (x : step a b B M K L) : step a b B 
     step a b B M
       (match c with
        | Lt => pair (upd a (a - S t) (S (get a (a - S t) (zleft K))) (zleft K)) (second K)
-       | Eq => refocus K (S (focus K))
+       | Eq => pair (zleft K) (pair (S (focus K)) (zright K))
        | Gt => pair (zleft K) (pair (focus K) (upd b (t - S a) (S (get b (t - S a) (zright K))) (zright K)))
        end)
       (match c with
        | Lt => pair (upd a (a - S t) (S (get a (a - S t) (zleft L))) (zleft L)) (second L)
-       | Eq => refocus L (S (focus L))
+       | Eq => pair (zleft L) (pair (S (focus L)) (zright L))
        | Gt => pair (zleft L) (pair (focus L) (upd b (t - S a) (S (get b (t - S a) (zright L))) (zright L)))
        end)
   with
@@ -477,7 +474,7 @@ Lemma rebase_restrict {aT bT} (tl : thin a aT) (tr : thin b bT) {B M : scopes aT
 Proof. rewrite restrict_lr_fapp; apply kp_rebase. Qed.
 
 Lemma assoc_restrict {aT bT} (tl : thin a aT) (tr : thin b bT) {B M : scopes aT bT} Mi
-    (g : morph F (refocus (zrestr tl tr B) Mi) (zrestr tl tr M)) (f : morph F (zrestr tl tr B) (refocus (zrestr tl tr M) Mi))
+    (g : morph F (zrestr tl tr (refocus B Mi)) (zrestr tl tr M)) (f : morph F (zrestr tl tr B) (zrestr tl tr (refocus M Mi)))
     {K L} (x : descent aT bT B M K L) t :
   kp _ _ (comp_m (B := zrestr tl tr B) (M := zrestr tl tr M) Mi g f) _ _ (restrict_lr tl tr x) t
   = kp _ _ g _ _ (restrict_lr tl tr (fright Mi x)) (kp _ _ f _ _ (restrict_lr tl tr (fleft Mi x)) t).
@@ -552,6 +549,44 @@ Lemma fk_unit {B K} (x : descent aT bT B B K K) t :
 Proof. exact (sall_elim _ (f_unit _ _ _ _ _ _ _ _ H B) K t x). Qed.
 
 End FamUse.
+
+(** ** All the laws at once
+
+    [laws_proof] proves a law record ([sort_laws], or [fam_laws] with
+    [laws_proof using Lc], [Lc] the carrier's laws), each law exactly as by
+    hand (below, [kl_ty_ext] and so on):
+    - the record's statement is put into the hand-written lemma's form:
+      the scopes one sort at a time unfold to numbers ([cbn [sall vall]]),
+      and the term's type [F @ ⟪…⟫] computes to the user's [ty k];
+    - then [induction t; intros; cbn; f_equal], and each case is closed by
+      [easy] (computation, or the induction hypothesis at the witness or
+      one more binder down) or, in a family, by one law of the carrier
+      ([kp_ext], [kp_unit], [rebase_restrict], [assoc_restrict]).
+    The [var] law is computation.
+
+    It suffices when the Kleisli function is structural: its variable
+    case is the morphism at the witness; each other case is a constructor
+    whose arguments are a recursive call at the witness or [under t] of
+    it, the carrier's Kleisli function at [x‹…›], or the argument
+    unchanged.  After [f_equal] each such argument is one of those
+    goals. *)
+
+Ltac law_ind close :=
+  intros until t; cbn [sall vall];
+  (* the term, the last hypothesis *)
+  match goal with u : _ |- _ => cbn in u; induction u end;
+  intros; cbn; f_equal; close.
+
+Ltac laws_proof_with close := split; first [reflexivity | law_ind close].
+
+Tactic Notation "laws_proof" := laws_proof_with easy.
+Tactic Notation "laws_proof" "using" constr(Lc) :=
+  laws_proof_with
+    ltac:(first [ easy
+                | solve [simple apply (kp_ext Lc); assumption]
+                | solve [simple apply (kp_unit Lc)]
+                | solve [simple apply (rebase_restrict Lc)]
+                | solve [simple apply (assoc_restrict Lc)] ]).
 
 (** ** System F *)
 
@@ -645,55 +680,20 @@ Definition ty_laws : sort_laws 0 0 ty (fun K v => tyvar v) (@kl_ty) :=
   {| s_var _ _ _ _ _ _ _ := eq_refl; s_ext := @kl_ty_ext; s_rebase := @kl_ty_rebase;
      s_unit := kl_ty_unit; s_assoc := @kl_ty_assoc |}.
 
-Lemma kl_tm_ext {B M} (f g : morph 1 0 tm B M) (H : forall K L x v, f K L x v = g K L x v) :
-  forall n k (t : tm n k) n' l (x : descent 1 0 B M ⟪[n] | k | []⟫ ⟪[n'] | l | []⟫), kl_tm f x t = kl_tm g x t.
-Proof. intros n k t; induction t; intros; cbn; f_equal; easy. Qed.
-
-Lemma kl_tm_rebase {B M} (f : morph 1 0 tm B M) {K1 L1} (x1 : descent 1 0 B M K1 L1) :
-  forall n k (t : tm n k) n' l (x : descent 1 0 K1 L1 ⟪[n] | k | []⟫ ⟪[n'] | l | []⟫),
-  kl_tm (rebase_m 1 0 x1 f) x t = kl_tm f (fapp x1 x) t.
-Proof. intros n k t; induction t; intros; cbn; f_equal; easy. Qed.
-
-Lemma kl_tm_unit B :
-  forall n k (t : tm n k) (x : descent 1 0 B B ⟪[n] | k | []⟫ ⟪[n] | k | []⟫),
-  kl_tm (unit_m 1 0 tm (fun K v => tmvar v) (B := B) (M := B)) x t = t.
-Proof. intros n k t; induction t; intros; cbn; f_equal; easy. Qed.
-
-Lemma kl_tm_assoc {B M} Mi (g : morph 1 0 tm (refocus B Mi) M) (f : morph 1 0 tm B (refocus M Mi)) :
-  forall n k (t : tm n k) n' l (x : descent 1 0 B M ⟪[n] | k | []⟫ ⟪[n'] | l | []⟫),
-  kl_tm (comp_m 1 0 tm (@kl_tm) Mi g f) x t = kl_tm g (fright Mi x) (kl_tm f (fleft Mi x) t).
-Proof. intros n k t; induction t; intros; cbn; f_equal; easy. Qed.
-
-Definition tm_laws : sort_laws 1 0 tm (fun K v => tmvar v) (@kl_tm) :=
-  {| s_var _ _ _ _ _ _ _ := eq_refl; s_ext := @kl_tm_ext; s_rebase := @kl_tm_rebase;
-     s_unit := kl_tm_unit; s_assoc := @kl_tm_assoc |}.
+(** The same, all at once. *)
+Definition tm_laws : sort_laws 1 0 tm (fun K v => tmvar v) (@kl_tm).
+Proof. laws_proof. Defined.
 
 (** Types inside terms, over the first of their sorts: where [kl_tmty]
     calls [kl_ty], the laws of [kl_ty] (through the restriction). *)
 Let ty_in_tm := true :: false :: nil.
 
-Lemma kl_tmty_ext {B M : scopes 0 1} (f g : morph_in ty_in_tm B M ty) (H : forall K L x v, f K L x v = g K L x v) :
-  forall n k (t : tm n k) n' l (x : descent 0 1 B M ⟪[] | n | [k]⟫ ⟪[] | n' | [l]⟫), kl_tmty f x t = kl_tmty g x t.
-Proof. intros n k t; induction t; intros; cbn; f_equal; auto using (kp_ext ty_laws). Qed.
+Definition tmty_laws : fam_laws 0 1 ty_in_tm ty (fun K v => tyvar v) (@kl_ty) tm (@kl_tmty).
+Proof. laws_proof using ty_laws. Defined.
 
-Lemma kl_tmty_rebase {B M : scopes 0 1} (f : morph_in ty_in_tm B M ty) {K1 L1} (x1 : descent 0 1 B M K1 L1) :
-  forall n k (t : tm n k) n' l (x : descent 0 1 K1 L1 ⟪[] | n | [k]⟫ ⟪[] | n' | [l]⟫),
-  kl_tmty (rebase_m 0 0 (restrict ty_in_tm x1) f) x t = kl_tmty f (fapp x1 x) t.
-Proof. intros n k t; induction t; intros; cbn; f_equal; auto using (rebase_restrict ty_laws). Qed.
-
-Lemma kl_tmty_unit (B : scopes 0 1) :
-  forall n k (t : tm n k) (x : descent 0 1 B B ⟪[] | n | [k]⟫ ⟪[] | n | [k]⟫),
-  kl_tmty (unit_m 0 0 ty (fun K v => tyvar v) (B := zsub ty_in_tm B) (M := zsub ty_in_tm B)) x t = t.
-Proof. intros n k t; induction t; intros; cbn; f_equal; auto using (kp_unit ty_laws). Qed.
-
-Lemma kl_tmty_assoc {B M : scopes 0 1} Mi (g : morph_in ty_in_tm (refocus B Mi) M ty) (f : morph_in ty_in_tm B (refocus M Mi) ty) :
-  forall n k (t : tm n k) n' l (x : descent 0 1 B M ⟪[] | n | [k]⟫ ⟪[] | n' | [l]⟫),
-  kl_tmty (comp_m 0 0 ty (@kl_ty) (B := zsub ty_in_tm B) (M := zsub ty_in_tm M) Mi g f) x t
-  = kl_tmty g (fright Mi x) (kl_tmty f (fleft Mi x) t).
-Proof. intros n k t; induction t; intros; cbn; f_equal; auto using (assoc_restrict ty_laws). Qed.
-
-Definition tmty_laws : fam_laws 0 1 ty_in_tm ty (fun K v => tyvar v) (@kl_ty) tm (@kl_tmty) :=
-  {| f_ext := @kl_tmty_ext; f_rebase := @kl_tmty_rebase; f_unit := kl_tmty_unit; f_assoc := @kl_tmty_assoc |}.
+(** The tactic proves the hand-written ones too. *)
+Goal sort_laws 0 0 ty (fun K v => tyvar v) (@kl_ty).
+Proof. laws_proof. Qed.
 
 (** ** Using it: substituting at the root *)
 
