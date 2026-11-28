@@ -184,12 +184,16 @@ syntactically.
 
 Call-by-push-value: values and computations are mutually inductive, with
 one sort of variable (value variables). Values are that sort's family;
-computations are a family over the same sorts with values as their
-carrier (`same_kl`, laws `same_laws`), so no restriction is involved. The
-two Kleisli functions are mutually recursive, so each law holds of both at
-once: the record `mutual_laws` states each as a conjunction, the scope
-shared (as Coq's combined induction scheme has it), and `mutual_sort`,
-`mutual_same` give each family's laws back. By hand, each law is one line:
+computations are an ordinary family (`fam_laws`) over the mask keeping
+every sort, with values as their carrier. Restricting by a mask that keeps
+every sort is the witness itself by computation (the thinning is `tid`,
+which `restrict_lr` passes through), so `kl_comp` hands its own `x` to
+`kl_val`, and the carrier's own laws apply as they are.
+
+Nothing in the library is about mutual recursion. The two Kleisli
+functions are mutually recursive, so the user proves each law of both at
+once, by their mutual induction scheme (`Scheme … with …`, `Combined
+Scheme`), one line each:
 
 ```coq
 Lemma kl_vc_rebase {B M} (f : morph 0 0 val B M) {K1 L1} (x1 : descent 0 0 B M K1 L1) :
@@ -200,8 +204,22 @@ Lemma kl_vc_rebase {B M} (f : morph 0 0 val B M) {K1 L1} (x1 : descent 0 0 B M K
 Proof. apply val_comp_mut; intros; cbn; f_equal; easy. Qed.
 ```
 
-with `val_comp_mut` from `Scheme … with …` and `Combined Scheme`. All at
-once: `kleisli_induction with val_comp_mut`.
+and each record takes its half (`s_rebase B M f K1 L1 x1 n := proj1
+(kl_vc_rebase f x1 n)`, and `proj2` for the computations').
+
+All at once, on the two records together:
+
+```coq
+Goal sort_laws 0 0 val (fun K v => vvar v) (@kl_val)
+     /\ fam_laws 0 0 all_sorts val (fun K v => vvar v) (@kl_val) comp (@kl_comp).
+Proof. kleisli_induction with val_comp_mut. Qed.
+```
+
+The tactic builds both records from four joint laws, each the
+conjunction of the two families' (split back by `sall_proj1`,
+`sall_proj2`), and proves each joint law by one `apply` of the scheme,
+whose cases have both families' induction hypotheses, closed as for one
+family.
 
 ## Moving a substitution of one sort past one of another (`proto/sorts/Commute.v`)
 

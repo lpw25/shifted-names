@@ -98,13 +98,21 @@ Notation "F @ K" := (fam K F) (at level 11, K at level 10, no associativity).
 
 (** Some of [n] sorts, in order. *)
 Inductive thin : nat -> nat -> Type :=
-| tdone : thin 0 0
+| tid {n} : thin n n
 | tkeep {m n} : thin m n -> thin (S m) (S n)
 | tskip {m n} : thin m n -> thin m (S n).
 
+(** Keeping one more: still [tid] if [th] is, so a thinning keeping
+    everything is [tid] by computation. *)
+Definition tkeep' {m n} (th : thin m n) : thin (S m) (S n) :=
+  match th in thin m0 n0 return thin (S m0) (S n0) with
+  | tid => tid
+  | th => tkeep th
+  end.
+
 Fixpoint restr {m n} (th : thin m n) : vec n -> vec m :=
   match th in thin m0 n0 return vec n0 -> vec m0 with
-  | tdone => fun x => x
+  | tid => fun x => x
   | tkeep th => fun x => pair (first x) (restr th (second x))
   | tskip th => fun x => restr th (second x)
   end.
@@ -138,10 +146,10 @@ Fixpoint lkept (s : mask) (a : nat) : nat :=
 
 Fixpoint tl_of (s : mask) (a : nat) : thin (lkept s a) a :=
   match a as a0 return thin (lkept s a0) a0 with
-  | 0 => tdone
+  | 0 => tid
   | S a =>
       match nthb a s as c return thin (if c then S (lkept s a) else lkept s a) (S a) with
-      | true => tkeep (tl_of s a)
+      | true => tkeep' (tl_of s a)
       | false => tskip (tl_of s a)
       end
   end.
@@ -154,10 +162,10 @@ Fixpoint rkept (s : mask) (a b : nat) : nat :=
 
 Fixpoint tr_of (s : mask) (a b : nat) : thin (rkept s a b) b :=
   match b as b0 return thin (rkept s a b0) b0 with
-  | 0 => tdone
+  | 0 => tid
   | S b =>
       match nthb (S a) s as c return thin (if c then S (rkept s (S a) b) else rkept s (S a) b) (S b) with
-      | true => tkeep (tr_of s (S a) b)
+      | true => tkeep' (tr_of s (S a) b)
       | false => tskip (tr_of s (S a) b)
       end
   end.
@@ -206,7 +214,7 @@ Fixpoint wapp (n : nat) : forall B M K L K' L', wit n B M K L -> wit n K L K' L'
 Fixpoint wrestr {m n} (th : thin m n) : forall B M K L, wit n B M K L ->
     wit m (restr th B) (restr th M) (restr th K) (restr th L) :=
   match th as th0 in thin m0 n0 return forall B M K L, wit n0 B M K L -> wit m0 (restr th0 B) (restr th0 M) (restr th0 K) (restr th0 L) with
-  | tdone => fun _ _ _ _ w => w
+  | tid => fun _ _ _ _ w => w
   | tkeep th => fun B M K L w => pair (first w) (wrestr th _ _ _ _ (second w))
   | tskip th => fun B M K L w => wrestr th _ _ _ _ (second w)
   end.
@@ -316,9 +324,31 @@ Definition under {a b} (t : nat) {B M K L} (x : descent a b B M K L) : descent a
 (** The part for a family inside another, over some of the sorts on each
     side ([tl] on the left, nearest first; [tr] on the right): step by
     step. *)
-Definition restrict_lr {a b aT bT} (tl : thin a aT) (tr : thin b bT) {B M K L} (x : descent aT bT B M K L)
+Definition restrict_map {a b aT bT} (tl : thin a aT) (tr : thin b bT) {B M K L} (x : descent aT bT B M K L)
     : descent a b (zrestr tl tr B) (zrestr tl tr M) (zrestr tl tr K) (zrestr tl tr L) :=
   pmap (fun K _ => zrestr tl tr K) (fun _ L => zrestr tl tr L) (fun _ _ _ _ s => srestrict_lr tl tr s) x.
+
+(** Keeping every sort, the descent itself. *)
+Definition restrict_lr {a b aT bT} (tl : thin a aT) (tr : thin b bT) {B M K L} (x : descent aT bT B M K L)
+    : descent a b (zrestr tl tr B) (zrestr tl tr M) (zrestr tl tr K) (zrestr tl tr L) :=
+  match tl as tl0 in thin a0 aT0 return forall B M K L, descent aT0 bT B M K L ->
+      descent a0 b (zrestr tl0 tr B) (zrestr tl0 tr M) (zrestr tl0 tr K) (zrestr tl0 tr L) with
+  | tid =>
+      match tr as tr0 in thin b0 bT0 return forall B M K L, descent _ bT0 B M K L ->
+          descent _ b0 (zrestr tid tr0 B) (zrestr tid tr0 M) (zrestr tid tr0 K) (zrestr tid tr0 L) with
+      | tid => fun _ _ _ _ x => x
+      | tr0 => fun _ _ _ _ x => restrict_map tid tr0 x
+      end
+  | tl0 => fun _ _ _ _ x => restrict_map tl0 tr x
+  end B M K L x.
+
+Lemma restrict_lr_map {a b aT bT} (tl : thin a aT) (tr : thin b bT) {B M K L} (x : descent aT bT B M K L) :
+  restrict_lr tl tr x = restrict_map tl tr x.
+Proof.
+  destruct tl; [destruct tr|..]; cbn; try reflexivity.
+  unfold restrict_map; induction x as [|K L K' L' x IH s]; cbn; [reflexivity|].
+  rewrite <- IH; reflexivity.
+Qed.
 
 (** The witness for a family inside another, over the sorts [s] keeps. *)
 Definition restrict {a b} (s : mask) {B M K L} (x : descent a b B M K L)
@@ -359,7 +389,7 @@ Fixpoint fright {a b B M K L} Mi (x : descent a b B M K L) : descent a b (refocu
 Lemma restrict_lr_fapp {a b aT bT} (tl : thin a aT) (tr : thin b bT) {B M K L K' L'}
     (x1 : descent aT bT B M K L) (x2 : descent aT bT K L K' L') :
   restrict_lr tl tr (fapp x1 x2) = fapp (restrict_lr tl tr x1) (restrict_lr tl tr x2).
-Proof. exact (pmap_papp _ _ _ x1 x2). Qed.
+Proof. rewrite !restrict_lr_map; exact (pmap_papp _ _ _ x1 x2). Qed.
 
 (** Restricting commutes with splitting: the two halves and their middle
     scope, as a dependent pair. *)
@@ -369,6 +399,7 @@ Lemma restrict_lr_split {a b aT bT} (tl : thin a aT) (tr : thin b bT) {B M K L} 
     (fmid Mi x) (restrict_lr tl tr (fleft Mi x), restrict_lr tl tr (fright Mi x))
   = existT _ (fmid Mi (restrict_lr tl tr x)) (fleft Mi (restrict_lr tl tr x), fright Mi (restrict_lr tl tr x)).
 Proof.
+  rewrite !restrict_lr_map; unfold restrict_map.
   induction x as [|K L K' L' x IH s]; cbn; [reflexivity|].
   exact (f_equal (fun p : {m & (descent a b (zrestr tl tr B) (refocus (zrestr tl tr M) Mi) (zrestr tl tr K) (refocus (zrestr tl tr L) m)
                                * descent a b (refocus (zrestr tl tr B) Mi) (zrestr tl tr M) (refocus (zrestr tl tr K) m) (zrestr tl tr L))%type} =>
@@ -410,6 +441,12 @@ Proof.
   exact (vall_impl _ _ _ (fun r => H (pair l (pair k r))) (Hl k)).
 Qed.
 
+(** Halves of a conjunction, one sort at a time. *)
+Lemma sall_proj1 {a b} (P Q : scopes a b -> Prop) : sall (fun K => P K /\ Q K) -> sall P.
+Proof. apply sall_impl; intros z h; exact (proj1 h). Qed.
+Lemma sall_proj2 {a b} (P Q : scopes a b -> Prop) : sall (fun K => P K /\ Q K) -> sall Q.
+Proof. apply sall_impl; intros z h; exact (proj2 h). Qed.
+
 Section Generic.
 
 Context (a b : nat).
@@ -425,11 +462,6 @@ Definition rebase_m {F B M K1 L1} (x1 : descent a b B M K1 L1) (f : morph F B M)
 
 Definition sort_kl (F : arity n) : Type :=
   forall B M (f : morph F B M) K L, descent a b B M K L -> F @ K -> F @ out K L.
-
-(** A family over the same sorts, with carrier [F] (computations, with
-    values the carrier, in call-by-push-value). *)
-Definition same_kl (F T : arity n) : Type :=
-  forall B M (f : morph F B M) K L, descent a b B M K L -> T @ K -> T @ out K L.
 
 (** A family over more sorts, focused on the same sort. *)
 Definition fam_kl (F : arity n) {aT bT} (tl : thin a aT) (tr : thin b bT) (T : arity (radd aT (S bT))) : Type :=
@@ -462,61 +494,6 @@ Record sort_laws : Prop := {
     sall (fun K => forall t : F @ K, sall (fun L => forall x : descent a b B M K L,
       kp _ _ (comp_m Mi g f) _ _ x t = kp _ _ g _ _ (fright Mi x) (kp _ _ f _ _ (fleft Mi x) t))) }.
 
-(** The laws of a family over the same sorts as its carrier. *)
-Record same_laws (T : arity n) (k : same_kl F T) : Prop := {
-  g_ext : forall B M (f g : morph F B M), (forall K L x v, f K L x v = g K L x v) ->
-    sall (fun K => forall t : T @ K, sall (fun L => forall x : descent a b B M K L,
-      k _ _ f _ _ x t = k _ _ g _ _ x t));
-  g_rebase : forall B M (f : morph F B M) K1 L1 (x1 : descent a b B M K1 L1),
-    sall (fun K => forall t : T @ K, sall (fun L => forall x : descent a b K1 L1 K L,
-      k _ _ (rebase_m x1 f) _ _ x t = k _ _ f _ _ (fapp x1 x) t));
-  g_unit : forall B,
-    sall (fun K => forall t : T @ K, forall x : descent a b B B K K,
-      k B B (unit_m (B := B) (M := B)) K K x t = t);
-  g_assoc : forall B M Mi (g : morph F (refocus B Mi) M) (f : morph F B (refocus M Mi)),
-    sall (fun K => forall t : T @ K, sall (fun L => forall x : descent a b B M K L,
-      k _ _ (comp_m Mi g f) _ _ x t = k _ _ g _ _ (fright Mi x) (k _ _ f _ _ (fleft Mi x) t))) }.
-
-(** A sort's family and one over the same sorts, defined together
-    (values and computations): each law for both at once, to be proved by
-    mutual induction. *)
-Record mutual_laws (T : arity n) (k : same_kl F T) : Prop := {
-  m_var : forall B M (f : morph F B M) K L (x : descent a b B M K L) v, kp _ _ f _ _ x (tv K v) = f K L x v;
-  m_ext : forall B M (f g : morph F B M), (forall K L x v, f K L x v = g K L x v) ->
-    sall (fun K =>
-      (forall t : F @ K, sall (fun L => forall x : descent a b B M K L, kp _ _ f _ _ x t = kp _ _ g _ _ x t))
-      /\ (forall t : T @ K, sall (fun L => forall x : descent a b B M K L, k _ _ f _ _ x t = k _ _ g _ _ x t)));
-  m_rebase : forall B M (f : morph F B M) K1 L1 (x1 : descent a b B M K1 L1),
-    sall (fun K =>
-      (forall t : F @ K, sall (fun L => forall x : descent a b K1 L1 K L,
-         kp _ _ (rebase_m x1 f) _ _ x t = kp _ _ f _ _ (fapp x1 x) t))
-      /\ (forall t : T @ K, sall (fun L => forall x : descent a b K1 L1 K L,
-         k _ _ (rebase_m x1 f) _ _ x t = k _ _ f _ _ (fapp x1 x) t)));
-  m_unit : forall B,
-    sall (fun K =>
-      (forall t : F @ K, forall x : descent a b B B K K, kp B B (unit_m (B := B) (M := B)) K K x t = t)
-      /\ (forall t : T @ K, forall x : descent a b B B K K, k B B (unit_m (B := B) (M := B)) K K x t = t));
-  m_assoc : forall B M Mi (g : morph F (refocus B Mi) M) (f : morph F B (refocus M Mi)),
-    sall (fun K =>
-      (forall t : F @ K, sall (fun L => forall x : descent a b B M K L,
-         kp _ _ (comp_m Mi g f) _ _ x t = kp _ _ g _ _ (fright Mi x) (kp _ _ f _ _ (fleft Mi x) t)))
-      /\ (forall t : T @ K, sall (fun L => forall x : descent a b B M K L,
-         k _ _ (comp_m Mi g f) _ _ x t = k _ _ g _ _ (fright Mi x) (k _ _ f _ _ (fleft Mi x) t)))) }.
-
-(** Each family's laws, from both's. *)
-Definition mutual_sort {T k} (H : mutual_laws T k) : sort_laws :=
-  {| s_var := m_var T k H;
-     s_ext B M f g E := sall_impl _ _ (fun K e => proj1 e) (m_ext T k H B M f g E);
-     s_rebase B M f K1 L1 x1 := sall_impl _ _ (fun K e => proj1 e) (m_rebase T k H B M f K1 L1 x1);
-     s_unit B := sall_impl _ _ (fun K e => proj1 e) (m_unit T k H B);
-     s_assoc B M Mi g f := sall_impl _ _ (fun K e => proj1 e) (m_assoc T k H B M Mi g f) |}.
-
-Definition mutual_same {T k} (H : mutual_laws T k) : same_laws T k :=
-  {| g_ext B M f g E := sall_impl _ _ (fun K e => proj2 e) (m_ext T k H B M f g E);
-     g_rebase B M f K1 L1 x1 := sall_impl _ _ (fun K e => proj2 e) (m_rebase T k H B M f K1 L1 x1);
-     g_unit B := sall_impl _ _ (fun K e => proj2 e) (m_unit T k H B);
-     g_assoc B M Mi g f := sall_impl _ _ (fun K e => proj2 e) (m_assoc T k H B M Mi g f) |}.
-
 (** The laws at any scopes. *)
 Section Use.
 
@@ -542,16 +519,16 @@ Proof. exact (sall_elim _ (sall_elim _ (s_assoc H B M Mi g f) K t) L x). Qed.
 Lemma rebase_restrict {aT bT} (tl : thin a aT) (tr : thin b bT) {B M : scopes aT bT}
     (f : morph F (zrestr tl tr B) (zrestr tl tr M)) {K1 L1 K2 L2}
     (x1 : descent aT bT B M K1 L1) (x2 : descent aT bT K1 L1 K2 L2) t :
-  kp _ _ (rebase_m (restrict_lr tl tr x1) f) _ _ (restrict_lr tl tr x2) t = kp _ _ f _ _ (restrict_lr tl tr (fapp x1 x2)) t.
-Proof. rewrite restrict_lr_fapp; apply kp_rebase. Qed.
+  kp _ _ (rebase_m (restrict_map tl tr x1) f) _ _ (restrict_map tl tr x2) t = kp _ _ f _ _ (restrict_map tl tr (fapp x1 x2)) t.
+Proof. rewrite <- !restrict_lr_map, restrict_lr_fapp; apply kp_rebase. Qed.
 
 Lemma assoc_restrict {aT bT} (tl : thin a aT) (tr : thin b bT) {B M : scopes aT bT} Mi
     (g : morph F (zrestr tl tr (refocus B Mi)) (zrestr tl tr M)) (f : morph F (zrestr tl tr B) (zrestr tl tr (refocus M Mi)))
     {K L} (x : descent aT bT B M K L) t :
-  kp _ _ (comp_m (B := zrestr tl tr B) (M := zrestr tl tr M) Mi g f) _ _ (restrict_lr tl tr x) t
-  = kp _ _ g _ _ (restrict_lr tl tr (fright Mi x)) (kp _ _ f _ _ (restrict_lr tl tr (fleft Mi x)) t).
+  kp _ _ (comp_m (B := zrestr tl tr B) (M := zrestr tl tr M) Mi g f) _ _ (restrict_map tl tr x) t
+  = kp _ _ g _ _ (restrict_map tl tr (fright Mi x)) (kp _ _ f _ _ (restrict_map tl tr (fleft Mi x)) t).
 Proof.
-  rewrite kp_assoc.
+  rewrite <- !restrict_lr_map, kp_assoc.
   exact (f_equal (fun p : {m & (descent a b (zrestr tl tr B) (refocus (zrestr tl tr M) Mi) (zrestr tl tr K) (refocus (zrestr tl tr L) m)
                                * descent a b (refocus (zrestr tl tr B) Mi) (zrestr tl tr M) (refocus (zrestr tl tr K) m) (zrestr tl tr L))%type} =>
                     let (m, pr) := p in (kp _ _ g _ _ (snd pr) (kp _ _ f _ _ (fst pr) t) : F @ out (zrestr tl tr K) (zrestr tl tr L)))
@@ -625,8 +602,9 @@ End FamUse.
 (** ** All the laws at once
 
     [kleisli_induction] proves a law record ([sort_laws]; [fam_laws] with
-    [kleisli_induction using Lc], [Lc] the carrier's laws; [mutual_laws]
-    with [kleisli_induction with S], [S] the families' combined induction
+    [kleisli_induction using Lc], [Lc] the carrier's laws; two records
+    [R1 /\ R2] of mutually recursive Kleisli functions with
+    [kleisli_induction with S], [S] the families' combined induction
     scheme), each law exactly as by hand (below, [kl_ty_ext] and so on):
     - the record's statement is put into the hand-written lemma's form:
       the scopes one sort at a time unfold to numbers ([cbn [sall vall]]),
@@ -635,8 +613,9 @@ End FamUse.
       [intros; cbn; f_equal], and each case is closed by [easy]
       (computation, or the induction hypothesis at the witness or one more
       binder down) or, in a family, by one law of the carrier, tried in a
-      fixed order ([kp_ext], [kp_unit], [rebase_restrict],
-      [assoc_restrict]), each by [simple apply].
+      fixed order ([kp_ext], [kp_unit], [kp_rebase], [kp_assoc] when
+      the mask keeps every sort, [rebase_restrict], [assoc_restrict]
+      otherwise), each by [simple apply].
     The [var] law is computation.  There is no search: a case is one of
     these or the tactic fails on it, and that law is written by hand.
 
@@ -661,11 +640,60 @@ Tactic Notation "kleisli_induction" "using" constr(Lc) :=
     ltac:(first [ easy
                 | solve [simple apply (kp_ext Lc); assumption]
                 | solve [simple apply (kp_unit Lc)]
+                | solve [simple apply (kp_rebase Lc)]
+                | solve [simple apply (kp_assoc Lc)]
                 | solve [simple apply (rebase_restrict Lc)]
                 | solve [simple apply (assoc_restrict Lc)] ]).
+(** Two families defined together (values and computations), their laws
+    proved together: [kleisli_induction with S] on [R1 /\ R2], [S] their
+    combined induction scheme.  Each record is built from four joint laws,
+    each the conjunction of the two families' (split back by [sall_proj1],
+    [sall_proj2]); each joint law is one [apply S], whose cases have the
+    induction hypotheses of both families, closed as for one family. *)
+Ltac kleisli_record prj e r u a :=
+  lazymatch goal with
+  | |- sort_laws ?na ?nb ?F ?tv ?kp =>
+      refine (Build_sort_laws na nb F tv kp
+               (fun _ _ _ _ _ _ _ => eq_refl)
+               (fun B M f g E => prj _ _ _ _ (e B M f g E))
+               (fun B M f K1 L1 x1 => prj _ _ _ _ (r B M f K1 L1 x1))
+               (fun B => prj _ _ _ _ (u B))
+               (fun B M Mi g f => prj _ _ _ _ (a B M Mi g f)))
+  | |- fam_laws ?aT ?bT ?s ?F ?tv ?kp ?T ?k =>
+      refine (Build_fam_laws aT bT s F tv kp T k
+               (fun B M f g E => prj _ _ _ _ (e B M f g E))
+               (fun B M f K1 L1 x1 => prj _ _ _ _ (r B M f K1 L1 x1))
+               (fun B => prj _ _ _ _ (u B))
+               (fun B M Mi g f => prj _ _ _ _ (a B M Mi g f)))
+  end.
+
+Ltac kleisli_mutual scheme R1 R2 na nb :=
+  let e := fresh "e" in let r := fresh "r" in let u := fresh "u" in let a := fresh "a" in
+  (unshelve refine (
+    let e : forall (B M : scopes na nb) (f g : morph na nb _ B M), (forall K L x v, f K L x v = g K L x v) ->
+              sall (fun K => _ /\ _) := _ in
+    let r : forall (B M : scopes na nb) (f : morph na nb _ B M) K1 L1 (x1 : descent na nb B M K1 L1),
+              sall (fun K => _ /\ _) := _ in
+    let u : forall B : scopes na nb, sall (fun K : scopes na nb => _ /\ _) := _ in
+    let a : forall (B M : scopes na nb) Mi (g : morph na nb _ (refocus B Mi) M) (f : morph na nb _ B (refocus M Mi)),
+              sall (fun K => _ /\ _) := _ in
+    conj _ _);
+   (* the two records first: they fix the joint laws' statements *)
+   match goal with
+   | |- ?G => tryif constr_eq G R1 then kleisli_record (@sall_proj1) e r u a
+              else tryif constr_eq G R2 then kleisli_record (@sall_proj2) e r u a else idtac
+   end);
+  intros; cbn [sall vall]; apply scheme; intros; cbn; f_equal; easy.
+
+(** The carrier's sorts are read off the first record. *)
 Tactic Notation "kleisli_induction" "with" constr(scheme) :=
-  split; first [ reflexivity
-               | intros; cbn [sall vall]; apply scheme; intros; cbn; f_equal; easy ].
+  lazymatch goal with
+  | |- ?R1 /\ ?R2 =>
+      lazymatch R1 with
+      | sort_laws ?na ?nb _ _ _ => kleisli_mutual scheme R1 R2 na nb
+      | fam_laws ?aT ?bT ?s _ _ _ _ _ => kleisli_mutual scheme R1 R2 (lkept s aT) (rkept s aT bT)
+      end
+  end.
 
 (** ** System F *)
 
@@ -785,10 +813,10 @@ Definition subst_tm {B M} (f : morph 1 0 tm B M) (t : tm @ B) : tm @ out B M := 
     off by computation. *)
 Let keep13 : mask := true :: false :: true :: nil.
 
-Example mask_at_0 : tl_of keep13 0 = tdone /\ tr_of keep13 0 2 = tskip (tkeep tdone).
+Example mask_at_0 : tl_of keep13 0 = tid /\ tr_of keep13 0 2 = tskip tid.
 Proof. split; reflexivity. Qed.
 
-Example mask_at_2 : tl_of keep13 2 = tskip (tkeep tdone) /\ tr_of keep13 2 0 = tdone.
+Example mask_at_2 : tl_of keep13 2 = tskip tid /\ tr_of keep13 2 0 = tid.
 Proof. split; reflexivity. Qed.
 
 Example zsub_at_2 (r k : nat) x : zsub keep13 (pair (pair r (pair k tt)) (pair x tt) : scopes 2 0) = pair (pair k tt) (pair x tt).

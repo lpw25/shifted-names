@@ -2,9 +2,11 @@
 
     Values and computations are mutually inductive, with one sort of
     variable (value variables).  Values are that sort's family;
-    computations are a family over the same sorts, with values as their
-    carrier ([same_kl]).  The two Kleisli functions are mutually recursive,
-    so each law holds of both at once, by mutual induction ([mutual_laws]).
+    computations are a family over all the same sorts (the mask keeping
+    everything, whose restriction is the witness itself), with values as
+    their carrier.  The two Kleisli functions are mutually recursive, so
+    each law is proved of both at once, by mutual induction, and each
+    family's record takes its half.
     Build with
       rocq compile -R theories ShiftedNames -Q proto/sorts Proto proto/sorts/Focus.v
       rocq compile -R theories ShiftedNames -Q proto/sorts Proto proto/sorts/CBPV.v *)
@@ -85,15 +87,25 @@ Lemma kl_vc_assoc {B M} Mi (g : morph 0 0 val (refocus B Mi) M) (f : morph 0 0 v
      kl_comp (comp_m 0 0 val (@kl_val) Mi g f) x c = kl_comp g (fright Mi x) (kl_comp f (fleft Mi x) c)).
 Proof. apply val_comp_mut; intros; cbn; f_equal; easy. Qed.
 
-Definition vc_laws : mutual_laws 0 0 val (fun K v => vvar v) (@kl_val) comp (@kl_comp) :=
-  {| m_var _ _ _ _ _ _ _ := eq_refl; m_ext := @kl_vc_ext; m_rebase := @kl_vc_rebase;
-     m_unit := kl_vc_unit; m_assoc := @kl_vc_assoc |}.
+(** The computations' laws are a family's, over the mask keeping the one
+    sort; each record takes its half of each lemma. *)
+Definition all_sorts : mask := cons true nil.
 
-(** Each family's laws. *)
-Definition val_laws : sort_laws 0 0 val (fun K v => vvar v) (@kl_val) := mutual_sort _ _ _ _ _ vc_laws.
-Definition comp_laws : same_laws 0 0 val (fun K v => vvar v) (@kl_val) comp (@kl_comp) := mutual_same _ _ _ _ _ vc_laws.
+Definition val_laws : sort_laws 0 0 val (fun K v => vvar v) (@kl_val) :=
+  {| s_var _ _ _ _ _ _ _ := eq_refl;
+     s_ext B M f g H n := proj1 (kl_vc_ext f g H n);
+     s_rebase B M f K1 L1 x1 n := proj1 (kl_vc_rebase f x1 n);
+     s_unit B n := proj1 (kl_vc_unit B n);
+     s_assoc B M Mi g f n := proj1 (kl_vc_assoc Mi g f n) |}.
+
+Definition comp_laws : fam_laws 0 0 all_sorts val (fun K v => vvar v) (@kl_val) comp (@kl_comp) :=
+  Build_fam_laws 0 0 all_sorts val (fun K v => vvar v) (@kl_val) comp (@kl_comp)
+    (fun B M f g H n => proj2 (kl_vc_ext f g H n))
+    (fun B M f K1 L1 x1 n => proj2 (kl_vc_rebase f x1 n))
+    (fun B n => proj2 (kl_vc_unit B n))
+    (fun B M Mi g f n => proj2 (kl_vc_assoc (B := B) (M := M) Mi g f n)).
 
 (** ** All at once *)
 
-Goal mutual_laws 0 0 val (fun K v => vvar v) (@kl_val) comp (@kl_comp).
+Goal sort_laws 0 0 val (fun K v => vvar v) (@kl_val) /\ fam_laws 0 0 all_sorts val (fun K v => vvar v) (@kl_val) comp (@kl_comp).
 Proof. kleisli_induction with val_comp_mut. Qed.

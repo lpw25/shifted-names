@@ -247,7 +247,7 @@ Definition runder {a c d} p {B M K L : scopes2 a c d} (X : descent2 B M K L) := 
 
 (** Two paths over the descent [X], equal step by step. *)
 Ltac path_eq X :=
-  clear - X; unfold wi, wj, flipx, flipy, restrict, restrict_lr;
+  clear - X; unfold wi, wj, flipx, flipy, restrict, restrict_lr, restrict_map;
   induction X as [|? ? ? ? X IHX s]; cbn [pmap]; [reflexivity|rewrite IHX; f_equal];
   cbv [swi swj sflipx sflipy ex ey shift setx sety zi zj zl zx zm zy zr srestrict_lr];
   cbn [first second swunj unzj wrev_app wvapp wrestr];
