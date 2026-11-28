@@ -215,7 +215,10 @@ Goal sort_laws 0 0 val (fun K v => vvar v) (@kl_val)
 Proof. kleisli_induction with val_comp_mut. Qed.
 ```
 
-The tactic builds both records from four joint laws, each the
+Each form of the tactic matches the goal it is for (a `sort_laws`; a
+`fam_laws`, with `using`; a pair `R1 /\ R2` of either, with `with`, the
+pair split explicitly into its two records) and otherwise fails saying
+which form the goal needs. The tactic builds both records from four joint laws, each the
 conjunction of the two families' (split back by `sall_proj1`,
 `sall_proj2`), and proves each joint law by one `apply` of the scheme,
 whose cases have both families' induction hypotheses, closed as for one

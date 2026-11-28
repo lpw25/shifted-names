@@ -626,24 +626,46 @@ End FamUse.
     carrier's Kleisli function at [x‹…›], or the argument unchanged.  After
     [f_equal] each such argument is one of those goals. *)
 
+(** One law: the hand proof. *)
 Ltac kleisli_law_ind close :=
   intros until t; cbn [sall vall];
   (* the term, the last hypothesis *)
   match goal with u : _ |- _ => cbn in u; induction u end;
   intros; cbn; f_equal; close.
 
-Ltac kleisli_laws_with close := split; first [reflexivity | kleisli_law_ind close].
+(** The closing step in a family: computation and the induction
+    hypotheses, or one law of the carrier [Lc]. *)
+Ltac kleisli_close_carrier Lc :=
+  first [ easy
+        | solve [simple apply (kp_ext Lc); assumption]
+        | solve [simple apply (kp_unit Lc)]
+        | solve [simple apply (kp_rebase Lc)]
+        | solve [simple apply (kp_assoc Lc)]
+        | solve [simple apply (rebase_restrict Lc)]
+        | solve [simple apply (assoc_restrict Lc)] ].
 
-Tactic Notation "kleisli_induction" := kleisli_laws_with easy.
+Ltac kleisli_not_laws :=
+  fail 0 "kleisli_induction: the goal is not a law record (sort_laws, fam_laws)"
+         "or a pair R1 /\ R2 of them for mutually recursive Kleisli functions".
+
+Tactic Notation "kleisli_induction" :=
+  lazymatch goal with
+  | |- sort_laws _ _ _ _ _ => split; [reflexivity | kleisli_law_ind easy ..]
+  | |- fam_laws _ _ _ _ _ _ _ _ =>
+      fail 0 "kleisli_induction: a family's laws use its carrier's:"
+             "kleisli_induction using <the carrier's sort_laws>"
+  | |- _ /\ _ =>
+      fail 0 "kleisli_induction: a pair of law records is proved together:"
+             "kleisli_induction with <their combined induction scheme>"
+  | |- _ => kleisli_not_laws
+  end.
+
 Tactic Notation "kleisli_induction" "using" constr(Lc) :=
-  kleisli_laws_with
-    ltac:(first [ easy
-                | solve [simple apply (kp_ext Lc); assumption]
-                | solve [simple apply (kp_unit Lc)]
-                | solve [simple apply (kp_rebase Lc)]
-                | solve [simple apply (kp_assoc Lc)]
-                | solve [simple apply (rebase_restrict Lc)]
-                | solve [simple apply (assoc_restrict Lc)] ]).
+  lazymatch goal with
+  | |- fam_laws _ _ _ _ _ _ _ _ => split; kleisli_law_ind ltac:(kleisli_close_carrier Lc)
+  | |- _ => fail 0 "kleisli_induction using: the goal is not a family's law record (fam_laws)"
+  end.
+
 (** Two families defined together (values and computations), their laws
     proved together: [kleisli_induction with S] on [R1 /\ R2], [S] their
     combined induction scheme.  Each record is built from four joint laws,
@@ -665,11 +687,21 @@ Ltac kleisli_record prj e r u a :=
                (fun B M f K1 L1 x1 => prj _ _ _ _ (r B M f K1 L1 x1))
                (fun B => prj _ _ _ _ (u B))
                (fun B M Mi g f => prj _ _ _ _ (a B M Mi g f)))
+  | |- _ => kleisli_not_laws
   end.
 
-Ltac kleisli_mutual scheme R1 R2 na nb :=
+(** The carrier's sorts of a law record. *)
+Ltac kleisli_sorts R k :=
+  lazymatch R with
+  | sort_laws ?na ?nb _ _ _ => k na nb
+  | fam_laws ?aT ?bT ?s _ _ _ _ _ => k (lkept s aT) (rkept s aT bT)
+  | _ => kleisli_not_laws
+  end.
+
+Ltac kleisli_mutual scheme na nb :=
   let e := fresh "e" in let r := fresh "r" in let u := fresh "u" in let a := fresh "a" in
-  (unshelve refine (
+  (* the joint laws (shelved), then the pair split: [R1], [R2] *)
+  unshelve (refine (
     let e : forall (B M : scopes na nb) (f g : morph na nb _ B M), (forall K L x v, f K L x v = g K L x v) ->
               sall (fun K => _ /\ _) := _ in
     let r : forall (B M : scopes na nb) (f : morph na nb _ B M) K1 L1 (x1 : descent na nb B M K1 L1),
@@ -678,21 +710,17 @@ Ltac kleisli_mutual scheme R1 R2 na nb :=
     let a : forall (B M : scopes na nb) Mi (g : morph na nb _ (refocus B Mi) M) (f : morph na nb _ B (refocus M Mi)),
               sall (fun K => _ /\ _) := _ in
     conj _ _);
-   (* the two records first: they fix the joint laws' statements *)
-   match goal with
-   | |- ?G => tryif constr_eq G R1 then kleisli_record (@sall_proj1) e r u a
-              else tryif constr_eq G R2 then kleisli_record (@sall_proj2) e r u a else idtac
-   end);
+    (* each record from its half of the joint laws, fixing their statements *)
+    [ kleisli_record (@sall_proj1) e r u a | kleisli_record (@sall_proj2) e r u a ]);
+  (* then each joint law, by the scheme *)
   intros; cbn [sall vall]; apply scheme; intros; cbn; f_equal; easy.
 
-(** The carrier's sorts are read off the first record. *)
 Tactic Notation "kleisli_induction" "with" constr(scheme) :=
   lazymatch goal with
   | |- ?R1 /\ ?R2 =>
-      lazymatch R1 with
-      | sort_laws ?na ?nb _ _ _ => kleisli_mutual scheme R1 R2 na nb
-      | fam_laws ?aT ?bT ?s _ _ _ _ _ => kleisli_mutual scheme R1 R2 (lkept s aT) (rkept s aT bT)
-      end
+      kleisli_sorts R2 ltac:(fun _ _ => idtac);
+      kleisli_sorts R1 ltac:(fun na nb => kleisli_mutual scheme na nb)
+  | |- _ => fail 0 "kleisli_induction with: the goal is not a pair R1 /\ R2 of law records"
   end.
 
 (** ** System F *)
